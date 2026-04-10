@@ -4,7 +4,7 @@
  */
 
 var SUPABASE_URL = 'https://ndojdrjwfelykpycrdjh.supabase.co';
-var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5kb2pkcmp3ZmVseWtweWNyZGpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzUwNjQsImV4cCI6MjA5MTQxMTA2NH0.F72kzWQrHcSn5ckzdV16pJisvvsUvVH4pw9qM1jSt0Y';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5kb2pkcmp3ZmVseWtweWNyZGpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzUwNjQsImV4cCI6MjA5MTQxMTA2NH0.F72kzWQrHcSn5ckzdV16pJisvssUvVH4pw9qM1jSt0Y';
 
 var _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
