@@ -1,8 +1,17 @@
 {
-  "buildCommand": null,
-  "outputDirectory": "massenermittlung/frontend",
-  "framework": null,
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "version": 2,
+  "builds": [
+    {
+      "src": "massenermittlung/frontend/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    { "src": "/css/(.*)", "dest": "/massenermittlung/frontend/css/$1" },
+    { "src": "/js/(.*)", "dest": "/massenermittlung/frontend/js/$1" },
+    { "src": "/dashboard.html", "dest": "/massenermittlung/frontend/dashboard.html" },
+    { "src": "/projekt.html", "dest": "/massenermittlung/frontend/projekt.html" },
+    { "src": "/index.html", "dest": "/massenermittlung/frontend/index.html" },
+    { "src": "/", "dest": "/massenermittlung/frontend/index.html" }
   ]
 }
