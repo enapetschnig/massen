@@ -302,23 +302,129 @@
     });
   }
 
+  // --- Qualitaetsbericht anzeigen ---
+  function renderQualityReport(agentLog) {
+    // Vorherigen Bericht entfernen
+    var existing = document.getElementById('quality-report');
+    if (existing) existing.remove();
+
+    if (!agentLog) return;
+
+    // Kritik-Daten finden (kann unter verschiedenen Keys liegen)
+    var kritik = agentLog.kritik || agentLog.step4_kritik || null;
+    if (!kritik) return;
+
+    var score = kritik.qualitaets_score || kritik.score || null;
+    var status = kritik.status || '';
+    var warnungen = kritik.warnungen || kritik.pruefungen || [];
+    var empfehlungen = kritik.empfehlungen || [];
+
+    if (!score && warnungen.length === 0 && empfehlungen.length === 0) return;
+
+    // Karte erstellen
+    var card = document.createElement('div');
+    card.id = 'quality-report';
+    card.className = 'quality-report';
+
+    // Titel
+    var title = document.createElement('h3');
+    title.className = 'section-title';
+    title.textContent = 'Qualitätsbericht';
+    card.appendChild(title);
+
+    // Header mit Score und Status
+    var header = document.createElement('div');
+    header.className = 'quality-header';
+
+    if (score) {
+      var scoreEl = document.createElement('span');
+      scoreEl.className = 'quality-score-big';
+      var numScore = parseFloat(score);
+      if (numScore >= 80) scoreEl.style.color = '#166534';
+      else if (numScore >= 50) scoreEl.style.color = '#92400e';
+      else scoreEl.style.color = '#991b1b';
+      scoreEl.textContent = Math.round(numScore);
+      header.appendChild(scoreEl);
+    }
+
+    if (status) {
+      var statusEl = document.createElement('span');
+      var statusLower = status.toLowerCase();
+      statusEl.className = 'quality-status';
+      if (statusLower.indexOf('akzeptiert') !== -1) statusEl.classList.add('akzeptiert');
+      else if (statusLower.indexOf('nachbesserung') !== -1) statusEl.classList.add('nachbesserung');
+      else if (statusLower.indexOf('kritisch') !== -1) statusEl.classList.add('kritisch');
+      statusEl.textContent = status;
+      header.appendChild(statusEl);
+    }
+
+    card.appendChild(header);
+
+    // Warnungen
+    if (warnungen.length > 0) {
+      var warnTitle = document.createElement('h4');
+      warnTitle.style.cssText = 'margin: 0.75rem 0 0.5rem; font-size: 0.95rem; color: #92400e;';
+      warnTitle.textContent = 'Warnungen (' + warnungen.length + ')';
+      card.appendChild(warnTitle);
+
+      var warnList = document.createElement('ul');
+      warnList.className = 'warning-list';
+      warnungen.forEach(function (w) {
+        var li = document.createElement('li');
+        li.className = 'warning-item';
+        li.textContent = (typeof w === 'string') ? w : (w.text || w.beschreibung || JSON.stringify(w));
+        warnList.appendChild(li);
+      });
+      card.appendChild(warnList);
+    }
+
+    // Empfehlungen
+    if (empfehlungen.length > 0) {
+      var recTitle = document.createElement('h4');
+      recTitle.style.cssText = 'margin: 0.75rem 0 0.5rem; font-size: 0.95rem; color: #1d4ed8;';
+      recTitle.textContent = 'Empfehlungen (' + empfehlungen.length + ')';
+      card.appendChild(recTitle);
+
+      var recList = document.createElement('ul');
+      recList.className = 'recommendation-list';
+      empfehlungen.forEach(function (e) {
+        var li = document.createElement('li');
+        li.className = 'recommendation-item';
+        li.textContent = (typeof e === 'string') ? e : (e.text || e.beschreibung || JSON.stringify(e));
+        recList.appendChild(li);
+      });
+      card.appendChild(recList);
+    }
+
+    // Vor den Tabs einfuegen
+    var tabsEl = document.getElementById('result-tabs');
+    if (tabsEl) {
+      tabsEl.parentNode.insertBefore(card, tabsEl);
+    } else if (resultsSection) {
+      resultsSection.insertBefore(card, resultsSection.firstChild);
+    }
+  }
+
   // --- Ergebnisse laden ---
   function loadResults(planId) {
     currentPlanId = planId;
 
-    // Parallel: elemente und massen laden
+    // Parallel: elemente, massen und plan (fuer agent_log) laden
     Promise.all([
       _sb.from('elemente').select('*').eq('plan_id', planId),
-      _sb.from('massen').select('*').eq('plan_id', planId).order('pos_nr', { ascending: true })
+      _sb.from('massen').select('*').eq('plan_id', planId).order('pos_nr', { ascending: true }),
+      _sb.from('plaene').select('agent_log').eq('id', planId).single()
     ]).then(function (results) {
       var elementeRes = results[0];
       var massenRes = results[1];
+      var planRes = results[2];
 
       if (elementeRes.error) { console.error('Fehler Elemente:', elementeRes.error.message); return; }
       if (massenRes.error) { console.error('Fehler Massen:', massenRes.error.message); return; }
 
       var elemente = elementeRes.data || [];
       var masses = massenRes.data || [];
+      var agentLog = (planRes.data && planRes.data.agent_log) ? planRes.data.agent_log : null;
 
       // Nach Typ filtern
       var rooms = elemente.filter(function (e) { return e.typ === 'raum'; });
@@ -349,6 +455,9 @@
         else if (avgConf >= 60) confidenceCircle.classList.add('confidence-yellow');
         else confidenceCircle.classList.add('confidence-red');
       }
+
+      // Qualitaetsbericht anzeigen (vor den Tabs)
+      renderQualityReport(agentLog);
 
       // Tabellen befuellen
       renderRaeume(rooms);

@@ -1449,3 +1449,156 @@ img {
     align-items: flex-start;
   }
 }
+
+/* --- Hero Section (Login-Seite) --- */
+.hero-section {
+  text-align: center;
+  padding: 2rem;
+  margin-bottom: 1rem;
+}
+
+.hero-title {
+  font-size: 1.5rem;
+  color: var(--white);
+  font-weight: 700;
+}
+
+.hero-subtitle {
+  color: rgba(255, 255, 255, 0.8);
+  max-width: 500px;
+  margin: 0.5rem auto;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+/* --- Feature-Leiste (Login-Seite) --- */
+.features-row {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.feature-item {
+  text-align: center;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.feature-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+/* --- Qualitaetsbericht --- */
+.quality-report {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.quality-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.quality-score-big {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.quality-status {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.quality-status.akzeptiert {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.quality-status.nachbesserung {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.quality-status.kritisch {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.warning-list,
+.recommendation-list {
+  list-style: none;
+  padding: 0;
+}
+
+.warning-item {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-left: 3px solid #f59e0b;
+  background: #fffbeb;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.9rem;
+}
+
+.recommendation-item {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-left: 3px solid #3b82f6;
+  background: #eff6ff;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.9rem;
+}
+
+/* --- Benachrichtigungs-Toast --- */
+.notification-toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: #22c55e;
+  color: white;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  z-index: 9999;
+  animation: fadeIn 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- Berechnungs-Modal --- */
+.berechnung-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.berechnung-card {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
