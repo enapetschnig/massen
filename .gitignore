@@ -1,0 +1,30 @@
+# Environment & secrets
+.env
+massenermittlung/.env
+massenermittlung/backend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+massenermittlung/venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Uploads & temp
+uploads/
+*.pdf
+/tmp/
+
+# Build
+dist/
+build/
+*.egg-info/

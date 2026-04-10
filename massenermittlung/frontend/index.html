@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KI-Massenermittlung – Anmelden</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="logo-icon">KI</div>
+        <h1>KI-Massenermittlung</h1>
+        <p>Massen automatisch aus Bauplänen ermitteln</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Anmelden</button>
+        <button class="auth-tab" data-tab="register">Registrieren</button>
+      </div>
+
+      <div id="alert" class="alert alert-error"></div>
+
+      <!-- Login Form -->
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-email">E-Mail</label>
+          <input type="email" id="login-email" class="form-control" placeholder="name@firma.at" required>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Passwort</label>
+          <input type="password" id="login-password" class="form-control" placeholder="Passwort eingeben" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg" style="width:100%">Anmelden</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" class="hidden">
+        <div class="form-group">
+          <label for="reg-company">Firmenname</label>
+          <input type="text" id="reg-company" class="form-control" placeholder="Baufirma GmbH" required>
+        </div>
+        <div class="form-group">
+          <label for="reg-email">E-Mail</label>
+          <input type="email" id="reg-email" class="form-control" placeholder="name@firma.at" required>
+        </div>
+        <div class="form-group">
+          <label for="reg-password">Passwort</label>
+          <input type="password" id="reg-password" class="form-control" placeholder="Mind. 8 Zeichen" required minlength="8">
+        </div>
+        <button type="submit" class="btn btn-accent btn-lg" style="width:100%">Registrieren</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>
