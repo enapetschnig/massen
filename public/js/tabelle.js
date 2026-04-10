@@ -222,16 +222,88 @@
     });
   }
 
+  // --- Gewerk-Filter fuer Massen-Tab ---
+  var activeGewerkFilter = 'Alle';
+
+  function renderGewerkFilter(masses) {
+    // Vorherigen Filter entfernen
+    var existing = document.getElementById('gewerk-filter');
+    if (existing) existing.remove();
+
+    if (!masses || masses.length === 0) return;
+
+    // Eindeutige Gewerke sammeln
+    var gewerke = [];
+    masses.forEach(function (m) {
+      var g = m.gewerk || '';
+      if (g && gewerke.indexOf(g) === -1) gewerke.push(g);
+    });
+    gewerke.sort();
+
+    if (gewerke.length === 0) return;
+
+    // Filter-Zeile erstellen
+    var filterRow = document.createElement('div');
+    filterRow.id = 'gewerk-filter';
+    filterRow.className = 'filter-row';
+
+    // "Alle" Button
+    var alleBtn = document.createElement('button');
+    alleBtn.className = 'filter-btn' + (activeGewerkFilter === 'Alle' ? ' active' : '');
+    alleBtn.textContent = 'Alle';
+    alleBtn.addEventListener('click', function () {
+      activeGewerkFilter = 'Alle';
+      renderMassen(masses);
+    });
+    filterRow.appendChild(alleBtn);
+
+    // Button pro Gewerk
+    gewerke.forEach(function (g) {
+      var btn = document.createElement('button');
+      btn.className = 'filter-btn' + (activeGewerkFilter === g ? ' active' : '');
+      btn.textContent = g;
+      btn.addEventListener('click', function () {
+        activeGewerkFilter = g;
+        renderMassen(masses);
+      });
+      filterRow.appendChild(btn);
+    });
+
+    // Vor der Tabelle einfuegen
+    var tableWrapper = tables.massen.closest('.table-wrapper');
+    if (tableWrapper) {
+      tableWrapper.parentNode.insertBefore(filterRow, tableWrapper);
+    } else {
+      tables.massen.parentNode.insertBefore(filterRow, tables.massen);
+    }
+  }
+
   // --- Massen rendern ---
   function renderMassen(masses) {
     if (!tables.massen) return;
+
+    // Gewerk-Filter rendern
+    renderGewerkFilter(masses);
+
     var tbody = tables.massen.querySelector('tbody');
     tbody.innerHTML = '';
     if (!masses || masses.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" style="padding:2rem;text-align:center;color:#8899aa">Keine Massendaten vorhanden</td></tr>';
       return;
     }
-    masses.forEach(function (m) {
+
+    // Nach aktivem Gewerk filtern
+    var filtered = masses;
+    if (activeGewerkFilter !== 'Alle') {
+      filtered = masses.filter(function (m) { return m.gewerk === activeGewerkFilter; });
+    }
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:2rem;text-align:center;color:#8899aa">Keine Eintraege fuer dieses Gewerk</td></tr>';
+      return;
+    }
+
+    filtered.forEach(function (m) {
       var tr = document.createElement('tr');
       addCell(tr, m.pos_nr || '');
       addCell(tr, m.beschreibung || '');
@@ -459,6 +531,9 @@
       // Qualitaetsbericht anzeigen (vor den Tabs)
       renderQualityReport(agentLog);
 
+      // Plandetails-Button hinzufuegen
+      addPlandetailsButton(agentLog);
+
       // Tabellen befuellen
       renderRaeume(rooms);
       renderFenster(windows);
@@ -518,6 +593,136 @@
           exportBtn.textContent = '\uD83D\uDCE5 Excel Export';
         });
     });
+  }
+
+  // --- Plandetails-Button hinzufuegen ---
+  function addPlandetailsButton(agentLog) {
+    // Vorherigen Button entfernen
+    var existingBtn = document.getElementById('plandetails-btn');
+    if (existingBtn) existingBtn.remove();
+
+    if (!exportBtn || !agentLog) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'plandetails-btn';
+    btn.className = 'btn btn-outline btn-sm';
+    btn.textContent = 'Plandetails';
+    btn.style.marginLeft = '0.5rem';
+    btn.addEventListener('click', function () {
+      showPlandetailsModal(agentLog);
+    });
+    exportBtn.parentNode.insertBefore(btn, exportBtn.nextSibling);
+  }
+
+  // --- Plandetails Modal ---
+  function showPlandetailsModal(agentLog) {
+    var existing = document.getElementById('plandetails-modal');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'plandetails-modal';
+    overlay.className = 'plan-details-modal';
+
+    var card = document.createElement('div');
+    card.className = 'plan-details-card';
+
+    var title = document.createElement('h3');
+    title.style.cssText = 'margin:0 0 1.5rem 0;font-size:1.2rem;color:var(--primary);';
+    title.textContent = 'Plandetails - Verarbeitungsprotokoll';
+    card.appendChild(title);
+
+    // Schritte definieren
+    var steps = [
+      { key: 'parser', label: 'Parser', altKeys: ['step1_parser'] },
+      { key: 'geometrie', label: 'Geometrie', altKeys: ['step2_geometrie'] },
+      { key: 'kalkulation', label: 'Kalkulation', altKeys: ['step3_kalkulation'] },
+      { key: 'kritik', label: 'Kritik', altKeys: ['step4_kritik'] },
+      { key: 'verification', label: 'Verifikation', altKeys: ['step5_verification'] }
+    ];
+
+    var foundAny = false;
+    steps.forEach(function (step) {
+      var data = agentLog[step.key];
+      if (!data && step.altKeys) {
+        for (var i = 0; i < step.altKeys.length; i++) {
+          if (agentLog[step.altKeys[i]]) { data = agentLog[step.altKeys[i]]; break; }
+        }
+      }
+      if (!data) return;
+      foundAny = true;
+
+      var stepCard = document.createElement('div');
+      stepCard.className = 'step-card';
+
+      var header = document.createElement('div');
+      header.className = 'step-header';
+
+      var stepTitle = document.createElement('span');
+      stepTitle.className = 'step-title';
+      stepTitle.textContent = step.label;
+      header.appendChild(stepTitle);
+
+      // Zeitstempel
+      var timestamp = data.timestamp || data.zeit || data.started_at || data.completed_at || '';
+      if (timestamp) {
+        var timeEl = document.createElement('span');
+        timeEl.className = 'step-time';
+        try {
+          var d = new Date(timestamp);
+          timeEl.textContent = d.toLocaleString('de-AT');
+        } catch (e) {
+          timeEl.textContent = String(timestamp);
+        }
+        header.appendChild(timeEl);
+      }
+
+      stepCard.appendChild(header);
+
+      // Metriken extrahieren
+      var metricsDiv = document.createElement('div');
+      metricsDiv.className = 'step-metrics';
+      var metricsFound = false;
+
+      var skipKeys = ['timestamp', 'zeit', 'started_at', 'completed_at', 'warnungen', 'empfehlungen', 'pruefungen', 'details'];
+      Object.keys(data).forEach(function (k) {
+        if (skipKeys.indexOf(k) !== -1) return;
+        var val = data[k];
+        if (val === null || val === undefined) return;
+        if (typeof val === 'object' && !Array.isArray(val)) return;
+        if (Array.isArray(val)) {
+          val = val.length + ' Eintraege';
+        }
+
+        metricsFound = true;
+        var metric = document.createElement('span');
+        metric.className = 'step-metric';
+        var label = k.replace(/_/g, ' ').replace(/\b\w/g, function (l) { return l.toUpperCase(); });
+        metric.innerHTML = label + ': <span class="step-metric-value">' + val + '</span>';
+        metricsDiv.appendChild(metric);
+      });
+
+      if (metricsFound) stepCard.appendChild(metricsDiv);
+      card.appendChild(stepCard);
+    });
+
+    // Falls keine strukturierten Schritte gefunden, rohe Daten anzeigen
+    if (!foundAny) {
+      var rawPre = document.createElement('pre');
+      rawPre.style.cssText = 'font-size:0.8rem;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow-y:auto;';
+      rawPre.textContent = JSON.stringify(agentLog, null, 2);
+      card.appendChild(rawPre);
+    }
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-primary btn-sm';
+    closeBtn.textContent = 'Schliessen';
+    closeBtn.style.marginTop = '1rem';
+    closeBtn.addEventListener('click', function () { overlay.remove(); });
+    card.appendChild(closeBtn);
+
+    overlay.appendChild(card);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
   }
 
   // --- Formatierung: deutsches Zahlenformat ---
