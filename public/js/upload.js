@@ -77,9 +77,12 @@
         btn.disabled = true;
         btn.textContent = 'KI analysiert...';
 
-        fetch('/api/analyse', {
+        fetch(SUPABASE_URL + '/functions/v1/analyse', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+          },
           body: JSON.stringify({ plan_id: planId })
         })
           .then(function (res) {
