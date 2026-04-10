@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KI-Massenermittlung – Projekte</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <a href="dashboard.html" class="navbar-brand">
+      <span class="brand-icon">KI</span>
+      KI-Massenermittlung
+    </a>
+    <div class="navbar-right">
+      <span class="navbar-company" id="company-name"></span>
+      <button class="navbar-link" id="logout-btn">Abmelden</button>
+    </div>
+  </nav>
+
+  <!-- Content -->
+  <div class="page-container">
+    <div class="page-header">
+      <h2>Meine Projekte</h2>
+      <button class="btn btn-accent" id="new-project-btn">+ Neues Projekt</button>
+    </div>
+
+    <div class="project-grid" id="project-grid">
+      <div class="loading" id="projects-loading">
+        <div class="spinner"></div>
+        Projekte werden geladen...
+      </div>
+      <!-- Projects loaded dynamically -->
+    </div>
+
+    <div id="empty-state" class="empty-state hidden">
+      <div class="empty-icon">&#128203;</div>
+      <h3>Noch keine Projekte</h3>
+      <p>Erstellen Sie Ihr erstes Projekt, um Massen aus Bauplänen zu ermitteln.</p>
+    </div>
+  </div>
+
+  <!-- New Project Modal -->
+  <div class="modal-overlay" id="project-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Neues Projekt erstellen</h3>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <form id="project-form">
+        <div class="form-group">
+          <label for="proj-name">Projektname</label>
+          <input type="text" id="proj-name" class="form-control" placeholder="z.B. Wohnhaus Musterstraße" required>
+        </div>
+        <div class="form-group">
+          <label for="proj-address">Adresse</label>
+          <input type="text" id="proj-address" class="form-control" placeholder="Straße, PLZ Ort">
+        </div>
+        <div class="form-group">
+          <label for="proj-gewerk">Gewerk</label>
+          <select id="proj-gewerk" class="form-control">
+            <option value="">-- Gewerk wählen --</option>
+            <option value="rohbau">Rohbau</option>
+            <option value="fenster">Fenster &amp; Türen</option>
+            <option value="trockenbau">Trockenbau</option>
+            <option value="estrich">Estrich</option>
+            <option value="maler">Maler</option>
+            <option value="fliesen">Fliesen</option>
+            <option value="dach">Dach</option>
+            <option value="allgemein">Allgemein</option>
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="modal-cancel">Abbrechen</button>
+          <button type="submit" class="btn btn-accent">Projekt erstellen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/dashboard.js"></script>
+</body>
+</html>

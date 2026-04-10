@@ -19,11 +19,11 @@ SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY: str = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-    raise RuntimeError(
-        "SUPABASE_URL and SUPABASE_SERVICE_KEY must be set as environment variables."
-    )
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    import logging
+    logging.warning("SUPABASE_URL or SUPABASE_SERVICE_KEY not set - Supabase client unavailable")
+    supabase = None  # type: ignore
+else:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 # ---------------------------------------------------------------------------

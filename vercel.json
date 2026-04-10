@@ -9,19 +9,15 @@
       }
     },
     {
-      "src": "massenermittlung/frontend/**",
+      "src": "public/**",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/index.py" },
-    { "src": "/ws/(.*)", "dest": "/api/index.py" },
-    { "src": "/css/(.*)", "dest": "/massenermittlung/frontend/css/$1" },
-    { "src": "/js/(.*)", "dest": "/massenermittlung/frontend/js/$1" },
-    { "src": "/dashboard.html", "dest": "/massenermittlung/frontend/dashboard.html" },
-    { "src": "/projekt.html", "dest": "/massenermittlung/frontend/projekt.html" },
-    { "src": "/index.html", "dest": "/massenermittlung/frontend/index.html" },
-    { "src": "/(.*)\\.html", "dest": "/massenermittlung/frontend/$1.html" },
-    { "src": "/", "dest": "/massenermittlung/frontend/index.html" }
+    { "src": "/css/(.*)", "dest": "/public/css/$1" },
+    { "src": "/js/(.*)", "dest": "/public/js/$1" },
+    { "src": "/(.*)\\.html", "dest": "/public/$1.html" },
+    { "src": "/", "dest": "/public/index.html" }
   ]
 }
