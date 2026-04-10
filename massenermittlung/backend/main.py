@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import tempfile
 import uuid
 import logging
+
+# Ensure backend directory is in Python path (needed for Vercel deployment)
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -36,7 +42,9 @@ from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 
-load_dotenv()
+# Load .env from backend dir (local) or Vercel env vars (production)
+load_dotenv(os.path.join(_backend_dir, '.env'))
+load_dotenv()  # Also check current dir
 
 from db.supabase_client import (  # noqa: E402
     create_firma,
