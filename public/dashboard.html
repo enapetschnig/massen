@@ -21,6 +21,33 @@
 
   <!-- Content -->
   <div class="page-container">
+
+    <!-- Statistics Summary -->
+    <div class="stats-row" id="stats-row">
+      <div class="stat-card card">
+        <div class="stat-value" id="stat-projects">--</div>
+        <div class="stat-label">Projekte</div>
+      </div>
+      <div class="stat-card card">
+        <div class="stat-value" id="stat-plans">--</div>
+        <div class="stat-label">Pl&auml;ne</div>
+      </div>
+      <div class="stat-card card">
+        <div class="stat-value" id="stat-analysed">--</div>
+        <div class="stat-label">Analysiert</div>
+      </div>
+      <div class="stat-card card">
+        <div class="stat-value" id="stat-confidence">--</div>
+        <div class="stat-label">Konfidenz &empty;</div>
+      </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="card mb-2" id="activity-section" style="display:none;">
+      <h3 class="section-title">Letzte Analysen</h3>
+      <ul class="activity-list" id="activity-list"></ul>
+    </div>
+
     <div class="page-header">
       <h2>Meine Projekte</h2>
       <button class="btn btn-accent" id="new-project-btn">+ Neues Projekt</button>

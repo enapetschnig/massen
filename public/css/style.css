@@ -1354,4 +1354,98 @@ img {
   .navbar-company {
     display: none;
   }
+
+  .stats-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --- Dashboard Stats Row --- */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  text-align: center;
+  padding: 1.25rem 1rem;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  margin-top: 0.25rem;
+}
+
+/* --- Recent Activity List --- */
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.activity-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #eee;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-filename {
+  font-weight: 600;
+}
+
+.activity-meta {
+  font-size: 0.85rem;
+  color: var(--text-light);
+}
+
+/* --- Agent Connector --- */
+.agent-connector {
+  width: 40px;
+  height: 2px;
+  background: #ddd;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* --- Agent Row (override for connector layout) --- */
+.agent-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* --- Table Wrapper --- */
+/* (already defined above, kept for reference) */
+
+/* --- Tab Panel --- */
+/* (already defined above, kept for reference) */
+
+/* --- Mobile Breakpoints for Stats & Summary --- */
+@media (max-width: 768px) {
+  .stats-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .activity-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }

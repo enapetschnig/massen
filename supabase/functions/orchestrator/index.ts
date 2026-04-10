@@ -142,12 +142,39 @@ serve(async (req: Request) => {
     const step1System = `Du bist der erfahrenste Bautechniker Österreichs mit 30 Jahren Praxis im Hochbau.
 Du analysierst Baupläne mit absoluter Präzision. Deine Aufgabe: JEDES Detail aus dem Plan extrahieren.
 
-REGELN:
+RÄUME ZÄHLEN:
+- Zähle JEDEN Raum im Plan. Übliche österreichische Wohnungen haben: Vorraum/Flur, Wohnzimmer/Wohnküche, Schlafzimmer, Kinderzimmer, Bad, WC, Abstellraum, Terrasse/Loggia/Balkon. Wenn du weniger als 5 Räume findest, schau NOCHMAL genauer hin.
+- Auch Nebenräume wie Abstellkammer, Technikraum, Speis, Schrankraum zählen als eigener Raum.
+- Terrassen, Loggien und Balkone IMMER als eigenen Raum erfassen (mit Bodenbelag "Fliesen" oder "Betonplatten").
+
+FENSTER UND TEXT LESEN:
+- Fenster stehen oft ROTIERT an den Wänden. Lies auch senkrechten/schrägen Text.
+- Fensterbeschriftungen können entlang der Wand geschrieben sein – drehe den Plan gedanklich, um sie zu lesen.
 - Fensternotation: FE_[Nr] / RPH [mm] / FPH [mm] / AL[Breite] / AL[Höhe] / RB[Breite] / RB[Höhe]
 - Wenn ein Wert < 30: wahrscheinlich in cm angegeben → mit 10 multiplizieren für mm
-- Wandfläche = Umfang × Raumhöhe
-- Alle Maße sorgfältig aus dem Plan ablesen
-- Maßstab beachten
+- Häufige Fehllesungen vermeiden: "1510" ist NICHT "1310", "2100" ist NICHT "2700", "480" ist NICHT "430". Lies jede Ziffer einzeln.
+
+MAßE AN WÄNDEN:
+- Maße an Wänden: Lies die Maßketten entlang der Wände. Format: Einzelmaße und Gesamtmaße.
+- Außenmaße stehen oft AUSSERHALB des Grundrisses in einer eigenen Maßkette.
+- Innenmaße stehen innerhalb oder direkt an den Wänden.
+- Wandstärken sind die kleinen Zahlen ZWISCHEN zwei Maßlinien (z.B. 20, 25, 30 = cm, oder 200, 250, 300 = mm).
+
+PLANKOPF:
+- Im Plankopf (meist rechts unten) steht: Maßstab, Geschoss, Planungsbüro, Planbezeichnung.
+- Maßstab beachten: 1:50, 1:100 etc. – beeinflusst wie Maße zu interpretieren sind.
+
+HÖHENANGABEN:
+- Höhenangaben stehen manchmal nur EINMAL im Plan und gelten für alle Räume des Geschosses.
+- Typische Raumhöhen: Rohbau 2.60-2.80m, lichte Höhe 2.50-2.60m.
+- Suche nach Schnittdarstellungen oder Höhenkoten (z.B. +2,60 OKFFB).
+
+TÜREN:
+- Türen erkennt man am Viertelkreis-Symbol (Türblatt-Schwenkbereich).
+- Eingangstüren sind breiter (90-100cm), Zimmertüren 70-90cm, WC/Bad-Türen 60-80cm.
+- Schiebetüren haben ein anderes Symbol (gestrichelte Linie in der Wand).
+
+Wandfläche = Umfang × Raumhöhe
 
 Antworte AUSSCHLIESSLICH mit validem JSON, KEIN Markdown, KEINE Erklärungen.`
 
@@ -330,6 +357,9 @@ Liefere folgendes JSON-Format:
 }
 
 WICHTIG:
+- Erstelle Positionen für JEDEN Raum und JEDES Gewerk. Ein Raum mit 4 Wänden, 2 Fenstern und 1 Tür braucht mindestens: Mauerwerk, Innenputz (mit Leibungen), Malerarbeiten (mit Leibungen), Bodenbelag, Estrich.
+- Position-Nummern systematisch: 01.xx = Mauerwerk, 02.xx = Putz, 03.xx = Maler, 04.xx = Boden, 05.xx = Estrich, 06.xx = Fensterbänke
+- Leibungsberechnung IMMER ausweisen: Seiten = 2 × Wandstärke × Öffnungshöhe, Sturz = Wandstärke × Öffnungsbreite
 - JEDE Position mit nachvollziehbaren Berechnungsschritten
 - Abzugsregeln STRIKT einhalten
 - Leibungen bei Putz und Malerarbeiten berücksichtigen
@@ -405,6 +435,96 @@ STATUS-WERTE:
     await updateAgentLog(sb, plan_id, "step4_kritik", step4Result)
 
     // ==================================================================
+    // STEP 5 – VERIFICATION (Re-check PDF for missed elements)
+    // ==================================================================
+
+    const raeumeCount = (step2Result.raeume || []).length
+    const fensterCount = (step2Result.fenster || []).length
+    const tuerenCount = (step2Result.tueren || []).length
+
+    const step5System = `Du bist ein unabhängiger Prüfer für Bauplan-Analysen. Du erhältst einen Bauplan und die bisherigen Analyseergebnisse.
+Deine EINZIGE Aufgabe: Finde ÜBERSEHENE Elemente (Räume, Fenster, Türen), die in der bisherigen Analyse FEHLEN.
+
+Antworte AUSSCHLIESSLICH mit validem JSON, KEIN Markdown, KEINE Erklärungen.`
+
+    const step5User = [
+      {
+        type: "document",
+        source: { type: "url", url: signedUrl },
+      },
+      {
+        type: "text",
+        text: `Hier ist der Plan nochmals. Die bisherige Analyse hat ${raeumeCount} Räume, ${fensterCount} Fenster, ${tuerenCount} Türen gefunden.
+
+Bisherige Räume: ${(step2Result.raeume || []).map((r: any) => r.name).join(", ")}
+Bisherige Fenster: ${(step2Result.fenster || []).map((f: any) => f.bezeichnung).join(", ")}
+Bisherige Türen: ${(step2Result.tueren || []).map((t: any) => t.bezeichnung).join(", ")}
+
+Prüfe ob Räume/Fenster/Türen ÜBERSEHEN wurden. Schau besonders auf:
+- kleine Räume (WC, Abstellraum, Speis, Schrankraum, Technikraum)
+- Fenster in Nebenräumen (Bad, WC, Abstellraum)
+- Türen zwischen Räumen (auch Schiebetüren)
+- Terrassen, Loggien, Balkone
+
+Liste NUR die FEHLENDEN Elemente auf. Wenn nichts fehlt, gib leere Arrays zurück.
+
+JSON-Format:
+{
+  "fehlende_raeume": [
+    {
+      "name": "Abstellraum",
+      "bodenbelag": "Fliesen",
+      "flaeche_m2": 3.5,
+      "umfang_m": 7.6,
+      "hoehe_m": 2.6,
+      "wandflaeche_m2": 19.76,
+      "konfidenz": 0.7
+    }
+  ],
+  "fehlende_fenster": [
+    {
+      "bezeichnung": "FE_05",
+      "raum": "WC",
+      "rph_mm": 0,
+      "fph_mm": 0,
+      "al_breite_mm": 600,
+      "al_hoehe_mm": 600,
+      "rb_breite_mm": 850,
+      "rb_hoehe_mm": 850,
+      "flaeche_m2": 0.36,
+      "konfidenz": 0.6
+    }
+  ],
+  "fehlende_tueren": [
+    {
+      "bezeichnung": "T6",
+      "raum": "Abstellraum",
+      "breite_mm": 700,
+      "hoehe_mm": 2100,
+      "typ": "Zimmertür",
+      "konfidenz": 0.6
+    }
+  ],
+  "kommentar": "WC-Fenster und Abstellraum-Tür waren im Plan schwer lesbar."
+}`,
+      },
+    ]
+
+    const step5Result = await callClaude(apiKey, step5System, step5User, 16384)
+    await updateAgentLog(sb, plan_id, "step5_verification", step5Result)
+
+    // Merge newly found elements into step2Result
+    if (step5Result.fehlende_raeume?.length) {
+      step2Result.raeume = [...(step2Result.raeume || []), ...step5Result.fehlende_raeume]
+    }
+    if (step5Result.fehlende_fenster?.length) {
+      step2Result.fenster = [...(step2Result.fenster || []), ...step5Result.fehlende_fenster]
+    }
+    if (step5Result.fehlende_tueren?.length) {
+      step2Result.tueren = [...(step2Result.tueren || []), ...step5Result.fehlende_tueren]
+    }
+
+    // ==================================================================
     // Store results in database
     // ==================================================================
 
@@ -475,6 +595,7 @@ STATUS-WERTE:
       ...(currentPlan?.agent_log || {}),
       abgeschlossen: new Date().toISOString(),
       kritik: step4Result,
+      verification: step5Result,
       zusammenfassung: step3Result.zusammenfassung || {},
     }
 

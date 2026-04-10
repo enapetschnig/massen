@@ -112,5 +112,86 @@
       .finally(function () { btn.disabled = false; });
   });
 
+  // --- Statistics & Recent Activity ---
+  var statProjects = document.getElementById('stat-projects');
+  var statPlans = document.getElementById('stat-plans');
+  var statAnalysed = document.getElementById('stat-analysed');
+  var statConfidence = document.getElementById('stat-confidence');
+  var activitySection = document.getElementById('activity-section');
+  var activityList = document.getElementById('activity-list');
+
+  function loadStats() {
+    // Count projects
+    _sb.from('projekte').select('id', { count: 'exact', head: true }).eq('firma_id', firma.id)
+      .then(function (res) {
+        statProjects.textContent = res.count != null ? res.count : 0;
+      });
+
+    // Count all plans and analysed plans, plus average confidence
+    _sb.from('plaene').select('id, verarbeitet, gesamt_konfidenz, projekte!inner(firma_id)')
+      .eq('projekte.firma_id', firma.id)
+      .then(function (res) {
+        var list = res.data || [];
+        statPlans.textContent = list.length;
+
+        var analysed = list.filter(function (p) { return p.verarbeitet === true; });
+        statAnalysed.textContent = analysed.length;
+
+        if (analysed.length > 0) {
+          var sum = 0;
+          var count = 0;
+          analysed.forEach(function (p) {
+            if (p.gesamt_konfidenz != null) {
+              sum += p.gesamt_konfidenz;
+              count++;
+            }
+          });
+          if (count > 0) {
+            statConfidence.textContent = Math.round(sum / count) + '%';
+          } else {
+            statConfidence.textContent = '--';
+          }
+        } else {
+          statConfidence.textContent = '--';
+        }
+      });
+  }
+
+  function loadRecentActivity() {
+    _sb.from('plaene').select('id, dateiname, gesamt_konfidenz, hochgeladen_am, projekte!inner(firma_id, name)')
+      .eq('projekte.firma_id', firma.id)
+      .eq('verarbeitet', true)
+      .order('hochgeladen_am', { ascending: false })
+      .limit(5)
+      .then(function (res) {
+        var list = res.data || [];
+        if (list.length === 0) {
+          activitySection.style.display = 'none';
+          return;
+        }
+        activitySection.style.display = '';
+        activityList.innerHTML = '';
+        list.forEach(function (p) {
+          var li = document.createElement('li');
+          li.className = 'activity-item';
+
+          var conf = p.gesamt_konfidenz != null ? Math.round(p.gesamt_konfidenz) + '%' : '--';
+          li.innerHTML =
+            '<div class="activity-filename">' + escapeHtml(p.dateiname || 'Unbenannt') + '</div>' +
+            '<div class="activity-meta">' +
+              '<span>' + escapeHtml((p.projekte && p.projekte.name) || '') + '</span>' +
+              ' &middot; ' +
+              '<span>Konfidenz: ' + conf + '</span>' +
+              ' &middot; ' +
+              '<span>' + formatDate(p.hochgeladen_am) + '</span>' +
+            '</div>';
+
+          activityList.appendChild(li);
+        });
+      });
+  }
+
   loadProjects();
+  loadStats();
+  loadRecentActivity();
 })();
