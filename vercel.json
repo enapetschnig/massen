@@ -2,11 +2,16 @@
   "version": 2,
   "builds": [
     {
+      "src": "api/analyse.py",
+      "use": "@vercel/python"
+    },
+    {
       "src": "public/**",
       "use": "@vercel/static"
     }
   ],
   "routes": [
+    { "src": "/api/analyse(.*)", "dest": "/api/analyse.py" },
     { "src": "/css/(.*)", "dest": "/public/css/$1" },
     { "src": "/js/(.*)", "dest": "/public/js/$1" },
     { "src": "/(.*)\\.html", "dest": "/public/$1.html" },

@@ -72,8 +72,32 @@
     });
     planList.querySelectorAll('.ana-btn').forEach(function (b) {
       b.addEventListener('click', function () {
-        this.disabled = true; this.textContent = 'Läuft...';
-        alert('KI-Analyse benötigt das lokale Backend.\nStarte: cd massenermittlung/backend && uvicorn main:app');
+        var btn = this;
+        var planId = btn.getAttribute('data-id');
+        btn.disabled = true;
+        btn.textContent = 'KI analysiert...';
+
+        fetch('/api/analyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan_id: planId })
+        })
+          .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.detail || 'Analyse fehlgeschlagen'); });
+            return res.json();
+          })
+          .then(function (data) {
+            btn.textContent = 'Fertig!';
+            btn.classList.remove('btn-accent');
+            btn.classList.add('btn-primary');
+            alert('Analyse abgeschlossen!\n' + data.raeume + ' Räume, ' + data.fenster + ' Fenster, ' + data.tueren + ' Türen erkannt.\nKonfidenz: ' + data.konfidenz + '%');
+            loadPlans();
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = 'Analyse starten';
+            alert('Fehler: ' + err.message);
+          });
       });
     });
     planList.querySelectorAll('.btn-delete-plan').forEach(function (b) {
