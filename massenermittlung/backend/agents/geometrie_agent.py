@@ -11,6 +11,7 @@ import os
 from typing import Any
 
 import anthropic
+from agents import get_anthropic_api_key as _get_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ Antworte NUR mit validem JSON gemäß dem vorgegebenen Format."""
 
     try:
         client = anthropic.AsyncAnthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            api_key=_get_api_key(),
         )
 
         response = await client.messages.create(

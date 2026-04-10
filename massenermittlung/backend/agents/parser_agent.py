@@ -32,6 +32,7 @@ import re
 from typing import Any, Optional
 
 import anthropic
+from agents import get_anthropic_api_key as _get_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +226,7 @@ async def _pass1_overview(pdf_path: str, page_idx: int = 0) -> dict:
     img_size_mb = len(img_bytes) / (1024 * 1024)
     logger.info("  Bild: %.1f MB, sende an Claude Vision", img_size_mb)
 
-    client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    client = anthropic.AsyncAnthropic(api_key=_get_api_key())
 
     response = await client.messages.create(
         model=VISION_MODEL,
@@ -333,7 +334,7 @@ async def _pass2_detail(pdf_path: str, page_idx: int, raum: dict, overview_conte
 
     system = PASS2_SYSTEM.replace("{context}", json.dumps(raum, ensure_ascii=False))
 
-    client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    client = anthropic.AsyncAnthropic(api_key=_get_api_key())
 
     response = await client.messages.create(
         model=VISION_MODEL,

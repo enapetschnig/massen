@@ -53,6 +53,7 @@ from db.supabase_client import (  # noqa: E402
     create_projekt,
     delete_plan,
     delete_projekt,
+    get_config,
     get_elemente,
     get_firma,
     get_firma_by_email,
@@ -73,7 +74,7 @@ from db.supabase_client import (  # noqa: E402
 # Config
 # ---------------------------------------------------------------------------
 
-JWT_SECRET: str = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
+JWT_SECRET: str = get_config("JWT_SECRET", "dev-secret-change-in-production")
 JWT_ALGORITHM: str = "HS256"
 JWT_EXPIRATION_HOURS: int = 24
 

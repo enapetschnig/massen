@@ -27,6 +27,31 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 # ---------------------------------------------------------------------------
+# App Config (secrets stored in Supabase instead of env vars)
+# ---------------------------------------------------------------------------
+
+_config_cache: dict = {}
+
+def get_config(key: str, default: str = "") -> str:
+    """Read a config value from app_config table (cached after first load)."""
+    if key in _config_cache:
+        return _config_cache[key]
+    # First check env var (local dev), then Supabase (production)
+    env_val = os.environ.get(key, "")
+    if env_val:
+        _config_cache[key] = env_val
+        return env_val
+    try:
+        result = supabase.table("app_config").select("value").eq("key", key).execute()
+        if result.data:
+            _config_cache[key] = result.data[0]["value"]
+            return _config_cache[key]
+    except Exception:
+        pass
+    return default
+
+
+# ---------------------------------------------------------------------------
 # Generic helpers
 # ---------------------------------------------------------------------------
 
