@@ -89,11 +89,39 @@
           td.classList.add('changed');
           var numVal = parseFloat(newValue.replace(',', '.'));
           if (isNaN(numVal)) numVal = 0;
+          var alterWert = parseFloat(originalValue.replace(',', '.'));
+          if (isNaN(alterWert)) alterWert = 0;
+
           _sb.from('massen')
             .update({ endsumme: numVal, manuell_korrigiert: true })
             .eq('id', masseId)
             .then(function (res) {
               if (res.error) console.error('Fehler beim Speichern:', res.error.message);
+            });
+
+          // Lern-Agent aufrufen
+          fetch(SUPABASE_URL + '/functions/v1/lern-agent', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+            },
+            body: JSON.stringify({
+              masse_id: masseId,
+              feld: 'endsumme',
+              alter_wert: alterWert,
+              neuer_wert: numVal,
+              firma_id: getSession().id
+            })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.neue_regel) {
+                showNotification('Lernregel erstellt');
+              }
+            })
+            .catch(function (err) {
+              console.error('Lern-Agent Fehler:', err);
             });
         }
       }
@@ -220,6 +248,21 @@
       tdConf.innerHTML = confidenceHtml(m.konfidenz);
       tr.appendChild(tdConf);
 
+      // Details-Button fuer Berechnungsschritte
+      if (m.berechnung && Array.isArray(m.berechnung) && m.berechnung.length > 0) {
+        var tdDetails = document.createElement('td');
+        var detailBtn = document.createElement('button');
+        detailBtn.className = 'btn btn-outline btn-sm';
+        detailBtn.textContent = 'Details';
+        detailBtn.addEventListener('click', (function (masse) {
+          return function () { showBerechnungModal(masse); };
+        })(m));
+        tdDetails.appendChild(detailBtn);
+        tr.appendChild(tdDetails);
+      } else {
+        addCell(tr, '');
+      }
+
       if (m.manuell_korrigiert) {
         tr.classList.add('changed-row');
       }
@@ -324,126 +367,48 @@
     });
   }
 
-  // --- Excel Export (CSV-Download) ---
+  // --- Excel Export (via Edge Function) ---
   if (exportBtn) {
     exportBtn.addEventListener('click', function () {
       if (!currentPlanId) return;
       exportBtn.disabled = true;
       exportBtn.textContent = 'Wird exportiert...';
 
-      try {
-        var csv = '';
-        var BOM = '\uFEFF'; // UTF-8 BOM fuer Excel
-
-        // Raeume
-        csv += 'RAEUME\n';
-        csv += 'Nr;Name;Bodenbelag;Flaeche m2;Umfang m;Hoehe m;Wandflaeche m2;Konfidenz\n';
-        cachedData.rooms.forEach(function (r, i) {
-          var d = r.daten || {};
-          csv += csvRow([
-            i + 1,
-            d.name || r.bezeichnung || '',
-            d.bodenbelag || '',
-            csvNum(d.flaeche_m2),
-            csvNum(d.umfang_m),
-            csvNum(d.hoehe_m),
-            csvNum(d.wandflaeche_m2),
-            r.konfidenz != null ? Math.round(r.konfidenz) + '%' : ''
-          ]);
+      fetch(SUPABASE_URL + '/functions/v1/excel-export', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ plan_id: currentPlanId })
+      })
+        .then(function (res) {
+          if (!res.ok) {
+            return res.json().then(function (d) {
+              throw new Error(d.detail || d.error || 'Export fehlgeschlagen');
+            });
+          }
+          return res.blob();
+        })
+        .then(function (blob) {
+          var url = window.URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'massenermittlung_' + currentPlanId + '.xlsx';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        })
+        .catch(function (err) {
+          console.error('Export-Fehler:', err);
+          showNotification('Export-Fehler: ' + err.message);
+        })
+        .finally(function () {
+          exportBtn.disabled = false;
+          exportBtn.textContent = '\uD83D\uDCE5 Excel Export';
         });
-
-        csv += '\n';
-
-        // Fenster
-        csv += 'FENSTER\n';
-        csv += 'Nr;Bezeichnung;Raum;AL Breite mm;AL Hoehe mm;RB Breite mm;RB Hoehe mm;RPH mm;FPH mm;Flaeche m2;Konfidenz\n';
-        cachedData.windows.forEach(function (w, i) {
-          var d = w.daten || {};
-          csv += csvRow([
-            i + 1,
-            d.bezeichnung || w.bezeichnung || '',
-            d.raum || '',
-            csvNum(d.al_breite_mm),
-            csvNum(d.al_hoehe_mm),
-            csvNum(d.rb_breite_mm),
-            csvNum(d.rb_hoehe_mm),
-            csvNum(d.rph_mm),
-            csvNum(d.fph_mm),
-            csvNum(d.flaeche_m2),
-            w.konfidenz != null ? Math.round(w.konfidenz) + '%' : ''
-          ]);
-        });
-
-        csv += '\n';
-
-        // Tueren
-        csv += 'TUEREN\n';
-        csv += 'Nr;Bezeichnung;Raum;Breite mm;Hoehe mm;Typ;Konfidenz\n';
-        cachedData.doors.forEach(function (t, i) {
-          var d = t.daten || {};
-          csv += csvRow([
-            i + 1,
-            d.bezeichnung || t.bezeichnung || '',
-            d.raum || '',
-            csvNum(d.breite_mm),
-            csvNum(d.hoehe_mm),
-            d.typ || '',
-            t.konfidenz != null ? Math.round(t.konfidenz) + '%' : ''
-          ]);
-        });
-
-        csv += '\n';
-
-        // Massen
-        csv += 'MASSEN\n';
-        csv += 'Pos;Beschreibung;Gewerk;Raum;Endsumme;Einheit;Konfidenz\n';
-        cachedData.masses.forEach(function (m) {
-          csv += csvRow([
-            m.pos_nr || '',
-            m.beschreibung || '',
-            m.gewerk || '',
-            m.raum_referenz || '',
-            csvNum(m.endsumme),
-            m.einheit || '',
-            m.konfidenz != null ? Math.round(m.konfidenz) + '%' : ''
-          ]);
-        });
-
-        // Download
-        var blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
-        var url = window.URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'massenermittlung_' + currentPlanId + '.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-      } catch (err) {
-        console.error('Export-Fehler:', err);
-      } finally {
-        exportBtn.disabled = false;
-        exportBtn.textContent = '\uD83D\uDCE5 Excel Export';
-      }
     });
-  }
-
-  // --- CSV-Hilfsfunktionen ---
-  function csvRow(cells) {
-    return cells.map(function (c) {
-      var s = String(c == null ? '' : c);
-      if (s.indexOf(';') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
-        s = '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    }).join(';') + '\n';
-  }
-
-  function csvNum(val) {
-    if (val === undefined || val === null || val === '') return '';
-    var num = parseFloat(val);
-    if (isNaN(num)) return String(val);
-    return num.toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   }
 
   // --- Formatierung: deutsches Zahlenformat ---
@@ -452,6 +417,53 @@
     var num = parseFloat(val);
     if (isNaN(num)) return String(val);
     return num.toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  // --- Berechnungsdetails Modal ---
+  function showBerechnungModal(masse) {
+    // Vorheriges Modal entfernen
+    var existing = document.getElementById('berechnung-modal');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'berechnung-modal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;padding:2rem;max-width:560px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);';
+
+    var title = document.createElement('h3');
+    title.style.cssText = 'margin:0 0 1rem 0;font-size:1.1rem;';
+    title.textContent = 'Berechnungsdetails - ' + (masse.beschreibung || '');
+    box.appendChild(title);
+
+    var list = document.createElement('ol');
+    list.style.cssText = 'margin:0 0 1.5rem 1.2rem;padding:0;line-height:1.8;';
+    masse.berechnung.forEach(function (step) {
+      var li = document.createElement('li');
+      li.textContent = step;
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-primary btn-sm';
+    closeBtn.textContent = 'Schliessen';
+    closeBtn.addEventListener('click', function () { overlay.remove(); });
+    box.appendChild(closeBtn);
+
+    overlay.appendChild(box);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+
+  // --- Benachrichtigung anzeigen ---
+  function showNotification(text) {
+    var note = document.createElement('div');
+    note.textContent = text;
+    note.style.cssText = 'position:fixed;bottom:2rem;right:2rem;background:#1a7f5a;color:#fff;padding:0.75rem 1.5rem;border-radius:8px;font-size:0.9rem;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);transition:opacity 0.3s;';
+    document.body.appendChild(note);
+    setTimeout(function () { note.style.opacity = '0'; setTimeout(function () { note.remove(); }, 300); }, 3000);
   }
 
   // Global verfuegbar machen

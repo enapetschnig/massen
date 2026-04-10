@@ -86,7 +86,8 @@
         '</div></div>' +
         '<div class="plan-actions">' +
           (done
-            ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">Ergebnisse</button>'
+            ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">Ergebnisse</button>' +
+              '<button class="btn btn-outline btn-sm reana-btn" data-id="' + plan.id + '">Neu analysieren</button>'
             : '<button class="btn btn-accent btn-sm ana-btn" data-id="' + plan.id + '">Analyse starten</button>') +
           '<button class="btn-delete-plan" data-id="' + plan.id + '">&times;</button>' +
         '</div>';
@@ -102,6 +103,15 @@
 
     // Analyse-Button
     planList.querySelectorAll('.ana-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var btn = this;
+        var planId = btn.getAttribute('data-id');
+        startAnalysis(planId, btn);
+      });
+    });
+
+    // Neu-analysieren-Button
+    planList.querySelectorAll('.reana-btn').forEach(function (b) {
       b.addEventListener('click', function () {
         var btn = this;
         var planId = btn.getAttribute('data-id');
