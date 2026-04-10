@@ -21,7 +21,7 @@
 
   <!-- Content -->
   <div class="page-container">
-    <button class="back-link" onclick="window.location.href='dashboard.html'">&#8592; Zurück zur Übersicht</button>
+    <button class="back-link" onclick="window.location.href='dashboard.html'">&#8592; Zur&uuml;ck zur &Uuml;bersicht</button>
 
     <!-- Project Header -->
     <div class="project-header" id="project-header">
@@ -34,12 +34,12 @@
 
     <!-- Upload Section -->
     <div class="section" id="upload-section">
-      <h3 class="section-title">&#128196; Pläne hochladen</h3>
+      <h3 class="section-title">&#128196; Pl&auml;ne hochladen</h3>
       <div class="upload-zone" id="upload-zone">
         <div class="upload-icon">&#128193;</div>
         <h3>PDF hochladen</h3>
-        <p>Ziehen Sie Ihre Baupläne hierher oder klicken Sie zum Auswählen</p>
-        <p class="mt-1 text-light" style="font-size:0.8rem">Unterstützte Formate: PDF (max. 50 MB)</p>
+        <p>Ziehen Sie Ihre Baupl&auml;ne hierher oder klicken Sie zum Ausw&auml;hlen</p>
+        <p class="mt-1 text-light" style="font-size:0.8rem">Unterst&uuml;tzte Formate: PDF (max. 50 MB)</p>
         <input type="file" id="file-input" accept=".pdf" multiple>
       </div>
       <div id="upload-progress" class="hidden mt-2">
@@ -51,24 +51,23 @@
 
     <!-- Plans List -->
     <div class="section" id="plans-section">
-      <h3 class="section-title">&#128209; Hochgeladene Pläne</h3>
+      <h3 class="section-title">&#128209; Hochgeladene Pl&auml;ne</h3>
       <div class="plan-list" id="plan-list">
         <div class="loading" id="plans-loading">
           <div class="spinner"></div>
-          Pläne werden geladen...
+          Pl&auml;ne werden geladen...
         </div>
-        <!-- Plans loaded dynamically -->
       </div>
       <div id="plans-empty" class="empty-state hidden">
         <div class="empty-icon">&#128196;</div>
-        <h3>Noch keine Pläne</h3>
-        <p>Laden Sie PDF-Baupläne hoch, um die Analyse zu starten.</p>
+        <h3>Noch keine Pl&auml;ne</h3>
+        <p>Laden Sie PDF-Baupl&auml;ne hoch, um die Analyse zu starten.</p>
       </div>
     </div>
 
-    <!-- Progress Section (shown during analysis) -->
+    <!-- Progress Section (hidden, shown during analysis) -->
     <div class="section hidden" id="progress-section">
-      <h3 class="section-title">&#9881; Analyse läuft</h3>
+      <h3 class="section-title">&#9881; Analyse l&auml;uft</h3>
       <div class="progress-section">
         <div class="progress-bar-wrapper">
           <div class="progress-bar animated" id="analysis-bar" style="width:0%">0%</div>
@@ -79,21 +78,20 @@
             <div class="agent-circle" id="agent-parser">&#128196;</div>
             <span class="agent-label">Parser</span>
           </div>
+          <div class="agent-connector"></div>
           <div class="agent-item">
             <div class="agent-circle" id="agent-geometrie">&#128208;</div>
             <span class="agent-label">Geometrie</span>
           </div>
+          <div class="agent-connector"></div>
           <div class="agent-item">
             <div class="agent-circle" id="agent-kalkulation">&#128202;</div>
             <span class="agent-label">Kalkulation</span>
           </div>
+          <div class="agent-connector"></div>
           <div class="agent-item">
             <div class="agent-circle" id="agent-kritik">&#128269;</div>
             <span class="agent-label">Kritik</span>
-          </div>
-          <div class="agent-item">
-            <div class="agent-circle" id="agent-lern">&#129504;</div>
-            <span class="agent-label">Lern</span>
           </div>
         </div>
 
@@ -101,15 +99,18 @@
       </div>
     </div>
 
-    <!-- Results Section (shown after analysis) -->
+    <!-- Inline error display -->
+    <div id="analysis-error" class="alert-inline hidden" style="margin-bottom:1.5rem"></div>
+
+    <!-- Results Section (hidden, shown when plan has results) -->
     <div class="section hidden" id="results-section">
       <h3 class="section-title">&#128200; Ergebnisse</h3>
 
-      <!-- Summary -->
+      <!-- Summary Cards Row -->
       <div class="summary-row" id="summary-row">
         <div class="card summary-card">
           <div class="summary-value" id="summary-rooms">-</div>
-          <div class="summary-label">Räume</div>
+          <div class="summary-label">R&auml;ume</div>
         </div>
         <div class="card summary-card">
           <div class="summary-value" id="summary-windows">-</div>
@@ -117,7 +118,11 @@
         </div>
         <div class="card summary-card">
           <div class="summary-value" id="summary-doors">-</div>
-          <div class="summary-label">Türen</div>
+          <div class="summary-label">T&uuml;ren</div>
+        </div>
+        <div class="card summary-card">
+          <div class="summary-value" id="summary-masses">-</div>
+          <div class="summary-label">Massen</div>
         </div>
         <div class="card summary-card summary-confidence">
           <div class="summary-value" id="summary-confidence">
@@ -130,23 +135,26 @@
 
       <!-- Tabs -->
       <div class="tabs" id="result-tabs">
-        <button class="tab-btn active" data-tab="raeume">Räume</button>
+        <button class="tab-btn active" data-tab="raeume">R&auml;ume</button>
         <button class="tab-btn" data-tab="fenster">Fenster</button>
+        <button class="tab-btn" data-tab="tueren">T&uuml;ren</button>
         <button class="tab-btn" data-tab="massen">Massen</button>
+        <button class="tab-btn" data-tab="zusammenfassung">Zusammenfassung</button>
       </div>
 
-      <!-- Räume Tab -->
+      <!-- Raeume Tab -->
       <div class="tab-panel active" id="tab-raeume">
         <div class="table-wrapper">
           <table class="data-table" id="table-raeume">
             <thead>
               <tr>
                 <th>Nr.</th>
-                <th>Bezeichnung</th>
+                <th>Name</th>
                 <th>Bodenbelag</th>
-                <th>Fläche (m²)</th>
-                <th>Umfang (m)</th>
-                <th>Höhe (m)</th>
+                <th>Fl&auml;che m&sup2;</th>
+                <th>Umfang m</th>
+                <th>H&ouml;he m</th>
+                <th>Wandfl&auml;che m&sup2;</th>
                 <th>Konfidenz</th>
               </tr>
             </thead>
@@ -163,10 +171,34 @@
               <tr>
                 <th>Nr.</th>
                 <th>Bezeichnung</th>
-                <th>AL Breite (mm)</th>
-                <th>AL Höhe (mm)</th>
-                <th>RB Breite (mm)</th>
-                <th>RB Höhe (mm)</th>
+                <th>Raum</th>
+                <th>AL Breite mm</th>
+                <th>AL H&ouml;he mm</th>
+                <th>RB Breite mm</th>
+                <th>RB H&ouml;he mm</th>
+                <th>RPH mm</th>
+                <th>FPH mm</th>
+                <th>Fl&auml;che m&sup2;</th>
+                <th>Konfidenz</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tueren Tab -->
+      <div class="tab-panel" id="tab-tueren">
+        <div class="table-wrapper">
+          <table class="data-table" id="table-tueren">
+            <thead>
+              <tr>
+                <th>Nr.</th>
+                <th>Bezeichnung</th>
+                <th>Raum</th>
+                <th>Breite mm</th>
+                <th>H&ouml;he mm</th>
+                <th>Typ</th>
                 <th>Konfidenz</th>
               </tr>
             </thead>
@@ -195,6 +227,22 @@
         </div>
       </div>
 
+      <!-- Zusammenfassung Tab -->
+      <div class="tab-panel" id="tab-zusammenfassung">
+        <div class="table-wrapper">
+          <table class="data-table" id="table-zusammenfassung">
+            <thead>
+              <tr>
+                <th>Gewerk</th>
+                <th>Endsumme</th>
+                <th>Einheit</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Export -->
       <div class="export-area">
         <button class="btn btn-accent" id="export-btn">&#128229; Excel Export</button>
@@ -205,7 +253,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js"></script>
   <script src="js/upload.js"></script>
-  <script src="js/fortschritt.js"></script>
   <script src="js/tabelle.js"></script>
 </body>
 </html>

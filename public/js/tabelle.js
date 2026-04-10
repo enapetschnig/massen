@@ -1,44 +1,40 @@
 /**
- * KI-Massenermittlung - Ergebnistabellen (Results Tables)
- * Reads data from /api/plaene/{id}/ergebnis which returns:
- *   raeume/fenster: elemente rows with typ, bezeichnung, daten (JSONB), konfidenz
- *   massen: rows with pos_nr, beschreibung, gewerk, raum_referenz, berechnung, endsumme, einheit, konfidenz
+ * KI-Massenermittlung - Ergebnistabellen
+ * Liest Daten direkt aus Supabase (elemente + massen Tabellen).
  */
-
 (function () {
   'use strict';
 
-  var API_BASE = window.location.origin;
-  var token = localStorage.getItem('token');
-
-  function authHeaders() {
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + token
-    };
-  }
-
-  // --- Elements ---
+  // --- DOM-Elemente ---
   var resultsSection = document.getElementById('results-section');
   var summaryRooms = document.getElementById('summary-rooms');
   var summaryWindows = document.getElementById('summary-windows');
-  var summaryConfidence = document.getElementById('summary-confidence');
+  var summaryDoors = document.getElementById('summary-doors');
+  var summaryMasses = document.getElementById('summary-masses');
+  var confidenceValue = document.getElementById('confidence-value');
+  var confidenceCircle = document.getElementById('confidence-circle');
+
   var tabButtons = document.querySelectorAll('#result-tabs .tab-btn');
   var tabPanels = {
     raeume: document.getElementById('tab-raeume'),
     fenster: document.getElementById('tab-fenster'),
-    massen: document.getElementById('tab-massen')
+    tueren: document.getElementById('tab-tueren'),
+    massen: document.getElementById('tab-massen'),
+    zusammenfassung: document.getElementById('tab-zusammenfassung')
   };
   var tables = {
     raeume: document.getElementById('table-raeume'),
     fenster: document.getElementById('table-fenster'),
-    massen: document.getElementById('table-massen')
+    tueren: document.getElementById('table-tueren'),
+    massen: document.getElementById('table-massen'),
+    zusammenfassung: document.getElementById('table-zusammenfassung')
   };
   var exportBtn = document.getElementById('export-btn');
 
   var currentPlanId = null;
+  var cachedData = { rooms: [], windows: [], doors: [], masses: [] };
 
-  // --- Tab Switching ---
+  // --- Tab-Umschaltung ---
   if (tabButtons) {
     tabButtons.forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -53,7 +49,7 @@
     });
   }
 
-  // --- Confidence HTML ---
+  // --- Konfidenz-Ampel HTML ---
   function confidenceHtml(value) {
     if (value === undefined || value === null) return '';
     var cls = 'confidence-green';
@@ -64,21 +60,15 @@
       '<span class="confidence-dot dot-yellow"></span>' +
       '<span class="confidence-dot dot-green"></span>' +
       '<span class="confidence-value">' + Math.round(value) + '%</span>' +
-    '</span>';
+      '</span>';
   }
 
   function lowConfClass(value) {
-    return (value !== undefined && value < 60) ? ' low-confidence' : '';
+    return (value !== undefined && value !== null && value < 60) ? ' low-confidence' : '';
   }
 
-  function escapeHtml(str) {
-    var div = document.createElement('div');
-    div.textContent = str || '';
-    return div.innerHTML;
-  }
-
-  // --- Make Cell Editable ---
-  function makeEditable(td, masseId, field) {
+  // --- Zelle editierbar machen ---
+  function makeEditable(td, masseId) {
     td.classList.add('editable');
     td.addEventListener('click', function () {
       if (td.querySelector('.cell-input')) return;
@@ -97,7 +87,14 @@
         td.textContent = newValue;
         if (newValue !== originalValue) {
           td.classList.add('changed');
-          saveChange(masseId, field, newValue);
+          var numVal = parseFloat(newValue.replace(',', '.'));
+          if (isNaN(numVal)) numVal = 0;
+          _sb.from('massen')
+            .update({ endsumme: numVal, manuell_korrigiert: true })
+            .eq('id', masseId)
+            .then(function (res) {
+              if (res.error) console.error('Fehler beim Speichern:', res.error.message);
+            });
         }
       }
 
@@ -109,118 +106,115 @@
     });
   }
 
-  // --- Save Change to API ---
-  function saveChange(masseId, field, value) {
-    var body = {};
-    if (field === 'endsumme') {
-      body.endsumme = parseFloat(value.replace(',', '.')) || 0;
-    } else if (field === 'beschreibung') {
-      body.beschreibung = value;
-    } else if (field === 'einheit') {
-      body.einheit = value;
-    }
-
-    fetch(API_BASE + '/api/massen/' + masseId, {
-      method: 'PUT',
-      headers: authHeaders(),
-      body: JSON.stringify(body)
-    })
-      .then(function (res) {
-        if (!res.ok) console.error('Fehler beim Speichern der Änderung');
-      })
-      .catch(function (err) {
-        console.error('Fehler beim Speichern:', err);
-      });
+  // --- Zelle hinzufuegen ---
+  function addCell(tr, text) {
+    var td = document.createElement('td');
+    td.textContent = (text !== undefined && text !== null) ? String(text) : '-';
+    tr.appendChild(td);
+    return td;
   }
 
-  // --- Render Räume Table ---
+  // --- Raeume rendern ---
   function renderRaeume(rooms) {
     if (!tables.raeume) return;
     var tbody = tables.raeume.querySelector('tbody');
     tbody.innerHTML = '';
-
     if (!rooms || rooms.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="padding:2rem;text-align:center;color:#8899aa">Keine Raumdaten vorhanden</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="padding:2rem;text-align:center;color:#8899aa">Keine Raumdaten vorhanden</td></tr>';
       return;
     }
-
     rooms.forEach(function (r, i) {
-      var daten = r.daten || {};
+      var d = r.daten || {};
       var tr = document.createElement('tr');
-
-      addCell(tr, (i + 1));
-      addCell(tr, r.bezeichnung || daten.name || '');
-      addCell(tr, daten.bodenbelag || '-');
-      addCell(tr, formatNum(daten.flaeche_m2));
-      addCell(tr, formatNum(daten.umfang_m));
-      addCell(tr, formatNum(daten.hoehe_m));
-
+      addCell(tr, i + 1);
+      addCell(tr, d.name || r.bezeichnung || '');
+      addCell(tr, d.bodenbelag || '-');
+      addCell(tr, formatNum(d.flaeche_m2));
+      addCell(tr, formatNum(d.umfang_m));
+      addCell(tr, formatNum(d.hoehe_m));
+      addCell(tr, formatNum(d.wandflaeche_m2));
       var tdConf = document.createElement('td');
       tdConf.innerHTML = confidenceHtml(r.konfidenz);
       tr.appendChild(tdConf);
-
       tbody.appendChild(tr);
     });
   }
 
-  // --- Render Fenster Table ---
+  // --- Fenster rendern ---
   function renderFenster(windows) {
     if (!tables.fenster) return;
     var tbody = tables.fenster.querySelector('tbody');
     tbody.innerHTML = '';
-
     if (!windows || windows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="padding:2rem;text-align:center;color:#8899aa">Keine Fensterdaten vorhanden</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" style="padding:2rem;text-align:center;color:#8899aa">Keine Fensterdaten vorhanden</td></tr>';
       return;
     }
-
     windows.forEach(function (w, i) {
-      var daten = w.daten || {};
+      var d = w.daten || {};
       var tr = document.createElement('tr');
-
-      addCell(tr, (i + 1));
-      addCell(tr, w.bezeichnung || daten.bezeichnung || '');
-      addCell(tr, formatNum(daten.al_breite_mm));
-      addCell(tr, formatNum(daten.al_hoehe_mm));
-      addCell(tr, formatNum(daten.rb_breite_mm));
-      addCell(tr, formatNum(daten.rb_hoehe_mm));
-
+      addCell(tr, i + 1);
+      addCell(tr, d.bezeichnung || w.bezeichnung || '');
+      addCell(tr, d.raum || '');
+      addCell(tr, formatNum(d.al_breite_mm));
+      addCell(tr, formatNum(d.al_hoehe_mm));
+      addCell(tr, formatNum(d.rb_breite_mm));
+      addCell(tr, formatNum(d.rb_hoehe_mm));
+      addCell(tr, formatNum(d.rph_mm));
+      addCell(tr, formatNum(d.fph_mm));
+      addCell(tr, formatNum(d.flaeche_m2));
       var tdConf = document.createElement('td');
       tdConf.innerHTML = confidenceHtml(w.konfidenz);
       tr.appendChild(tdConf);
-
       tbody.appendChild(tr);
     });
   }
 
-  // --- Render Massen Table ---
+  // --- Tueren rendern ---
+  function renderTueren(doors) {
+    if (!tables.tueren) return;
+    var tbody = tables.tueren.querySelector('tbody');
+    tbody.innerHTML = '';
+    if (!doors || doors.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:2rem;text-align:center;color:#8899aa">Keine Tuerendaten vorhanden</td></tr>';
+      return;
+    }
+    doors.forEach(function (t, i) {
+      var d = t.daten || {};
+      var tr = document.createElement('tr');
+      addCell(tr, i + 1);
+      addCell(tr, d.bezeichnung || t.bezeichnung || '');
+      addCell(tr, d.raum || '');
+      addCell(tr, formatNum(d.breite_mm));
+      addCell(tr, formatNum(d.hoehe_mm));
+      addCell(tr, d.typ || '-');
+      var tdConf = document.createElement('td');
+      tdConf.innerHTML = confidenceHtml(t.konfidenz);
+      tr.appendChild(tdConf);
+      tbody.appendChild(tr);
+    });
+  }
+
+  // --- Massen rendern ---
   function renderMassen(masses) {
     if (!tables.massen) return;
     var tbody = tables.massen.querySelector('tbody');
     tbody.innerHTML = '';
-
     if (!masses || masses.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="padding:2rem;text-align:center;color:#8899aa">Keine Massendaten vorhanden</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:2rem;text-align:center;color:#8899aa">Keine Massendaten vorhanden</td></tr>';
       return;
     }
-
     masses.forEach(function (m) {
       var tr = document.createElement('tr');
-
       addCell(tr, m.pos_nr || '');
-
-      var tdBeschr = addCell(tr, m.beschreibung || '');
-      makeEditable(tdBeschr, m.id, 'beschreibung');
-
+      addCell(tr, m.beschreibung || '');
       addCell(tr, m.gewerk || '');
       addCell(tr, m.raum_referenz || '');
 
       var tdEndsumme = addCell(tr, formatNum(m.endsumme));
       tdEndsumme.className += lowConfClass(m.konfidenz);
-      makeEditable(tdEndsumme, m.id, 'endsumme');
+      makeEditable(tdEndsumme, m.id);
 
-      var tdEinheit = addCell(tr, m.einheit || '');
-      makeEditable(tdEinheit, m.id, 'einheit');
+      addCell(tr, m.einheit || '');
 
       var tdConf = document.createElement('td');
       tdConf.innerHTML = confidenceHtml(m.konfidenz);
@@ -229,115 +223,230 @@
       if (m.manuell_korrigiert) {
         tr.classList.add('changed-row');
       }
-
       tbody.appendChild(tr);
     });
   }
 
-  function addCell(tr, text) {
-    var td = document.createElement('td');
-    td.textContent = (text !== undefined && text !== null) ? String(text) : '-';
-    tr.appendChild(td);
-    return td;
+  // --- Zusammenfassung rendern (gruppiert nach Gewerk) ---
+  function renderZusammenfassung(masses) {
+    if (!tables.zusammenfassung) return;
+    var tbody = tables.zusammenfassung.querySelector('tbody');
+    tbody.innerHTML = '';
+    if (!masses || masses.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" style="padding:2rem;text-align:center;color:#8899aa">Keine Daten vorhanden</td></tr>';
+      return;
+    }
+
+    // Gruppieren nach Gewerk + Einheit
+    var groups = {};
+    masses.forEach(function (m) {
+      var key = (m.gewerk || 'Sonstige') + '||' + (m.einheit || '');
+      if (!groups[key]) {
+        groups[key] = { gewerk: m.gewerk || 'Sonstige', einheit: m.einheit || '', total: 0 };
+      }
+      groups[key].total += (parseFloat(m.endsumme) || 0);
+    });
+
+    var keys = Object.keys(groups).sort();
+    keys.forEach(function (key) {
+      var g = groups[key];
+      var tr = document.createElement('tr');
+      tr.style.fontWeight = '600';
+      addCell(tr, g.gewerk);
+      addCell(tr, formatNum(g.total));
+      addCell(tr, g.einheit);
+      tbody.appendChild(tr);
+    });
   }
 
-  // --- Load Results ---
+  // --- Ergebnisse laden ---
   function loadResults(planId) {
     currentPlanId = planId;
 
-    fetch(API_BASE + '/api/plaene/' + planId + '/ergebnis', {
-      headers: authHeaders()
-    })
-      .then(function (res) {
-        if (!res.ok) throw new Error('Ergebnisse nicht verfügbar');
-        return res.json();
-      })
-      .then(function (data) {
-        if (resultsSection) resultsSection.classList.remove('hidden');
+    // Parallel: elemente und massen laden
+    Promise.all([
+      _sb.from('elemente').select('*').eq('plan_id', planId),
+      _sb.from('massen').select('*').eq('plan_id', planId).order('pos_nr', { ascending: true })
+    ]).then(function (results) {
+      var elementeRes = results[0];
+      var massenRes = results[1];
 
-        var rooms = data.raeume || [];
-        var windows = data.fenster || [];
-        var doors = data.tueren || [];
-        var masses = data.massen || [];
+      if (elementeRes.error) { console.error('Fehler Elemente:', elementeRes.error.message); return; }
+      if (massenRes.error) { console.error('Fehler Massen:', massenRes.error.message); return; }
 
-        // Summary
-        if (summaryRooms) summaryRooms.textContent = rooms.length;
-        if (summaryWindows) summaryWindows.textContent = windows.length;
+      var elemente = elementeRes.data || [];
+      var masses = massenRes.data || [];
 
-        var summaryDoors = document.getElementById('summary-doors');
-        if (summaryDoors) summaryDoors.textContent = doors.length;
+      // Nach Typ filtern
+      var rooms = elemente.filter(function (e) { return e.typ === 'raum'; });
+      var windows = elemente.filter(function (e) { return e.typ === 'fenster'; });
+      var doors = elemente.filter(function (e) { return e.typ === 'tuer'; });
 
-        // Confidence with colored circle
-        var plan = data.plan || {};
-        var konfidenz = plan.gesamt_konfidenz || 0;
-        var confValueEl = document.getElementById('confidence-value');
-        var confCircleEl = document.getElementById('confidence-circle');
-        if (confValueEl) {
-          confValueEl.textContent = konfidenz > 0 ? Math.round(konfidenz) + '%' : '-';
-        }
-        if (confCircleEl && konfidenz > 0) {
-          confCircleEl.className = 'confidence-circle';
-          if (konfidenz >= 80) confCircleEl.classList.add('confidence-green');
-          else if (konfidenz >= 60) confCircleEl.classList.add('confidence-yellow');
-          else confCircleEl.classList.add('confidence-red');
-        }
+      // Cache fuer Export
+      cachedData = { rooms: rooms, windows: windows, doors: doors, masses: masses };
 
-        renderRaeume(rooms);
-        renderFenster(windows);
-        renderMassen(masses);
+      // Zusammenfassung
+      if (summaryRooms) summaryRooms.textContent = rooms.length;
+      if (summaryWindows) summaryWindows.textContent = windows.length;
+      if (summaryDoors) summaryDoors.textContent = doors.length;
+      if (summaryMasses) summaryMasses.textContent = masses.length;
 
-        if (resultsSection) {
-          resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      })
-      .catch(function (err) {
-        console.error('Fehler beim Laden der Ergebnisse:', err);
-      });
+      // Gesamt-Konfidenz berechnen (Durchschnitt aller Elemente + Massen)
+      var allConf = [];
+      elemente.forEach(function (e) { if (e.konfidenz != null) allConf.push(e.konfidenz); });
+      masses.forEach(function (m) { if (m.konfidenz != null) allConf.push(m.konfidenz); });
+      var avgConf = allConf.length > 0 ? allConf.reduce(function (a, b) { return a + b; }, 0) / allConf.length : 0;
+
+      if (confidenceValue) {
+        confidenceValue.textContent = avgConf > 0 ? Math.round(avgConf) + '%' : '-';
+      }
+      if (confidenceCircle && avgConf > 0) {
+        confidenceCircle.className = 'confidence-circle';
+        if (avgConf >= 80) confidenceCircle.classList.add('confidence-green');
+        else if (avgConf >= 60) confidenceCircle.classList.add('confidence-yellow');
+        else confidenceCircle.classList.add('confidence-red');
+      }
+
+      // Tabellen befuellen
+      renderRaeume(rooms);
+      renderFenster(windows);
+      renderTueren(doors);
+      renderMassen(masses);
+      renderZusammenfassung(masses);
+
+      // Sektion anzeigen
+      if (resultsSection) {
+        resultsSection.classList.remove('hidden');
+        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }).catch(function (err) {
+      console.error('Fehler beim Laden der Ergebnisse:', err);
+    });
   }
 
-  // --- Export ---
+  // --- Excel Export (CSV-Download) ---
   if (exportBtn) {
     exportBtn.addEventListener('click', function () {
       if (!currentPlanId) return;
       exportBtn.disabled = true;
       exportBtn.textContent = 'Wird exportiert...';
 
-      fetch(API_BASE + '/api/plaene/' + currentPlanId + '/export', {
-        headers: { 'Authorization': 'Bearer ' + token }
-      })
-        .then(function (res) {
-          if (!res.ok) throw new Error('Export fehlgeschlagen');
-          var filename = 'massenermittlung.xlsx';
-          var disposition = res.headers.get('Content-Disposition');
-          if (disposition) {
-            var match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-            if (match && match[1]) filename = match[1].replace(/['"]/g, '');
-          }
-          return res.blob().then(function (blob) {
-            return { blob: blob, filename: filename };
-          });
-        })
-        .then(function (result) {
-          var url = window.URL.createObjectURL(result.blob);
-          var a = document.createElement('a');
-          a.href = url;
-          a.download = result.filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          window.URL.revokeObjectURL(url);
-        })
-        .catch(function (err) {
-          alert('Export fehlgeschlagen: ' + err.message);
-        })
-        .finally(function () {
-          exportBtn.disabled = false;
-          exportBtn.textContent = 'Excel Export';
+      try {
+        var csv = '';
+        var BOM = '\uFEFF'; // UTF-8 BOM fuer Excel
+
+        // Raeume
+        csv += 'RAEUME\n';
+        csv += 'Nr;Name;Bodenbelag;Flaeche m2;Umfang m;Hoehe m;Wandflaeche m2;Konfidenz\n';
+        cachedData.rooms.forEach(function (r, i) {
+          var d = r.daten || {};
+          csv += csvRow([
+            i + 1,
+            d.name || r.bezeichnung || '',
+            d.bodenbelag || '',
+            csvNum(d.flaeche_m2),
+            csvNum(d.umfang_m),
+            csvNum(d.hoehe_m),
+            csvNum(d.wandflaeche_m2),
+            r.konfidenz != null ? Math.round(r.konfidenz) + '%' : ''
+          ]);
         });
+
+        csv += '\n';
+
+        // Fenster
+        csv += 'FENSTER\n';
+        csv += 'Nr;Bezeichnung;Raum;AL Breite mm;AL Hoehe mm;RB Breite mm;RB Hoehe mm;RPH mm;FPH mm;Flaeche m2;Konfidenz\n';
+        cachedData.windows.forEach(function (w, i) {
+          var d = w.daten || {};
+          csv += csvRow([
+            i + 1,
+            d.bezeichnung || w.bezeichnung || '',
+            d.raum || '',
+            csvNum(d.al_breite_mm),
+            csvNum(d.al_hoehe_mm),
+            csvNum(d.rb_breite_mm),
+            csvNum(d.rb_hoehe_mm),
+            csvNum(d.rph_mm),
+            csvNum(d.fph_mm),
+            csvNum(d.flaeche_m2),
+            w.konfidenz != null ? Math.round(w.konfidenz) + '%' : ''
+          ]);
+        });
+
+        csv += '\n';
+
+        // Tueren
+        csv += 'TUEREN\n';
+        csv += 'Nr;Bezeichnung;Raum;Breite mm;Hoehe mm;Typ;Konfidenz\n';
+        cachedData.doors.forEach(function (t, i) {
+          var d = t.daten || {};
+          csv += csvRow([
+            i + 1,
+            d.bezeichnung || t.bezeichnung || '',
+            d.raum || '',
+            csvNum(d.breite_mm),
+            csvNum(d.hoehe_mm),
+            d.typ || '',
+            t.konfidenz != null ? Math.round(t.konfidenz) + '%' : ''
+          ]);
+        });
+
+        csv += '\n';
+
+        // Massen
+        csv += 'MASSEN\n';
+        csv += 'Pos;Beschreibung;Gewerk;Raum;Endsumme;Einheit;Konfidenz\n';
+        cachedData.masses.forEach(function (m) {
+          csv += csvRow([
+            m.pos_nr || '',
+            m.beschreibung || '',
+            m.gewerk || '',
+            m.raum_referenz || '',
+            csvNum(m.endsumme),
+            m.einheit || '',
+            m.konfidenz != null ? Math.round(m.konfidenz) + '%' : ''
+          ]);
+        });
+
+        // Download
+        var blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+        var url = window.URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'massenermittlung_' + currentPlanId + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('Export-Fehler:', err);
+      } finally {
+        exportBtn.disabled = false;
+        exportBtn.textContent = '\uD83D\uDCE5 Excel Export';
+      }
     });
   }
 
-  // --- Helpers ---
+  // --- CSV-Hilfsfunktionen ---
+  function csvRow(cells) {
+    return cells.map(function (c) {
+      var s = String(c == null ? '' : c);
+      if (s.indexOf(';') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+        s = '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }).join(';') + '\n';
+  }
+
+  function csvNum(val) {
+    if (val === undefined || val === null || val === '') return '';
+    var num = parseFloat(val);
+    if (isNaN(num)) return String(val);
+    return num.toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  // --- Formatierung: deutsches Zahlenformat ---
   function formatNum(val) {
     if (val === undefined || val === null || val === '') return '-';
     var num = parseFloat(val);
@@ -345,6 +454,7 @@
     return num.toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   }
 
-  // Expose globally
+  // Global verfuegbar machen
   window.loadResults = loadResults;
+  window.formatNum = formatNum;
 })();

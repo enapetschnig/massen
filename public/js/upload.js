@@ -1,5 +1,5 @@
 /**
- * KI-Massenermittlung - Upload & Plans (direkt via Supabase)
+ * KI-Massenermittlung - Upload & Plaene (direkt via Supabase)
  */
 (function () {
   'use strict';
@@ -23,18 +23,37 @@
   var planList = document.getElementById('plan-list');
   var plansEmpty = document.getElementById('plans-empty');
   var plansLoading = document.getElementById('plans-loading');
+  var progressSection = document.getElementById('progress-section');
+  var analysisBar = document.getElementById('analysis-bar');
+  var progressStatus = document.getElementById('progress-status');
+  var analysisError = document.getElementById('analysis-error');
+
+  // Agent-Stepper Elemente
+  var agentIds = ['agent-parser', 'agent-geometrie', 'agent-kalkulation', 'agent-kritik'];
 
   if (firma.name && companyNameEl) companyNameEl.textContent = firma.name;
   if (logoutBtn) logoutBtn.addEventListener('click', function () { clearSession(); window.location.href = 'index.html'; });
 
+  // Projekt laden
   _sb.from('projekte').select('*').eq('id', projectId).single().then(function (res) {
     if (res.data) {
       projectNameEl.textContent = res.data.name || '';
       projectAddressEl.textContent = res.data.adresse || '';
-      projectStatusEl.textContent = res.data.status || 'Neu';
+      var status = res.data.status || 'Neu';
+      projectStatusEl.textContent = status;
+      projectStatusEl.className = 'badge badge-' + statusClass(status);
     }
   });
 
+  function statusClass(status) {
+    var s = (status || '').toLowerCase();
+    if (s === 'fertig' || s === 'abgeschlossen') return 'fertig';
+    if (s === 'analyse' || s === 'in bearbeitung') return 'analyse';
+    if (s === 'fehler') return 'fehler';
+    return 'neu';
+  }
+
+  // --- Plaene laden ---
   function loadPlans() {
     if (plansLoading) plansLoading.style.display = 'flex';
     plansEmpty.classList.add('hidden');
@@ -53,67 +72,166 @@
       var card = document.createElement('div');
       card.className = 'card plan-card';
       var done = plan.verarbeitet === true;
+      var konfBadge = '';
+      if (done && plan.gesamt_konfidenz != null) {
+        var kVal = Math.round(plan.gesamt_konfidenz);
+        var kClass = kVal >= 80 ? 'confidence-green' : (kVal >= 60 ? 'confidence-yellow' : 'confidence-red');
+        konfBadge = ' <span class="confidence ' + kClass + '"><span class="confidence-dot dot-red"></span><span class="confidence-dot dot-yellow"></span><span class="confidence-dot dot-green"></span><span class="confidence-value">' + kVal + '%</span></span>';
+      }
 
       card.innerHTML =
         '<div class="plan-info"><div class="plan-icon">&#128196;</div><div>' +
           '<div class="plan-name">' + esc(plan.dateiname || '') + '</div>' +
-          '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Fertig' : 'Hochgeladen') + '</span></div>' +
+          '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Fertig' : 'Hochgeladen') + '</span>' + konfBadge + '</div>' +
         '</div></div>' +
         '<div class="plan-actions">' +
-          (done ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">Ergebnisse</button>' :
-                  '<button class="btn btn-accent btn-sm ana-btn" data-id="' + plan.id + '">Analyse starten</button>') +
+          (done
+            ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">Ergebnisse</button>'
+            : '<button class="btn btn-accent btn-sm ana-btn" data-id="' + plan.id + '">Analyse starten</button>') +
           '<button class="btn-delete-plan" data-id="' + plan.id + '">&times;</button>' +
         '</div>';
       planList.appendChild(card);
     });
 
+    // Ergebnisse-Button
     planList.querySelectorAll('.res-btn').forEach(function (b) {
-      b.addEventListener('click', function () { if (window.loadResults) window.loadResults(this.getAttribute('data-id')); });
+      b.addEventListener('click', function () {
+        if (window.loadResults) window.loadResults(this.getAttribute('data-id'));
+      });
     });
+
+    // Analyse-Button
     planList.querySelectorAll('.ana-btn').forEach(function (b) {
       b.addEventListener('click', function () {
         var btn = this;
         var planId = btn.getAttribute('data-id');
-        btn.disabled = true;
-        btn.textContent = 'KI analysiert...';
-
-        fetch(SUPABASE_URL + '/functions/v1/analyse', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ plan_id: planId })
-        })
-          .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.detail || 'Analyse fehlgeschlagen'); });
-            return res.json();
-          })
-          .then(function (data) {
-            btn.textContent = 'Fertig!';
-            btn.classList.remove('btn-accent');
-            btn.classList.add('btn-primary');
-            alert('Analyse abgeschlossen!\n' + data.raeume + ' Räume, ' + data.fenster + ' Fenster, ' + data.tueren + ' Türen erkannt.\nKonfidenz: ' + data.konfidenz + '%');
-            loadPlans();
-          })
-          .catch(function (err) {
-            btn.disabled = false;
-            btn.textContent = 'Analyse starten';
-            alert('Fehler: ' + err.message);
-          });
+        startAnalysis(planId, btn);
       });
     });
+
+    // Loeschen-Button
     planList.querySelectorAll('.btn-delete-plan').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
-        if (confirm('Plan löschen?')) _sb.from('plaene').delete().eq('id', this.getAttribute('data-id')).then(loadPlans);
+        if (confirm('Plan wirklich loeschen?')) {
+          _sb.from('plaene').delete().eq('id', this.getAttribute('data-id')).then(loadPlans);
+        }
       });
     });
   }
 
+  // --- Analyse starten ---
+  function startAnalysis(planId, btn) {
+    btn.disabled = true;
+    btn.textContent = 'KI analysiert...';
+
+    // Fehlermeldung zuruecksetzen
+    if (analysisError) {
+      analysisError.classList.add('hidden');
+      analysisError.textContent = '';
+    }
+
+    // Fortschritt anzeigen
+    showProgress();
+
+    fetch(SUPABASE_URL + '/functions/v1/orchestrator', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ plan_id: planId })
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.json().then(function (d) {
+            throw new Error(d.detail || d.error || 'Analyse fehlgeschlagen');
+          });
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        // Fortschritt auf 100% und alle Agenten als fertig markieren
+        completeProgress();
+
+        setTimeout(function () {
+          hideProgress();
+          // Ergebnisse laden und Plaene neu laden
+          if (window.loadResults) window.loadResults(planId);
+          loadPlans();
+        }, 800);
+      })
+      .catch(function (err) {
+        hideProgress();
+        btn.disabled = false;
+        btn.textContent = 'Analyse starten';
+
+        // Fehler inline anzeigen statt window.alert
+        if (analysisError) {
+          analysisError.textContent = 'Fehler: ' + err.message;
+          analysisError.classList.remove('hidden');
+        }
+      });
+  }
+
+  // --- Fortschrittsanzeige ---
+  function showProgress() {
+    if (progressSection) progressSection.classList.remove('hidden');
+    if (analysisBar) { analysisBar.style.width = '0%'; analysisBar.textContent = '0%'; }
+    if (progressStatus) progressStatus.textContent = 'Analyse wird vorbereitet...';
+
+    // Alle Agenten zuruecksetzen
+    agentIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) { el.classList.remove('active', 'done', 'error'); }
+    });
+
+    // Simulierte Schritte
+    simulateSteps();
+  }
+
+  function simulateSteps() {
+    var steps = [
+      { agent: 'agent-parser', pct: 25, text: 'PDF wird geparst...' },
+      { agent: 'agent-geometrie', pct: 50, text: 'Geometrie wird analysiert...' },
+      { agent: 'agent-kalkulation', pct: 75, text: 'Massen werden berechnet...' },
+      { agent: 'agent-kritik', pct: 90, text: 'Ergebnisse werden geprueft...' }
+    ];
+
+    var prevAgent = null;
+    steps.forEach(function (step, i) {
+      setTimeout(function () {
+        // Vorherigen Agenten als fertig markieren
+        if (prevAgent) {
+          var prevEl = document.getElementById(prevAgent);
+          if (prevEl) { prevEl.classList.remove('active'); prevEl.classList.add('done'); }
+        }
+        // Aktuellen Agenten als aktiv markieren
+        var el = document.getElementById(step.agent);
+        if (el) el.classList.add('active');
+        if (analysisBar) { analysisBar.style.width = step.pct + '%'; analysisBar.textContent = step.pct + '%'; }
+        if (progressStatus) progressStatus.textContent = step.text;
+        prevAgent = step.agent;
+      }, (i + 1) * 2000);
+    });
+  }
+
+  function completeProgress() {
+    agentIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) { el.classList.remove('active'); el.classList.add('done'); }
+    });
+    if (analysisBar) { analysisBar.style.width = '100%'; analysisBar.textContent = '100%'; }
+    if (progressStatus) progressStatus.textContent = 'Analyse abgeschlossen!';
+  }
+
+  function hideProgress() {
+    if (progressSection) progressSection.classList.add('hidden');
+  }
+
   function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-  // Drag & Drop
+  // --- Drag & Drop ---
   uploadZone.addEventListener('click', function () { fileInput.click(); });
   uploadZone.addEventListener('dragover', function (e) { e.preventDefault(); this.classList.add('dragover'); });
   uploadZone.addEventListener('dragleave', function (e) { e.preventDefault(); this.classList.remove('dragover'); });
@@ -125,8 +243,16 @@
 
   function handleFiles(files) {
     var pdfs = [];
-    for (var i = 0; i < files.length; i++) if (files[i].type === 'application/pdf') pdfs.push(files[i]);
-    if (!pdfs.length) { alert('Nur PDF-Dateien.'); return; }
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].type === 'application/pdf') pdfs.push(files[i]);
+    }
+    if (!pdfs.length) {
+      if (analysisError) {
+        analysisError.textContent = 'Nur PDF-Dateien werden unterstuetzt.';
+        analysisError.classList.remove('hidden');
+      }
+      return;
+    }
     uploadProgress.classList.remove('hidden');
     doUpload(pdfs, 0);
   }
@@ -141,7 +267,8 @@
     }
     var file = files[idx];
     var path = firma.id + '/' + projectId + '/' + Date.now() + '_' + file.name;
-    uploadBar.style.width = '50%'; uploadBar.textContent = 'Hochladen...';
+    uploadBar.style.width = '50%';
+    uploadBar.textContent = 'Hochladen...';
 
     _sb.storage.from('plaene').upload(path, file, { contentType: 'application/pdf' })
       .then(function (r) {
@@ -149,11 +276,15 @@
         return _sb.from('plaene').insert({ projekt_id: projectId, dateiname: file.name, storage_path: path });
       })
       .then(function () {
-        uploadBar.style.width = '100%'; uploadBar.textContent = '100%';
+        uploadBar.style.width = '100%';
+        uploadBar.textContent = '100%';
         setTimeout(function () { doUpload(files, idx + 1); }, 300);
       })
       .catch(function (err) {
-        alert('Upload-Fehler: ' + err.message);
+        if (analysisError) {
+          analysisError.textContent = 'Upload-Fehler: ' + err.message;
+          analysisError.classList.remove('hidden');
+        }
         uploadProgress.classList.add('hidden');
         loadPlans();
       });
