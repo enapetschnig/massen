@@ -280,32 +280,39 @@ JSON-Format:
       const gewerkPrompts: Record<string, string> = {
         verputzer: `
 FOKUS: VERPUTZER / SPACHTELARBEITEN (VP/SR)
-Berechne NUR Verputzerleistungen - genau wie ein Verputzerbetrieb kalkuliert.
+Berechne NUR Verputzerleistungen - EXAKT wie ein Verputzerbetrieb kalkuliert.
 
-AUSSENPOSITIONEN (pro Gebäudeansicht - Nordwest, Nordost, Südost, Südwest):
-- Leichtputz mineralisch: Ansichtsfläche = Gebäudelänge × Gebäudehöhe, dann Abzüge für Öffnungen (Loggien, Eingänge)
-- Gewebespachtelung: gleiche Berechnung, andere Abzüge
-- Dünnputz kunstharz Rillenstruktur 3mm (Fläche >4m²)
-- Dünnputz kunstharz Reibstruktur 1,5mm (Fläche >4m² und <4m²)
-- Sockelputzprofil (Laufmeter Gebäudeumfang + Loggien-Leibungen)
-- Glattstrich Sockelbereich (Sockellänge × 0.60m Höhe)
-- Drahtrichtwinkel (4 Ecken × Gebäudehöhe)
-- Fensterbankaufnahme mit Dichtebene (Anzahl Fenster × Fensterbreite)
-- Rillengleitendstücke für Fensterbankkeil (2 Stk pro Fenster)
-- Schacht für Jalousieneinbau (wie Fensterbankaufnahme)
-- Fensterlaibungen gedämmt (Anzahl × Höhe der Fensterleibungen, Laufmeter)
-- Sturzausbildung Loggien (Anzahl × Breite)
-- Kantenschutz-Gewebewinkel (alle Kanten/Ecken in Laufmetern)
-- Anputzleiste (Laufmeter an allen Fenstern und Türen)
+INNENPOSITIONEN (die wichtigsten):
 
-INNENPOSITIONEN:
-- Haftgrund (Wandfläche aller Räume)
-- Innenputz Wände (Wandfläche aller Räume - Abzüge nach Putzregel)
-- Kantenprofil (alle inneren Kanten in Laufmetern)
-- Anputzleiste (Laufmeter an Fenstern und Türen innen)
+1. HAFTGRUND (m²):
+Nur für Betonwände/spezielle Untergründe (Nassräume, Betonzwischenwände).
+NICHT für alle Innenwände! Berechne pro Wand: Länge × Höhe.
+Typisch nur 10-20% der Gesamtwandfläche.
 
-BERECHNUNGSFORMAT: Jeder Schritt zeigt Ansicht/Raum + Anzahl × Länge × Breite × Höhe = Zwischensumme.
-Negative Werte bei Abzügen (minus bei Höhe oder Breite).`,
+2. INNENPUTZ WÄNDE (m²):
+Berechne PRO WOHNUNG (Top/Einheit), NICHT pro Raum:
+- Jede Wohnung hat typisch 2-4 Innenwände die verputzt werden
+- Wandfläche = Wandlänge × Raumhöhe
+- Raumhöhe: meist 2.60m (Obergeschoss) oder 2.66m (Erdgeschoss)
+- KEINE Abzüge für Fenster/Türen beim Innenputz (ÖNORM: Öffnungen <2.5m² kein Abzug)
+Beispiel aus der Praxis:
+  "Top 32: 1 × 5.87 × 1.0 × 2.60 = 15.26"
+  "Top 32: 1 × 7.14 × 1.0 × 2.60 = 18.56"
+
+3. KANTENPROFIL (lfm):
+Pro Fenster INNEN:
+- Fenster Aufrecht: 2 × Fensterhöhe (typisch 1.47m oder 2.60m)
+- Fensterbank: 1 × Fensterbreite (typisch 1.20m oder 0.50m)
+- Bei Loggien-Fenstern: 2 × volle Raumhöhe (2.60m)
+Beispiel: "Fenster Aufrecht: 2 × 1.47 = 2.94 lfm"
+
+4. ANPUTZLEISTE (lfm):
+Pro Fenster INNEN (gleiche Berechnung wie Kantenprofil):
+- Fenster Aufrecht: 2 × Fensterhöhe
+- Loggia-Fenster: 2 × Raumhöhe
+KEINE Fensterbänke bei Anputzleiste!
+
+BERECHNUNGSFORMAT: Jeder Schritt zeigt Wohnung/Element + Anzahl × Länge × Breite × Höhe = Zwischensumme.`,
 
         mauerwerk: `
 FOKUS: MAUERWERK / ROHBAU
