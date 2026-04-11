@@ -416,98 +416,125 @@ ALLE GEWERKE berechnen:
 
       const gewerkPrompt = gewerkPrompts[selectedGewerk] || gewerkPrompts.allgemein
 
-      const kalk = await callClaude(cfg.value,
-        `Du bist ein erfahrener österreichischer Baukalkulator. Du erstellst eine PROFESSIONELLE Massenermittlung EXAKT wie sie auf echten Baustellen verwendet wird.
+      // Build the system prompt based on gewerk
+      let kalkSystem = ""
+      let kalkUser = ""
 
-WICHTIG: Eine echte Massenermittlung hat VIELE detaillierte Positionen. Nicht nur 10 - sondern 30-60+!
+      if (selectedGewerk === "verputzer") {
+        kalkSystem = `Du bist ein Verputzer-Kalkulator. Du berechnest EXAKT 4 Positionen für Innenputz.
 
-GEWÄHLTES GEWERK: ${selectedGewerk.toUpperCase()}
-${gewerkPrompt}
+KRITISCH WICHTIG:
+- Berechne NUR die WOHNUNGSTRENNWÄNDE (dicke Wände ZWISCHEN Wohnungen)
+- NICHT die Zimmerwände INNERHALB der Wohnungen
+- NICHT die Rauminnenwände (Bad-Innenwand, Küchen-Innenwand etc.)
+- Die Trennwände sind die LANGEN Wände die von Vorder- bis Rückseite des Gebäudes gehen
 
-POSITIONSSTRUKTUR (wie in der Praxis):
-Für JEDES relevante Gewerk erstellst du Positionen mit DETAILLIERTEN Berechnungsschritten.
-Jeder Berechnungsschritt zeigt: Beschreibung | Anzahl × Länge × Breite × Höhe = Zwischensumme
+RAUMHÖHE: Das ROHBAUMASS verwenden!
+- Im Plan steht z.B. H: 2.42m = FERTIGMASS
+- ROHBAUMASS = Fertigmaß + ca. 0.24m = z.B. 2.66m (EG) oder 2.60m (OG)
+- IMMER Rohbaumaß für Putzarbeiten verwenden!
 
-ÖNORM-ABZUGSREGELN:
+POSITION 1: HAFTGRUND (m²)
+- NUR auf Betonwänden (Zwischenwand Beton)
+- BEIDE Seiten einer Betonwand verputzen → Faktor 2
+- Formel: Anz_Seiten × Wandlänge × Rohbau-Raumhöhe
 
-01. MAUERWERK / ROHBAU
-- Pro Raum: Wandfläche = Umfang × Höhe
-- Abzüge: Öffnungen <0.5m² KEIN Abzug, 0.5-3m² HALBER Abzug, >3m² VOLLER Abzug
-- Leibungen EXTRA ausweisen
+POSITION 2: INNENPUTZ WÄNDE (m²)
+- NUR Wohnungstrennwände, pro Wohnung (Top):
+- Jede Wohnung hat typisch 2 Trennwand-Flächen:
+  * WAND A (Gebäudetiefe): ca. 5.8-5.9m × Rohbau-Höhe
+  * WAND B (Wohnungsbreite): ca. 3.3-7.1m × Rohbau-Höhe
+- Bei Eckwohnungen: mehr Wände + Betonzwischenwände (BEIDE Seiten!)
+- Betonzwischenwände: Anz × Wandlänge × Höhe (Anz=2 für beide Seiten)
+- KEINE Zimmer-Innenwände, KEINE Raumwände!
 
-02. INNENPUTZ
-- Haftgrund (gleiche Fläche wie Putz)
-- Innenputz Wände (Wandfläche - Abzüge nach Putzregel: <2.5m² kein, 2.5-10m² halb, >10m² voll)
-- Kantenprofile (Laufmeter aller Kanten)
-- Anputzleisten (Laufmeter an Fenster/Türen)
+POSITION 3: KANTENPROFIL (lfm)
+- Pro Fenster: 2 × Fensterhöhe + 1 × Fensterbreite
+  * Normale Fenster: Höhe ca. 1.47m, Breite 1.20m oder 0.50m
+  * Loggia/Balkontür: Höhe = Raumhöhe (2.60/2.66m), KEINE Fensterbank
+- Pro Betonwand-Kante: 2 × Raumhöhe (beide Seiten)
 
-03. AUSSENPUTZ (falls Außenwände vorhanden)
-- Leichtputz mineralisch (Ansicht Nord/Ost/Süd/West jeweils)
-- Gewebespachtelung
-- Dünnputz (Rillenstruktur/Reibstruktur nach Fläche)
-- Sockelbereich
-- Fensterlaibungen (Laufmeter)
-- Sturzausbildung
-- Fensterbankaufnahme
+POSITION 4: ANPUTZLEISTE (lfm)
+- Pro Fenster: NUR 2 × Fensterhöhe (KEINE Fensterbank!)
+  * Normale Fenster: 2 × 1.47m = 2.94 lfm
+  * Loggia: 2 × Raumhöhe
 
-04. MALERARBEITEN
-- Wandflächen (gleiche Abzüge wie Putz)
-- Deckenflächen = Raumfläche
-- Leibungsflächen extra
+Antworte NUR mit validem JSON.`
 
-05. BODENBELAG
-- Pro Bodenbelagstyp (Parkett, Fliesen, etc.)
-- Nettofläche jedes Raums
-
-06. ESTRICH
-- Alle Raumflächen zusammen
-
-07. FENSTERBÄNKE
-- Pro Fenster: Laufmeter = RB-Breite in Metern
-- Fensterbank innen: Tiefe = Wandstärke
-
-BERECHNUNGSFORMAT pro Position:
-Jede Position hat "berechnung" als Array von Strings, jeder String = ein Rechenschritt:
-"Wohnküche Wandfläche: 1 × 20.66 × 1.0 × 2.42 = 50.00"
-"Abzug FE_31: 1 × 1.30 × 1.0 × -2.88 = -3.74"
-"Leibung FE_31 seitlich: 2 × 0.30 × 1.0 × 2.88 = 1.73"
-
-Antworte NUR mit validem JSON, KEIN Markdown.`,
-        [{ type: "text", text: `Geometriedaten:\n${JSON.stringify(geo)}\n\nErstelle eine DETAILLIERTE professionelle Massenermittlung. Mindestens 25 Positionen!
+        kalkUser = `Geometriedaten:\n${JSON.stringify(geo)}\n\nBerechne EXAKT diese 4 Positionen:
 
 JSON-Format:
 {
   "positionen": [
     {
-      "pos_nr": "02.01",
+      "pos_nr": "2.3.1",
+      "beschreibung": "Haftgrund",
+      "gewerk": "Innenputz",
+      "raum_referenz": "Betonwände",
+      "berechnung": ["Top 26 Betonwand: 1 × 3.22 × 1.0 × 2.66 = 8.57", "Top 26 Leibung: 1 × 0.20 × 1.0 × 2.66 = 0.53"],
+      "endsumme": 66.02,
+      "einheit": "m²",
+      "konfidenz": 0.90
+    },
+    {
+      "pos_nr": "2.3.2",
       "beschreibung": "Innenputz Wände",
       "gewerk": "Innenputz",
-      "raum_referenz": "Alle Räume",
-      "berechnung": [
-        "Wohnküche: 1 × 20.66 × 1.0 × 2.42 = 50.00",
-        "Abzug FE_31 (2.28m², kein Abzug <2.5m²): 0",
-        "Schlafzimmer: 1 × 17.10 × 1.0 × 2.42 = 41.38",
-        "Bad: 1 × 12.30 × 1.0 × 2.42 = 29.77",
-        "..."
-      ],
+      "raum_referenz": "Trennwände",
+      "berechnung": ["Top 25: 1 × 5.87 × 1.0 × 2.66 = 15.61", "Top 25: 1 × 7.14 × 1.0 × 2.66 = 18.99", "Top 26: 1 × 5.87 × 1.0 × 2.66 = 15.61"],
       "endsumme": 388.89,
       "einheit": "m²",
+      "konfidenz": 0.90
+    },
+    {
+      "pos_nr": "2.3.3",
+      "beschreibung": "Kantenprofil",
+      "gewerk": "Innenputz",
+      "raum_referenz": "Fenster",
+      "berechnung": ["Fenster Aufrecht: 2 × 1.47 = 2.94", "Fensterbank: 1 × 1.20 = 1.20"],
+      "endsumme": 210.28,
+      "einheit": "lfm",
+      "konfidenz": 0.90
+    },
+    {
+      "pos_nr": "2.3.4",
+      "beschreibung": "Anputzleiste",
+      "gewerk": "Innenputz",
+      "raum_referenz": "Fenster",
+      "berechnung": ["Fenster Aufrecht: 2 × 1.47 = 2.94", "Loggia: 2 × 2.60 = 5.20"],
+      "endsumme": 185.68,
+      "einheit": "lfm",
       "konfidenz": 0.90
     }
   ],
   "zusammenfassung": {
+    "haftgrund_m2": 66.02,
     "innenputz_wande_m2": 388.89,
     "kantenprofile_lfm": 210.28,
-    "anputzleisten_lfm": 185.68,
-    "bodenbelag_parkett_m2": 0,
-    "bodenbelag_fliesen_m2": 0,
-    "estrich_m2": 0,
-    "malerarbeiten_wande_m2": 0,
-    "malerarbeiten_decken_m2": 0,
-    "fensterbaenke_lfm": 0
+    "anputzleisten_lfm": 185.68
   },
-  "gesamt_konfidenz": 0.90
-}` }],
+  "gesamt_konfidenz": 0.92
+}
+
+WICHTIG: Die Beispielwerte oben sind nur zur Illustration des FORMATS.
+Berechne die ECHTEN Werte aus den Geometriedaten!
+NUR diese 4 Positionen, NICHTS ANDERES!`
+      } else {
+        kalkSystem = `Du bist ein erfahrener österreichischer Baukalkulator.
+
+GEWÄHLTES GEWERK: ${selectedGewerk.toUpperCase()}
+${gewerkPrompt}
+
+BERECHNUNGSFORMAT: Jeder Schritt: Beschreibung | Anz × L × B × H = Zwischensumme
+ROHBAUMASS verwenden (Fertigmaß + 0.24m)!
+Antworte NUR mit validem JSON.`
+
+        kalkUser = `Geometriedaten:\n${JSON.stringify(geo)}\n\nErstelle professionelle Massenermittlung.
+JSON: {"positionen":[{"pos_nr":"","beschreibung":"","gewerk":"","raum_referenz":"","berechnung":[""],"endsumme":0,"einheit":"","konfidenz":0.9}],"zusammenfassung":{},"gesamt_konfidenz":0.88}`
+      }
+
+      const kalk = await callClaude(cfg.value, kalkSystem,
+        [{ type: "text", text: kalkUser }],
         32000)
 
       for (const p of (kalk.positionen || []))
