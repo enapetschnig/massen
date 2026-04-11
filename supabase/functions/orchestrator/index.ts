@@ -453,13 +453,20 @@ POSITION 1: HAFTGRUND (m²)
 - Formel: Anz_Seiten × Wandlänge × Rohbau-Raumhöhe
 
 POSITION 2: INNENPUTZ WÄNDE (m²)
-- NUR Wohnungstrennwände, pro Wohnung (Top):
-- Jede Wohnung hat typisch 2 Trennwand-Flächen:
-  * WAND A (Gebäudetiefe): ca. 5.8-5.9m × Rohbau-Höhe
-  * WAND B (Wohnungsbreite): ca. 3.3-7.1m × Rohbau-Höhe
-- Bei Eckwohnungen: mehr Wände + Betonzwischenwände (BEIDE Seiten!)
-- Betonzwischenwände: Anz × Wandlänge × Höhe (Anz=2 für beide Seiten)
-- KEINE Zimmer-Innenwände, KEINE Raumwände!
+NUR Wohnungstrennwände! KEINE Rauminnenwände!
+
+Identifiziere pro Wohnung welche TRENNWÄNDE sie hat:
+- ECKWOHNUNG (am Gebäudeende): 2 Trennwände
+  * Wand Tiefe: ~5.8-5.9m × Höhe (die Wohnungstiefe, NICHT Gebäudetiefe!)
+  * Wand Breite: ~7.0-7.2m × Höhe (Eckwohnungen sind BREIT, 7m nicht 3m!)
+- MITTELWOHNUNG (in der Mitte): 2-3 Trennwände
+  * Wand Tiefe: ~5.8-5.9m × Höhe
+  * Wand Breite: ~3.2-3.3m × Höhe (Mittelwohnungen sind SCHMAL!)
+  * Oft: Betonzwischenwand extra
+- BETONZWISCHENWÄNDE: BEIDE Seiten verputzen! → Faktor 2!
+  * "Zwischenwand Beton: 2 × 6.20 × 1.0 × 2.66 = 32.98"
+  * "Leibung: 1 × 0.20 × 1.0 × 2.66 = 0.53"
+Die Trennwandlängen aus den Maßketten im Plan lesen!
 
 POSITION 3: KANTENPROFIL (lfm)
 - Pro Fenster: 2 × Fensterhöhe + 1 × Fensterbreite
