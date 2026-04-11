@@ -1727,3 +1727,37 @@ img {
     font-size: 0.75rem;
   }
 }
+
+/* --- Plan Viewer --- */
+.plan-viewer { background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); margin-bottom: 2rem; overflow: hidden; }
+.plan-viewer.hidden { display: none; }
+.plan-viewer-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid #eee; }
+.plan-viewer-header h3 { margin: 0; font-size: 1.1rem; color: var(--primary); }
+.plan-viewer-legend { display: flex; gap: 1.5rem; padding: 0.5rem 1.5rem; background: #f8f9fa; border-bottom: 1px solid #eee; font-size: 0.85rem; }
+.legend-item { display: flex; align-items: center; gap: 0.4rem; }
+.legend-color { width: 16px; height: 16px; border-radius: 3px; border: 2px solid rgba(0,0,0,0.3); }
+.plan-viewer-body { display: flex; min-height: 500px; max-height: 80vh; }
+.plan-canvas-container { flex: 1; position: relative; overflow: auto; background: #e5e7eb; padding: 1rem; }
+#pdf-canvas, #overlay-canvas { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+#overlay-canvas { pointer-events: auto; cursor: crosshair; }
+.plan-sidebar { width: 280px; border-left: 1px solid #eee; overflow-y: auto; padding: 1rem; }
+.sidebar-element { padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 6px; border-left: 3px solid; cursor: pointer; font-size: 0.85rem; transition: background 0.15s; }
+.sidebar-element:hover { background: #f0f4ff; }
+.sidebar-element.raum { border-left-color: #1a3a5c; }
+.sidebar-element.fenster { border-left-color: #22c55e; }
+.sidebar-element.tuer { border-left-color: #f39301; }
+.sidebar-element-name { font-weight: 600; }
+.sidebar-element-detail { color: #6b7280; font-size: 0.8rem; }
+.element-tooltip { position: fixed; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); padding: 1rem; max-width: 300px; z-index: 100; font-size: 0.85rem; }
+.element-tooltip.hidden { display: none; }
+.element-tooltip h4 { margin: 0 0 0.5rem; color: var(--primary); }
+.element-tooltip .detail-row { display: flex; justify-content: space-between; padding: 0.2rem 0; }
+.element-tooltip .detail-label { color: #6b7280; }
+.element-tooltip .detail-value { font-weight: 600; }
+.plan-viewer-controls { display: flex; gap: 0.5rem; }
+
+@media (max-width: 768px) {
+  .plan-viewer-body { flex-direction: column; }
+  .plan-sidebar { width: 100%; border-left: none; border-top: 1px solid #eee; max-height: 200px; }
+  .plan-viewer-legend { flex-wrap: wrap; gap: 0.75rem; }
+}

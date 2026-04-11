@@ -783,4 +783,15 @@
   // Global verfuegbar machen
   window.loadResults = loadResults;
   window.formatNum = formatNum;
+  window.getCurrentPlanId = function () { return currentPlanId; };
+
+  // Planansicht-Button
+  var planviewBtn = document.getElementById('planview-btn');
+  if (planviewBtn) {
+    planviewBtn.addEventListener('click', function () {
+      if (currentPlanId && typeof window.showPlanView === 'function') {
+        window.showPlanView(currentPlanId);
+      }
+    });
+  }
 })();

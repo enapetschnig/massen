@@ -58,10 +58,94 @@ serve(async (req: Request) => {
       if (!u?.signedUrl) throw new Error("PDF URL fehlt")
 
       const parsed = await callClaude(cfg.value,
-        "Du bist der beste Bautechniker Österreichs. Analysiere den Bauplan präzise. Fenster: FE_[Nr]/RPH/FPH/AL/RB in mm. Werte<30=cm→×10. Wandfläche=U×H. JEDEN Raum, JEDES Fenster, JEDE Tür erfassen. Nur JSON.",
+        `Du bist der erfahrenste Bautechniker Österreichs mit 30 Jahren Praxis. Du liest Baupläne so präzise wie kein anderer.
+
+DEINE AUFGABE: Analysiere diesen Bauplan VOLLSTÄNDIG. Übersehe NICHTS.
+
+SO GEHST DU VOR (wie ein Profi):
+
+SCHRITT 1 - PLAN VERSTEHEN:
+- Finde den MASSSTAB (meist im Plankopf rechts unten, z.B. "M 1:100")
+- Finde das GESCHOSS (EG, OG, KG, DG)
+- Finde die RAUMHÖHE (steht oft nur EINMAL und gilt für alle Räume)
+- Finde WANDSTÄRKEN (Außenwand typisch 25-50cm, Innenwand 10-25cm)
+
+SCHRITT 2 - JEDEN RAUM FINDEN:
+- Gehe den Plan SYSTEMATISCH durch: oben-links → oben-rechts → mitte → unten
+- Typische Räume: Vorraum, Flur, Gang, Wohnzimmer, Wohnküche, Küche, Schlafzimmer, Kinderzimmer, Bad, WC, Dusche, Abstellraum, Garderobe, Schrankraum, Loggia, Balkon, Terrasse, Technikraum, Waschküche
+- Jeder Raum hat: NAME (steht im Raum), FLÄCHE (z.B. "23,50 m²"), UMFANG ("U: 20,40"), HÖHE ("H: 2,60"), BODENBELAG (Parkett, Fliesen etc.)
+- POSITION: Gib an wo der Raum auf dem Plan liegt als Prozent [x%, y%, breite%, höhe%] vom gesamten Plan
+
+SCHRITT 3 - JEDES FENSTER FINDEN:
+- Fenster stehen ROTIERT an den Wänden oder in Tabellen
+- Format: FE_[Nr] / RPH [Wert] / FPH [Wert] / AL[Breite] / AL[Höhe] / RB[Breite] / RB[Höhe]
+- RPH = Rohbauparapethöhe (Abstand Fensterunterseite zu Rohfußboden)
+- FPH = Fertigparapethöhe
+- AL = Architekturlichte (Fertigmaß der Fensteröffnung)
+- RB = Rohbauöffnung (muss GRÖSSER als AL sein, +5-15cm pro Seite)
+- Werte < 30 sind wahrscheinlich in cm → multipliziere mit 10 für mm
+- Ordne jedes Fenster einem Raum zu
+
+SCHRITT 4 - JEDE TÜR FINDEN:
+- Türen: T[Nr] oder Türsymbol (Viertelkreis im Plan)
+- Breite typisch: 60cm (WC), 70cm (Bad), 80cm (Zimmer), 90cm (Eingang), 100-120cm (Doppel)
+
+SCHRITT 5 - POSITION ANGEBEN:
+- Für JEDES Element: position_pct als [x%, y%, breite%, höhe%] vom Gesamtplan
+- x=0% ist links, x=100% ist rechts
+- y=0% ist oben, y=100% ist unten
+
+Antworte NUR mit validem JSON, KEIN Markdown.`,
         [
           { type: "document", source: { type: "url", url: u.signedUrl } },
-          { type: "text", text: 'Vollständige Analyse. JSON: {"massstab":"","geschoss":"","raeume":[{"name":"","bodenbelag":"","flaeche_m2":0,"umfang_m":0,"hoehe_m":0,"wandflaeche_m2":0,"konfidenz":0.9}],"fenster":[{"bezeichnung":"","raum":"","rph_mm":0,"fph_mm":0,"al_breite_mm":0,"al_hoehe_mm":0,"rb_breite_mm":0,"rb_hoehe_mm":0,"flaeche_m2":0,"konfidenz":0.9}],"tueren":[{"bezeichnung":"","raum":"","breite_mm":0,"hoehe_mm":0,"typ":"","konfidenz":0.85}],"wandstaerken_mm":[],"gesamt_konfidenz":0.85}' },
+          { type: "text", text: `Analysiere JEDEN Raum, JEDES Fenster, JEDE Tür. Gib für alles die Position auf dem Plan an.
+
+JSON-Format:
+{
+  "massstab": "1:100",
+  "geschoss": "EG",
+  "raumhoehe_global_m": 2.60,
+  "wandstaerken_mm": [300, 200, 120],
+  "raeume": [
+    {
+      "name": "Wohnküche",
+      "bodenbelag": "Parkett",
+      "flaeche_m2": 26.37,
+      "umfang_m": 20.66,
+      "hoehe_m": 2.42,
+      "wandflaeche_m2": 50.0,
+      "position_pct": [10, 20, 35, 40],
+      "konfidenz": 0.95
+    }
+  ],
+  "fenster": [
+    {
+      "bezeichnung": "FE_31",
+      "raum": "Wohnküche",
+      "rph_mm": 1010,
+      "fph_mm": 480,
+      "al_breite_mm": 1510,
+      "al_hoehe_mm": 1510,
+      "rb_breite_mm": 1760,
+      "rb_hoehe_mm": 1760,
+      "flaeche_m2": 2.28,
+      "position_pct": [5, 35, 5, 10],
+      "konfidenz": 0.90
+    }
+  ],
+  "tueren": [
+    {
+      "bezeichnung": "T1",
+      "raum": "Wohnküche",
+      "breite_mm": 900,
+      "hoehe_mm": 2100,
+      "typ": "Drehflügel",
+      "position_pct": [30, 45, 3, 5],
+      "konfidenz": 0.85
+    }
+  ],
+  "gesamt_konfidenz": 0.90
+}` },
         ])
 
       // Quick geometry fix: calculate missing wall areas
