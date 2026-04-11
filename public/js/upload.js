@@ -85,6 +85,10 @@
           '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Fertig' : 'Hochgeladen') + '</span>' + konfBadge + '</div>' +
         '</div></div>' +
         '<div class="plan-actions">' +
+          '<span style="font-size:0.75rem;color:#666">Geschosse:</span>' +
+          '<input type="number" class="form-control geschoss-input" data-id="' + plan.id + '" value="3" min="1" max="10" style="width:60px" title="Anzahl Geschosse">' +
+          '<span style="font-size:0.75rem;color:#666">Whg/OG:</span>' +
+          '<input type="number" class="form-control whg-og-input" data-id="' + plan.id + '" value="4" min="1" max="10" style="width:60px" title="Wohnungen pro OG">' +
           '<select class="form-control gewerk-select" data-id="' + plan.id + '">' +
             '<option value="allgemein">Allgemein (alle Gewerke)</option>' +
             '<option value="verputzer">Verputzer / Spachtelarbeiten (VP/SR)</option>' +
@@ -146,6 +150,8 @@
     btn.textContent = 'KI analysiert...';
 
     var gewerk = document.querySelector('.gewerk-select[data-id="'+planId+'"]').value;
+    var geschosse = parseInt(document.querySelector('.geschoss-input[data-id="'+planId+'"]').value) || 3;
+    var whg_pro_og = parseInt(document.querySelector('.whg-og-input[data-id="'+planId+'"]').value) || 4;
 
     if (analysisError) { analysisError.classList.add('hidden'); analysisError.textContent = ''; }
     showProgress();
@@ -154,7 +160,7 @@
       return fetch(SUPABASE_URL + '/functions/v1/orchestrator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-        body: JSON.stringify({ plan_id: planId, step: step, gewerk: gewerk })
+        body: JSON.stringify({ plan_id: planId, step: step, gewerk: gewerk, geschosse: geschosse, whg_pro_og: whg_pro_og })
       }).then(function (res) {
         return res.json().then(function (data) {
           if (!res.ok || data.error) throw new Error(data.error || 'Schritt ' + step + ' fehlgeschlagen');

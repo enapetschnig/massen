@@ -38,7 +38,7 @@ serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
 
   try {
-    const { plan_id, step = 1, gewerk = "allgemein" } = await req.json()
+    const { plan_id, step = 1, gewerk = "allgemein", geschosse = 3, whg_pro_og = 4 } = await req.json()
     if (!plan_id) throw new Error("plan_id fehlt")
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
@@ -284,6 +284,9 @@ JSON-Format:
         },
         geo: merged,
         gewerk: gewerk,
+        geschosse: geschosse,
+        whg_pro_og: whg_pro_og,
+        pass1A: pass1A,
       }
       await sb.from("plaene").update({ agent_log: log }).eq("id", plan_id)
 
@@ -568,6 +571,40 @@ JSON: {"positionen":[{"pos_nr":"","beschreibung":"","gewerk":"","raum_referenz":
       const kalk = await callClaude(cfg.value, kalkSystem,
         [{ type: "text", text: kalkUser }],
         32000)
+
+      // POST-PROCESSING: Multiply EG values to get total for all floors
+      const geschosseVal = plan.agent_log?.geschosse || geschosse || 3
+      const whgProOg = plan.agent_log?.whg_pro_og || whg_pro_og || 4
+      const egWhg = plan.agent_log?.pass1A?.anzahl_wohnungen || 3
+      const ogFloors = geschosseVal - 1 // EG is 1 floor
+
+      if (selectedGewerk === "verputzer" && ogFloors > 0) {
+        const ogPositionen: any[] = []
+        for (const pos of (kalk.positionen || [])) {
+          if (pos.pos_nr === "2.3.2") { // Innenputz
+            const ogFactor = (whgProOg / egWhg) * (2.60 / 2.66) * ogFloors
+            ogPositionen.push({
+              ...pos,
+              pos_nr: "2.3.2-OG",
+              beschreibung: "Innenputz Wände OG (×" + ogFloors + " Geschosse)",
+              endsumme: Math.round(pos.endsumme * ogFactor * 100) / 100,
+              berechnung: ["EG-Wert " + pos.endsumme + " × Faktor " + ogFactor.toFixed(3) + " (OG-Whg/EG-Whg × OG-Höhe/EG-Höhe × Geschosse)"],
+            })
+          }
+          // Kantenprofil and Anputzleiste
+          if (pos.pos_nr === "2.3.3" || pos.pos_nr === "2.3.4") {
+            const ogFactor = (whgProOg / egWhg) * ogFloors
+            ogPositionen.push({
+              ...pos,
+              pos_nr: pos.pos_nr + "-OG",
+              beschreibung: pos.beschreibung + " OG (×" + ogFloors + ")",
+              endsumme: Math.round(pos.endsumme * ogFactor * 100) / 100,
+              berechnung: ["EG-Wert " + pos.endsumme + " × " + ogFactor.toFixed(2)],
+            })
+          }
+        }
+        kalk.positionen = [...(kalk.positionen || []), ...ogPositionen]
+      }
 
       for (const p of (kalk.positionen || []))
         await sb.from("massen").insert({
