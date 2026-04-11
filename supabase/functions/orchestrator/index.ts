@@ -322,10 +322,15 @@ Für JEDE Wohnung (Top) berechne:
 - WAND 2 (Breite): Wohnungsbreite × Raumhöhe (z.B. 7.14m × 2.66m = 18.99m²)
 - Bei Eckwohnungen: zusätzliche Wände (3-4 statt 2)
 
-Die Wandlängen findest du in den MASSKETTEN des Plans. Typische Werte:
-- Gebäudetiefe: 5-6m (z.B. 5.87m, 5.79m, 5.80m)
-- Eckwohnung breit: 6-8m (z.B. 7.14m)
-- Mittelwohnung: 3-4m (z.B. 3.27m)
+WANDLÄNGEN - KRITISCH WICHTIG:
+- WAND A = Tiefe EINER Wohnung (NICHT Gebäudetiefe!)
+  In einem Mehrfamilienhaus ist die Wohnungstiefe typisch 5-6m.
+  Die Gebäudetiefe ist 15-20m aber die Trennwand geht nur durch EINE Wohnung!
+  Teile die Gebäudetiefe durch die Anzahl der Wohnungen in der Tiefe!
+  Beispiel: Gebäudetiefe 17.8m ÷ 3 Wohnungen = 5.93m pro Wohnung
+- WAND B = Breite der Wohnung
+  Eckwohnung: 6-8m (z.B. 7.14m)
+  Mittelwohnung: 3-4m (z.B. 3.27m)
 
 RAUMHÖHE: Verwende das ROHBAUMASS (Roh-Decke bis Roh-Boden):
 - EG: typisch 2.60-2.70m (z.B. 2.66m)
