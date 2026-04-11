@@ -308,49 +308,64 @@ JSON-Format:
       // Build gewerk-specific prompt additions
       const gewerkPrompts: Record<string, string> = {
         verputzer: `
-FOKUS: VERPUTZER / SPACHTELARBEITEN (VP/SR)
-Berechne NUR Verputzerleistungen - EXAKT wie ein Verputzerbetrieb kalkuliert.
+FOKUS: VERPUTZER / SPACHTELARBEITEN (VP/SR) nach ÖNORM B 2204
 
-INNENPOSITIONEN (die wichtigsten):
+EXAKTE BERECHNUNGSMETHODE eines professionellen Verputzerbetriebs:
 
-WICHTIG: Beim Innenputz werden NUR die WOHNUNGSTRENNWÄNDE verputzt!
-Das sind die DICKEN Wände ZWISCHEN den Wohnungen (Betonwände/Ziegelwände).
-NICHT die dünnen Zimmerwände innerhalb einer Wohnung!
+═══ POSITION: INNENPUTZ WÄNDE (m²) ═══
 
-Die Wohnungstrennwände sind typisch:
-- 1-2 lange Wände pro Wohnung (Gebäudetiefe, z.B. 5-6m)
-- 1 kurze Wand pro Wohnung (Wohnungsbreite, z.B. 3-7m)
-- Bei Eckwohnungen zusätzliche Betonzwischenwände
+Der Verputzer verputzt NUR die WOHNUNGSTRENNWÄNDE - das sind die DICKEN Wände
+zwischen den Wohnungseinheiten (Top). NICHT die Zimmerwände innerhalb der Wohnung!
 
-1. HAFTGRUND (m²):
-Nur für Beton-Trennwände in Nassräumen (Bad, WC).
-Berechne: Anzahl Betonwand-Seiten in Nassräumen × Wandlänge × Raumhöhe.
-NICHT alle Wände - typisch 5-15% der Gesamtfläche!
+Für JEDE Wohnung (Top) berechne:
+- WAND 1 (Tiefe): Gebäudetiefe-Maß × Raumhöhe (z.B. 5.87m × 2.66m = 15.61m²)
+- WAND 2 (Breite): Wohnungsbreite × Raumhöhe (z.B. 7.14m × 2.66m = 18.99m²)
+- Bei Eckwohnungen: zusätzliche Wände (3-4 statt 2)
 
-2. INNENPUTZ WÄNDE (m²):
-NUR die WOHNUNGSTRENNWÄNDE pro Wohnung. Berechne:
-- Identifiziere die Trennwand-Seiten jeder Wohnung (typisch 2-3 Wände)
-- Wandfläche = Trennwand-Länge × Raumhöhe (meist 2.60-2.66m)
-- NICHT die Rauminnenwände (Zimmerwand, Badwand)!
-- KEINE Abzüge für Fenster/Türen (<2.5m² kein Abzug nach ÖNORM)
-Beispiel aus der Praxis:
-  "Top 32: 1 × 5.87 × 1.0 × 2.60 = 15.26"
-  "Top 32: 1 × 7.14 × 1.0 × 2.60 = 18.56"
+Die Wandlängen findest du in den MASSKETTEN des Plans. Typische Werte:
+- Gebäudetiefe: 5-6m (z.B. 5.87m, 5.79m, 5.80m)
+- Eckwohnung breit: 6-8m (z.B. 7.14m)
+- Mittelwohnung: 3-4m (z.B. 3.27m)
 
-3. KANTENPROFIL (lfm):
-Pro Fenster INNEN:
-- Fenster Aufrecht: 2 × Fensterhöhe (typisch 1.47m oder 2.60m)
-- Fensterbank: 1 × Fensterbreite (typisch 1.20m oder 0.50m)
-- Bei Loggien-Fenstern: 2 × volle Raumhöhe (2.60m)
-Beispiel: "Fenster Aufrecht: 2 × 1.47 = 2.94 lfm"
+RAUMHÖHE: Verwende das ROHBAUMASS (Roh-Decke bis Roh-Boden):
+- EG: typisch 2.60-2.70m (z.B. 2.66m)
+- OG: typisch 2.55-2.65m (z.B. 2.60m)
+Das Rohbaumaß ist ca. 20-25cm HÖHER als das Fertigmaß im Plan!
+Wenn im Plan H=2.42m steht → Rohbaumaß ≈ 2.42 + 0.24 = 2.66m (EG)
 
-4. ANPUTZLEISTE (lfm):
-Pro Fenster INNEN (gleiche Berechnung wie Kantenprofil):
+═══ POSITION: HAFTGRUND (m²) ═══
+
+NUR auf Betonwänden (Zwischenwand Beton) - NICHT auf Ziegel/Mauerwerk!
+Betonwände brauchen Haftgrund weil Beton glatt und nicht saugend ist.
+Berechne: Betonwand-Länge × Raumhöhe × Anzahl Seiten
+Bei Betontrennwänden: BEIDE Seiten verputzen → Faktor 2!
+
+═══ POSITION: KANTENPROFIL (lfm) ═══
+
+Pro Fenster im Innenbereich:
+- Fenster Aufrecht (beide Seiten): 2 × Fensterhöhe
+  - Normale Fenster: 2 × 1.47m = 2.94 lfm
+  - Loggia/Balkontür: 2 × Raumhöhe (2.60m oder 2.66m)
+- Fensterbank: 1 × Fensterbreite
+  - Normal: 1.20m
+  - Klein (WC/Bad): 0.50m
+Loggia-Fenster: 2 × Raumhöhe (KEINE Fensterbank - raumhohe Verglasung)
+Zwischenwand Beton: 2 × Raumhöhe (beide Kanten der Betonwand)
+
+═══ POSITION: ANPUTZLEISTE (lfm) ═══
+
+Pro Fenster: NUR die aufrechten Teile, KEINE Fensterbänke!
 - Fenster Aufrecht: 2 × Fensterhöhe
-- Loggia-Fenster: 2 × Raumhöhe
-KEINE Fensterbänke bei Anputzleiste!
+- Loggia: 2 × Raumhöhe
+Gleiche Berechnung wie Kantenprofil MINUS die Fensterbänke.
 
-BERECHNUNGSFORMAT: Jeder Schritt zeigt Wohnung/Element + Anzahl × Länge × Breite × Höhe = Zwischensumme.`,
+═══ ÖNORM B 2204 ABZUGSREGELN ═══
+- Öffnungen bis 0.5m²: kein Abzug, Leibungen dazurechnen
+- Öffnungen 0.5-4.0m² MIT Leibungen: durchgemessen (nicht abziehen)
+- Öffnungen 0.5-4.0m² OHNE Leibungen: abziehen
+- Öffnungen über 4.0m²: abziehen, Leibungen extra addieren
+
+BERECHNUNGSFORMAT: Jede Zeile: Beschreibung | Anz × Länge × Breite × Höhe = Zwischensumme`,
 
         mauerwerk: `
 FOKUS: MAUERWERK / ROHBAU
