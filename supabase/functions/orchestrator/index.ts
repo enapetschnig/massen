@@ -455,18 +455,30 @@ POSITION 1: HAFTGRUND (m²)
 POSITION 2: INNENPUTZ WÄNDE (m²)
 NUR Wohnungstrennwände! KEINE Rauminnenwände!
 
-Identifiziere pro Wohnung welche TRENNWÄNDE sie hat:
-- ECKWOHNUNG (am Gebäudeende): 2 Trennwände
-  * Wand Tiefe: ~5.8-5.9m × Höhe (die Wohnungstiefe, NICHT Gebäudetiefe!)
-  * Wand Breite: ~7.0-7.2m × Höhe (Eckwohnungen sind BREIT, 7m nicht 3m!)
-- MITTELWOHNUNG (in der Mitte): 2-3 Trennwände
-  * Wand Tiefe: ~5.8-5.9m × Höhe
-  * Wand Breite: ~3.2-3.3m × Höhe (Mittelwohnungen sind SCHMAL!)
-  * Oft: Betonzwischenwand extra
-- BETONZWISCHENWÄNDE: BEIDE Seiten verputzen! → Faktor 2!
-  * "Zwischenwand Beton: 2 × 6.20 × 1.0 × 2.66 = 32.98"
-  * "Leibung: 1 × 0.20 × 1.0 × 2.66 = 0.53"
-Die Trennwandlängen aus den Maßketten im Plan lesen!
+METHODE ZUR BESTIMMUNG DER TRENNWANDLÄNGEN:
+Berechne die Wandlängen MATHEMATISCH aus Fläche und Umfang der Räume!
+Formel: Wenn Fläche=F und Umfang=U, dann sind die Seiten a und b:
+  a = (U/2 + √((U/2)² - 4F)) / 2
+  b = (U/2 - √((U/2)² - 4F)) / 2
+
+WOHNUNGSBREITE bestimmen:
+- Nimm den VORRAUM/GANG jeder Wohnung (geht über die volle Breite)
+- Berechne seine Seitenlängen → die LÄNGERE Seite = Wohnungsbreite
+- Eckwohnungen: Vorraum-Breite ≈ 7.0-7.2m
+- Mittelwohnungen: Wohnküche KÜRZERE Seite ≈ 3.3-3.6m
+
+WOHNUNGSTIEFE bestimmen:
+- Nimm die WOHNKÜCHE jeder Wohnung
+- Berechne Seitenlängen → die LÄNGERE Seite ≈ 5.7-5.9m = Wohnungstiefe
+
+TRENNWAND pro Wohnung:
+- WAND 1: Wohnungstiefe × Rohbau-Höhe
+- WAND 2: Wohnungsbreite × Rohbau-Höhe
+- Bei Eckwohnungen: typisch 2 Trennwände
+- Bei Mittelwohnungen: typisch 2 Trennwände (evtl. + Betonzwischenwand)
+
+BETONZWISCHENWÄNDE: BEIDE Seiten verputzen → Faktor 2!
+  "Zwischenwand Beton: 2 × Länge × 1.0 × Höhe = ..."
 
 POSITION 3: KANTENPROFIL (lfm)
 - Pro Fenster: 2 × Fensterhöhe + 1 × Fensterbreite
