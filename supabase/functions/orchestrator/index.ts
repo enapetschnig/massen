@@ -38,7 +38,7 @@ serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
 
   try {
-    const { plan_id, step = 1 } = await req.json()
+    const { plan_id, step = 1, gewerk = "allgemein" } = await req.json()
     if (!plan_id) throw new Error("plan_id fehlt")
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!)
@@ -255,6 +255,7 @@ JSON-Format:
           anmerkungen: passB.anmerkungen || "",
         },
         geo: merged,
+        gewerk: gewerk,
       }
       await sb.from("plaene").update({ agent_log: log }).eq("id", plan_id)
 
@@ -272,18 +273,102 @@ JSON-Format:
     // ========== STEP 2: Kalkulation ==========
     if (step === 2) {
       const geo = plan.agent_log?.geo
+      const selectedGewerk = plan.agent_log?.gewerk || gewerk || "allgemein"
       if (!geo) throw new Error("Step 1 zuerst ausführen")
 
+      // Build gewerk-specific prompt additions
+      const gewerkPrompts: Record<string, string> = {
+        verputzer: `
+FOKUS: VERPUTZER / SPACHTELARBEITEN (VP/SR)
+Berechne NUR Verputzerleistungen - genau wie ein Verputzerbetrieb kalkuliert.
+
+AUSSENPOSITIONEN (pro Gebäudeansicht - Nordwest, Nordost, Südost, Südwest):
+- Leichtputz mineralisch: Ansichtsfläche = Gebäudelänge × Gebäudehöhe, dann Abzüge für Öffnungen (Loggien, Eingänge)
+- Gewebespachtelung: gleiche Berechnung, andere Abzüge
+- Dünnputz kunstharz Rillenstruktur 3mm (Fläche >4m²)
+- Dünnputz kunstharz Reibstruktur 1,5mm (Fläche >4m² und <4m²)
+- Sockelputzprofil (Laufmeter Gebäudeumfang + Loggien-Leibungen)
+- Glattstrich Sockelbereich (Sockellänge × 0.60m Höhe)
+- Drahtrichtwinkel (4 Ecken × Gebäudehöhe)
+- Fensterbankaufnahme mit Dichtebene (Anzahl Fenster × Fensterbreite)
+- Rillengleitendstücke für Fensterbankkeil (2 Stk pro Fenster)
+- Schacht für Jalousieneinbau (wie Fensterbankaufnahme)
+- Fensterlaibungen gedämmt (Anzahl × Höhe der Fensterleibungen, Laufmeter)
+- Sturzausbildung Loggien (Anzahl × Breite)
+- Kantenschutz-Gewebewinkel (alle Kanten/Ecken in Laufmetern)
+- Anputzleiste (Laufmeter an allen Fenstern und Türen)
+
+INNENPOSITIONEN:
+- Haftgrund (Wandfläche aller Räume)
+- Innenputz Wände (Wandfläche aller Räume - Abzüge nach Putzregel)
+- Kantenprofil (alle inneren Kanten in Laufmetern)
+- Anputzleiste (Laufmeter an Fenstern und Türen innen)
+
+BERECHNUNGSFORMAT: Jeder Schritt zeigt Ansicht/Raum + Anzahl × Länge × Breite × Höhe = Zwischensumme.
+Negative Werte bei Abzügen (minus bei Höhe oder Breite).`,
+
+        mauerwerk: `
+FOKUS: MAUERWERK / ROHBAU
+- Außenwände: Ansichtsflächen × Wandstärke = Volumen m³
+- Innenwände: Wandlänge × Wandhöhe × Wandstärke = Volumen m³
+- Abzüge: Öffnungen <0.5m² kein, 0.5-3m² halb, >3m² voll
+- Leibungen separat`,
+
+        maler: `
+FOKUS: MALER / ANSTRICH
+- Wandflächen pro Raum (Umfang × Höhe - Öffnungsabzüge)
+- Deckenflächen pro Raum
+- Leibungsflächen (seitlich, Sturz, Brüstung)
+- Grundierung als eigene Position`,
+
+        fliesen: `
+FOKUS: FLIESEN / BELÄGE
+- Bodenfliesen pro Raum (nur Räume mit Fliesen)
+- Wandfliesen pro Raum (Bad, WC, Küche - typisch bis 2.10m Höhe)
+- Sockelleisten
+- Abzüge: <0.1m² kein, ≥0.1m² voll`,
+
+        estrich: `
+FOKUS: ESTRICH
+- Zementestrich pro Raum
+- Randdämmstreifen (Laufmeter Umfang)
+- Trittschalldämmung (gleiche Fläche)
+- Feuchtigkeitssperre (Nassräume)`,
+
+        trockenbau: `
+FOKUS: TROCKENBAU
+- Gipskartonwände (Fläche, Laufmeter)
+- Vorsatzschalen
+- Abhangdecken
+- Spachtelung und Verfugung`,
+
+        allgemein: `
+ALLE GEWERKE berechnen:
+01. Mauerwerk/Rohbau (m², m³)
+02. Innenputz (m², lfm)
+03. Außenputz (m², lfm)
+04. Malerarbeiten (m²)
+05. Bodenbelag nach Typ (m²)
+06. Estrich (m²)
+07. Fensterbänke (lfm)
+08. Leibungen (m², lfm)`,
+      }
+
+      const gewerkPrompt = gewerkPrompts[selectedGewerk] || gewerkPrompts.allgemein
+
       const kalk = await callClaude(cfg.value,
-        `Du bist ein erfahrener österreichischer Baukalkulator. Du erstellst eine PROFESSIONELLE Massenermittlung wie sie auf echten Baustellen verwendet wird.
+        `Du bist ein erfahrener österreichischer Baukalkulator. Du erstellst eine PROFESSIONELLE Massenermittlung EXAKT wie sie auf echten Baustellen verwendet wird.
 
 WICHTIG: Eine echte Massenermittlung hat VIELE detaillierte Positionen. Nicht nur 10 - sondern 30-60+!
 
+GEWÄHLTES GEWERK: ${selectedGewerk.toUpperCase()}
+${gewerkPrompt}
+
 POSITIONSSTRUKTUR (wie in der Praxis):
-Für JEDES Gewerk erstellst du Positionen mit DETAILLIERTEN Berechnungsschritten.
+Für JEDES relevante Gewerk erstellst du Positionen mit DETAILLIERTEN Berechnungsschritten.
 Jeder Berechnungsschritt zeigt: Beschreibung | Anzahl × Länge × Breite × Höhe = Zwischensumme
 
-GEWERKE UND POSITIONEN:
+ÖNORM-ABZUGSREGELN:
 
 01. MAUERWERK / ROHBAU
 - Pro Raum: Wandfläche = Umfang × Höhe

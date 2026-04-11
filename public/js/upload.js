@@ -85,6 +85,16 @@
           '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Fertig' : 'Hochgeladen') + '</span>' + konfBadge + '</div>' +
         '</div></div>' +
         '<div class="plan-actions">' +
+          '<select class="form-control gewerk-select" data-id="' + plan.id + '">' +
+            '<option value="allgemein">Allgemein (alle Gewerke)</option>' +
+            '<option value="verputzer">Verputzer / Spachtelarbeiten (VP/SR)</option>' +
+            '<option value="mauerwerk">Mauerwerk / Rohbau</option>' +
+            '<option value="maler">Maler / Anstrich</option>' +
+            '<option value="fliesen">Fliesen / Bel\u00e4ge</option>' +
+            '<option value="estrich">Estrich</option>' +
+            '<option value="trockenbau">Trockenbau</option>' +
+            '<option value="zimmerer">Zimmerer / Dach</option>' +
+          '</select>' +
           (done
             ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">Ergebnisse</button>' +
               '<button class="btn btn-outline btn-sm reana-btn" data-id="' + plan.id + '">Neu analysieren</button>'
@@ -135,6 +145,8 @@
     btn.disabled = true;
     btn.textContent = 'KI analysiert...';
 
+    var gewerk = document.querySelector('.gewerk-select[data-id="'+planId+'"]').value;
+
     if (analysisError) { analysisError.classList.add('hidden'); analysisError.textContent = ''; }
     showProgress();
 
@@ -142,7 +154,7 @@
       return fetch(SUPABASE_URL + '/functions/v1/orchestrator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-        body: JSON.stringify({ plan_id: planId, step: step })
+        body: JSON.stringify({ plan_id: planId, step: step, gewerk: gewerk })
       }).then(function (res) {
         return res.json().then(function (data) {
           if (!res.ok || data.error) throw new Error(data.error || 'Schritt ' + step + ' fehlgeschlagen');
