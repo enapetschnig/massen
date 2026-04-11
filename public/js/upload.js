@@ -130,58 +130,68 @@
     });
   }
 
-  // --- Analyse starten ---
+  // --- Analyse starten (3 Schritte nacheinander) ---
   function startAnalysis(planId, btn) {
     btn.disabled = true;
     btn.textContent = 'KI analysiert...';
 
-    // Fehlermeldung zuruecksetzen
-    if (analysisError) {
-      analysisError.classList.add('hidden');
-      analysisError.textContent = '';
-    }
-
-    // Fortschritt anzeigen
+    if (analysisError) { analysisError.classList.add('hidden'); analysisError.textContent = ''; }
     showProgress();
 
-    fetch(SUPABASE_URL + '/functions/v1/orchestrator', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
-      },
-      body: JSON.stringify({ plan_id: planId })
-    })
-      .then(function (res) {
-        if (!res.ok) {
-          return res.json().then(function (d) {
-            throw new Error(d.detail || d.error || 'Analyse fehlgeschlagen');
-          });
-        }
-        return res.json();
-      })
-      .then(function (data) {
-        // Fortschritt auf 100% und alle Agenten als fertig markieren
-        completeProgress();
+    function callStep(step) {
+      return fetch(SUPABASE_URL + '/functions/v1/orchestrator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
+        body: JSON.stringify({ plan_id: planId, step: step })
+      }).then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok || data.error) throw new Error(data.error || 'Schritt ' + step + ' fehlgeschlagen');
+          return data;
+        });
+      });
+    }
 
+    // Step 1: Parser + Geometrie
+    setStepActive(0);
+    if (progressStatus) progressStatus.textContent = 'Schritt 1/3: PDF wird analysiert...';
+    if (analysisBar) { analysisBar.style.width = '10%'; analysisBar.textContent = '10%'; }
+
+    callStep(1)
+      .then(function (r1) {
+        setStepDone(0); setStepActive(1);
+        if (progressStatus) progressStatus.textContent = 'Schritt 2/3: Massen werden berechnet... (' + r1.raeume + ' Räume, ' + r1.fenster + ' Fenster)';
+        if (analysisBar) { analysisBar.style.width = '40%'; analysisBar.textContent = '40%'; }
+        return callStep(2);
+      })
+      .then(function (r2) {
+        setStepDone(1); setStepActive(2);
+        if (progressStatus) progressStatus.textContent = 'Schritt 3/3: Qualitätsprüfung... (' + r2.massen + ' Positionen)';
+        if (analysisBar) { analysisBar.style.width = '70%'; analysisBar.textContent = '70%'; }
+        return callStep(3);
+      })
+      .then(function (r3) {
+        setStepDone(2); setStepDone(3);
+        if (analysisBar) { analysisBar.style.width = '100%'; analysisBar.textContent = '100%'; }
+        if (progressStatus) progressStatus.textContent = 'Analyse abgeschlossen! Konfidenz: ' + r3.konfidenz + '%';
         setTimeout(function () {
           hideProgress();
-          // Ergebnisse laden und Plaene neu laden
           if (window.loadResults) window.loadResults(planId);
           loadPlans();
-        }, 800);
+        }, 1200);
       })
       .catch(function (err) {
         hideProgress();
         btn.disabled = false;
         btn.textContent = 'Analyse starten';
-
-        // Fehler inline anzeigen statt window.alert
-        if (analysisError) {
-          analysisError.textContent = 'Fehler: ' + err.message;
-          analysisError.classList.remove('hidden');
-        }
+        if (analysisError) { analysisError.textContent = 'Fehler: ' + err.message; analysisError.classList.remove('hidden'); }
       });
+  }
+
+  function setStepActive(idx) {
+    if (agentIds[idx]) { var el = document.getElementById(agentIds[idx]); if (el) { el.classList.remove('done'); el.classList.add('active'); } }
+  }
+  function setStepDone(idx) {
+    if (agentIds[idx]) { var el = document.getElementById(agentIds[idx]); if (el) { el.classList.remove('active'); el.classList.add('done'); } }
   }
 
   // --- Fortschrittsanzeige ---
