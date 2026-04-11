@@ -328,9 +328,17 @@ WANDLÄNGEN - KRITISCH WICHTIG:
   Die Gebäudetiefe ist 15-20m aber die Trennwand geht nur durch EINE Wohnung!
   Teile die Gebäudetiefe durch die Anzahl der Wohnungen in der Tiefe!
   Beispiel: Gebäudetiefe 17.8m ÷ 3 Wohnungen = 5.93m pro Wohnung
-- WAND B = Breite der Wohnung
-  Eckwohnung: 6-8m (z.B. 7.14m)
-  Mittelwohnung: 3-4m (z.B. 3.27m)
+- WAND B = Breite der Wohnung (die Querwand)
+  ECKWOHNUNGEN (am Ende des Gebäudes): BREIT! 6-8m (z.B. 7.14m)
+  MITTELWOHNUNGEN (in der Mitte): SCHMAL! 3-4m (z.B. 3.27m)
+  ACHTUNG: Eckwohnungen haben die BREITERE Querwand, nicht die schmale!
+
+BESONDERHEITEN BEI ECKWOHNUNGEN:
+- Eckwohnungen haben MEHR Trennwände als Mittelwohnungen (3-5 statt 2)
+- Sie haben oft BETONZWISCHENWÄNDE (Zwischenwand Beton)
+- Betonzwischenwände werden BEIDSEITIG verputzt → Faktor 2!
+  Beispiel: "Zwischenwand Beton: 2 × 6.20 × 1.0 × 2.66 = 32.98"
+- Die größte Eckwohnung kann 50-90 m² Trennwand-Putzfläche haben
 
 RAUMHÖHE: Verwende das ROHBAUMASS (Roh-Decke bis Roh-Boden):
 - EG: typisch 2.60-2.70m (z.B. 2.66m)
