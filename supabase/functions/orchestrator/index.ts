@@ -275,54 +275,93 @@ JSON-Format:
       if (!geo) throw new Error("Step 1 zuerst ausführen")
 
       const kalk = await callClaude(cfg.value,
-        `Du bist ein erfahrener österreichischer Baukalkulator. Berechne die Massen nach ÖNORM.
+        `Du bist ein erfahrener österreichischer Baukalkulator. Du erstellst eine PROFESSIONELLE Massenermittlung wie sie auf echten Baustellen verwendet wird.
 
-ABZUGSREGELN:
-Mauerwerk (Pos 01): Öffnungen <0.5m² kein Abzug, 0.5-3m² halber Abzug, >3m² voller Abzug
-Putz (Pos 02): Öffnungen <2.5m² kein Abzug, 2.5-10m² halber Abzug, >10m² voller Abzug
-Maler (Pos 03): Gleiche Regeln wie Putz
-Boden (Pos 04): Nettofläche des Raums
-Estrich (Pos 05): Gleiche Fläche wie Boden
-Fensterbänke (Pos 06): Breite = AL-Breite + 2×5cm Überstand, Tiefe = Wandstärke + 3cm
+WICHTIG: Eine echte Massenermittlung hat VIELE detaillierte Positionen. Nicht nur 10 - sondern 30-60+!
 
-LEIBUNGEN bei Fenstern und Türen:
-- Seitenleibung = 2 × Wandstärke × Öffnungshöhe
-- Sturzleibung = Wandstärke × Öffnungsbreite
-- Brüstungsleibung (nur Fenster) = Wandstärke × Öffnungsbreite
+POSITIONSSTRUKTUR (wie in der Praxis):
+Für JEDES Gewerk erstellst du Positionen mit DETAILLIERTEN Berechnungsschritten.
+Jeder Berechnungsschritt zeigt: Beschreibung | Anzahl × Länge × Breite × Höhe = Zwischensumme
 
-POSITIONSNUMMERN:
-01 = Mauerwerk (pro Raum: Wandfläche brutto - Abzüge)
-02 = Putz (Wandfläche - Abzüge nach Putz-Regel)
-03 = Maler (gleich wie Putz + Deckenfläche)
-04 = Boden (Raumfläche netto)
-05 = Estrich (Raumfläche netto)
-06 = Fensterbänke (pro Fenster)
+GEWERKE UND POSITIONEN:
 
-Berechne für JEDEN Raum JEDE Position. Zeige den Rechenweg.
+01. MAUERWERK / ROHBAU
+- Pro Raum: Wandfläche = Umfang × Höhe
+- Abzüge: Öffnungen <0.5m² KEIN Abzug, 0.5-3m² HALBER Abzug, >3m² VOLLER Abzug
+- Leibungen EXTRA ausweisen
+
+02. INNENPUTZ
+- Haftgrund (gleiche Fläche wie Putz)
+- Innenputz Wände (Wandfläche - Abzüge nach Putzregel: <2.5m² kein, 2.5-10m² halb, >10m² voll)
+- Kantenprofile (Laufmeter aller Kanten)
+- Anputzleisten (Laufmeter an Fenster/Türen)
+
+03. AUSSENPUTZ (falls Außenwände vorhanden)
+- Leichtputz mineralisch (Ansicht Nord/Ost/Süd/West jeweils)
+- Gewebespachtelung
+- Dünnputz (Rillenstruktur/Reibstruktur nach Fläche)
+- Sockelbereich
+- Fensterlaibungen (Laufmeter)
+- Sturzausbildung
+- Fensterbankaufnahme
+
+04. MALERARBEITEN
+- Wandflächen (gleiche Abzüge wie Putz)
+- Deckenflächen = Raumfläche
+- Leibungsflächen extra
+
+05. BODENBELAG
+- Pro Bodenbelagstyp (Parkett, Fliesen, etc.)
+- Nettofläche jedes Raums
+
+06. ESTRICH
+- Alle Raumflächen zusammen
+
+07. FENSTERBÄNKE
+- Pro Fenster: Laufmeter = RB-Breite in Metern
+- Fensterbank innen: Tiefe = Wandstärke
+
+BERECHNUNGSFORMAT pro Position:
+Jede Position hat "berechnung" als Array von Strings, jeder String = ein Rechenschritt:
+"Wohnküche Wandfläche: 1 × 20.66 × 1.0 × 2.42 = 50.00"
+"Abzug FE_31: 1 × 1.30 × 1.0 × -2.88 = -3.74"
+"Leibung FE_31 seitlich: 2 × 0.30 × 1.0 × 2.88 = 1.73"
+
 Antworte NUR mit validem JSON, KEIN Markdown.`,
-        [{ type: "text", text: `Geometriedaten:\n${JSON.stringify(geo)}\n\nBerechne alle Massen. JSON-Format:
+        [{ type: "text", text: `Geometriedaten:\n${JSON.stringify(geo)}\n\nErstelle eine DETAILLIERTE professionelle Massenermittlung. Mindestens 25 Positionen!
+
+JSON-Format:
 {
   "positionen": [
     {
-      "pos_nr": "01.01",
-      "beschreibung": "Mauerwerk Wohnküche",
-      "gewerk": "Mauerwerk",
-      "raum_referenz": "Wohnküche",
-      "berechnung": ["Wandfläche brutto: 20.66m × 2.42m = 50.00m²", "Abzug FE_31: -2.28m² (voll)", "Netto: 47.72m²"],
-      "endsumme": 47.72,
-      "einheit": "m2",
+      "pos_nr": "02.01",
+      "beschreibung": "Innenputz Wände",
+      "gewerk": "Innenputz",
+      "raum_referenz": "Alle Räume",
+      "berechnung": [
+        "Wohnküche: 1 × 20.66 × 1.0 × 2.42 = 50.00",
+        "Abzug FE_31 (2.28m², kein Abzug <2.5m²): 0",
+        "Schlafzimmer: 1 × 17.10 × 1.0 × 2.42 = 41.38",
+        "Bad: 1 × 12.30 × 1.0 × 2.42 = 29.77",
+        "..."
+      ],
+      "endsumme": 388.89,
+      "einheit": "m²",
       "konfidenz": 0.90
     }
   ],
   "zusammenfassung": {
-    "gesamt_mauerwerk_m2": 0,
-    "gesamt_putz_m2": 0,
-    "gesamt_maler_m2": 0,
-    "gesamt_boden_m2": 0,
-    "gesamt_estrich_m2": 0,
-    "gesamt_fensterbaenke_lfm": 0
+    "innenputz_wande_m2": 388.89,
+    "kantenprofile_lfm": 210.28,
+    "anputzleisten_lfm": 185.68,
+    "bodenbelag_parkett_m2": 0,
+    "bodenbelag_fliesen_m2": 0,
+    "estrich_m2": 0,
+    "malerarbeiten_wande_m2": 0,
+    "malerarbeiten_decken_m2": 0,
+    "fensterbaenke_lfm": 0
   },
-  "gesamt_konfidenz": 0.88
+  "gesamt_konfidenz": 0.90
 }` }],
         32000)
 
