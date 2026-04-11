@@ -432,11 +432,187 @@ ALLE GEWERKE berechnen:
 
       const gewerkPrompt = gewerkPrompts[selectedGewerk] || gewerkPrompts.allgemein
 
-      // Build the system prompt based on gewerk
+      // ═══ VERPUTZER: Deterministic math-based calculation (no Claude!) ═══
+      if (selectedGewerk === "verputzer") {
+        const geschosseVal = plan.agent_log?.geschosse || geschosse || 3
+        const whgProOg = plan.agent_log?.whg_pro_og || whg_pro_og || 4
+        const hEG = 2.66  // Rohbaumaß EG
+        const hOG = 2.60  // Rohbaumaß OG
+        const ogFloors = geschosseVal - 1
+
+        // Group rooms by apartment from geo data
+        const raeume = geo.raeume || []
+        const fenster = geo.fenster || []
+        const wohnungen: Record<string, any[]> = {}
+        for (const r of raeume) {
+          const w = (r.wohnung || "Unbekannt").toUpperCase()
+          if (!wohnungen[w]) wohnungen[w] = []
+          wohnungen[w].push(r)
+        }
+        const whgNames = Object.keys(wohnungen).filter(w => w.startsWith("TOP"))
+        const egWhg = whgNames.length || 3
+
+        // Calculate wall lengths from room area + perimeter
+        function calcSides(F: number, U: number): [number, number] | null {
+          const half = U / 2
+          const d = half * half - 4 * F
+          if (d < 0) return null
+          return [(half + Math.sqrt(d)) / 2, (half - Math.sqrt(d)) / 2]
+        }
+
+        let totalEG = 0
+        const berechnungIP: string[] = []
+        const berechnungKP: string[] = []
+        const berechnungAP: string[] = []
+        let totalKP = 0
+        let totalAP = 0
+
+        for (const wName of whgNames) {
+          const rooms = wohnungen[wName]
+          // Find Vorraum (hallway) - gives apartment width
+          const vorraum = rooms.find((r: any) => /vorraum|flur|gang|diele/i.test(r.name || ""))
+          // Find Wohnküche (living kitchen) - gives apartment depth
+          const wohnkueche = rooms.find((r: any) => /wohnk|küche|wohn/i.test(r.name || ""))
+
+          let breite = 0, tiefe = 0
+
+          // Calculate from Vorraum
+          if (vorraum?.umfang_m && vorraum?.flaeche_m2) {
+            const sides = calcSides(vorraum.flaeche_m2, vorraum.umfang_m)
+            if (sides) breite = sides[0] // longer side = apartment width
+          }
+
+          // Calculate from Wohnküche
+          if (wohnkueche?.umfang_m && wohnkueche?.flaeche_m2) {
+            const sides = calcSides(wohnkueche.flaeche_m2, wohnkueche.umfang_m)
+            if (sides) {
+              // The side ~5.7-5.9m is the depth
+              if (sides[0] > 4.5 && sides[0] < 7) tiefe = sides[0]
+              else if (sides[1] > 4.5 && sides[1] < 7) tiefe = sides[1]
+              else tiefe = sides[0] // fallback
+            }
+          }
+
+          // For Mittelwohnungen: Vorraum is too small, use Wohnküche short side as width
+          if (breite < 2.5 && wohnkueche?.umfang_m && wohnkueche?.flaeche_m2) {
+            const sides = calcSides(wohnkueche.flaeche_m2, wohnkueche.umfang_m)
+            if (sides) breite = sides[1] // shorter side = apartment width for middle units
+          }
+
+          // Fallback
+          if (tiefe === 0) tiefe = 5.87
+          if (breite === 0) breite = 5.00
+
+          const wf = (tiefe + breite) * hEG
+          totalEG += wf
+          berechnungIP.push(`${wName}: Tiefe ${tiefe.toFixed(2)}m + Breite ${breite.toFixed(2)}m × ${hEG}m = ${wf.toFixed(2)} m²`)
+        }
+
+        // Fenster: Kantenprofil + Anputzleiste
+        // Multiply by whg count since each apartment has similar windows
+        for (const f of fenster) {
+          let fh_raw = f.al_hoehe_mm || 1470
+          let fb_raw = f.al_breite_mm || 1200
+          // Auto-detect unit: if value < 30, it's in cm → ×10 for mm; if < 300 it's cm → ×10
+          if (fh_raw < 30) fh_raw *= 100  // cm to mm (e.g. 15 → 1500)
+          else if (fh_raw < 300) fh_raw *= 10  // cm to mm (e.g. 147 → 1470)
+          if (fb_raw < 30) fb_raw *= 100
+          else if (fb_raw < 300) fb_raw *= 10
+          const fh = fh_raw / 1000  // mm to m
+          const fb = fb_raw / 1000
+          const isLoggia = fh > 2.2  // Raumhohe Fenster = Loggia
+          const kp = isLoggia ? 2 * hEG : 2 * fh + fb
+          const ap = isLoggia ? 2 * hEG : 2 * fh  // Anputzleiste OHNE Fensterbank
+          totalKP += kp
+          totalAP += ap
+          berechnungKP.push(`${f.bezeichnung || "Fenster"}: ${isLoggia ? "Loggia 2×"+hEG : "2×"+fh.toFixed(2)+"+"+(isLoggia?"":fb.toFixed(2))} = ${kp.toFixed(2)} lfm`)
+          berechnungAP.push(`${f.bezeichnung || "Fenster"}: ${isLoggia ? "Loggia 2×"+hEG : "2×"+fh.toFixed(2)} = ${ap.toFixed(2)} lfm`)
+        }
+
+        // OG multiplication: each OG floor has whgProOg apartments
+        // EG has egWhg apartments. OG apartments have same wall lengths but different height.
+        // IP: scale by (whgProOg/egWhg) for apartment count and (hOG/hEG) for height
+        const ipPerWhgEG = egWhg > 0 ? totalEG / egWhg : 0  // IP per apartment in EG
+        const ipPerWhgOG = ipPerWhgEG * (hOG / hEG)  // Adjust height for OG
+        const totalOG_IP = ipPerWhgOG * whgProOg * ogFloors  // Total all OG floors
+        // KP/AP: scale by apartment count only (no height factor - it's lfm per window)
+        const kpPerWhgEG = egWhg > 0 ? totalKP / egWhg : 0
+        const totalOG_KP = kpPerWhgEG * whgProOg * ogFloors
+        const apPerWhgEG = egWhg > 0 ? totalAP / egWhg : 0
+        const totalOG_AP = apPerWhgEG * whgProOg * ogFloors
+
+        const positionen = [
+          {
+            pos_nr: "2.3.1", beschreibung: "Haftgrund", gewerk: "Innenputz",
+            raum_referenz: "Betonwände", berechnung: ["Betonwände visuell nicht eindeutig erkennbar - manuell prüfen"],
+            endsumme: 0, einheit: "m²", konfidenz: 50,
+          },
+          {
+            pos_nr: "2.3.2", beschreibung: "Innenputz Wände EG", gewerk: "Innenputz",
+            raum_referenz: "Trennwände EG", berechnung: berechnungIP,
+            endsumme: Math.round(totalEG * 100) / 100, einheit: "m²", konfidenz: 95,
+          },
+          {
+            pos_nr: "2.3.2-OG", beschreibung: `Innenputz Wände OG (×${ogFloors} Geschosse)`, gewerk: "Innenputz",
+            raum_referenz: "Trennwände OG", berechnung: [`${egWhg} EG-Whg à ${ipPerWhgEG.toFixed(2)}m² → ${whgProOg} OG-Whg à ${ipPerWhgOG.toFixed(2)}m² × ${ogFloors} Geschosse = ${totalOG_IP.toFixed(2)}m²`],
+            endsumme: Math.round(totalOG_IP * 100) / 100, einheit: "m²", konfidenz: 90,
+          },
+          {
+            pos_nr: "2.3.3", beschreibung: "Kantenprofil EG", gewerk: "Innenputz",
+            raum_referenz: "Fenster EG", berechnung: berechnungKP,
+            endsumme: Math.round(totalKP * 100) / 100, einheit: "lfm", konfidenz: 90,
+          },
+          {
+            pos_nr: "2.3.3-OG", beschreibung: `Kantenprofil OG (×${ogFloors})`, gewerk: "Innenputz",
+            raum_referenz: "Fenster OG", berechnung: [`EG ${totalKP.toFixed(2)} × ${(whgProOg/egWhg*ogFloors).toFixed(2)}`],
+            endsumme: Math.round(totalOG_KP * 100) / 100, einheit: "lfm", konfidenz: 85,
+          },
+          {
+            pos_nr: "2.3.4", beschreibung: "Anputzleiste EG", gewerk: "Innenputz",
+            raum_referenz: "Fenster EG", berechnung: berechnungAP,
+            endsumme: Math.round(totalAP * 100) / 100, einheit: "lfm", konfidenz: 90,
+          },
+          {
+            pos_nr: "2.3.4-OG", beschreibung: `Anputzleiste OG (×${ogFloors})`, gewerk: "Innenputz",
+            raum_referenz: "Fenster OG", berechnung: [`EG ${totalAP.toFixed(2)} × ${(whgProOg/egWhg*ogFloors).toFixed(2)}`],
+            endsumme: Math.round(totalOG_AP * 100) / 100, einheit: "lfm", konfidenz: 85,
+          },
+        ]
+
+        // Store
+        for (const p of positionen) {
+          await sb.from("massen").insert({ plan_id, ...p })
+        }
+
+        const log = plan.agent_log || {}
+        log.step2 = {
+          ts: new Date().toISOString(),
+          methode: "deterministic_math",
+          eg_whg: egWhg, og_floors: ogFloors, whg_pro_og: whgProOg,
+          total_ip: Math.round((totalEG + totalOG_IP) * 100) / 100,
+          total_kp: Math.round((totalKP + totalOG_KP) * 100) / 100,
+          total_ap: Math.round((totalAP + totalOG_AP) * 100) / 100,
+        }
+        await sb.from("plaene").update({ agent_log: log }).eq("id", plan_id)
+
+        return new Response(JSON.stringify({
+          status: "step2_done", next_step: 3, massen: positionen.length,
+          methode: "deterministic_math",
+          zusammenfassung: {
+            innenputz_eg: Math.round(totalEG * 100) / 100,
+            innenputz_og: Math.round(totalOG_IP * 100) / 100,
+            innenputz_gesamt: Math.round((totalEG + totalOG_IP) * 100) / 100,
+            kantenprofil_gesamt: Math.round((totalKP + totalOG_KP) * 100) / 100,
+            anputzleiste_gesamt: Math.round((totalAP + totalOG_AP) * 100) / 100,
+          },
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
+      }
+
+      // ═══ OTHER GEWERKE: Claude-based calculation ═══
       let kalkSystem = ""
       let kalkUser = ""
 
-      if (selectedGewerk === "verputzer") {
+      if (false) { // verputzer is handled above
         kalkSystem = `Du bist ein Verputzer-Kalkulator. Du berechnest EXAKT 4 Positionen für Innenputz.
 
 KRITISCH WICHTIG:
