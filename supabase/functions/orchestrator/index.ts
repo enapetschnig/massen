@@ -29,9 +29,9 @@ async function callClaude(apiKey: string, system: string, content: any[], maxTok
 }
 
 /*
- * Step-based orchestrator with DUAL VISION SCAN.
- *   step=1 → Deep Vision Scan (Pass A overview + Pass B verification) + geometry fixes
- *   step=2 → Kalkulation (ÖNORM mass calculation)
+ * Step-based orchestrator with 4-PASS FOCUSED VISION SCAN.
+ *   step=1 → 4 focused passes (Structure, Rooms, Windows/Doors, Dimensions) + merge
+ *   step=2 → Kalkulation (ÖNORM mass calculation, gewerk-specific)
  *   step=3 → Kritik (quality check + finalize)
  */
 serve(async (req: Request) => {
@@ -48,7 +48,7 @@ serve(async (req: Request) => {
     const { data: plan } = await sb.from("plaene").select("*").eq("id", plan_id).single()
     if (!plan) throw new Error("Plan nicht gefunden")
 
-    // ========== STEP 1: Deep Vision Scan (dual pass) ==========
+    // ========== STEP 1: 4-Pass Focused Vision Scan ==========
     if (step === 1) {
       // Clean old results
       await sb.from("massen").delete().eq("plan_id", plan_id)
@@ -59,61 +59,118 @@ serve(async (req: Request) => {
       if (!u?.signedUrl) throw new Error("PDF URL fehlt")
       const pdfSource = { type: "document", source: { type: "url", url: u.signedUrl } }
 
-      // ---- PASS A: Overview scan ----
-      const passA = await callClaude(cfg.value,
-        `Du bist ein Senior-Bauingenieur mit 30 Jahren Erfahrung in der Analyse österreichischer Baupläne. Du analysierst diesen Plan wie ein Profi.
+      const errors: string[] = []
 
-SYSTEMATISCHE ANALYSE:
-1. PLANKOPF: Finde Maßstab, Geschoss, Planungsbüro, Plannummer, Index
-2. RAUMAUFTEILUNG: Zähle JEDEN Raum. Gehe den Plan systematisch durch - Zeile für Zeile, von oben nach unten, von links nach rechts. Vergiss KEINEN Raum.
-3. Typische Räume in Wohnbauten: Vorraum, Flur, Gang, Wohnzimmer, Wohnküche, Küche, Essbereich, Schlafzimmer, Kinderzimmer, Gästezimmer, Arbeitszimmer, Bad, WC, Dusche/WC, Abstellraum, Garderobe, Schrankraum, Loggia, Balkon, Terrasse, Keller, Technikraum, Waschküche, Speis
-4. Lies für JEDEN Raum: Name, Fläche m², Umfang m, Höhe m, Bodenbelag
-5. FENSTER: Suche ALLE Fensterbezeichnungen (FE_, F_ etc.) - auch rotiert an Wänden
-6. TÜREN: Suche ALLE Türsymbole (Viertelkreis) und T-Bezeichnungen
-7. WANDSTÄRKEN: Messe/lies die verschiedenen Wandstärken
-8. POSITION: Gib für JEDES Element die ungefähre Position als [x%, y%, w%, h%] an
-
-QUALITÄTSKONTROLLE - Prüfe dich selbst:
-- Summe aller Raumflächen sollte die Gesamtfläche des Geschosses ergeben
-- Jeder Raum sollte mindestens 1 Tür haben
-- Fenster sollten an Außenwänden sein
-- Umfang sollte zur Fläche passen (U ≈ 4 × √Fläche für quadratischen Raum)
-
-Antworte NUR mit validem JSON, KEIN Markdown.`,
-        [
-          pdfSource,
-          { type: "text", text: `Analysiere diesen Bauplan VOLLSTÄNDIG.
+      // ---- PASS 1A: STRUCTURE ----
+      let pass1A: any = {}
+      try {
+        pass1A = await callClaude(cfg.value,
+          `Du bist Bauingenieur. Analysiere die STRUKTUR dieses Plans. Antworte NUR mit validem JSON, KEIN Markdown.`,
+          [
+            pdfSource,
+            { type: "text", text: `Beantworte NUR diese Fragen als JSON:
+1. massstab: welcher Maßstab?
+2. geschoss: welches Geschoss?
+3. raumhoehe_m: welche Raumhöhe steht im Plan?
+4. anzahl_wohnungen: wie viele Wohnungen/Einheiten (Top) sind sichtbar?
+5. wohnungen: Liste jeder Wohnung mit {name, raeume: [Raumname, ...], flaeche_wohnnutz_m2}
+6. wandstaerken_mm: welche Wandstärken erkennst du?
+7. gebaeude_laenge_m: Gesamtlänge des Gebäudes
+8. gebaeude_tiefe_m: Gesamttiefe
 
 JSON-Format:
 {
   "massstab": "1:100",
   "geschoss": "EG",
-  "raumhoehe_global_m": 2.60,
+  "raumhoehe_m": 2.60,
+  "anzahl_wohnungen": 4,
+  "wohnungen": [
+    { "name": "Top 1", "raeume": ["Vorraum", "Wohnküche", "Bad"], "flaeche_wohnnutz_m2": 55.0 }
+  ],
   "wandstaerken_mm": [300, 200, 120],
-  "plankopf": { "planungsbuero": "", "plannummer": "", "index": "" },
+  "gebaeude_laenge_m": 24.0,
+  "gebaeude_tiefe_m": 12.0
+}` },
+          ])
+      } catch (e: any) {
+        errors.push("Pass1A: " + e.message)
+      }
+
+      // Update log after Pass 1A
+      await sb.from("plaene").update({
+        agent_log: {
+          start: new Date().toISOString(),
+          pass1A: { ts: new Date().toISOString(), ok: errors.length === 0, wohnungen: (pass1A.wohnungen || []).length },
+        }
+      }).eq("id", plan_id)
+
+      // ---- PASS 1B: ROOMS ----
+      let pass1B: any = {}
+      try {
+        pass1B = await callClaude(cfg.value,
+          `Du bist Bautechniker. Lies JEDEN Text in JEDEM Raum. Antworte NUR mit validem JSON, KEIN Markdown.`,
+          [
+            pdfSource,
+            { type: "text", text: `Für JEDEN Raum im Plan lies EXAKT ab:
+- Name (wie er im Plan steht)
+- Fläche m² (die Zahl mit m²)
+- Umfang (U: xx.xx m)
+- Höhe (H: x.xx m)
+- Bodenbelag
+- Zu welcher Wohnung (Top) gehört der Raum?
+- Position als [x%, y%, w%, h%]
+Gib die EXAKTEN Zahlen aus dem Plan zurück, keine Schätzungen!
+
+JSON-Format:
+{
   "raeume": [
     {
       "name": "Wohnküche",
-      "bodenbelag": "Parkett",
       "flaeche_m2": 26.37,
       "umfang_m": 20.66,
       "hoehe_m": 2.42,
-      "wandflaeche_m2": 50.0,
+      "bodenbelag": "Parkett",
+      "wohnung": "Top 1",
       "position_pct": [10, 20, 35, 40],
       "konfidenz": 0.95
     }
-  ],
+  ]
+}` },
+          ])
+      } catch (e: any) {
+        errors.push("Pass1B: " + e.message)
+      }
+
+      // Update log after Pass 1B
+      const log1B = (await sb.from("plaene").select("agent_log").eq("id", plan_id).single()).data?.agent_log || {}
+      log1B.pass1B = { ts: new Date().toISOString(), ok: !errors.some(e => e.startsWith("Pass1B")), raeume: (pass1B.raeume || []).length }
+      await sb.from("plaene").update({ agent_log: log1B }).eq("id", plan_id)
+
+      // ---- PASS 1C: WINDOWS & DOORS ----
+      let pass1C: any = {}
+      try {
+        pass1C = await callClaude(cfg.value,
+          `Du bist Fenstertechniker. Lies JEDE Fenster- und Türbezeichnung. Antworte NUR mit validem JSON, KEIN Markdown.`,
+          [
+            pdfSource,
+            { type: "text", text: `Suche ALLE Fensterbezeichnungen (FE_, F_) und Türen (T_).
+Fenster: Lies RPH, FPH, AL Breite+Höhe, RB Breite+Höhe in mm.
+Türen: Lies Breite, Höhe, Typ.
+Ordne jedes Element einem Raum und einer Wohnung zu.
+
+JSON-Format:
+{
   "fenster": [
     {
       "bezeichnung": "FE_31",
       "raum": "Wohnküche",
+      "wohnung": "Top 1",
       "rph_mm": 1010,
       "fph_mm": 480,
       "al_breite_mm": 1510,
       "al_hoehe_mm": 1510,
       "rb_breite_mm": 1760,
       "rb_hoehe_mm": 1760,
-      "flaeche_m2": 2.28,
       "position_pct": [5, 35, 5, 10],
       "konfidenz": 0.90
     }
@@ -122,124 +179,92 @@ JSON-Format:
     {
       "bezeichnung": "T1",
       "raum": "Wohnküche",
+      "wohnung": "Top 1",
       "breite_mm": 900,
       "hoehe_mm": 2100,
       "typ": "Drehflügel",
       "position_pct": [30, 45, 3, 5],
       "konfidenz": 0.85
     }
-  ],
-  "gesamt_konfidenz": 0.90
+  ]
 }` },
-        ])
+          ])
+      } catch (e: any) {
+        errors.push("Pass1C: " + e.message)
+      }
 
-      // Update log after Pass A
-      await sb.from("plaene").update({
-        agent_log: { start: new Date().toISOString(), passA: { ts: new Date().toISOString(), r: (passA.raeume||[]).length, f: (passA.fenster||[]).length, t: (passA.tueren||[]).length } }
-      }).eq("id", plan_id)
+      // Update log after Pass 1C
+      const log1C = (await sb.from("plaene").select("agent_log").eq("id", plan_id).single()).data?.agent_log || {}
+      log1C.pass1C = { ts: new Date().toISOString(), ok: !errors.some(e => e.startsWith("Pass1C")), fenster: (pass1C.fenster || []).length, tueren: (pass1C.tueren || []).length }
+      await sb.from("plaene").update({ agent_log: log1C }).eq("id", plan_id)
 
-      // ---- PASS B: Verification scan ----
-      const raumListe = (passA.raeume || []).map((r: any) => `${r.name}: ${r.flaeche_m2}m², U=${r.umfang_m}m, H=${r.hoehe_m}m, ${r.bodenbelag || "?"}`).join("\n")
-      const fensterListe = (passA.fenster || []).map((f: any) => `${f.bezeichnung} → ${f.raum}, AL=${f.al_breite_mm}x${f.al_hoehe_mm}mm`).join("\n")
-      const tuerenListe = (passA.tueren || []).map((t: any) => `${t.bezeichnung} → ${t.raum}, ${t.breite_mm}mm`).join("\n")
-
-      const passB = await callClaude(cfg.value,
-        `Du bist ein unabhängiger Prüfingenieur. Du überprüfst die Arbeit eines Kollegen.
-
-Hier ist der Plan NOCHMALS. Die erste Analyse hat diese Ergebnisse geliefert:
-
-RÄUME (${(passA.raeume||[]).length} gefunden):
-${raumListe}
-
-FENSTER (${(passA.fenster||[]).length} gefunden):
-${fensterListe}
-
-TÜREN (${(passA.tueren||[]).length} gefunden):
-${tuerenListe}
-
-Prüfe GENAU:
-1. Wurden Räume ÜBERSEHEN? Kleine Räume wie WC, Abstellraum, Garderobe werden oft vergessen.
-2. Sind die Flächen KORREKT abgelesen? Vergleiche mit dem Plan.
-3. Fehlen FENSTER? Schau besonders an den Außenwänden.
-4. Fehlen TÜREN? Jeder Raum braucht mindestens eine Tür.
-5. Sind die Positionen korrekt?
-
-Gib NUR die KORREKTUREN und ERGÄNZUNGEN zurück als JSON. Wenn alles stimmt, gib leere Arrays zurück.
-
-Antworte NUR mit validem JSON, KEIN Markdown.`,
-        [
-          pdfSource,
-          { type: "text", text: `Überprüfe die Analyse und gib Korrekturen zurück.
+      // ---- PASS 1D: DIMENSIONS ----
+      let pass1D: any = {}
+      try {
+        pass1D = await callClaude(cfg.value,
+          `Du bist Vermesser. Lies die MAẞKETTEN. Antworte NUR mit validem JSON, KEIN Markdown.`,
+          [
+            pdfSource,
+            { type: "text", text: `Lies ALLE Bemaßungszahlen im Plan. Das sind Zahlen an Linien mit Pfeilen/Endstrichen.
+Die Zahlen sind in ZENTIMETERN. Typische Werte: 120-800.
+Suche speziell:
+- Gesamtmaße an den Außenkanten
+- Maße zwischen Wohnungstrennwänden
+- Maße einzelner Wandabschnitte
+Für JEDES Maß: {wert_cm, beschreibung, position: 'oben/unten/links/rechts/innen'}
 
 JSON-Format:
 {
-  "neue_raeume": [
-    { "name": "", "bodenbelag": "", "flaeche_m2": 0, "umfang_m": 0, "hoehe_m": 0, "position_pct": [0,0,0,0], "konfidenz": 0.85 }
+  "masse": [
+    { "wert_cm": 587, "beschreibung": "Wand Wohnküche Süd", "position": "unten" }
   ],
-  "korrigierte_raeume": [
-    { "name": "ExistierenderRaum", "korrekturen": { "flaeche_m2": 12.5, "umfang_m": 14.2 } }
-  ],
-  "neue_fenster": [
-    { "bezeichnung": "", "raum": "", "rph_mm": 0, "fph_mm": 0, "al_breite_mm": 0, "al_hoehe_mm": 0, "rb_breite_mm": 0, "rb_hoehe_mm": 0, "position_pct": [0,0,0,0], "konfidenz": 0.85 }
-  ],
-  "neue_tueren": [
-    { "bezeichnung": "", "raum": "", "breite_mm": 0, "hoehe_mm": 0, "typ": "", "position_pct": [0,0,0,0], "konfidenz": 0.85 }
-  ],
-  "entfernte_elemente": [],
-  "anmerkungen": ""
+  "gebaeude_laenge_cm": 2400,
+  "gebaeude_tiefe_cm": 1200
 }` },
-        ])
-
-      // ---- MERGE Pass B corrections into Pass A ----
-      const merged = { ...passA }
-
-      // Apply room corrections
-      for (const korr of (passB.korrigierte_raeume || [])) {
-        const existing = (merged.raeume || []).find((r: any) => r.name === korr.name)
-        if (existing && korr.korrekturen) Object.assign(existing, korr.korrekturen)
+          ])
+      } catch (e: any) {
+        errors.push("Pass1D: " + e.message)
       }
 
-      // Add newly discovered rooms
-      for (const neu of (passB.neue_raeume || [])) {
-        if (neu.name) (merged.raeume = merged.raeume || []).push(neu)
+      // ---- MERGE all 4 passes ----
+      const merged: any = {
+        massstab: pass1A.massstab || null,
+        geschoss: pass1A.geschoss || null,
+        raumhoehe_global_m: pass1A.raumhoehe_m || null,
+        anzahl_wohnungen: pass1A.anzahl_wohnungen || null,
+        wohnungen: pass1A.wohnungen || [],
+        wandstaerken_mm: pass1A.wandstaerken_mm || [],
+        gebaeude_laenge_m: pass1A.gebaeude_laenge_m || (pass1D.gebaeude_laenge_cm ? pass1D.gebaeude_laenge_cm / 100 : null),
+        gebaeude_tiefe_m: pass1A.gebaeude_tiefe_m || (pass1D.gebaeude_tiefe_cm ? pass1D.gebaeude_tiefe_cm / 100 : null),
+        raeume: pass1B.raeume || [],
+        fenster: pass1C.fenster || [],
+        tueren: pass1C.tueren || [],
+        masse: pass1D.masse || [],
+        gebaeude_laenge_cm: pass1D.gebaeude_laenge_cm || null,
+        gebaeude_tiefe_cm: pass1D.gebaeude_tiefe_cm || null,
       }
 
-      // Add newly discovered windows
-      for (const neu of (passB.neue_fenster || [])) {
-        if (neu.bezeichnung) (merged.fenster = merged.fenster || []).push(neu)
-      }
-
-      // Add newly discovered doors
-      for (const neu of (passB.neue_tueren || [])) {
-        if (neu.bezeichnung) (merged.tueren = merged.tueren || []).push(neu)
-      }
-
-      // Remove elements flagged for removal
-      for (const name of (passB.entfernte_elemente || [])) {
-        merged.raeume = (merged.raeume || []).filter((r: any) => r.name !== name)
-        merged.fenster = (merged.fenster || []).filter((f: any) => f.bezeichnung !== name)
-        merged.tueren = (merged.tueren || []).filter((t: any) => t.bezeichnung !== name)
-      }
-
-      // ---- Geometry fixes ----
-      for (const r of (merged.raeume || [])) {
-        if (!r.wandflaeche_m2 && r.umfang_m && r.hoehe_m) {
+      // Calculate wandflaeche for each room
+      for (const r of merged.raeume) {
+        if (r.umfang_m && r.hoehe_m) {
           r.wandflaeche_m2 = Math.round(r.umfang_m * r.hoehe_m * 100) / 100
         }
         if (!r.flaeche_m2 && r.umfang_m) r.flaeche_m2 = 0
       }
-      for (const f of (merged.fenster || [])) {
-        if (!f.flaeche_m2 && f.al_breite_mm && f.al_hoehe_mm) {
+
+      // Calculate fensterflaeche for each window
+      for (const f of merged.fenster) {
+        if (f.al_breite_mm && f.al_hoehe_mm) {
           f.flaeche_m2 = Math.round(f.al_breite_mm * f.al_hoehe_mm / 10000) / 100
         }
       }
 
       // ---- Store elements in DB ----
-      for (const r of (merged.raeume || []))
+      for (const r of merged.raeume)
         await sb.from("elemente").insert({ plan_id, typ: "raum", bezeichnung: r.name || "", daten: r, konfidenz: Math.round((r.konfidenz || 0.5) * 100) })
-      for (const f of (merged.fenster || []))
+      for (const f of merged.fenster)
         await sb.from("elemente").insert({ plan_id, typ: "fenster", bezeichnung: f.bezeichnung || "", daten: f, konfidenz: Math.round((f.konfidenz || 0.5) * 100) })
-      for (const t of (merged.tueren || []))
+      for (const t of merged.tueren)
         await sb.from("elemente").insert({ plan_id, typ: "tuer", bezeichnung: t.bezeichnung || "", daten: t, konfidenz: Math.round((t.konfidenz || 0.5) * 100) })
 
       // ---- Update agent_log ----
@@ -247,12 +272,15 @@ JSON-Format:
         start: new Date().toISOString(),
         step1: {
           ts: new Date().toISOString(),
-          r: (merged.raeume||[]).length,
-          f: (merged.fenster||[]).length,
-          t: (merged.tueren||[]).length,
-          passA_counts: { r: (passA.raeume||[]).length, f: (passA.fenster||[]).length, t: (passA.tueren||[]).length },
-          passB_additions: { r: (passB.neue_raeume||[]).length, f: (passB.neue_fenster||[]).length, t: (passB.neue_tueren||[]).length, korrekturen: (passB.korrigierte_raeume||[]).length },
-          anmerkungen: passB.anmerkungen || "",
+          r: merged.raeume.length,
+          f: merged.fenster.length,
+          t: merged.tueren.length,
+          masse: merged.masse.length,
+          pass1A: { ok: !errors.some(e => e.startsWith("Pass1A")), wohnungen: (pass1A.wohnungen || []).length },
+          pass1B: { ok: !errors.some(e => e.startsWith("Pass1B")), raeume: (pass1B.raeume || []).length },
+          pass1C: { ok: !errors.some(e => e.startsWith("Pass1C")), fenster: (pass1C.fenster || []).length, tueren: (pass1C.tueren || []).length },
+          pass1D: { ok: !errors.some(e => e.startsWith("Pass1D")), masse: (pass1D.masse || []).length },
+          errors: errors.length > 0 ? errors : undefined,
         },
         geo: merged,
         gewerk: gewerk,
@@ -262,11 +290,12 @@ JSON-Format:
       return new Response(JSON.stringify({
         status: "step1_done",
         next_step: 2,
-        raeume: (merged.raeume||[]).length,
-        fenster: (merged.fenster||[]).length,
-        tueren: (merged.tueren||[]).length,
-        passB_korrekturen: (passB.korrigierte_raeume||[]).length,
-        passB_neue: (passB.neue_raeume||[]).length + (passB.neue_fenster||[]).length + (passB.neue_tueren||[]).length,
+        raeume: merged.raeume.length,
+        fenster: merged.fenster.length,
+        tueren: merged.tueren.length,
+        masse: merged.masse.length,
+        wohnungen: (pass1A.wohnungen || []).length,
+        errors: errors.length > 0 ? errors : undefined,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
@@ -284,17 +313,26 @@ Berechne NUR Verputzerleistungen - EXAKT wie ein Verputzerbetrieb kalkuliert.
 
 INNENPOSITIONEN (die wichtigsten):
 
+WICHTIG: Beim Innenputz werden NUR die WOHNUNGSTRENNWÄNDE verputzt!
+Das sind die DICKEN Wände ZWISCHEN den Wohnungen (Betonwände/Ziegelwände).
+NICHT die dünnen Zimmerwände innerhalb einer Wohnung!
+
+Die Wohnungstrennwände sind typisch:
+- 1-2 lange Wände pro Wohnung (Gebäudetiefe, z.B. 5-6m)
+- 1 kurze Wand pro Wohnung (Wohnungsbreite, z.B. 3-7m)
+- Bei Eckwohnungen zusätzliche Betonzwischenwände
+
 1. HAFTGRUND (m²):
-Nur für Betonwände/spezielle Untergründe (Nassräume, Betonzwischenwände).
-NICHT für alle Innenwände! Berechne pro Wand: Länge × Höhe.
-Typisch nur 10-20% der Gesamtwandfläche.
+Nur für Beton-Trennwände in Nassräumen (Bad, WC).
+Berechne: Anzahl Betonwand-Seiten in Nassräumen × Wandlänge × Raumhöhe.
+NICHT alle Wände - typisch 5-15% der Gesamtfläche!
 
 2. INNENPUTZ WÄNDE (m²):
-Berechne PRO WOHNUNG (Top/Einheit), NICHT pro Raum:
-- Jede Wohnung hat typisch 2-4 Innenwände die verputzt werden
-- Wandfläche = Wandlänge × Raumhöhe
-- Raumhöhe: meist 2.60m (Obergeschoss) oder 2.66m (Erdgeschoss)
-- KEINE Abzüge für Fenster/Türen beim Innenputz (ÖNORM: Öffnungen <2.5m² kein Abzug)
+NUR die WOHNUNGSTRENNWÄNDE pro Wohnung. Berechne:
+- Identifiziere die Trennwand-Seiten jeder Wohnung (typisch 2-3 Wände)
+- Wandfläche = Trennwand-Länge × Raumhöhe (meist 2.60-2.66m)
+- NICHT die Rauminnenwände (Zimmerwand, Badwand)!
+- KEINE Abzüge für Fenster/Türen (<2.5m² kein Abzug nach ÖNORM)
 Beispiel aus der Praxis:
   "Top 32: 1 × 5.87 × 1.0 × 2.60 = 15.26"
   "Top 32: 1 × 7.14 × 1.0 × 2.60 = 18.56"
