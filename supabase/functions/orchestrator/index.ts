@@ -463,10 +463,12 @@ serve(async (req: Request) => {
 
     // ========== STEP 1: 4-Pass Focused Vision Scan ==========
     if (step === 1) {
-      // Clean old results
+      // Clean old results but PRESERVE pdf_text extraction from frontend
       await sb.from("massen").delete().eq("plan_id", plan_id)
       await sb.from("elemente").delete().eq("plan_id", plan_id)
-      await sb.from("plaene").update({ verarbeitet: false, agent_log: { start: new Date().toISOString() } }).eq("id", plan_id)
+      const existingLog = plan.agent_log || {}
+      const pdfTextData = existingLog.pdf_text || null  // Preserve client-side text extraction
+      await sb.from("plaene").update({ verarbeitet: false, agent_log: { start: new Date().toISOString(), pdf_text: pdfTextData } }).eq("id", plan_id)
 
       const { data: u } = await sb.storage.from("plaene").createSignedUrl(plan.storage_path, 3600)
       if (!u?.signedUrl) throw new Error("PDF URL fehlt")
@@ -518,6 +520,15 @@ JSON-Format:
       }).eq("id", plan_id)
 
       // ---- PASS 1B: ROOMS ----
+      // If frontend extracted PDF text, include it for higher accuracy
+      const pdfText = pdfTextData || {}
+      const dimensionHint = (pdfText.dimensions || []).length > 0
+        ? `\n\nHINWEIS: Aus dem PDF wurden diese EXAKTEN Maßketten-Werte extrahiert (maschinenlesbar, 100% genau):\n${(pdfText.dimensions || []).slice(0, 50).map((d: any) => `${d.value_m}m bei (${d.x_pct}%, ${d.y_pct}%)`).join(", ")}\n\nVerwende diese Werte wenn möglich statt visuell abzulesen!`
+        : ""
+      const areaHint = (pdfText.areas || []).length > 0
+        ? `\n\nExakte Flächenwerte aus PDF: ${(pdfText.areas || []).map((a: any) => `${a.value}m² bei (${a.x_pct}%, ${a.y_pct}%)`).join(", ")}`
+        : ""
+
       let pass1B: any = {}
       try {
         pass1B = await callClaude(cfg.value,
@@ -532,7 +543,7 @@ JSON-Format:
 - Bodenbelag
 - Zu welcher Wohnung (Top) gehört der Raum?
 - Position als [x%, y%, w%, h%]
-Gib die EXAKTEN Zahlen aus dem Plan zurück, keine Schätzungen!
+Gib die EXAKTEN Zahlen aus dem Plan zurück, keine Schätzungen!${dimensionHint}${areaHint}
 
 JSON-Format:
 {

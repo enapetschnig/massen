@@ -169,12 +169,30 @@
       });
     }
 
-    // Step 1: Parser + Geometrie
-    setStepActive(0);
-    if (progressStatus) progressStatus.textContent = 'Schritt 1/3: PDF wird analysiert...';
-    if (analysisBar) { analysisBar.style.width = '10%'; analysisBar.textContent = '10%'; }
+    // Extract text from PDF first (client-side)
+    if (progressStatus) progressStatus.textContent = 'Texte aus PDF extrahieren...';
+    if (analysisBar) { analysisBar.style.width = '5%'; analysisBar.textContent = '5%'; }
 
-    callStep(1)
+    _sb.from('plaene').select('storage_path').eq('id', planId).single()
+      .then(function(res) {
+        return _sb.storage.from('plaene').createSignedUrl(res.data.storage_path, 3600);
+      })
+      .then(function(urlRes) {
+        return extractPdfText(urlRes.data.signedUrl);
+      })
+      .then(function(textData) {
+        // Store in agent_log for orchestrator to use
+        return _sb.from('plaene').update({
+          agent_log: { pdf_text: textData }
+        }).eq('id', planId);
+      })
+      .then(function() {
+        // Step 1: Parser + Geometrie
+        setStepActive(0);
+        if (progressStatus) progressStatus.textContent = 'Schritt 1/3: PDF wird analysiert...';
+        if (analysisBar) { analysisBar.style.width = '10%'; analysisBar.textContent = '10%'; }
+        return callStep(1);
+      })
       .then(function (r1) {
         setStepDone(0); setStepActive(1);
         if (progressStatus) progressStatus.textContent = 'Schritt 2/3: Massen werden berechnet... (' + r1.raeume + ' Räume, ' + r1.fenster + ' Fenster)';
