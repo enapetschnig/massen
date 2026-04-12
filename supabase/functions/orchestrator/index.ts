@@ -28,6 +28,419 @@ async function callClaude(apiKey: string, system: string, content: any[], maxTok
   return parseJson(j.content?.[0]?.text || "{}")
 }
 
+// ═══ DETERMINISTIC MATH ENGINE ═══
+
+interface RoomDims {
+  name: string
+  wohnung: string
+  flaeche: number
+  umfang: number
+  hoehe: number
+  bodenbelag: string
+  sideA: number  // longer side
+  sideB: number  // shorter side
+}
+
+function calcRoomDimensions(room: any, rohbauHoehe: number): RoomDims | null {
+  // Calculate room dimensions from area + perimeter
+  const F = room.flaeche_m2 || 0
+  const U = room.umfang_m || 0
+  const H = rohbauHoehe || room.hoehe_m || 2.60
+
+  if (F > 0 && U > 0) {
+    // Quadratic formula: a + b = U/2, a * b = F
+    const halfU = U / 2
+    const discriminant = halfU * halfU - 4 * F
+    if (discriminant >= 0) {
+      const a = (halfU + Math.sqrt(discriminant)) / 2
+      const b = (halfU - Math.sqrt(discriminant)) / 2
+      return { name: room.name || "", wohnung: (room.wohnung || "").toUpperCase(),
+               flaeche: F, umfang: U, hoehe: H, bodenbelag: room.bodenbelag || "",
+               sideA: Math.round(a * 100) / 100, sideB: Math.round(b * 100) / 100 }
+    }
+  }
+
+  // Fallback: use area and estimate as square
+  if (F > 0) {
+    const side = Math.sqrt(F)
+    return { name: room.name || "", wohnung: (room.wohnung || "").toUpperCase(),
+             flaeche: F, umfang: U || side * 4, hoehe: H, bodenbelag: room.bodenbelag || "",
+             sideA: Math.round(side * 100) / 100, sideB: Math.round(side * 100) / 100 }
+  }
+
+  return null
+}
+
+function calcWandflaeche(room: RoomDims): number {
+  // Wall area = perimeter × height
+  return Math.round(room.umfang * room.hoehe * 100) / 100
+}
+
+function calcOENORMAbzug(oeffnungFlaeche: number, gewerk: string): number {
+  // Returns multiplier: 0 = no deduction, 0.5 = half, 1.0 = full
+  if (gewerk === "mauerwerk") {
+    if (oeffnungFlaeche < 0.5) return 0
+    if (oeffnungFlaeche <= 3.0) return 0.5
+    return 1.0
+  }
+  if (gewerk === "putz" || gewerk === "maler") {
+    if (oeffnungFlaeche < 2.5) return 0
+    if (oeffnungFlaeche <= 10.0) return 0.5
+    return 1.0
+  }
+  if (gewerk === "fliesen") {
+    if (oeffnungFlaeche < 0.1) return 0
+    return 1.0
+  }
+  return 0
+}
+
+function normalizeWindowDimension(val: number): number {
+  // Auto-detect unit and convert to mm
+  if (val < 30) return val * 100   // cm → mm (e.g., 15 → 1500)
+  if (val < 300) return val * 10   // cm → mm (e.g., 147 → 1470)
+  return val                        // already mm
+}
+
+function isNassraum(name: string): boolean {
+  return /bad|wc|dusche|nassraum|wasch/i.test(name)
+}
+
+function isBad(name: string): boolean {
+  return /bad|dusche|nassraum/i.test(name)
+}
+
+function isWC(name: string): boolean {
+  return /\bwc\b|toilette/i.test(name)
+}
+
+function hasFliesenBoden(bodenbelag: string, name: string): boolean {
+  if (/fliesen|feinsteinzeug|keramik|steinzeug/i.test(bodenbelag)) return true
+  // Bad/WC typically have tiles even if not specified
+  if (isNassraum(name) && !bodenbelag) return true
+  return false
+}
+
+function calcMassen(
+  raeume: any[], fenster: any[], tueren: any[],
+  gewerk: string, geschosse: number, whgProOg: number, hEG: number, hOG: number
+): any[] {
+  const positionen: any[] = []
+  const dims = raeume.map(r => calcRoomDimensions(r, hEG)).filter(d => d !== null) as RoomDims[]
+  const whgNames = [...new Set(dims.map(d => d.wohnung))].filter(w => w.startsWith("TOP"))
+  const egWhg = whgNames.length || 1
+  const ogFloors = geschosse - 1
+  const wandstaerke_m = 0.20 // default inner wall thickness
+
+  // Normalize window dimensions
+  const normalizedFenster = fenster.map(f => {
+    const al_h = normalizeWindowDimension(f.al_hoehe_mm || 1470) / 1000
+    const al_b = normalizeWindowDimension(f.al_breite_mm || 1200) / 1000
+    const rb_h = normalizeWindowDimension(f.rb_hoehe_mm || 1570) / 1000
+    const rb_b = normalizeWindowDimension(f.rb_breite_mm || 1300) / 1000
+    return {
+      ...f,
+      al_hoehe_m: al_h,
+      al_breite_m: al_b,
+      rb_hoehe_m: rb_h,
+      rb_breite_m: rb_b,
+      flaeche_m2: Math.round(al_h * al_b * 100) / 100,
+    }
+  })
+
+  // Normalize door dimensions
+  const normalizedTueren = tueren.map(t => ({
+    ...t,
+    breite_m: (t.breite_mm || 900) / 1000,
+    hoehe_m: (t.hoehe_mm || 2100) / 1000,
+    flaeche_m2: Math.round(((t.breite_mm || 900) / 1000) * ((t.hoehe_mm || 2100) / 1000) * 100) / 100,
+  }))
+
+  // Total opening areas per room for deductions
+  function openingsForRoom(roomName: string, whg: string): number {
+    let total = 0
+    for (const f of normalizedFenster) {
+      if ((f.raum || "").toLowerCase() === roomName.toLowerCase() &&
+          (f.wohnung || "").toUpperCase() === whg) {
+        total += f.flaeche_m2
+      }
+    }
+    for (const t of normalizedTueren) {
+      if ((t.raum || "").toLowerCase() === roomName.toLowerCase() &&
+          (t.wohnung || "").toUpperCase() === whg) {
+        total += t.flaeche_m2
+      }
+    }
+    return total
+  }
+
+  // ═══ MALER ═══
+  if (gewerk === "maler" || gewerk === "allgemein") {
+    const prefix = gewerk === "allgemein" ? "ML." : ""
+    let totalWandEG = 0, totalDeckeEG = 0, totalLeibungEG = 0
+    const berechnungWand: string[] = []
+    const berechnungDecke: string[] = []
+    const berechnungLeibung: string[] = []
+
+    for (const d of dims) {
+      const wf = calcWandflaeche(d)
+      const oeffnung = openingsForRoom(d.name, d.wohnung)
+      const abzugFaktor = calcOENORMAbzug(oeffnung, "maler")
+      const abzug = Math.round(oeffnung * abzugFaktor * 100) / 100
+      const netto = Math.round((wf - abzug) * 100) / 100
+
+      totalWandEG += netto
+      berechnungWand.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${d.hoehe.toFixed(2)}=${wf.toFixed(2)} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+
+      totalDeckeEG += d.flaeche
+      berechnungDecke.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+    }
+
+    // Leibungen: per window 2×wandstaerke×height + wandstaerke×width
+    for (const f of normalizedFenster) {
+      const leib = 2 * wandstaerke_m * f.al_hoehe_m + wandstaerke_m * f.al_breite_m
+      const leibFlaeche = Math.round(leib * 100) / 100
+      totalLeibungEG += leibFlaeche
+      berechnungLeibung.push(`${f.bezeichnung || "Fenster"}: 2×${wandstaerke_m}×${f.al_hoehe_m.toFixed(2)}+${wandstaerke_m}×${f.al_breite_m.toFixed(2)} = ${leibFlaeche.toFixed(2)} m²`)
+    }
+
+    // OG multiplication
+    const ogFaktorFlaeche = egWhg > 0 ? (whgProOg / egWhg) * (hOG / hEG) : 0
+    const ogFaktorDecke = egWhg > 0 ? (whgProOg / egWhg) : 0
+    const ogFaktorLeibung = egWhg > 0 ? (whgProOg / egWhg) : 0
+
+    const totalWandOG = Math.round(totalWandEG * ogFaktorFlaeche * ogFloors * 100) / 100
+    const totalDeckeOG = Math.round(totalDeckeEG * ogFaktorDecke * ogFloors * 100) / 100
+    const totalLeibungOG = Math.round(totalLeibungEG * ogFaktorLeibung * ogFloors * 100) / 100
+
+    positionen.push(
+      { pos_nr: `${prefix}1`, beschreibung: "Grundierung Wände EG", gewerk: "Maler",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungWand,
+        endsumme: Math.round(totalWandEG * 100) / 100, einheit: "m²", konfidenz: 90 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Grundierung Wände OG (×${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalWandEG.toFixed(2)} × ${(ogFaktorFlaeche * ogFloors).toFixed(2)} = ${totalWandOG.toFixed(2)}`],
+        endsumme: totalWandOG, einheit: "m²", konfidenz: 85 },
+      { pos_nr: `${prefix}2`, beschreibung: "Anstrich Wände EG", gewerk: "Maler",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungWand,
+        endsumme: Math.round(totalWandEG * 100) / 100, einheit: "m²", konfidenz: 90 },
+      { pos_nr: `${prefix}2-OG`, beschreibung: `Anstrich Wände OG (×${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalWandEG.toFixed(2)} × ${(ogFaktorFlaeche * ogFloors).toFixed(2)} = ${totalWandOG.toFixed(2)}`],
+        endsumme: totalWandOG, einheit: "m²", konfidenz: 85 },
+      { pos_nr: `${prefix}3`, beschreibung: "Grundierung Decken EG", gewerk: "Maler",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungDecke,
+        endsumme: Math.round(totalDeckeEG * 100) / 100, einheit: "m²", konfidenz: 92 },
+      { pos_nr: `${prefix}3-OG`, beschreibung: `Grundierung Decken OG (×${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalDeckeEG.toFixed(2)} × ${(ogFaktorDecke * ogFloors).toFixed(2)} = ${totalDeckeOG.toFixed(2)}`],
+        endsumme: totalDeckeOG, einheit: "m²", konfidenz: 87 },
+      { pos_nr: `${prefix}4`, beschreibung: "Anstrich Decken EG", gewerk: "Maler",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungDecke,
+        endsumme: Math.round(totalDeckeEG * 100) / 100, einheit: "m²", konfidenz: 92 },
+      { pos_nr: `${prefix}4-OG`, beschreibung: `Anstrich Decken OG (×${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalDeckeEG.toFixed(2)} × ${(ogFaktorDecke * ogFloors).toFixed(2)} = ${totalDeckeOG.toFixed(2)}`],
+        endsumme: totalDeckeOG, einheit: "m²", konfidenz: 87 },
+      { pos_nr: `${prefix}5`, beschreibung: "Leibungen EG", gewerk: "Maler",
+        raum_referenz: "Fenster EG", berechnung: berechnungLeibung,
+        endsumme: Math.round(totalLeibungEG * 100) / 100, einheit: "m²", konfidenz: 85 },
+      { pos_nr: `${prefix}5-OG`, beschreibung: `Leibungen OG (×${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Fenster OG", berechnung: [`EG ${totalLeibungEG.toFixed(2)} × ${(ogFaktorLeibung * ogFloors).toFixed(2)} = ${totalLeibungOG.toFixed(2)}`],
+        endsumme: totalLeibungOG, einheit: "lfm", konfidenz: 80 },
+    )
+  }
+
+  // ═══ FLIESEN ═══
+  if (gewerk === "fliesen" || gewerk === "allgemein") {
+    const prefix = gewerk === "allgemein" ? "FL." : ""
+    let totalBodenEG = 0, totalWandBadEG = 0, totalWandWCEG = 0, totalSockelEG = 0
+    const berechnungBoden: string[] = []
+    const berechnungWandBad: string[] = []
+    const berechnungWandWC: string[] = []
+    const berechnungSockel: string[] = []
+    const fliesenHoehe = 2.10 // standard tile height for wet rooms
+
+    for (const d of dims) {
+      if (hasFliesenBoden(d.bodenbelag, d.name)) {
+        totalBodenEG += d.flaeche
+        berechnungBoden.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+
+        totalSockelEG += d.umfang
+        berechnungSockel.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)} lfm`)
+      }
+
+      if (isBad(d.name)) {
+        const wandBad = Math.round(d.umfang * fliesenHoehe * 100) / 100
+        const oeffnung = openingsForRoom(d.name, d.wohnung)
+        const abzug = calcOENORMAbzug(oeffnung, "fliesen") * oeffnung
+        const netto = Math.round((wandBad - abzug) * 100) / 100
+        totalWandBadEG += netto
+        berechnungWandBad.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${fliesenHoehe} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+      }
+
+      if (isWC(d.name)) {
+        const wandWC = Math.round(d.umfang * fliesenHoehe * 100) / 100
+        const oeffnung = openingsForRoom(d.name, d.wohnung)
+        const abzug = calcOENORMAbzug(oeffnung, "fliesen") * oeffnung
+        const netto = Math.round((wandWC - abzug) * 100) / 100
+        totalWandWCEG += netto
+        berechnungWandWC.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${fliesenHoehe} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+      }
+    }
+
+    const ogFaktor = egWhg > 0 ? (whgProOg / egWhg) * ogFloors : 0
+
+    positionen.push(
+      { pos_nr: `${prefix}1`, beschreibung: "Bodenfliesen EG", gewerk: "Fliesen",
+        raum_referenz: "Nassräume EG", berechnung: berechnungBoden,
+        endsumme: Math.round(totalBodenEG * 100) / 100, einheit: "m²", konfidenz: 90 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Bodenfliesen OG (×${ogFloors})`, gewerk: "Fliesen",
+        raum_referenz: "Nassräume OG", berechnung: [`EG ${totalBodenEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalBodenEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalBodenEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 85 },
+    )
+
+    if (totalWandBadEG > 0) {
+      positionen.push(
+        { pos_nr: `${prefix}2`, beschreibung: "Wandfliesen Bad EG", gewerk: "Fliesen",
+          raum_referenz: "Bad EG", berechnung: berechnungWandBad,
+          endsumme: Math.round(totalWandBadEG * 100) / 100, einheit: "m²", konfidenz: 88 },
+        { pos_nr: `${prefix}2-OG`, beschreibung: `Wandfliesen Bad OG (×${ogFloors})`, gewerk: "Fliesen",
+          raum_referenz: "Bad OG", berechnung: [`EG ${totalWandBadEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalWandBadEG * ogFaktor).toFixed(2)}`],
+          endsumme: Math.round(totalWandBadEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 83 },
+      )
+    }
+
+    if (totalWandWCEG > 0) {
+      positionen.push(
+        { pos_nr: `${prefix}3`, beschreibung: "Wandfliesen WC EG", gewerk: "Fliesen",
+          raum_referenz: "WC EG", berechnung: berechnungWandWC,
+          endsumme: Math.round(totalWandWCEG * 100) / 100, einheit: "m²", konfidenz: 88 },
+        { pos_nr: `${prefix}3-OG`, beschreibung: `Wandfliesen WC OG (×${ogFloors})`, gewerk: "Fliesen",
+          raum_referenz: "WC OG", berechnung: [`EG ${totalWandWCEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalWandWCEG * ogFaktor).toFixed(2)}`],
+          endsumme: Math.round(totalWandWCEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 83 },
+      )
+    }
+
+    positionen.push(
+      { pos_nr: `${prefix}4`, beschreibung: "Sockelleisten EG", gewerk: "Fliesen",
+        raum_referenz: "Nassräume EG", berechnung: berechnungSockel,
+        endsumme: Math.round(totalSockelEG * 100) / 100, einheit: "lfm", konfidenz: 85 },
+      { pos_nr: `${prefix}4-OG`, beschreibung: `Sockelleisten OG (×${ogFloors})`, gewerk: "Fliesen",
+        raum_referenz: "Nassräume OG", berechnung: [`EG ${totalSockelEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalSockelEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalSockelEG * ogFaktor * 100) / 100, einheit: "lfm", konfidenz: 80 },
+    )
+  }
+
+  // ═══ ESTRICH ═══
+  if (gewerk === "estrich" || gewerk === "allgemein") {
+    const prefix = gewerk === "allgemein" ? "ES." : ""
+    let totalEstrichEG = 0, totalRandEG = 0, totalNassraumEG = 0
+    const berechnungEstrich: string[] = []
+    const berechnungRand: string[] = []
+    const berechnungNass: string[] = []
+
+    for (const d of dims) {
+      totalEstrichEG += d.flaeche
+      berechnungEstrich.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+
+      totalRandEG += d.umfang
+      berechnungRand.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)} lfm`)
+
+      if (isNassraum(d.name)) {
+        totalNassraumEG += d.flaeche
+        berechnungNass.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+      }
+    }
+
+    const ogFaktor = egWhg > 0 ? (whgProOg / egWhg) * ogFloors : 0
+
+    positionen.push(
+      { pos_nr: `${prefix}1`, beschreibung: "Zementestrich EG", gewerk: "Estrich",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungEstrich,
+        endsumme: Math.round(totalEstrichEG * 100) / 100, einheit: "m²", konfidenz: 92 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Zementestrich OG (×${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalEstrichEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalEstrichEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalEstrichEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 87 },
+      { pos_nr: `${prefix}2`, beschreibung: "Randdämmstreifen EG", gewerk: "Estrich",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungRand,
+        endsumme: Math.round(totalRandEG * 100) / 100, einheit: "lfm", konfidenz: 90 },
+      { pos_nr: `${prefix}2-OG`, beschreibung: `Randdämmstreifen OG (×${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalRandEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalRandEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalRandEG * ogFaktor * 100) / 100, einheit: "lfm", konfidenz: 85 },
+      { pos_nr: `${prefix}3`, beschreibung: "Trittschalldämmung EG", gewerk: "Estrich",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungEstrich,
+        endsumme: Math.round(totalEstrichEG * 100) / 100, einheit: "m²", konfidenz: 92 },
+      { pos_nr: `${prefix}3-OG`, beschreibung: `Trittschalldämmung OG (×${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalEstrichEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalEstrichEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalEstrichEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 87 },
+      { pos_nr: `${prefix}4`, beschreibung: "Dampfsperre Nassräume EG", gewerk: "Estrich",
+        raum_referenz: "Nassräume EG", berechnung: berechnungNass,
+        endsumme: Math.round(totalNassraumEG * 100) / 100, einheit: "m²", konfidenz: 88 },
+      { pos_nr: `${prefix}4-OG`, beschreibung: `Dampfsperre Nassräume OG (×${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Nassräume OG", berechnung: [`EG ${totalNassraumEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalNassraumEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalNassraumEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 83 },
+    )
+  }
+
+  // ═══ MAUERWERK ═══
+  if (gewerk === "mauerwerk" || gewerk === "allgemein") {
+    const prefix = gewerk === "allgemein" ? "MW." : ""
+    const aussenWandstaerke = 0.30 // 300mm typical
+    let totalInnenEG = 0, totalLeibungEG = 0
+    const berechnungInnen: string[] = []
+    const berechnungLeibung: string[] = []
+
+    for (const d of dims) {
+      const wf = calcWandflaeche(d)
+      const oeffnung = openingsForRoom(d.name, d.wohnung)
+      const abzugFaktor = calcOENORMAbzug(oeffnung, "mauerwerk")
+      const abzug = Math.round(oeffnung * abzugFaktor * 100) / 100
+      const netto = Math.round((wf - abzug) * 100) / 100
+      totalInnenEG += netto
+      berechnungInnen.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${d.hoehe.toFixed(2)}=${wf.toFixed(2)} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+    }
+
+    // Leibungen from windows
+    for (const f of normalizedFenster) {
+      // Leibung = (2 × height + width) × wall thickness
+      const leibLfm = 2 * f.al_hoehe_m + f.al_breite_m
+      const leibFlaeche = Math.round(leibLfm * aussenWandstaerke * 100) / 100
+      totalLeibungEG += leibFlaeche
+      berechnungLeibung.push(`${f.bezeichnung || "Fenster"}: (2×${f.al_hoehe_m.toFixed(2)}+${f.al_breite_m.toFixed(2)})×${aussenWandstaerke} = ${leibFlaeche.toFixed(2)} m²`)
+    }
+
+    const ogFaktorWand = egWhg > 0 ? (whgProOg / egWhg) * (hOG / hEG) * ogFloors : 0
+    const ogFaktorLeibung = egWhg > 0 ? (whgProOg / egWhg) * ogFloors : 0
+
+    // Außenwand: estimate from building dimensions if available
+    // We don't have building dims in this function, so we sum all room perimeters as approximation
+    // Rough estimate: outer wall ≈ sqrt(total floor area) × 4 × height
+    const totalFloor = dims.reduce((s, d) => s + d.flaeche, 0)
+    const buildingSide = Math.sqrt(totalFloor)
+    const aussenWandEG = Math.round(buildingSide * 4 * hEG * 100) / 100
+
+    positionen.push(
+      { pos_nr: `${prefix}1`, beschreibung: "Außenwand EG (Schätzung)", gewerk: "Mauerwerk",
+        raum_referenz: "Gebäude EG", berechnung: [`Geschätzt aus Gesamtfläche: √${totalFloor.toFixed(1)}×4×${hEG} = ${aussenWandEG.toFixed(2)} m²`],
+        endsumme: aussenWandEG, einheit: "m²", konfidenz: 60 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Außenwand OG (×${ogFloors})`, gewerk: "Mauerwerk",
+        raum_referenz: "Gebäude OG", berechnung: [`EG ${aussenWandEG.toFixed(2)} × ${hOG/hEG} × ${ogFloors} = ${(aussenWandEG * hOG/hEG * ogFloors).toFixed(2)}`],
+        endsumme: Math.round(aussenWandEG * (hOG / hEG) * ogFloors * 100) / 100, einheit: "m²", konfidenz: 55 },
+      { pos_nr: `${prefix}2`, beschreibung: "Innenwände EG", gewerk: "Mauerwerk",
+        raum_referenz: "Alle Räume EG", berechnung: berechnungInnen,
+        endsumme: Math.round(totalInnenEG * 100) / 100, einheit: "m²", konfidenz: 85 },
+      { pos_nr: `${prefix}2-OG`, beschreibung: `Innenwände OG (×${ogFloors})`, gewerk: "Mauerwerk",
+        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalInnenEG.toFixed(2)} × ${ogFaktorWand.toFixed(2)} = ${(totalInnenEG * ogFaktorWand).toFixed(2)}`],
+        endsumme: Math.round(totalInnenEG * ogFaktorWand * 100) / 100, einheit: "m²", konfidenz: 80 },
+      { pos_nr: `${prefix}3`, beschreibung: "Leibungen EG", gewerk: "Mauerwerk",
+        raum_referenz: "Fenster EG", berechnung: berechnungLeibung,
+        endsumme: Math.round(totalLeibungEG * 100) / 100, einheit: "m²", konfidenz: 82 },
+      { pos_nr: `${prefix}3-OG`, beschreibung: `Leibungen OG (×${ogFloors})`, gewerk: "Mauerwerk",
+        raum_referenz: "Fenster OG", berechnung: [`EG ${totalLeibungEG.toFixed(2)} × ${ogFaktorLeibung.toFixed(2)} = ${(totalLeibungEG * ogFaktorLeibung).toFixed(2)}`],
+        endsumme: Math.round(totalLeibungEG * ogFaktorLeibung * 100) / 100, einheit: "m²", konfidenz: 77 },
+    )
+  }
+
+  return positionen
+}
+
 /*
  * Step-based orchestrator with 4-PASS FOCUSED VISION SCAN.
  *   step=1 → 4 focused passes (Structure, Rooms, Windows/Doors, Dimensions) + merge
@@ -430,8 +843,6 @@ ALLE GEWERKE berechnen:
 08. Leibungen (m², lfm)`,
       }
 
-      const gewerkPrompt = gewerkPrompts[selectedGewerk] || gewerkPrompts.allgemein
-
       // ═══ VERPUTZER: Deterministic math-based calculation (no Claude!) ═══
       if (selectedGewerk === "verputzer") {
         const geschosseVal = plan.agent_log?.geschosse || geschosse || 3
@@ -608,130 +1019,55 @@ ALLE GEWERKE berechnen:
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
       }
 
-      // ═══ OTHER GEWERKE: Claude-based calculation ═══
-      let kalkSystem = ""
-      let kalkUser = ""
+      // ═══ OTHER GEWERKE: Deterministic math engine first, Claude as fallback ═══
+      const geschosseVal = plan.agent_log?.geschosse || geschosse || 3
+      const whgProOgVal = plan.agent_log?.whg_pro_og || whg_pro_og || 4
+      const hEGOther = 2.66  // Rohbaumaß EG
+      const hOGOther = 2.60  // Rohbaumaß OG
 
-      if (false) { // verputzer is handled above
-        kalkSystem = `Du bist ein Verputzer-Kalkulator. Du berechnest EXAKT 4 Positionen für Innenputz.
+      // Supported gewerke for deterministic math
+      const mathGewerke = ["maler", "fliesen", "estrich", "mauerwerk", "allgemein"]
 
-KRITISCH WICHTIG:
-- Berechne NUR die WOHNUNGSTRENNWÄNDE (dicke Wände ZWISCHEN Wohnungen)
-- NICHT die Zimmerwände INNERHALB der Wohnungen
-- NICHT die Rauminnenwände (Bad-Innenwand, Küchen-Innenwand etc.)
-- Die Trennwände sind die LANGEN Wände die von Vorder- bis Rückseite des Gebäudes gehen
+      if (mathGewerke.includes(selectedGewerk)) {
+        // ═══ DETERMINISTIC MATH for maler/fliesen/estrich/mauerwerk/allgemein ═══
+        const mathPositionen = calcMassen(
+          geo.raeume || [], geo.fenster || [], geo.tueren || [],
+          selectedGewerk, geschosseVal, whgProOgVal, hEGOther, hOGOther
+        )
 
-RAUMHÖHE: Das ROHBAUMASS verwenden!
-- Im Plan steht z.B. H: 2.42m = FERTIGMASS
-- ROHBAUMASS = Fertigmaß + ca. 0.24m = z.B. 2.66m (EG) oder 2.60m (OG)
-- IMMER Rohbaumaß für Putzarbeiten verwenden!
+        if (mathPositionen.length > 0) {
+          // Store deterministic results
+          for (const p of mathPositionen) {
+            await sb.from("massen").insert({ plan_id, ...p })
+          }
 
-POSITION 1: HAFTGRUND (m²)
-- NUR auf Betonwänden (Zwischenwand Beton)
-- BEIDE Seiten einer Betonwand verputzen → Faktor 2
-- Formel: Anz_Seiten × Wandlänge × Rohbau-Raumhöhe
+          const log = plan.agent_log || {}
+          log.step2 = {
+            ts: new Date().toISOString(),
+            methode: "deterministic_math",
+            gewerk: selectedGewerk,
+            pos: mathPositionen.length,
+            eg_whg: ([...new Set((geo.raeume || []).map((r: any) => (r.wohnung || "").toUpperCase()))] as string[]).filter(w => w.startsWith("TOP")).length || 1,
+            og_floors: geschosseVal - 1,
+            whg_pro_og: whgProOgVal,
+          }
+          await sb.from("plaene").update({ agent_log: log }).eq("id", plan_id)
 
-POSITION 2: INNENPUTZ WÄNDE (m²)
-NUR Wohnungstrennwände! KEINE Rauminnenwände!
+          return new Response(JSON.stringify({
+            status: "step2_done",
+            next_step: 3,
+            massen: mathPositionen.length,
+            methode: "deterministic_math",
+            gewerk: selectedGewerk,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
+        }
+        // If calcMassen returned empty, fall through to Claude
+      }
 
-METHODE ZUR BESTIMMUNG DER TRENNWANDLÄNGEN:
-Berechne die Wandlängen MATHEMATISCH aus Fläche und Umfang der Räume!
-Formel: Wenn Fläche=F und Umfang=U, dann sind die Seiten a und b:
-  a = (U/2 + √((U/2)² - 4F)) / 2
-  b = (U/2 - √((U/2)² - 4F)) / 2
+      // ═══ FALLBACK: Claude-based calculation for unsupported gewerke or empty math results ═══
+      const gewerkPrompt = gewerkPrompts[selectedGewerk] || gewerkPrompts.allgemein
 
-WOHNUNGSBREITE bestimmen:
-- Nimm den VORRAUM/GANG jeder Wohnung (geht über die volle Breite)
-- Berechne seine Seitenlängen → die LÄNGERE Seite = Wohnungsbreite
-- Eckwohnungen: Vorraum-Breite ≈ 7.0-7.2m
-- Mittelwohnungen: Wohnküche KÜRZERE Seite ≈ 3.3-3.6m
-
-WOHNUNGSTIEFE bestimmen:
-- Nimm die WOHNKÜCHE jeder Wohnung
-- Berechne Seitenlängen → die LÄNGERE Seite ≈ 5.7-5.9m = Wohnungstiefe
-
-TRENNWAND pro Wohnung:
-- WAND 1: Wohnungstiefe × Rohbau-Höhe
-- WAND 2: Wohnungsbreite × Rohbau-Höhe
-- Bei Eckwohnungen: typisch 2 Trennwände
-- Bei Mittelwohnungen: typisch 2 Trennwände (evtl. + Betonzwischenwand)
-
-BETONZWISCHENWÄNDE: BEIDE Seiten verputzen → Faktor 2!
-  "Zwischenwand Beton: 2 × Länge × 1.0 × Höhe = ..."
-
-POSITION 3: KANTENPROFIL (lfm)
-- Pro Fenster: 2 × Fensterhöhe + 1 × Fensterbreite
-  * Normale Fenster: Höhe ca. 1.47m, Breite 1.20m oder 0.50m
-  * Loggia/Balkontür: Höhe = Raumhöhe (2.60/2.66m), KEINE Fensterbank
-- Pro Betonwand-Kante: 2 × Raumhöhe (beide Seiten)
-
-POSITION 4: ANPUTZLEISTE (lfm)
-- Pro Fenster: NUR 2 × Fensterhöhe (KEINE Fensterbank!)
-  * Normale Fenster: 2 × 1.47m = 2.94 lfm
-  * Loggia: 2 × Raumhöhe
-
-Antworte NUR mit validem JSON.`
-
-        kalkUser = `Geometriedaten:\n${JSON.stringify(geo)}\n\nBerechne EXAKT diese 4 Positionen:
-
-JSON-Format:
-{
-  "positionen": [
-    {
-      "pos_nr": "2.3.1",
-      "beschreibung": "Haftgrund",
-      "gewerk": "Innenputz",
-      "raum_referenz": "Betonwände",
-      "berechnung": ["Top 26 Betonwand: 1 × 3.22 × 1.0 × 2.66 = 8.57", "Top 26 Leibung: 1 × 0.20 × 1.0 × 2.66 = 0.53"],
-      "endsumme": 66.02,
-      "einheit": "m²",
-      "konfidenz": 0.90
-    },
-    {
-      "pos_nr": "2.3.2",
-      "beschreibung": "Innenputz Wände",
-      "gewerk": "Innenputz",
-      "raum_referenz": "Trennwände",
-      "berechnung": ["Top 25: 1 × 5.87 × 1.0 × 2.66 = 15.61", "Top 25: 1 × 7.14 × 1.0 × 2.66 = 18.99", "Top 26: 1 × 5.87 × 1.0 × 2.66 = 15.61"],
-      "endsumme": 388.89,
-      "einheit": "m²",
-      "konfidenz": 0.90
-    },
-    {
-      "pos_nr": "2.3.3",
-      "beschreibung": "Kantenprofil",
-      "gewerk": "Innenputz",
-      "raum_referenz": "Fenster",
-      "berechnung": ["Fenster Aufrecht: 2 × 1.47 = 2.94", "Fensterbank: 1 × 1.20 = 1.20"],
-      "endsumme": 210.28,
-      "einheit": "lfm",
-      "konfidenz": 0.90
-    },
-    {
-      "pos_nr": "2.3.4",
-      "beschreibung": "Anputzleiste",
-      "gewerk": "Innenputz",
-      "raum_referenz": "Fenster",
-      "berechnung": ["Fenster Aufrecht: 2 × 1.47 = 2.94", "Loggia: 2 × 2.60 = 5.20"],
-      "endsumme": 185.68,
-      "einheit": "lfm",
-      "konfidenz": 0.90
-    }
-  ],
-  "zusammenfassung": {
-    "haftgrund_m2": 66.02,
-    "innenputz_wande_m2": 388.89,
-    "kantenprofile_lfm": 210.28,
-    "anputzleisten_lfm": 185.68
-  },
-  "gesamt_konfidenz": 0.92
-}
-
-WICHTIG: Die Beispielwerte oben sind nur zur Illustration des FORMATS.
-Berechne die ECHTEN Werte aus den Geometriedaten!
-NUR diese 4 Positionen, NICHTS ANDERES!`
-      } else {
-        kalkSystem = `Du bist ein erfahrener österreichischer Baukalkulator.
+      const kalkSystem = `Du bist ein erfahrener österreichischer Baukalkulator.
 
 GEWÄHLTES GEWERK: ${selectedGewerk.toUpperCase()}
 ${gewerkPrompt}
@@ -740,47 +1076,12 @@ BERECHNUNGSFORMAT: Jeder Schritt: Beschreibung | Anz × L × B × H = Zwischensu
 ROHBAUMASS verwenden (Fertigmaß + 0.24m)!
 Antworte NUR mit validem JSON.`
 
-        kalkUser = `Geometriedaten:\n${JSON.stringify(geo)}\n\nErstelle professionelle Massenermittlung.
+      const kalkUser = `Geometriedaten:\n${JSON.stringify(geo)}\n\nErstelle professionelle Massenermittlung.
 JSON: {"positionen":[{"pos_nr":"","beschreibung":"","gewerk":"","raum_referenz":"","berechnung":[""],"endsumme":0,"einheit":"","konfidenz":0.9}],"zusammenfassung":{},"gesamt_konfidenz":0.88}`
-      }
 
       const kalk = await callClaude(cfg.value, kalkSystem,
         [{ type: "text", text: kalkUser }],
         32000)
-
-      // POST-PROCESSING: Multiply EG values to get total for all floors
-      const geschosseVal = plan.agent_log?.geschosse || geschosse || 3
-      const whgProOg = plan.agent_log?.whg_pro_og || whg_pro_og || 4
-      const egWhg = plan.agent_log?.pass1A?.anzahl_wohnungen || 3
-      const ogFloors = geschosseVal - 1 // EG is 1 floor
-
-      if (selectedGewerk === "verputzer" && ogFloors > 0) {
-        const ogPositionen: any[] = []
-        for (const pos of (kalk.positionen || [])) {
-          if (pos.pos_nr === "2.3.2") { // Innenputz
-            const ogFactor = (whgProOg / egWhg) * (2.60 / 2.66) * ogFloors
-            ogPositionen.push({
-              ...pos,
-              pos_nr: "2.3.2-OG",
-              beschreibung: "Innenputz Wände OG (×" + ogFloors + " Geschosse)",
-              endsumme: Math.round(pos.endsumme * ogFactor * 100) / 100,
-              berechnung: ["EG-Wert " + pos.endsumme + " × Faktor " + ogFactor.toFixed(3) + " (OG-Whg/EG-Whg × OG-Höhe/EG-Höhe × Geschosse)"],
-            })
-          }
-          // Kantenprofil and Anputzleiste
-          if (pos.pos_nr === "2.3.3" || pos.pos_nr === "2.3.4") {
-            const ogFactor = (whgProOg / egWhg) * ogFloors
-            ogPositionen.push({
-              ...pos,
-              pos_nr: pos.pos_nr + "-OG",
-              beschreibung: pos.beschreibung + " OG (×" + ogFloors + ")",
-              endsumme: Math.round(pos.endsumme * ogFactor * 100) / 100,
-              berechnung: ["EG-Wert " + pos.endsumme + " × " + ogFactor.toFixed(2)],
-            })
-          }
-        }
-        kalk.positionen = [...(kalk.positionen || []), ...ogPositionen]
-      }
 
       for (const p of (kalk.positionen || []))
         await sb.from("massen").insert({
@@ -796,13 +1097,14 @@ JSON: {"positionen":[{"pos_nr":"","beschreibung":"","gewerk":"","raum_referenz":
         })
 
       const log = plan.agent_log || {}
-      log.step2 = { ts: new Date().toISOString(), pos: (kalk.positionen||[]).length, zf: kalk.zusammenfassung }
+      log.step2 = { ts: new Date().toISOString(), methode: "claude_fallback", gewerk: selectedGewerk, pos: (kalk.positionen||[]).length, zf: kalk.zusammenfassung }
       await sb.from("plaene").update({ agent_log: log }).eq("id", plan_id)
 
       return new Response(JSON.stringify({
         status: "step2_done",
         next_step: 3,
         massen: (kalk.positionen||[]).length,
+        methode: "claude_fallback",
         zusammenfassung: kalk.zusammenfassung || {},
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
