@@ -1761,3 +1761,22 @@ img {
   .plan-sidebar { width: 100%; border-left: none; border-top: 1px solid #eee; max-height: 200px; }
   .plan-viewer-legend { flex-wrap: wrap; gap: 0.75rem; }
 }
+
+/* Plan Viewer - Improved */
+.sidebar-whg { border-bottom: 1px solid #eee; }
+.sidebar-whg-header { padding: 0.6rem 0.75rem; cursor: pointer; background: #f8f9fa; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; }
+.sidebar-whg-header:hover { background: #e8eef4; }
+.sidebar-whg.collapsed .sidebar-whg-body { display: none; }
+.sidebar-whg.collapsed .sidebar-whg-header span { transform: rotate(-90deg); }
+.sidebar-whg-body { padding: 0.25rem 0; }
+.sidebar-element.highlighted { background: #fff3cd !important; border-left-width: 4px !important; }
+.sidebar-type-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.confidence-badge { font-size: 0.7rem; padding: 1px 5px; border-radius: 10px; margin-left: 4px; }
+.confidence-badge.confidence-green { background: #dcfce7; color: #166534; }
+.confidence-badge.confidence-yellow { background: #fef3c7; color: #92400e; }
+.confidence-badge.confidence-red { background: #fef2f2; color: #991b1b; }
+.sidebar-berechnung { margin-top: 4px; padding: 4px 8px; background: #f8f9fa; border-radius: 4px; font-size: 0.75rem; }
+.berechnung-step { color: #4b5563; padding: 1px 0; border-bottom: 1px dotted #e5e7eb; }
+.berechnung-step:last-child { border-bottom: none; }
+.plan-sidebar { width: 350px; overflow-y: auto; border-left: 1px solid #ddd; max-height: 80vh; }
+@media (max-width: 768px) { .plan-sidebar { width: 100%; max-height: 40vh; } .plan-viewer-body { flex-direction: column; } }
