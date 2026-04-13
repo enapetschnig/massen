@@ -169,24 +169,24 @@
       });
     }
 
-    // Extract text from PDF first (client-side)
-    if (progressStatus) progressStatus.textContent = 'Texte aus PDF extrahieren...';
+    // Extract text from PDF first (server-side pdfplumber for accuracy)
+    if (progressStatus) progressStatus.textContent = 'PDF-Texte extrahieren (pdfplumber)...';
     if (analysisBar) { analysisBar.style.width = '5%'; analysisBar.textContent = '5%'; }
 
-    _sb.from('plaene').select('storage_path').eq('id', planId).single()
+    fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan_id: planId })
+    })
       .then(function(res) {
-        return _sb.storage.from('plaene').createSignedUrl(res.data.storage_path, 3600);
-      })
-      .then(function(urlRes) {
-        return extractPdfText(urlRes.data.signedUrl);
-      })
-      .then(function(textData) {
-        // Store in agent_log for orchestrator to use
-        return _sb.from('plaene').update({
-          agent_log: { pdf_text: textData }
-        }).eq('id', planId);
+        return res.json().then(function(data) {
+          if (data.error) console.warn('Extraktion:', data.error);
+          console.log('Extraktion:', data.rooms_grouped || 0, 'Räume,', data.dimensions || 0, 'Maße');
+          return data;
+        });
       })
       .then(function() {
+        // Server hat die Daten bereits in agent_log gespeichert
         // Step 1: Parser + Geometrie
         setStepActive(0);
         if (progressStatus) progressStatus.textContent = 'Schritt 1/3: PDF wird analysiert...';
