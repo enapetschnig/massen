@@ -447,10 +447,12 @@ function calcMassen(
  */
 function hasSufficientPdfText(pdfText: any): boolean {
   if (!pdfText) return false
-  const hasRooms = (pdfText.room_names || []).length > 0
-  const hasAreas = (pdfText.areas || []).length > 0
+  const hasRooms = (pdfText.room_names || []).length >= 3
+  const hasAreas = (pdfText.areas || []).length >= 3  // Need actual m² values
   const hasDimensions = (pdfText.dimensions || []).length > 0
-  return hasRooms && (hasAreas || hasDimensions)
+  // Only use text-first if we have BOTH room names AND area values
+  // Dimensions alone aren't enough - we need areas for the math engine
+  return hasRooms && hasAreas
 }
 
 /**
@@ -580,11 +582,18 @@ Gruppiere diese Daten und gib zurueck:
  * VISION FALLBACK Step 1: Send the PDF image to Claude (old 4-pass approach collapsed into 1 call).
  * Used only when pdf_text is not available.
  */
-async function step1VisionFallback(apiKey: string, pdfSignedUrl: string): Promise<any> {
+async function step1VisionFallback(apiKey: string, pdfSignedUrl: string, pdfTextData?: any): Promise<any> {
   const pdfSource = { type: "document", source: { type: "url", url: pdfSignedUrl } }
 
+  // Build dimension hints from text extraction (if available)
+  const dims = (pdfTextData?.dimensions || [])
+  const dimHint = dims.length > 0
+    ? `\n\nHINWEIS: Aus dem PDF wurden diese EXAKTEN Masswerte extrahiert (maschinenlesbar, 100% korrekt):\n${dims.slice(0, 40).map((d: any) => d.value_m + "m").join(", ")}\nVerwende diese Werte wenn sie zu Wandlaengen/Raumabmessungen passen!`
+    : ""
+
   const systemPrompt = `Du bist ein erfahrener Bauingenieur. Analysiere diesen Bauplan vollstaendig.
-Lies JEDEN Text, JEDE Zahl, JEDES Mass exakt ab. Antworte NUR mit validem JSON, KEIN Markdown.`
+Lies JEDEN Text, JEDE Zahl, JEDES Mass exakt ab.${dimHint}
+Antworte NUR mit validem JSON, KEIN Markdown.`
 
   const userPrompt = `Analysiere den gesamten Bauplan und gib zurueck:
 
@@ -754,7 +763,7 @@ serve(async (req: Request) => {
           try {
             const { data: u } = await sb.storage.from("plaene").createSignedUrl(plan.storage_path, 3600)
             if (!u?.signedUrl) throw new Error("PDF URL fehlt")
-            merged = await step1VisionFallback(cfg.value, u.signedUrl)
+            merged = await step1VisionFallback(cfg.value, u.signedUrl, pdfTextData)
           } catch (e2: any) {
             errors.push("VisionFallback: " + e2.message)
           }
@@ -766,7 +775,7 @@ serve(async (req: Request) => {
         try {
           const { data: u } = await sb.storage.from("plaene").createSignedUrl(plan.storage_path, 3600)
           if (!u?.signedUrl) throw new Error("PDF URL fehlt")
-          merged = await step1VisionFallback(cfg.value, u.signedUrl)
+          merged = await step1VisionFallback(cfg.value, u.signedUrl, pdfTextData)
         } catch (e: any) {
           errors.push("Vision: " + e.message)
         }
