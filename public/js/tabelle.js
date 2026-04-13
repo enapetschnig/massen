@@ -335,6 +335,18 @@
         addCell(tr, '');
       }
 
+      // Edit-Icon-Button
+      var tdEdit = document.createElement('td');
+      var editBtn = document.createElement('button');
+      editBtn.className = 'btn-icon';
+      editBtn.title = 'Bearbeiten';
+      editBtn.innerHTML = '&#9998;';
+      editBtn.addEventListener('click', (function (masse, parentTr) {
+        return function () { showInlineEdit(masse, parentTr, masses); };
+      })(m, tr));
+      tdEdit.appendChild(editBtn);
+      tr.appendChild(tdEdit);
+
       if (m.manuell_korrigiert) {
         tr.classList.add('changed-row');
       }
@@ -342,36 +354,254 @@
     });
   }
 
-  // --- Zusammenfassung rendern (gruppiert nach Gewerk) ---
+  // --- Inline-Edit fuer Massen-Zeile ---
+  function showInlineEdit(masse, parentTr, allMasses) {
+    // Vorherige Edit-Zeile entfernen
+    var existing = parentTr.parentNode.querySelector('.edit-row');
+    if (existing) existing.remove();
+
+    var colCount = parentTr.querySelectorAll('td').length;
+    var editTr = document.createElement('tr');
+    editTr.className = 'edit-row';
+    var editTd = document.createElement('td');
+    editTd.colSpan = colCount;
+
+    var form = document.createElement('div');
+    form.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end;';
+
+    // Endsumme
+    var grpEnd = document.createElement('div');
+    grpEnd.innerHTML = '<label style="display:block;font-size:0.75rem;color:#6c757d;margin-bottom:2px">Endsumme</label>';
+    var inputEnd = document.createElement('input');
+    inputEnd.type = 'text';
+    inputEnd.className = 'edit-input';
+    inputEnd.value = masse.endsumme != null ? String(masse.endsumme) : '';
+    inputEnd.style.width = '100px';
+    grpEnd.appendChild(inputEnd);
+    form.appendChild(grpEnd);
+
+    // Beschreibung
+    var grpBeschr = document.createElement('div');
+    grpBeschr.innerHTML = '<label style="display:block;font-size:0.75rem;color:#6c757d;margin-bottom:2px">Beschreibung</label>';
+    var inputBeschr = document.createElement('input');
+    inputBeschr.type = 'text';
+    inputBeschr.className = 'edit-input';
+    inputBeschr.value = masse.beschreibung || '';
+    inputBeschr.style.width = '220px';
+    grpBeschr.appendChild(inputBeschr);
+    form.appendChild(grpBeschr);
+
+    // Einheit
+    var grpEinh = document.createElement('div');
+    grpEinh.innerHTML = '<label style="display:block;font-size:0.75rem;color:#6c757d;margin-bottom:2px">Einheit</label>';
+    var inputEinh = document.createElement('input');
+    inputEinh.type = 'text';
+    inputEinh.className = 'edit-input';
+    inputEinh.value = masse.einheit || '';
+    inputEinh.style.width = '80px';
+    grpEinh.appendChild(inputEinh);
+    form.appendChild(grpEinh);
+
+    // Aktionen
+    var actions = document.createElement('div');
+    actions.className = 'edit-actions';
+
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-primary btn-sm';
+    saveBtn.textContent = 'Speichern';
+    saveBtn.addEventListener('click', function () {
+      var newEnd = parseFloat(inputEnd.value.replace(',', '.'));
+      if (isNaN(newEnd)) newEnd = 0;
+      var newBeschr = inputBeschr.value.trim();
+      var newEinh = inputEinh.value.trim();
+
+      var updateObj = {
+        endsumme: newEnd,
+        beschreibung: newBeschr,
+        einheit: newEinh,
+        manuell_korrigiert: true
+      };
+
+      _sb.from('massen').update(updateObj).eq('id', masse.id)
+        .then(function (res) {
+          if (res.error) {
+            showNotification('Fehler: ' + res.error.message);
+            return;
+          }
+          // Lokale Daten aktualisieren
+          masse.endsumme = newEnd;
+          masse.beschreibung = newBeschr;
+          masse.einheit = newEinh;
+          masse.manuell_korrigiert = true;
+
+          // Lern-Agent aufrufen
+          fetch(SUPABASE_URL + '/functions/v1/lern-agent', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+            },
+            body: JSON.stringify({
+              masse_id: masse.id,
+              feld: 'endsumme',
+              alter_wert: masse.endsumme,
+              neuer_wert: newEnd,
+              firma_id: getSession().id
+            })
+          }).catch(function (err) { console.error('Lern-Agent:', err); });
+
+          showNotification('Gespeichert');
+          editTr.remove();
+          renderMassen(allMasses);
+          renderZusammenfassung(allMasses);
+        });
+    });
+    actions.appendChild(saveBtn);
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-outline btn-sm';
+    cancelBtn.textContent = 'Abbrechen';
+    cancelBtn.addEventListener('click', function () { editTr.remove(); });
+    actions.appendChild(cancelBtn);
+
+    form.appendChild(actions);
+    editTd.appendChild(form);
+    editTr.appendChild(editTd);
+    parentTr.parentNode.insertBefore(editTr, parentTr.nextSibling);
+  }
+
+  // --- Recalculate-Button einfuegen ---
+  function renderRecalcButton() {
+    var existing = document.getElementById('recalc-btn');
+    if (existing) existing.remove();
+    if (!tables.massen) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'recalc-btn';
+    btn.className = 'btn btn-outline recalc-btn';
+    btn.innerHTML = '&#8635; Neu berechnen (Schritt 2)';
+    btn.addEventListener('click', function () {
+      if (!currentPlanId) return;
+      btn.disabled = true;
+      btn.textContent = 'Berechnung läuft...';
+      fetch(SUPABASE_URL + '/functions/v1/orchestrator', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ plan_id: currentPlanId, step: 2 })
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data.error) throw new Error(data.error);
+          showNotification('Neuberechnung abgeschlossen');
+          loadResults(currentPlanId);
+        })
+        .catch(function (err) {
+          showNotification('Fehler: ' + err.message);
+        })
+        .finally(function () {
+          btn.disabled = false;
+          btn.innerHTML = '&#8635; Neu berechnen (Schritt 2)';
+        });
+    });
+
+    var tableWrapper = tables.massen.closest('.table-wrapper');
+    var target = tableWrapper || tables.massen;
+    target.parentNode.insertBefore(btn, target);
+  }
+
+  // --- Zusammenfassung rendern (professionelle Summary Card) ---
   function renderZusammenfassung(masses) {
     if (!tables.zusammenfassung) return;
-    var tbody = tables.zusammenfassung.querySelector('tbody');
-    tbody.innerHTML = '';
+
+    // Gesamten Tab-Inhalt durch Summary Card ersetzen
+    var panel = tabPanels.zusammenfassung;
+    if (!panel) return;
+
+    // Bestehende Summary Card entfernen, Table beibehalten fuer Fallback
+    var existingCard = panel.querySelector('.summary-card');
+    if (existingCard) existingCard.remove();
+
+    // Tabelle verstecken
+    var tableWrapper = tables.zusammenfassung.closest('.table-wrapper');
+    if (tableWrapper) tableWrapper.style.display = 'none';
+    else tables.zusammenfassung.style.display = 'none';
+
     if (!masses || masses.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="3" style="padding:2rem;text-align:center;color:#8899aa">Keine Daten vorhanden</td></tr>';
+      var empty = document.createElement('div');
+      empty.className = 'summary-card';
+      empty.innerHTML = '<p style="text-align:center;color:#8899aa;padding:2rem">Keine Daten vorhanden</p>';
+      panel.appendChild(empty);
       return;
     }
 
     // Gruppieren nach Gewerk + Einheit
     var groups = {};
+    var totalAll = 0;
+    var allConf = [];
     masses.forEach(function (m) {
       var key = (m.gewerk || 'Sonstige') + '||' + (m.einheit || '');
       if (!groups[key]) {
-        groups[key] = { gewerk: m.gewerk || 'Sonstige', einheit: m.einheit || '', total: 0 };
+        groups[key] = { gewerk: m.gewerk || 'Sonstige', einheit: m.einheit || '', total: 0, count: 0 };
       }
-      groups[key].total += (parseFloat(m.endsumme) || 0);
+      var val = parseFloat(m.endsumme) || 0;
+      groups[key].total += val;
+      groups[key].count++;
+      totalAll += val;
+      if (m.konfidenz != null) allConf.push(m.konfidenz);
     });
 
+    var avgConf = allConf.length > 0 ? allConf.reduce(function (a, b) { return a + b; }, 0) / allConf.length : 0;
+    var confColor = avgConf >= 80 ? 'green' : (avgConf >= 60 ? 'yellow' : 'red');
+    var confLabel = avgConf >= 80 ? 'Hoch' : (avgConf >= 60 ? 'Mittel' : 'Niedrig');
+
+    var card = document.createElement('div');
+    card.className = 'summary-card';
+
+    // Header
+    var header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;';
+    header.innerHTML = '<h3 style="margin:0;color:var(--primary);font-size:1.1rem">Zusammenfassung</h3>' +
+      '<div class="summary-confidence">' +
+      '<span class="summary-confidence-dot ' + confColor + '"></span>' +
+      '<span style="font-size:0.85rem;color:var(--text-light)">' + confLabel + ' (' + Math.round(avgConf) + '%)</span>' +
+      '</div>';
+    card.appendChild(header);
+
+    // Tabelle
+    var table = document.createElement('table');
+    table.className = 'summary-table';
+
+    var thead = document.createElement('thead');
+    thead.innerHTML = '<tr><th>Gewerk</th><th>Positionen</th><th style="text-align:right">Summe</th><th>Einheit</th></tr>';
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
     var keys = Object.keys(groups).sort();
     keys.forEach(function (key) {
       var g = groups[key];
       var tr = document.createElement('tr');
-      tr.style.fontWeight = '600';
-      addCell(tr, g.gewerk);
-      addCell(tr, formatNum(g.total));
-      addCell(tr, g.einheit);
+      tr.innerHTML = '<td>' + g.gewerk + '</td>' +
+        '<td>' + g.count + '</td>' +
+        '<td class="num">' + formatNum(g.total) + '</td>' +
+        '<td>' + g.einheit + '</td>';
       tbody.appendChild(tr);
     });
+
+    // Gesamt-Zeile
+    var totalTr = document.createElement('tr');
+    totalTr.className = 'summary-total-row';
+    totalTr.innerHTML = '<td>Gesamt</td>' +
+      '<td>' + masses.length + '</td>' +
+      '<td class="num">' + formatNum(totalAll) + '</td>' +
+      '<td></td>';
+    tbody.appendChild(totalTr);
+
+    table.appendChild(tbody);
+    card.appendChild(table);
+    panel.appendChild(card);
   }
 
   // --- Qualitaetsbericht anzeigen ---
@@ -539,6 +769,7 @@
       renderFenster(windows);
       renderTueren(doors);
       renderMassen(masses);
+      renderRecalcButton();
       renderZusammenfassung(masses);
 
       // Sektion anzeigen
