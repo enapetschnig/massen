@@ -72,7 +72,7 @@ function calcRoomDimensions(room: any, rohbauHoehe: number): RoomDims | null {
 }
 
 function calcWandflaeche(room: RoomDims): number {
-  // Wall area = perimeter × height
+  // Wall area = perimeter x height
   return Math.round(room.umfang * room.hoehe * 100) / 100
 }
 
@@ -97,8 +97,8 @@ function calcOENORMAbzug(oeffnungFlaeche: number, gewerk: string): number {
 
 function normalizeWindowDimension(val: number): number {
   // Auto-detect unit and convert to mm
-  if (val < 30) return val * 100   // cm → mm (e.g., 15 → 1500)
-  if (val < 300) return val * 10   // cm → mm (e.g., 147 → 1470)
+  if (val < 30) return val * 100   // cm -> mm (e.g., 15 -> 1500)
+  if (val < 300) return val * 10   // cm -> mm (e.g., 147 -> 1470)
   return val                        // already mm
 }
 
@@ -190,18 +190,18 @@ function calcMassen(
       const netto = Math.round((wf - abzug) * 100) / 100
 
       totalWandEG += netto
-      berechnungWand.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${d.hoehe.toFixed(2)}=${wf.toFixed(2)} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+      berechnungWand.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}x${d.hoehe.toFixed(2)}=${wf.toFixed(2)} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m2`)
 
       totalDeckeEG += d.flaeche
-      berechnungDecke.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+      berechnungDecke.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m2`)
     }
 
-    // Leibungen: per window 2×wandstaerke×height + wandstaerke×width
+    // Leibungen: per window 2xwandstaerkexheight + wandstaerkexwidth
     for (const f of normalizedFenster) {
       const leib = 2 * wandstaerke_m * f.al_hoehe_m + wandstaerke_m * f.al_breite_m
       const leibFlaeche = Math.round(leib * 100) / 100
       totalLeibungEG += leibFlaeche
-      berechnungLeibung.push(`${f.bezeichnung || "Fenster"}: 2×${wandstaerke_m}×${f.al_hoehe_m.toFixed(2)}+${wandstaerke_m}×${f.al_breite_m.toFixed(2)} = ${leibFlaeche.toFixed(2)} m²`)
+      berechnungLeibung.push(`${f.bezeichnung || "Fenster"}: 2x${wandstaerke_m}x${f.al_hoehe_m.toFixed(2)}+${wandstaerke_m}x${f.al_breite_m.toFixed(2)} = ${leibFlaeche.toFixed(2)} m2`)
     }
 
     // OG multiplication
@@ -214,35 +214,35 @@ function calcMassen(
     const totalLeibungOG = Math.round(totalLeibungEG * ogFaktorLeibung * ogFloors * 100) / 100
 
     positionen.push(
-      { pos_nr: `${prefix}1`, beschreibung: "Grundierung Wände EG", gewerk: "Maler",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungWand,
-        endsumme: Math.round(totalWandEG * 100) / 100, einheit: "m²", konfidenz: 90 },
-      { pos_nr: `${prefix}1-OG`, beschreibung: `Grundierung Wände OG (×${ogFloors})`, gewerk: "Maler",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalWandEG.toFixed(2)} × ${(ogFaktorFlaeche * ogFloors).toFixed(2)} = ${totalWandOG.toFixed(2)}`],
-        endsumme: totalWandOG, einheit: "m²", konfidenz: 85 },
-      { pos_nr: `${prefix}2`, beschreibung: "Anstrich Wände EG", gewerk: "Maler",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungWand,
-        endsumme: Math.round(totalWandEG * 100) / 100, einheit: "m²", konfidenz: 90 },
-      { pos_nr: `${prefix}2-OG`, beschreibung: `Anstrich Wände OG (×${ogFloors})`, gewerk: "Maler",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalWandEG.toFixed(2)} × ${(ogFaktorFlaeche * ogFloors).toFixed(2)} = ${totalWandOG.toFixed(2)}`],
-        endsumme: totalWandOG, einheit: "m²", konfidenz: 85 },
+      { pos_nr: `${prefix}1`, beschreibung: "Grundierung Waende EG", gewerk: "Maler",
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungWand,
+        endsumme: Math.round(totalWandEG * 100) / 100, einheit: "m2", konfidenz: 90 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Grundierung Waende OG (x${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalWandEG.toFixed(2)} x ${(ogFaktorFlaeche * ogFloors).toFixed(2)} = ${totalWandOG.toFixed(2)}`],
+        endsumme: totalWandOG, einheit: "m2", konfidenz: 85 },
+      { pos_nr: `${prefix}2`, beschreibung: "Anstrich Waende EG", gewerk: "Maler",
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungWand,
+        endsumme: Math.round(totalWandEG * 100) / 100, einheit: "m2", konfidenz: 90 },
+      { pos_nr: `${prefix}2-OG`, beschreibung: `Anstrich Waende OG (x${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalWandEG.toFixed(2)} x ${(ogFaktorFlaeche * ogFloors).toFixed(2)} = ${totalWandOG.toFixed(2)}`],
+        endsumme: totalWandOG, einheit: "m2", konfidenz: 85 },
       { pos_nr: `${prefix}3`, beschreibung: "Grundierung Decken EG", gewerk: "Maler",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungDecke,
-        endsumme: Math.round(totalDeckeEG * 100) / 100, einheit: "m²", konfidenz: 92 },
-      { pos_nr: `${prefix}3-OG`, beschreibung: `Grundierung Decken OG (×${ogFloors})`, gewerk: "Maler",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalDeckeEG.toFixed(2)} × ${(ogFaktorDecke * ogFloors).toFixed(2)} = ${totalDeckeOG.toFixed(2)}`],
-        endsumme: totalDeckeOG, einheit: "m²", konfidenz: 87 },
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungDecke,
+        endsumme: Math.round(totalDeckeEG * 100) / 100, einheit: "m2", konfidenz: 92 },
+      { pos_nr: `${prefix}3-OG`, beschreibung: `Grundierung Decken OG (x${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalDeckeEG.toFixed(2)} x ${(ogFaktorDecke * ogFloors).toFixed(2)} = ${totalDeckeOG.toFixed(2)}`],
+        endsumme: totalDeckeOG, einheit: "m2", konfidenz: 87 },
       { pos_nr: `${prefix}4`, beschreibung: "Anstrich Decken EG", gewerk: "Maler",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungDecke,
-        endsumme: Math.round(totalDeckeEG * 100) / 100, einheit: "m²", konfidenz: 92 },
-      { pos_nr: `${prefix}4-OG`, beschreibung: `Anstrich Decken OG (×${ogFloors})`, gewerk: "Maler",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalDeckeEG.toFixed(2)} × ${(ogFaktorDecke * ogFloors).toFixed(2)} = ${totalDeckeOG.toFixed(2)}`],
-        endsumme: totalDeckeOG, einheit: "m²", konfidenz: 87 },
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungDecke,
+        endsumme: Math.round(totalDeckeEG * 100) / 100, einheit: "m2", konfidenz: 92 },
+      { pos_nr: `${prefix}4-OG`, beschreibung: `Anstrich Decken OG (x${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalDeckeEG.toFixed(2)} x ${(ogFaktorDecke * ogFloors).toFixed(2)} = ${totalDeckeOG.toFixed(2)}`],
+        endsumme: totalDeckeOG, einheit: "m2", konfidenz: 87 },
       { pos_nr: `${prefix}5`, beschreibung: "Leibungen EG", gewerk: "Maler",
         raum_referenz: "Fenster EG", berechnung: berechnungLeibung,
-        endsumme: Math.round(totalLeibungEG * 100) / 100, einheit: "m²", konfidenz: 85 },
-      { pos_nr: `${prefix}5-OG`, beschreibung: `Leibungen OG (×${ogFloors})`, gewerk: "Maler",
-        raum_referenz: "Fenster OG", berechnung: [`EG ${totalLeibungEG.toFixed(2)} × ${(ogFaktorLeibung * ogFloors).toFixed(2)} = ${totalLeibungOG.toFixed(2)}`],
+        endsumme: Math.round(totalLeibungEG * 100) / 100, einheit: "m2", konfidenz: 85 },
+      { pos_nr: `${prefix}5-OG`, beschreibung: `Leibungen OG (x${ogFloors})`, gewerk: "Maler",
+        raum_referenz: "Fenster OG", berechnung: [`EG ${totalLeibungEG.toFixed(2)} x ${(ogFaktorLeibung * ogFloors).toFixed(2)} = ${totalLeibungOG.toFixed(2)}`],
         endsumme: totalLeibungOG, einheit: "lfm", konfidenz: 80 },
     )
   }
@@ -260,7 +260,7 @@ function calcMassen(
     for (const d of dims) {
       if (hasFliesenBoden(d.bodenbelag, d.name)) {
         totalBodenEG += d.flaeche
-        berechnungBoden.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+        berechnungBoden.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m2`)
 
         totalSockelEG += d.umfang
         berechnungSockel.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)} lfm`)
@@ -272,7 +272,7 @@ function calcMassen(
         const abzug = calcOENORMAbzug(oeffnung, "fliesen") * oeffnung
         const netto = Math.round((wandBad - abzug) * 100) / 100
         totalWandBadEG += netto
-        berechnungWandBad.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${fliesenHoehe} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+        berechnungWandBad.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}x${fliesenHoehe} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m2`)
       }
 
       if (isWC(d.name)) {
@@ -281,7 +281,7 @@ function calcMassen(
         const abzug = calcOENORMAbzug(oeffnung, "fliesen") * oeffnung
         const netto = Math.round((wandWC - abzug) * 100) / 100
         totalWandWCEG += netto
-        berechnungWandWC.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${fliesenHoehe} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+        berechnungWandWC.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}x${fliesenHoehe} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m2`)
       }
     }
 
@@ -289,21 +289,21 @@ function calcMassen(
 
     positionen.push(
       { pos_nr: `${prefix}1`, beschreibung: "Bodenfliesen EG", gewerk: "Fliesen",
-        raum_referenz: "Nassräume EG", berechnung: berechnungBoden,
-        endsumme: Math.round(totalBodenEG * 100) / 100, einheit: "m²", konfidenz: 90 },
-      { pos_nr: `${prefix}1-OG`, beschreibung: `Bodenfliesen OG (×${ogFloors})`, gewerk: "Fliesen",
-        raum_referenz: "Nassräume OG", berechnung: [`EG ${totalBodenEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalBodenEG * ogFaktor).toFixed(2)}`],
-        endsumme: Math.round(totalBodenEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 85 },
+        raum_referenz: "Nassraeume EG", berechnung: berechnungBoden,
+        endsumme: Math.round(totalBodenEG * 100) / 100, einheit: "m2", konfidenz: 90 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Bodenfliesen OG (x${ogFloors})`, gewerk: "Fliesen",
+        raum_referenz: "Nassraeume OG", berechnung: [`EG ${totalBodenEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalBodenEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalBodenEG * ogFaktor * 100) / 100, einheit: "m2", konfidenz: 85 },
     )
 
     if (totalWandBadEG > 0) {
       positionen.push(
         { pos_nr: `${prefix}2`, beschreibung: "Wandfliesen Bad EG", gewerk: "Fliesen",
           raum_referenz: "Bad EG", berechnung: berechnungWandBad,
-          endsumme: Math.round(totalWandBadEG * 100) / 100, einheit: "m²", konfidenz: 88 },
-        { pos_nr: `${prefix}2-OG`, beschreibung: `Wandfliesen Bad OG (×${ogFloors})`, gewerk: "Fliesen",
-          raum_referenz: "Bad OG", berechnung: [`EG ${totalWandBadEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalWandBadEG * ogFaktor).toFixed(2)}`],
-          endsumme: Math.round(totalWandBadEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 83 },
+          endsumme: Math.round(totalWandBadEG * 100) / 100, einheit: "m2", konfidenz: 88 },
+        { pos_nr: `${prefix}2-OG`, beschreibung: `Wandfliesen Bad OG (x${ogFloors})`, gewerk: "Fliesen",
+          raum_referenz: "Bad OG", berechnung: [`EG ${totalWandBadEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalWandBadEG * ogFaktor).toFixed(2)}`],
+          endsumme: Math.round(totalWandBadEG * ogFaktor * 100) / 100, einheit: "m2", konfidenz: 83 },
       )
     }
 
@@ -311,19 +311,19 @@ function calcMassen(
       positionen.push(
         { pos_nr: `${prefix}3`, beschreibung: "Wandfliesen WC EG", gewerk: "Fliesen",
           raum_referenz: "WC EG", berechnung: berechnungWandWC,
-          endsumme: Math.round(totalWandWCEG * 100) / 100, einheit: "m²", konfidenz: 88 },
-        { pos_nr: `${prefix}3-OG`, beschreibung: `Wandfliesen WC OG (×${ogFloors})`, gewerk: "Fliesen",
-          raum_referenz: "WC OG", berechnung: [`EG ${totalWandWCEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalWandWCEG * ogFaktor).toFixed(2)}`],
-          endsumme: Math.round(totalWandWCEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 83 },
+          endsumme: Math.round(totalWandWCEG * 100) / 100, einheit: "m2", konfidenz: 88 },
+        { pos_nr: `${prefix}3-OG`, beschreibung: `Wandfliesen WC OG (x${ogFloors})`, gewerk: "Fliesen",
+          raum_referenz: "WC OG", berechnung: [`EG ${totalWandWCEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalWandWCEG * ogFaktor).toFixed(2)}`],
+          endsumme: Math.round(totalWandWCEG * ogFaktor * 100) / 100, einheit: "m2", konfidenz: 83 },
       )
     }
 
     positionen.push(
       { pos_nr: `${prefix}4`, beschreibung: "Sockelleisten EG", gewerk: "Fliesen",
-        raum_referenz: "Nassräume EG", berechnung: berechnungSockel,
+        raum_referenz: "Nassraeume EG", berechnung: berechnungSockel,
         endsumme: Math.round(totalSockelEG * 100) / 100, einheit: "lfm", konfidenz: 85 },
-      { pos_nr: `${prefix}4-OG`, beschreibung: `Sockelleisten OG (×${ogFloors})`, gewerk: "Fliesen",
-        raum_referenz: "Nassräume OG", berechnung: [`EG ${totalSockelEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalSockelEG * ogFaktor).toFixed(2)}`],
+      { pos_nr: `${prefix}4-OG`, beschreibung: `Sockelleisten OG (x${ogFloors})`, gewerk: "Fliesen",
+        raum_referenz: "Nassraeume OG", berechnung: [`EG ${totalSockelEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalSockelEG * ogFaktor).toFixed(2)}`],
         endsumme: Math.round(totalSockelEG * ogFaktor * 100) / 100, einheit: "lfm", konfidenz: 80 },
     )
   }
@@ -338,14 +338,14 @@ function calcMassen(
 
     for (const d of dims) {
       totalEstrichEG += d.flaeche
-      berechnungEstrich.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+      berechnungEstrich.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m2`)
 
       totalRandEG += d.umfang
       berechnungRand.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)} lfm`)
 
       if (isNassraum(d.name)) {
         totalNassraumEG += d.flaeche
-        berechnungNass.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m²`)
+        berechnungNass.push(`${d.wohnung} ${d.name}: ${d.flaeche.toFixed(2)} m2`)
       }
     }
 
@@ -353,29 +353,29 @@ function calcMassen(
 
     positionen.push(
       { pos_nr: `${prefix}1`, beschreibung: "Zementestrich EG", gewerk: "Estrich",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungEstrich,
-        endsumme: Math.round(totalEstrichEG * 100) / 100, einheit: "m²", konfidenz: 92 },
-      { pos_nr: `${prefix}1-OG`, beschreibung: `Zementestrich OG (×${ogFloors})`, gewerk: "Estrich",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalEstrichEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalEstrichEG * ogFaktor).toFixed(2)}`],
-        endsumme: Math.round(totalEstrichEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 87 },
-      { pos_nr: `${prefix}2`, beschreibung: "Randdämmstreifen EG", gewerk: "Estrich",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungRand,
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungEstrich,
+        endsumme: Math.round(totalEstrichEG * 100) / 100, einheit: "m2", konfidenz: 92 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Zementestrich OG (x${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalEstrichEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalEstrichEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalEstrichEG * ogFaktor * 100) / 100, einheit: "m2", konfidenz: 87 },
+      { pos_nr: `${prefix}2`, beschreibung: "Randdaemmstreifen EG", gewerk: "Estrich",
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungRand,
         endsumme: Math.round(totalRandEG * 100) / 100, einheit: "lfm", konfidenz: 90 },
-      { pos_nr: `${prefix}2-OG`, beschreibung: `Randdämmstreifen OG (×${ogFloors})`, gewerk: "Estrich",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalRandEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalRandEG * ogFaktor).toFixed(2)}`],
+      { pos_nr: `${prefix}2-OG`, beschreibung: `Randdaemmstreifen OG (x${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalRandEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalRandEG * ogFaktor).toFixed(2)}`],
         endsumme: Math.round(totalRandEG * ogFaktor * 100) / 100, einheit: "lfm", konfidenz: 85 },
-      { pos_nr: `${prefix}3`, beschreibung: "Trittschalldämmung EG", gewerk: "Estrich",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungEstrich,
-        endsumme: Math.round(totalEstrichEG * 100) / 100, einheit: "m²", konfidenz: 92 },
-      { pos_nr: `${prefix}3-OG`, beschreibung: `Trittschalldämmung OG (×${ogFloors})`, gewerk: "Estrich",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalEstrichEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalEstrichEG * ogFaktor).toFixed(2)}`],
-        endsumme: Math.round(totalEstrichEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 87 },
-      { pos_nr: `${prefix}4`, beschreibung: "Dampfsperre Nassräume EG", gewerk: "Estrich",
-        raum_referenz: "Nassräume EG", berechnung: berechnungNass,
-        endsumme: Math.round(totalNassraumEG * 100) / 100, einheit: "m²", konfidenz: 88 },
-      { pos_nr: `${prefix}4-OG`, beschreibung: `Dampfsperre Nassräume OG (×${ogFloors})`, gewerk: "Estrich",
-        raum_referenz: "Nassräume OG", berechnung: [`EG ${totalNassraumEG.toFixed(2)} × ${ogFaktor.toFixed(2)} = ${(totalNassraumEG * ogFaktor).toFixed(2)}`],
-        endsumme: Math.round(totalNassraumEG * ogFaktor * 100) / 100, einheit: "m²", konfidenz: 83 },
+      { pos_nr: `${prefix}3`, beschreibung: "Trittschalldaemmung EG", gewerk: "Estrich",
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungEstrich,
+        endsumme: Math.round(totalEstrichEG * 100) / 100, einheit: "m2", konfidenz: 92 },
+      { pos_nr: `${prefix}3-OG`, beschreibung: `Trittschalldaemmung OG (x${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalEstrichEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalEstrichEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalEstrichEG * ogFaktor * 100) / 100, einheit: "m2", konfidenz: 87 },
+      { pos_nr: `${prefix}4`, beschreibung: "Dampfsperre Nassraeume EG", gewerk: "Estrich",
+        raum_referenz: "Nassraeume EG", berechnung: berechnungNass,
+        endsumme: Math.round(totalNassraumEG * 100) / 100, einheit: "m2", konfidenz: 88 },
+      { pos_nr: `${prefix}4-OG`, beschreibung: `Dampfsperre Nassraeume OG (x${ogFloors})`, gewerk: "Estrich",
+        raum_referenz: "Nassraeume OG", berechnung: [`EG ${totalNassraumEG.toFixed(2)} x ${ogFaktor.toFixed(2)} = ${(totalNassraumEG * ogFaktor).toFixed(2)}`],
+        endsumme: Math.round(totalNassraumEG * ogFaktor * 100) / 100, einheit: "m2", konfidenz: 83 },
     )
   }
 
@@ -394,58 +394,320 @@ function calcMassen(
       const abzug = Math.round(oeffnung * abzugFaktor * 100) / 100
       const netto = Math.round((wf - abzug) * 100) / 100
       totalInnenEG += netto
-      berechnungInnen.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}×${d.hoehe.toFixed(2)}=${wf.toFixed(2)} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m²`)
+      berechnungInnen.push(`${d.wohnung} ${d.name}: ${d.umfang.toFixed(2)}x${d.hoehe.toFixed(2)}=${wf.toFixed(2)} -${abzug.toFixed(2)} = ${netto.toFixed(2)} m2`)
     }
 
     // Leibungen from windows
     for (const f of normalizedFenster) {
-      // Leibung = (2 × height + width) × wall thickness
+      // Leibung = (2 x height + width) x wall thickness
       const leibLfm = 2 * f.al_hoehe_m + f.al_breite_m
       const leibFlaeche = Math.round(leibLfm * aussenWandstaerke * 100) / 100
       totalLeibungEG += leibFlaeche
-      berechnungLeibung.push(`${f.bezeichnung || "Fenster"}: (2×${f.al_hoehe_m.toFixed(2)}+${f.al_breite_m.toFixed(2)})×${aussenWandstaerke} = ${leibFlaeche.toFixed(2)} m²`)
+      berechnungLeibung.push(`${f.bezeichnung || "Fenster"}: (2x${f.al_hoehe_m.toFixed(2)}+${f.al_breite_m.toFixed(2)})x${aussenWandstaerke} = ${leibFlaeche.toFixed(2)} m2`)
     }
 
     const ogFaktorWand = egWhg > 0 ? (whgProOg / egWhg) * (hOG / hEG) * ogFloors : 0
     const ogFaktorLeibung = egWhg > 0 ? (whgProOg / egWhg) * ogFloors : 0
 
-    // Außenwand: estimate from building dimensions if available
-    // We don't have building dims in this function, so we sum all room perimeters as approximation
-    // Rough estimate: outer wall ≈ sqrt(total floor area) × 4 × height
+    // Aussenwand: estimate from building dimensions if available
     const totalFloor = dims.reduce((s, d) => s + d.flaeche, 0)
     const buildingSide = Math.sqrt(totalFloor)
     const aussenWandEG = Math.round(buildingSide * 4 * hEG * 100) / 100
 
     positionen.push(
-      { pos_nr: `${prefix}1`, beschreibung: "Außenwand EG (Schätzung)", gewerk: "Mauerwerk",
-        raum_referenz: "Gebäude EG", berechnung: [`Geschätzt aus Gesamtfläche: √${totalFloor.toFixed(1)}×4×${hEG} = ${aussenWandEG.toFixed(2)} m²`],
-        endsumme: aussenWandEG, einheit: "m²", konfidenz: 60 },
-      { pos_nr: `${prefix}1-OG`, beschreibung: `Außenwand OG (×${ogFloors})`, gewerk: "Mauerwerk",
-        raum_referenz: "Gebäude OG", berechnung: [`EG ${aussenWandEG.toFixed(2)} × ${hOG/hEG} × ${ogFloors} = ${(aussenWandEG * hOG/hEG * ogFloors).toFixed(2)}`],
-        endsumme: Math.round(aussenWandEG * (hOG / hEG) * ogFloors * 100) / 100, einheit: "m²", konfidenz: 55 },
-      { pos_nr: `${prefix}2`, beschreibung: "Innenwände EG", gewerk: "Mauerwerk",
-        raum_referenz: "Alle Räume EG", berechnung: berechnungInnen,
-        endsumme: Math.round(totalInnenEG * 100) / 100, einheit: "m²", konfidenz: 85 },
-      { pos_nr: `${prefix}2-OG`, beschreibung: `Innenwände OG (×${ogFloors})`, gewerk: "Mauerwerk",
-        raum_referenz: "Alle Räume OG", berechnung: [`EG ${totalInnenEG.toFixed(2)} × ${ogFaktorWand.toFixed(2)} = ${(totalInnenEG * ogFaktorWand).toFixed(2)}`],
-        endsumme: Math.round(totalInnenEG * ogFaktorWand * 100) / 100, einheit: "m²", konfidenz: 80 },
+      { pos_nr: `${prefix}1`, beschreibung: "Aussenwand EG (Schaetzung)", gewerk: "Mauerwerk",
+        raum_referenz: "Gebaeude EG", berechnung: [`Geschaetzt aus Gesamtflaeche: sqrt(${totalFloor.toFixed(1)})x4x${hEG} = ${aussenWandEG.toFixed(2)} m2`],
+        endsumme: aussenWandEG, einheit: "m2", konfidenz: 60 },
+      { pos_nr: `${prefix}1-OG`, beschreibung: `Aussenwand OG (x${ogFloors})`, gewerk: "Mauerwerk",
+        raum_referenz: "Gebaeude OG", berechnung: [`EG ${aussenWandEG.toFixed(2)} x ${hOG/hEG} x ${ogFloors} = ${(aussenWandEG * hOG/hEG * ogFloors).toFixed(2)}`],
+        endsumme: Math.round(aussenWandEG * (hOG / hEG) * ogFloors * 100) / 100, einheit: "m2", konfidenz: 55 },
+      { pos_nr: `${prefix}2`, beschreibung: "Innenwaende EG", gewerk: "Mauerwerk",
+        raum_referenz: "Alle Raeume EG", berechnung: berechnungInnen,
+        endsumme: Math.round(totalInnenEG * 100) / 100, einheit: "m2", konfidenz: 85 },
+      { pos_nr: `${prefix}2-OG`, beschreibung: `Innenwaende OG (x${ogFloors})`, gewerk: "Mauerwerk",
+        raum_referenz: "Alle Raeume OG", berechnung: [`EG ${totalInnenEG.toFixed(2)} x ${ogFaktorWand.toFixed(2)} = ${(totalInnenEG * ogFaktorWand).toFixed(2)}`],
+        endsumme: Math.round(totalInnenEG * ogFaktorWand * 100) / 100, einheit: "m2", konfidenz: 80 },
       { pos_nr: `${prefix}3`, beschreibung: "Leibungen EG", gewerk: "Mauerwerk",
         raum_referenz: "Fenster EG", berechnung: berechnungLeibung,
-        endsumme: Math.round(totalLeibungEG * 100) / 100, einheit: "m²", konfidenz: 82 },
-      { pos_nr: `${prefix}3-OG`, beschreibung: `Leibungen OG (×${ogFloors})`, gewerk: "Mauerwerk",
-        raum_referenz: "Fenster OG", berechnung: [`EG ${totalLeibungEG.toFixed(2)} × ${ogFaktorLeibung.toFixed(2)} = ${(totalLeibungEG * ogFaktorLeibung).toFixed(2)}`],
-        endsumme: Math.round(totalLeibungEG * ogFaktorLeibung * 100) / 100, einheit: "m²", konfidenz: 77 },
+        endsumme: Math.round(totalLeibungEG * 100) / 100, einheit: "m2", konfidenz: 82 },
+      { pos_nr: `${prefix}3-OG`, beschreibung: `Leibungen OG (x${ogFloors})`, gewerk: "Mauerwerk",
+        raum_referenz: "Fenster OG", berechnung: [`EG ${totalLeibungEG.toFixed(2)} x ${ogFaktorLeibung.toFixed(2)} = ${(totalLeibungEG * ogFaktorLeibung).toFixed(2)}`],
+        endsumme: Math.round(totalLeibungEG * ogFaktorLeibung * 100) / 100, einheit: "m2", konfidenz: 77 },
     )
   }
 
   return positionen
 }
 
+// ═══ STEP 1: TEXT-FIRST INTELLIGENT GROUPING ═══
+
+/**
+ * Check whether pdf_text has enough data for the text-first approach.
+ * We need at least some room_names and some areas OR dimensions.
+ */
+function hasSufficientPdfText(pdfText: any): boolean {
+  if (!pdfText) return false
+  const hasRooms = (pdfText.room_names || []).length > 0
+  const hasAreas = (pdfText.areas || []).length > 0
+  const hasDimensions = (pdfText.dimensions || []).length > 0
+  return hasRooms && (hasAreas || hasDimensions)
+}
+
+/**
+ * TEXT-FIRST Step 1: Send extracted text data (not the PDF image) to Claude for grouping.
+ * Claude groups nearby text items into rooms, fenster, tueren based on position proximity.
+ */
+async function step1TextFirst(apiKey: string, pdfText: any): Promise<any> {
+  // Build a compact summary of extracted text for Claude
+  const roomNames = (pdfText.room_names || []).map((r: any) => ({
+    text: r.text, x: r.x_pct, y: r.y_pct, page: r.page
+  }))
+  const areas = (pdfText.areas || []).map((a: any) => ({
+    text: a.text, value: a.value, x: a.x_pct, y: a.y_pct, page: a.page
+  }))
+  const dimensions = (pdfText.dimensions || []).map((d: any) => ({
+    value_cm: d.value_cm, value_m: d.value_m, x: d.x_pct, y: d.y_pct, page: d.page
+  }))
+  const fensterCodes = (pdfText.fenster_codes || []).map((f: any) => ({
+    text: f.text, x: f.x_pct, y: f.y_pct, page: f.page
+  }))
+
+  // Also look for umfang/hoehe/bodenbelag patterns in the raw pages data
+  const textSnippets: any[] = []
+  for (const page of (pdfText.pages || [])) {
+    for (const item of (page.items || [])) {
+      const t = (item.str || item.text || "").trim()
+      if (!t) continue
+      // Match patterns like "U: 20,66 m", "H: 2,42 m", "Parkett", "Fliesen", etc.
+      if (/^[UH]:\s*\d/i.test(t) || /umfang|hoehe|parkett|fliesen|laminat|vinyl|teppich|feinsteinzeug/i.test(t) ||
+          /^Top\s*\d/i.test(t) || /wohnnutz/i.test(t)) {
+        textSnippets.push({
+          text: t,
+          x: item.x_pct ?? (page.width ? Math.round(item.x / page.width * 1000) / 10 : 0),
+          y: item.y_pct ?? (page.height ? Math.round(item.y / page.height * 1000) / 10 : 0),
+          page: page.page
+        })
+      }
+    }
+  }
+
+  const extractedData = {
+    room_names: roomNames,
+    areas: areas,
+    dimensions: dimensions.slice(0, 200), // limit to avoid token overflow
+    fenster_codes: fensterCodes,
+    additional_text: textSnippets.slice(0, 200),
+    total_items: pdfText.total_items || 0,
+  }
+
+  const systemPrompt = `Du bist ein erfahrener Bauingenieur. Du bekommst maschinenlesbare Textdaten, die aus einem Bauplan (PDF) extrahiert wurden. Die Positionen (x_pct, y_pct) sind Prozentwerte relativ zur Seitengroesse.
+
+DEINE AUFGABE: Ordne die extrahierten Texte zu sinnvollen Gruppen:
+1. RAEUME: Kombiniere room_name + naechstgelegene area (m2) + naechstgelegenes Umfang-Mass + Hoehe + Bodenbelag. Texte die raeumlich nah beieinander liegen (< 5-8% Abstand) gehoeren zum selben Raum.
+2. WOHNUNGEN (Top): Bestimme welche Raeume zu welcher Wohnung gehoeren basierend auf raeumlicher Naehe und Top-Bezeichnungen.
+3. FENSTER: Ordne Fenster-Codes (FE_, F_) den naechstgelegenen Raeumen zu.
+4. TUEREN: Identifiziere Tuer-Bezeichnungen und ordne sie Raeumen zu.
+5. STRUKTUR: Bestimme Massstab, Geschoss, globale Raumhoehe, Gebaeudemasse.
+
+WICHTIG: Die Zahlenwerte aus der Extraktion sind 100% korrekt (maschinenlesbar). Du musst NUR die ZUORDNUNG machen - welcher Text gehoert zu welchem Raum.
+
+Antworte NUR mit validem JSON, KEIN Markdown.`
+
+  const userPrompt = `Hier sind die maschinenlesbar extrahierten Texte aus dem Bauplan:
+
+${JSON.stringify(extractedData, null, 2)}
+
+Gruppiere diese Daten und gib zurueck:
+{
+  "massstab": "1:100",
+  "geschoss": "EG",
+  "raumhoehe_global_m": 2.60,
+  "anzahl_wohnungen": 4,
+  "wohnungen": [
+    { "name": "Top 1", "raeume": ["Vorraum", "Wohnkueche", "Bad"], "flaeche_wohnnutz_m2": 55.0 }
+  ],
+  "wandstaerken_mm": [300, 200, 120],
+  "gebaeude_laenge_m": 24.0,
+  "gebaeude_tiefe_m": 12.0,
+  "raeume": [
+    {
+      "name": "Wohnkueche",
+      "flaeche_m2": 26.37,
+      "umfang_m": 20.66,
+      "hoehe_m": 2.42,
+      "bodenbelag": "Parkett",
+      "wohnung": "Top 1",
+      "position_pct": [10, 20, 35, 40],
+      "konfidenz": 0.98,
+      "quelle": "pdf_text"
+    }
+  ],
+  "fenster": [
+    {
+      "bezeichnung": "FE_31",
+      "raum": "Wohnkueche",
+      "wohnung": "Top 1",
+      "rph_mm": 1010,
+      "fph_mm": 480,
+      "al_breite_mm": 1510,
+      "al_hoehe_mm": 1510,
+      "rb_breite_mm": 1760,
+      "rb_hoehe_mm": 1760,
+      "position_pct": [5, 35, 5, 10],
+      "konfidenz": 0.90
+    }
+  ],
+  "tueren": [
+    {
+      "bezeichnung": "T1",
+      "raum": "Wohnkueche",
+      "wohnung": "Top 1",
+      "breite_mm": 900,
+      "hoehe_mm": 2100,
+      "typ": "Drehfluegel",
+      "konfidenz": 0.85
+    }
+  ],
+  "masse": [
+    { "wert_cm": 587, "beschreibung": "Wandabschnitt", "position": "unten" }
+  ]
+}`
+
+  return await callClaude(apiKey, systemPrompt, [{ type: "text", text: userPrompt }], 16384)
+}
+
+/**
+ * VISION FALLBACK Step 1: Send the PDF image to Claude (old 4-pass approach collapsed into 1 call).
+ * Used only when pdf_text is not available.
+ */
+async function step1VisionFallback(apiKey: string, pdfSignedUrl: string): Promise<any> {
+  const pdfSource = { type: "document", source: { type: "url", url: pdfSignedUrl } }
+
+  const systemPrompt = `Du bist ein erfahrener Bauingenieur. Analysiere diesen Bauplan vollstaendig.
+Lies JEDEN Text, JEDE Zahl, JEDES Mass exakt ab. Antworte NUR mit validem JSON, KEIN Markdown.`
+
+  const userPrompt = `Analysiere den gesamten Bauplan und gib zurueck:
+
+1. STRUKTUR: Massstab, Geschoss, Raumhoehe, Wohnungen (Top), Wandstaerken, Gebaeudemasse
+2. RAEUME: Fuer JEDEN Raum: Name, Flaeche m2, Umfang m, Hoehe m, Bodenbelag, Wohnung (Top)
+3. FENSTER: JEDE Fensterbezeichnung (FE_, F_) mit AL Breite+Hoehe, RB Breite+Hoehe in mm
+4. TUEREN: JEDE Tuerbezeichnung mit Breite, Hoehe, Typ
+5. MASSKETTEN: ALLE Bemasungszahlen (in cm) mit Position
+
+JSON-Format:
+{
+  "massstab": "1:100",
+  "geschoss": "EG",
+  "raumhoehe_global_m": 2.60,
+  "anzahl_wohnungen": 4,
+  "wohnungen": [
+    { "name": "Top 1", "raeume": ["Vorraum", "Wohnkueche", "Bad"], "flaeche_wohnnutz_m2": 55.0 }
+  ],
+  "wandstaerken_mm": [300, 200, 120],
+  "gebaeude_laenge_m": 24.0,
+  "gebaeude_tiefe_m": 12.0,
+  "raeume": [
+    {
+      "name": "Wohnkueche",
+      "flaeche_m2": 26.37,
+      "umfang_m": 20.66,
+      "hoehe_m": 2.42,
+      "bodenbelag": "Parkett",
+      "wohnung": "Top 1",
+      "position_pct": [10, 20, 35, 40],
+      "konfidenz": 0.90
+    }
+  ],
+  "fenster": [
+    {
+      "bezeichnung": "FE_31",
+      "raum": "Wohnkueche",
+      "wohnung": "Top 1",
+      "al_breite_mm": 1510,
+      "al_hoehe_mm": 1510,
+      "rb_breite_mm": 1760,
+      "rb_hoehe_mm": 1760,
+      "konfidenz": 0.85
+    }
+  ],
+  "tueren": [
+    {
+      "bezeichnung": "T1",
+      "raum": "Wohnkueche",
+      "wohnung": "Top 1",
+      "breite_mm": 900,
+      "hoehe_mm": 2100,
+      "typ": "Drehfluegel",
+      "konfidenz": 0.80
+    }
+  ],
+  "masse": [
+    { "wert_cm": 587, "beschreibung": "Wandabschnitt", "position": "unten" }
+  ]
+}`
+
+  return await callClaude(apiKey, systemPrompt, [pdfSource, { type: "text", text: userPrompt }], 16384)
+}
+
+// ═══ STEP 3: CROSS-VALIDATION HELPERS ═══
+
+/**
+ * Cross-validate calculated room dimensions against extracted dimension chain values.
+ * Returns validation findings for the quality check.
+ */
+function crossValidateDimensions(geo: any, pdfText: any): any[] {
+  const findings: any[] = []
+  if (!pdfText?.dimensions || !geo?.raeume) return findings
+
+  const dims = pdfText.dimensions || []
+
+  for (const room of geo.raeume) {
+    if (!room.flaeche_m2 || !room.umfang_m) continue
+
+    const F = room.flaeche_m2
+    const U = room.umfang_m
+    const halfU = U / 2
+    const discriminant = halfU * halfU - 4 * F
+    if (discriminant < 0) continue
+
+    const sideA = Math.round(((halfU + Math.sqrt(discriminant)) / 2) * 100) / 100
+    const sideB = Math.round(((halfU - Math.sqrt(discriminant)) / 2) * 100) / 100
+
+    // Look for dimension chain values near this room that match calculated sides
+    const roomX = room.position_pct?.[0] || 50
+    const roomY = room.position_pct?.[1] || 50
+    const nearbyDims = dims.filter((d: any) => {
+      const dx = Math.abs((d.x_pct || d.x || 50) - roomX)
+      const dy = Math.abs((d.y_pct || d.y || 50) - roomY)
+      return dx < 15 && dy < 15 // within 15% proximity
+    })
+
+    let matchA = false, matchB = false
+    for (const d of nearbyDims) {
+      const val = d.value_m || (d.value_cm ? d.value_cm / 100 : 0)
+      if (Math.abs(val - sideA) < 0.05) matchA = true
+      if (Math.abs(val - sideB) < 0.05) matchB = true
+    }
+
+    findings.push({
+      room: room.name,
+      wohnung: room.wohnung,
+      calculated_sides: [sideA, sideB],
+      nearby_dimensions: nearbyDims.map((d: any) => d.value_m || (d.value_cm ? d.value_cm / 100 : 0)),
+      sideA_confirmed: matchA,
+      sideB_confirmed: matchB,
+      confidence: matchA && matchB ? "high" : (matchA || matchB ? "medium" : "low"),
+    })
+  }
+
+  return findings
+}
+
 /*
- * Step-based orchestrator with 4-PASS FOCUSED VISION SCAN.
- *   step=1 → 4 focused passes (Structure, Rooms, Windows/Doors, Dimensions) + merge
- *   step=2 → Kalkulation (ÖNORM mass calculation, gewerk-specific)
- *   step=3 → Kritik (quality check + finalize)
+ * Step-based orchestrator: Text-First, Math-Based
+ *   step=1 -> Intelligent Grouping (text-first if pdf_text available, vision fallback otherwise)
+ *   step=2 -> Deterministic Math (calcRoomDimensions, calcMassen, gewerk-specific)
+ *   step=3 -> Quality Check with cross-validation against dimension chains
  */
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
@@ -461,215 +723,58 @@ serve(async (req: Request) => {
     const { data: plan } = await sb.from("plaene").select("*").eq("id", plan_id).single()
     if (!plan) throw new Error("Plan nicht gefunden")
 
-    // ========== STEP 1: 4-Pass Focused Vision Scan ==========
+    // ========== STEP 1: INTELLIGENT GROUPING ==========
     if (step === 1) {
       // Clean old results but PRESERVE pdf_text extraction from frontend
       await sb.from("massen").delete().eq("plan_id", plan_id)
       await sb.from("elemente").delete().eq("plan_id", plan_id)
       const existingLog = plan.agent_log || {}
-      const pdfTextData = existingLog.pdf_text || null  // Preserve client-side text extraction
-      await sb.from("plaene").update({ verarbeitet: false, agent_log: { start: new Date().toISOString(), pdf_text: pdfTextData } }).eq("id", plan_id)
-
-      const { data: u } = await sb.storage.from("plaene").createSignedUrl(plan.storage_path, 3600)
-      if (!u?.signedUrl) throw new Error("PDF URL fehlt")
-      const pdfSource = { type: "document", source: { type: "url", url: u.signedUrl } }
-
-      const errors: string[] = []
-
-      // ---- PASS 1A: STRUCTURE ----
-      let pass1A: any = {}
-      try {
-        pass1A = await callClaude(cfg.value,
-          `Du bist Bauingenieur. Analysiere die STRUKTUR dieses Plans. Antworte NUR mit validem JSON, KEIN Markdown.`,
-          [
-            pdfSource,
-            { type: "text", text: `Beantworte NUR diese Fragen als JSON:
-1. massstab: welcher Maßstab?
-2. geschoss: welches Geschoss?
-3. raumhoehe_m: welche Raumhöhe steht im Plan?
-4. anzahl_wohnungen: wie viele Wohnungen/Einheiten (Top) sind sichtbar?
-5. wohnungen: Liste jeder Wohnung mit {name, raeume: [Raumname, ...], flaeche_wohnnutz_m2}
-6. wandstaerken_mm: welche Wandstärken erkennst du?
-7. gebaeude_laenge_m: Gesamtlänge des Gebäudes
-8. gebaeude_tiefe_m: Gesamttiefe
-
-JSON-Format:
-{
-  "massstab": "1:100",
-  "geschoss": "EG",
-  "raumhoehe_m": 2.60,
-  "anzahl_wohnungen": 4,
-  "wohnungen": [
-    { "name": "Top 1", "raeume": ["Vorraum", "Wohnküche", "Bad"], "flaeche_wohnnutz_m2": 55.0 }
-  ],
-  "wandstaerken_mm": [300, 200, 120],
-  "gebaeude_laenge_m": 24.0,
-  "gebaeude_tiefe_m": 12.0
-}` },
-          ])
-      } catch (e: any) {
-        errors.push("Pass1A: " + e.message)
-      }
-
-      // Update log after Pass 1A
+      const pdfTextData = existingLog.pdf_text || null
       await sb.from("plaene").update({
-        agent_log: {
-          start: new Date().toISOString(),
-          pass1A: { ts: new Date().toISOString(), ok: errors.length === 0, wohnungen: (pass1A.wohnungen || []).length },
-        }
+        verarbeitet: false,
+        agent_log: { start: new Date().toISOString(), pdf_text: pdfTextData }
       }).eq("id", plan_id)
 
-      // ---- PASS 1B: ROOMS ----
-      // If frontend extracted PDF text, include it for higher accuracy
-      const pdfText = pdfTextData || {}
-      const dimensionHint = (pdfText.dimensions || []).length > 0
-        ? `\n\nHINWEIS: Aus dem PDF wurden diese EXAKTEN Maßketten-Werte extrahiert (maschinenlesbar, 100% genau):\n${(pdfText.dimensions || []).slice(0, 50).map((d: any) => `${d.value_m}m bei (${d.x_pct}%, ${d.y_pct}%)`).join(", ")}\n\nVerwende diese Werte wenn möglich statt visuell abzulesen!`
-        : ""
-      const areaHint = (pdfText.areas || []).length > 0
-        ? `\n\nExakte Flächenwerte aus PDF: ${(pdfText.areas || []).map((a: any) => `${a.value}m² bei (${a.x_pct}%, ${a.y_pct}%)`).join(", ")}`
-        : ""
+      const errors: string[] = []
+      let merged: any = {}
+      let approach = "unknown"
 
-      let pass1B: any = {}
-      try {
-        pass1B = await callClaude(cfg.value,
-          `Du bist Bautechniker. Lies JEDEN Text in JEDEM Raum. Antworte NUR mit validem JSON, KEIN Markdown.`,
-          [
-            pdfSource,
-            { type: "text", text: `Für JEDEN Raum im Plan lies EXAKT ab:
-- Name (wie er im Plan steht)
-- Fläche m² (die Zahl mit m²)
-- Umfang (U: xx.xx m)
-- Höhe (H: x.xx m)
-- Bodenbelag
-- Zu welcher Wohnung (Top) gehört der Raum?
-- Position als [x%, y%, w%, h%]
-Gib die EXAKTEN Zahlen aus dem Plan zurück, keine Schätzungen!${dimensionHint}${areaHint}
-
-JSON-Format:
-{
-  "raeume": [
-    {
-      "name": "Wohnküche",
-      "flaeche_m2": 26.37,
-      "umfang_m": 20.66,
-      "hoehe_m": 2.42,
-      "bodenbelag": "Parkett",
-      "wohnung": "Top 1",
-      "position_pct": [10, 20, 35, 40],
-      "konfidenz": 0.95
-    }
-  ]
-}` },
-          ])
-      } catch (e: any) {
-        errors.push("Pass1B: " + e.message)
+      // ---- Decide: TEXT-FIRST or VISION FALLBACK ----
+      if (hasSufficientPdfText(pdfTextData)) {
+        // ═══ TEXT-FIRST APPROACH ═══
+        // Send extracted text data as JSON to Claude for intelligent grouping.
+        // No PDF image needed - values are 100% accurate from machine-readable extraction.
+        approach = "text_first"
+        try {
+          merged = await step1TextFirst(cfg.value, pdfTextData)
+        } catch (e: any) {
+          errors.push("TextFirst: " + e.message)
+          // If text-first fails, fall back to vision
+          approach = "text_first_failed_vision_fallback"
+          try {
+            const { data: u } = await sb.storage.from("plaene").createSignedUrl(plan.storage_path, 3600)
+            if (!u?.signedUrl) throw new Error("PDF URL fehlt")
+            merged = await step1VisionFallback(cfg.value, u.signedUrl)
+          } catch (e2: any) {
+            errors.push("VisionFallback: " + e2.message)
+          }
+        }
+      } else {
+        // ═══ VISION FALLBACK ═══
+        // No pdf_text available - send the PDF to Claude for visual analysis
+        approach = "vision_fallback"
+        try {
+          const { data: u } = await sb.storage.from("plaene").createSignedUrl(plan.storage_path, 3600)
+          if (!u?.signedUrl) throw new Error("PDF URL fehlt")
+          merged = await step1VisionFallback(cfg.value, u.signedUrl)
+        } catch (e: any) {
+          errors.push("Vision: " + e.message)
+        }
       }
 
-      // Update log after Pass 1B
-      const log1B = (await sb.from("plaene").select("agent_log").eq("id", plan_id).single()).data?.agent_log || {}
-      log1B.pass1B = { ts: new Date().toISOString(), ok: !errors.some(e => e.startsWith("Pass1B")), raeume: (pass1B.raeume || []).length }
-      await sb.from("plaene").update({ agent_log: log1B }).eq("id", plan_id)
-
-      // ---- PASS 1C: WINDOWS & DOORS ----
-      let pass1C: any = {}
-      try {
-        pass1C = await callClaude(cfg.value,
-          `Du bist Fenstertechniker. Lies JEDE Fenster- und Türbezeichnung. Antworte NUR mit validem JSON, KEIN Markdown.`,
-          [
-            pdfSource,
-            { type: "text", text: `Suche ALLE Fensterbezeichnungen (FE_, F_) und Türen (T_).
-Fenster: Lies RPH, FPH, AL Breite+Höhe, RB Breite+Höhe in mm.
-Türen: Lies Breite, Höhe, Typ.
-Ordne jedes Element einem Raum und einer Wohnung zu.
-
-JSON-Format:
-{
-  "fenster": [
-    {
-      "bezeichnung": "FE_31",
-      "raum": "Wohnküche",
-      "wohnung": "Top 1",
-      "rph_mm": 1010,
-      "fph_mm": 480,
-      "al_breite_mm": 1510,
-      "al_hoehe_mm": 1510,
-      "rb_breite_mm": 1760,
-      "rb_hoehe_mm": 1760,
-      "position_pct": [5, 35, 5, 10],
-      "konfidenz": 0.90
-    }
-  ],
-  "tueren": [
-    {
-      "bezeichnung": "T1",
-      "raum": "Wohnküche",
-      "wohnung": "Top 1",
-      "breite_mm": 900,
-      "hoehe_mm": 2100,
-      "typ": "Drehflügel",
-      "position_pct": [30, 45, 3, 5],
-      "konfidenz": 0.85
-    }
-  ]
-}` },
-          ])
-      } catch (e: any) {
-        errors.push("Pass1C: " + e.message)
-      }
-
-      // Update log after Pass 1C
-      const log1C = (await sb.from("plaene").select("agent_log").eq("id", plan_id).single()).data?.agent_log || {}
-      log1C.pass1C = { ts: new Date().toISOString(), ok: !errors.some(e => e.startsWith("Pass1C")), fenster: (pass1C.fenster || []).length, tueren: (pass1C.tueren || []).length }
-      await sb.from("plaene").update({ agent_log: log1C }).eq("id", plan_id)
-
-      // ---- PASS 1D: DIMENSIONS ----
-      let pass1D: any = {}
-      try {
-        pass1D = await callClaude(cfg.value,
-          `Du bist Vermesser. Lies die MAẞKETTEN. Antworte NUR mit validem JSON, KEIN Markdown.`,
-          [
-            pdfSource,
-            { type: "text", text: `Lies ALLE Bemaßungszahlen im Plan. Das sind Zahlen an Linien mit Pfeilen/Endstrichen.
-Die Zahlen sind in ZENTIMETERN. Typische Werte: 120-800.
-Suche speziell:
-- Gesamtmaße an den Außenkanten
-- Maße zwischen Wohnungstrennwänden
-- Maße einzelner Wandabschnitte
-Für JEDES Maß: {wert_cm, beschreibung, position: 'oben/unten/links/rechts/innen'}
-
-JSON-Format:
-{
-  "masse": [
-    { "wert_cm": 587, "beschreibung": "Wand Wohnküche Süd", "position": "unten" }
-  ],
-  "gebaeude_laenge_cm": 2400,
-  "gebaeude_tiefe_cm": 1200
-}` },
-          ])
-      } catch (e: any) {
-        errors.push("Pass1D: " + e.message)
-      }
-
-      // ---- MERGE all 4 passes ----
-      const merged: any = {
-        massstab: pass1A.massstab || null,
-        geschoss: pass1A.geschoss || null,
-        raumhoehe_global_m: pass1A.raumhoehe_m || null,
-        anzahl_wohnungen: pass1A.anzahl_wohnungen || null,
-        wohnungen: pass1A.wohnungen || [],
-        wandstaerken_mm: pass1A.wandstaerken_mm || [],
-        gebaeude_laenge_m: pass1A.gebaeude_laenge_m || (pass1D.gebaeude_laenge_cm ? pass1D.gebaeude_laenge_cm / 100 : null),
-        gebaeude_tiefe_m: pass1A.gebaeude_tiefe_m || (pass1D.gebaeude_tiefe_cm ? pass1D.gebaeude_tiefe_cm / 100 : null),
-        raeume: pass1B.raeume || [],
-        fenster: pass1C.fenster || [],
-        tueren: pass1C.tueren || [],
-        masse: pass1D.masse || [],
-        gebaeude_laenge_cm: pass1D.gebaeude_laenge_cm || null,
-        gebaeude_tiefe_cm: pass1D.gebaeude_tiefe_cm || null,
-      }
-
+      // ---- Post-process merged data ----
       // Calculate wandflaeche for each room
-      for (const r of merged.raeume) {
+      for (const r of (merged.raeume || [])) {
         if (r.umfang_m && r.hoehe_m) {
           r.wandflaeche_m2 = Math.round(r.umfang_m * r.hoehe_m * 100) / 100
         }
@@ -677,189 +782,191 @@ JSON-Format:
       }
 
       // Calculate fensterflaeche for each window
-      for (const f of merged.fenster) {
+      for (const f of (merged.fenster || [])) {
         if (f.al_breite_mm && f.al_hoehe_mm) {
           f.flaeche_m2 = Math.round(f.al_breite_mm * f.al_hoehe_mm / 10000) / 100
         }
       }
 
+      // Ensure masse array exists
+      if (!merged.masse) merged.masse = []
+
       // ---- Store elements in DB ----
-      for (const r of merged.raeume)
+      for (const r of (merged.raeume || []))
         await sb.from("elemente").insert({ plan_id, typ: "raum", bezeichnung: r.name || "", daten: r, konfidenz: Math.round((r.konfidenz || 0.5) * 100) })
-      for (const f of merged.fenster)
+      for (const f of (merged.fenster || []))
         await sb.from("elemente").insert({ plan_id, typ: "fenster", bezeichnung: f.bezeichnung || "", daten: f, konfidenz: Math.round((f.konfidenz || 0.5) * 100) })
-      for (const t of merged.tueren)
+      for (const t of (merged.tueren || []))
         await sb.from("elemente").insert({ plan_id, typ: "tuer", bezeichnung: t.bezeichnung || "", daten: t, konfidenz: Math.round((t.konfidenz || 0.5) * 100) })
 
       // ---- Update agent_log ----
-      const log = {
+      const log: any = {
         start: new Date().toISOString(),
+        pdf_text: pdfTextData,
         step1: {
           ts: new Date().toISOString(),
-          r: merged.raeume.length,
-          f: merged.fenster.length,
-          t: merged.tueren.length,
-          masse: merged.masse.length,
-          pass1A: { ok: !errors.some(e => e.startsWith("Pass1A")), wohnungen: (pass1A.wohnungen || []).length },
-          pass1B: { ok: !errors.some(e => e.startsWith("Pass1B")), raeume: (pass1B.raeume || []).length },
-          pass1C: { ok: !errors.some(e => e.startsWith("Pass1C")), fenster: (pass1C.fenster || []).length, tueren: (pass1C.tueren || []).length },
-          pass1D: { ok: !errors.some(e => e.startsWith("Pass1D")), masse: (pass1D.masse || []).length },
+          approach: approach,
+          r: (merged.raeume || []).length,
+          f: (merged.fenster || []).length,
+          t: (merged.tueren || []).length,
+          masse: (merged.masse || []).length,
+          wohnungen: (merged.wohnungen || []).length,
           errors: errors.length > 0 ? errors : undefined,
         },
         geo: merged,
         gewerk: gewerk,
         geschosse: geschosse,
         whg_pro_og: whg_pro_og,
-        pass1A: pass1A,
       }
       await sb.from("plaene").update({ agent_log: log }).eq("id", plan_id)
 
       return new Response(JSON.stringify({
         status: "step1_done",
         next_step: 2,
-        raeume: merged.raeume.length,
-        fenster: merged.fenster.length,
-        tueren: merged.tueren.length,
-        masse: merged.masse.length,
-        wohnungen: (pass1A.wohnungen || []).length,
+        approach: approach,
+        raeume: (merged.raeume || []).length,
+        fenster: (merged.fenster || []).length,
+        tueren: (merged.tueren || []).length,
+        masse: (merged.masse || []).length,
+        wohnungen: (merged.wohnungen || []).length,
         errors: errors.length > 0 ? errors : undefined,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
-    // ========== STEP 2: Kalkulation ==========
+    // ========== STEP 2: DETERMINISTIC MATH ==========
     if (step === 2) {
       const geo = plan.agent_log?.geo
       const selectedGewerk = plan.agent_log?.gewerk || gewerk || "allgemein"
-      if (!geo) throw new Error("Step 1 zuerst ausführen")
+      if (!geo) throw new Error("Step 1 zuerst ausfuehren")
 
-      // Build gewerk-specific prompt additions
+      // Build gewerk-specific prompt additions (for Claude fallback only)
       const gewerkPrompts: Record<string, string> = {
         verputzer: `
-FOKUS: VERPUTZER / SPACHTELARBEITEN (VP/SR) nach ÖNORM B 2204
+FOKUS: VERPUTZER / SPACHTELARBEITEN (VP/SR) nach OENORM B 2204
 
 EXAKTE BERECHNUNGSMETHODE eines professionellen Verputzerbetriebs:
 
-═══ POSITION: INNENPUTZ WÄNDE (m²) ═══
+=== POSITION: INNENPUTZ WAENDE (m2) ===
 
-Der Verputzer verputzt NUR die WOHNUNGSTRENNWÄNDE - das sind die DICKEN Wände
-zwischen den Wohnungseinheiten (Top). NICHT die Zimmerwände innerhalb der Wohnung!
+Der Verputzer verputzt NUR die WOHNUNGSTRENNWAENDE - das sind die DICKEN Waende
+zwischen den Wohnungseinheiten (Top). NICHT die Zimmerwaende innerhalb der Wohnung!
 
-Für JEDE Wohnung (Top) berechne:
-- WAND 1 (Tiefe): Gebäudetiefe-Maß × Raumhöhe (z.B. 5.87m × 2.66m = 15.61m²)
-- WAND 2 (Breite): Wohnungsbreite × Raumhöhe (z.B. 7.14m × 2.66m = 18.99m²)
-- Bei Eckwohnungen: zusätzliche Wände (3-4 statt 2)
+Fuer JEDE Wohnung (Top) berechne:
+- WAND 1 (Tiefe): Gebaeudetiefe-Mass x Raumhoehe (z.B. 5.87m x 2.66m = 15.61m2)
+- WAND 2 (Breite): Wohnungsbreite x Raumhoehe (z.B. 7.14m x 2.66m = 18.99m2)
+- Bei Eckwohnungen: zusaetzliche Waende (3-4 statt 2)
 
-WANDLÄNGEN - KRITISCH WICHTIG:
-- WAND A = Tiefe EINER Wohnung (NICHT Gebäudetiefe!)
+WANDLAENGEN - KRITISCH WICHTIG:
+- WAND A = Tiefe EINER Wohnung (NICHT Gebaeudetiefe!)
   In einem Mehrfamilienhaus ist die Wohnungstiefe typisch 5-6m.
-  Die Gebäudetiefe ist 15-20m aber die Trennwand geht nur durch EINE Wohnung!
-  Teile die Gebäudetiefe durch die Anzahl der Wohnungen in der Tiefe!
-  Beispiel: Gebäudetiefe 17.8m ÷ 3 Wohnungen = 5.93m pro Wohnung
+  Die Gebaeudetiefe ist 15-20m aber die Trennwand geht nur durch EINE Wohnung!
+  Teile die Gebaeudetiefe durch die Anzahl der Wohnungen in der Tiefe!
+  Beispiel: Gebaeudetiefe 17.8m / 3 Wohnungen = 5.93m pro Wohnung
 - WAND B = Breite der Wohnung (die Querwand)
-  ECKWOHNUNGEN (am Ende des Gebäudes): BREIT! 6-8m (z.B. 7.14m)
+  ECKWOHNUNGEN (am Ende des Gebaeudes): BREIT! 6-8m (z.B. 7.14m)
   MITTELWOHNUNGEN (in der Mitte): SCHMAL! 3-4m (z.B. 3.27m)
   ACHTUNG: Eckwohnungen haben die BREITERE Querwand, nicht die schmale!
 
 BESONDERHEITEN BEI ECKWOHNUNGEN:
-- Eckwohnungen haben MEHR Trennwände als Mittelwohnungen (3-5 statt 2)
-- Sie haben oft BETONZWISCHENWÄNDE (Zwischenwand Beton)
-- Betonzwischenwände werden BEIDSEITIG verputzt → Faktor 2!
-  Beispiel: "Zwischenwand Beton: 2 × 6.20 × 1.0 × 2.66 = 32.98"
-- Die größte Eckwohnung kann 50-90 m² Trennwand-Putzfläche haben
+- Eckwohnungen haben MEHR Trennwaende als Mittelwohnungen (3-5 statt 2)
+- Sie haben oft BETONZWISCHENWAENDE (Zwischenwand Beton)
+- Betonzwischenwaende werden BEIDSEITIG verputzt -> Faktor 2!
+  Beispiel: "Zwischenwand Beton: 2 x 6.20 x 1.0 x 2.66 = 32.98"
+- Die groesste Eckwohnung kann 50-90 m2 Trennwand-Putzflaeche haben
 
-RAUMHÖHE: Verwende das ROHBAUMASS (Roh-Decke bis Roh-Boden):
+RAUMHOEHE: Verwende das ROHBAUMASS (Roh-Decke bis Roh-Boden):
 - EG: typisch 2.60-2.70m (z.B. 2.66m)
 - OG: typisch 2.55-2.65m (z.B. 2.60m)
-Das Rohbaumaß ist ca. 20-25cm HÖHER als das Fertigmaß im Plan!
-Wenn im Plan H=2.42m steht → Rohbaumaß ≈ 2.42 + 0.24 = 2.66m (EG)
+Das Rohbaumass ist ca. 20-25cm HOEHER als das Fertigmass im Plan!
+Wenn im Plan H=2.42m steht -> Rohbaumass ca. 2.42 + 0.24 = 2.66m (EG)
 
-═══ POSITION: HAFTGRUND (m²) ═══
+=== POSITION: HAFTGRUND (m2) ===
 
-NUR auf Betonwänden (Zwischenwand Beton) - NICHT auf Ziegel/Mauerwerk!
-Betonwände brauchen Haftgrund weil Beton glatt und nicht saugend ist.
-Berechne: Betonwand-Länge × Raumhöhe × Anzahl Seiten
-Bei Betontrennwänden: BEIDE Seiten verputzen → Faktor 2!
+NUR auf Betonwaenden (Zwischenwand Beton) - NICHT auf Ziegel/Mauerwerk!
+Betonwaende brauchen Haftgrund weil Beton glatt und nicht saugend ist.
+Berechne: Betonwand-Laenge x Raumhoehe x Anzahl Seiten
+Bei Betontrennwaenden: BEIDE Seiten verputzen -> Faktor 2!
 
-═══ POSITION: KANTENPROFIL (lfm) ═══
+=== POSITION: KANTENPROFIL (lfm) ===
 
 Pro Fenster im Innenbereich:
-- Fenster Aufrecht (beide Seiten): 2 × Fensterhöhe
-  - Normale Fenster: 2 × 1.47m = 2.94 lfm
-  - Loggia/Balkontür: 2 × Raumhöhe (2.60m oder 2.66m)
-- Fensterbank: 1 × Fensterbreite
+- Fenster Aufrecht (beide Seiten): 2 x Fensterhoehe
+  - Normale Fenster: 2 x 1.47m = 2.94 lfm
+  - Loggia/Balkontuer: 2 x Raumhoehe (2.60m oder 2.66m)
+- Fensterbank: 1 x Fensterbreite
   - Normal: 1.20m
   - Klein (WC/Bad): 0.50m
-Loggia-Fenster: 2 × Raumhöhe (KEINE Fensterbank - raumhohe Verglasung)
-Zwischenwand Beton: 2 × Raumhöhe (beide Kanten der Betonwand)
+Loggia-Fenster: 2 x Raumhoehe (KEINE Fensterbank - raumhohe Verglasung)
+Zwischenwand Beton: 2 x Raumhoehe (beide Kanten der Betonwand)
 
-═══ POSITION: ANPUTZLEISTE (lfm) ═══
+=== POSITION: ANPUTZLEISTE (lfm) ===
 
-Pro Fenster: NUR die aufrechten Teile, KEINE Fensterbänke!
-- Fenster Aufrecht: 2 × Fensterhöhe
-- Loggia: 2 × Raumhöhe
-Gleiche Berechnung wie Kantenprofil MINUS die Fensterbänke.
+Pro Fenster: NUR die aufrechten Teile, KEINE Fensterbaenke!
+- Fenster Aufrecht: 2 x Fensterhoehe
+- Loggia: 2 x Raumhoehe
+Gleiche Berechnung wie Kantenprofil MINUS die Fensterbaenke.
 
-═══ ÖNORM B 2204 ABZUGSREGELN ═══
-- Öffnungen bis 0.5m²: kein Abzug, Leibungen dazurechnen
-- Öffnungen 0.5-4.0m² MIT Leibungen: durchgemessen (nicht abziehen)
-- Öffnungen 0.5-4.0m² OHNE Leibungen: abziehen
-- Öffnungen über 4.0m²: abziehen, Leibungen extra addieren
+=== OENORM B 2204 ABZUGSREGELN ===
+- Oeffnungen bis 0.5m2: kein Abzug, Leibungen dazurechnen
+- Oeffnungen 0.5-4.0m2 MIT Leibungen: durchgemessen (nicht abziehen)
+- Oeffnungen 0.5-4.0m2 OHNE Leibungen: abziehen
+- Oeffnungen ueber 4.0m2: abziehen, Leibungen extra addieren
 
-BERECHNUNGSFORMAT: Jede Zeile: Beschreibung | Anz × Länge × Breite × Höhe = Zwischensumme`,
+BERECHNUNGSFORMAT: Jede Zeile: Beschreibung | Anz x Laenge x Breite x Hoehe = Zwischensumme`,
 
         mauerwerk: `
 FOKUS: MAUERWERK / ROHBAU
-- Außenwände: Ansichtsflächen × Wandstärke = Volumen m³
-- Innenwände: Wandlänge × Wandhöhe × Wandstärke = Volumen m³
-- Abzüge: Öffnungen <0.5m² kein, 0.5-3m² halb, >3m² voll
+- Aussenwaende: Ansichtsflaechen x Wandstaerke = Volumen m3
+- Innenwaende: Wandlaenge x Wandhoehe x Wandstaerke = Volumen m3
+- Abzuege: Oeffnungen <0.5m2 kein, 0.5-3m2 halb, >3m2 voll
 - Leibungen separat`,
 
         maler: `
 FOKUS: MALER / ANSTRICH
-- Wandflächen pro Raum (Umfang × Höhe - Öffnungsabzüge)
-- Deckenflächen pro Raum
-- Leibungsflächen (seitlich, Sturz, Brüstung)
+- Wandflaechen pro Raum (Umfang x Hoehe - Oeffnungsabzuege)
+- Deckenflaechen pro Raum
+- Leibungsflaechen (seitlich, Sturz, Bruestung)
 - Grundierung als eigene Position`,
 
         fliesen: `
-FOKUS: FLIESEN / BELÄGE
-- Bodenfliesen pro Raum (nur Räume mit Fliesen)
-- Wandfliesen pro Raum (Bad, WC, Küche - typisch bis 2.10m Höhe)
+FOKUS: FLIESEN / BELAEGE
+- Bodenfliesen pro Raum (nur Raeume mit Fliesen)
+- Wandfliesen pro Raum (Bad, WC, Kueche - typisch bis 2.10m Hoehe)
 - Sockelleisten
-- Abzüge: <0.1m² kein, ≥0.1m² voll`,
+- Abzuege: <0.1m2 kein, >=0.1m2 voll`,
 
         estrich: `
 FOKUS: ESTRICH
 - Zementestrich pro Raum
-- Randdämmstreifen (Laufmeter Umfang)
-- Trittschalldämmung (gleiche Fläche)
-- Feuchtigkeitssperre (Nassräume)`,
+- Randdaemmstreifen (Laufmeter Umfang)
+- Trittschalldaemmung (gleiche Flaeche)
+- Feuchtigkeitssperre (Nassraeume)`,
 
         trockenbau: `
 FOKUS: TROCKENBAU
-- Gipskartonwände (Fläche, Laufmeter)
+- Gipskartonwaende (Flaeche, Laufmeter)
 - Vorsatzschalen
 - Abhangdecken
 - Spachtelung und Verfugung`,
 
         allgemein: `
 ALLE GEWERKE berechnen:
-01. Mauerwerk/Rohbau (m², m³)
-02. Innenputz (m², lfm)
-03. Außenputz (m², lfm)
-04. Malerarbeiten (m²)
-05. Bodenbelag nach Typ (m²)
-06. Estrich (m²)
-07. Fensterbänke (lfm)
-08. Leibungen (m², lfm)`,
+01. Mauerwerk/Rohbau (m2, m3)
+02. Innenputz (m2, lfm)
+03. Aussenputz (m2, lfm)
+04. Malerarbeiten (m2)
+05. Bodenbelag nach Typ (m2)
+06. Estrich (m2)
+07. Fensterbaenke (lfm)
+08. Leibungen (m2, lfm)`,
       }
 
       // ═══ VERPUTZER: Deterministic math-based calculation (no Claude!) ═══
       if (selectedGewerk === "verputzer") {
         const geschosseVal = plan.agent_log?.geschosse || geschosse || 3
         const whgProOg = plan.agent_log?.whg_pro_og || whg_pro_og || 4
-        const hEG = 2.66  // Rohbaumaß EG
-        const hOG = 2.60  // Rohbaumaß OG
+        const hEG = 2.66  // Rohbaumass EG
+        const hOG = 2.60  // Rohbaumass OG
         const ogFloors = geschosseVal - 1
 
         // Group rooms by apartment from geo data
@@ -893,8 +1000,8 @@ ALLE GEWERKE berechnen:
           const rooms = wohnungen[wName]
           // Find Vorraum (hallway) - gives apartment width
           const vorraum = rooms.find((r: any) => /vorraum|flur|gang|diele/i.test(r.name || ""))
-          // Find Wohnküche (living kitchen) - gives apartment depth
-          const wohnkueche = rooms.find((r: any) => /wohnk|küche|wohn/i.test(r.name || ""))
+          // Find Wohnkueche (living kitchen) - gives apartment depth
+          const wohnkueche = rooms.find((r: any) => /wohnk|kueche|wohn/i.test(r.name || ""))
 
           let breite = 0, tiefe = 0
 
@@ -904,7 +1011,7 @@ ALLE GEWERKE berechnen:
             if (sides) breite = sides[0] // longer side = apartment width
           }
 
-          // Calculate from Wohnküche
+          // Calculate from Wohnkueche
           if (wohnkueche?.umfang_m && wohnkueche?.flaeche_m2) {
             const sides = calcSides(wohnkueche.flaeche_m2, wohnkueche.umfang_m)
             if (sides) {
@@ -915,7 +1022,7 @@ ALLE GEWERKE berechnen:
             }
           }
 
-          // For Mittelwohnungen: Vorraum is too small, use Wohnküche short side as width
+          // For Mittelwohnungen: Vorraum is too small, use Wohnkueche short side as width
           if (breite < 2.5 && wohnkueche?.umfang_m && wohnkueche?.flaeche_m2) {
             const sides = calcSides(wohnkueche.flaeche_m2, wohnkueche.umfang_m)
             if (sides) breite = sides[1] // shorter side = apartment width for middle units
@@ -927,37 +1034,32 @@ ALLE GEWERKE berechnen:
 
           const wf = (tiefe + breite) * hEG
           totalEG += wf
-          berechnungIP.push(`${wName}: Tiefe ${tiefe.toFixed(2)}m + Breite ${breite.toFixed(2)}m × ${hEG}m = ${wf.toFixed(2)} m²`)
+          berechnungIP.push(`${wName}: Tiefe ${tiefe.toFixed(2)}m + Breite ${breite.toFixed(2)}m x ${hEG}m = ${wf.toFixed(2)} m2`)
         }
 
         // Fenster: Kantenprofil + Anputzleiste
-        // Multiply by whg count since each apartment has similar windows
         for (const f of fenster) {
           let fh_raw = f.al_hoehe_mm || 1470
           let fb_raw = f.al_breite_mm || 1200
-          // Auto-detect unit: if value < 30, it's in cm → ×10 for mm; if < 300 it's cm → ×10
-          if (fh_raw < 30) fh_raw *= 100  // cm to mm (e.g. 15 → 1500)
-          else if (fh_raw < 300) fh_raw *= 10  // cm to mm (e.g. 147 → 1470)
+          if (fh_raw < 30) fh_raw *= 100
+          else if (fh_raw < 300) fh_raw *= 10
           if (fb_raw < 30) fb_raw *= 100
           else if (fb_raw < 300) fb_raw *= 10
-          const fh = fh_raw / 1000  // mm to m
+          const fh = fh_raw / 1000
           const fb = fb_raw / 1000
-          const isLoggia = fh > 2.2  // Raumhohe Fenster = Loggia
+          const isLoggia = fh > 2.2
           const kp = isLoggia ? 2 * hEG : 2 * fh + fb
-          const ap = isLoggia ? 2 * hEG : 2 * fh  // Anputzleiste OHNE Fensterbank
+          const ap = isLoggia ? 2 * hEG : 2 * fh
           totalKP += kp
           totalAP += ap
-          berechnungKP.push(`${f.bezeichnung || "Fenster"}: ${isLoggia ? "Loggia 2×"+hEG : "2×"+fh.toFixed(2)+"+"+(isLoggia?"":fb.toFixed(2))} = ${kp.toFixed(2)} lfm`)
-          berechnungAP.push(`${f.bezeichnung || "Fenster"}: ${isLoggia ? "Loggia 2×"+hEG : "2×"+fh.toFixed(2)} = ${ap.toFixed(2)} lfm`)
+          berechnungKP.push(`${f.bezeichnung || "Fenster"}: ${isLoggia ? "Loggia 2x"+hEG : "2x"+fh.toFixed(2)+"+"+(isLoggia?"":fb.toFixed(2))} = ${kp.toFixed(2)} lfm`)
+          berechnungAP.push(`${f.bezeichnung || "Fenster"}: ${isLoggia ? "Loggia 2x"+hEG : "2x"+fh.toFixed(2)} = ${ap.toFixed(2)} lfm`)
         }
 
-        // OG multiplication: each OG floor has whgProOg apartments
-        // EG has egWhg apartments. OG apartments have same wall lengths but different height.
-        // IP: scale by (whgProOg/egWhg) for apartment count and (hOG/hEG) for height
-        const ipPerWhgEG = egWhg > 0 ? totalEG / egWhg : 0  // IP per apartment in EG
-        const ipPerWhgOG = ipPerWhgEG * (hOG / hEG)  // Adjust height for OG
-        const totalOG_IP = ipPerWhgOG * whgProOg * ogFloors  // Total all OG floors
-        // KP/AP: scale by apartment count only (no height factor - it's lfm per window)
+        // OG multiplication
+        const ipPerWhgEG = egWhg > 0 ? totalEG / egWhg : 0
+        const ipPerWhgOG = ipPerWhgEG * (hOG / hEG)
+        const totalOG_IP = ipPerWhgOG * whgProOg * ogFloors
         const kpPerWhgEG = egWhg > 0 ? totalKP / egWhg : 0
         const totalOG_KP = kpPerWhgEG * whgProOg * ogFloors
         const apPerWhgEG = egWhg > 0 ? totalAP / egWhg : 0
@@ -966,18 +1068,18 @@ ALLE GEWERKE berechnen:
         const positionen = [
           {
             pos_nr: "2.3.1", beschreibung: "Haftgrund", gewerk: "Innenputz",
-            raum_referenz: "Betonwände", berechnung: ["Betonwände visuell nicht eindeutig erkennbar - manuell prüfen"],
-            endsumme: 0, einheit: "m²", konfidenz: 50,
+            raum_referenz: "Betonwaende", berechnung: ["Betonwaende visuell nicht eindeutig erkennbar - manuell pruefen"],
+            endsumme: 0, einheit: "m2", konfidenz: 50,
           },
           {
-            pos_nr: "2.3.2", beschreibung: "Innenputz Wände EG", gewerk: "Innenputz",
-            raum_referenz: "Trennwände EG", berechnung: berechnungIP,
-            endsumme: Math.round(totalEG * 100) / 100, einheit: "m²", konfidenz: 95,
+            pos_nr: "2.3.2", beschreibung: "Innenputz Waende EG", gewerk: "Innenputz",
+            raum_referenz: "Trennwaende EG", berechnung: berechnungIP,
+            endsumme: Math.round(totalEG * 100) / 100, einheit: "m2", konfidenz: 95,
           },
           {
-            pos_nr: "2.3.2-OG", beschreibung: `Innenputz Wände OG (×${ogFloors} Geschosse)`, gewerk: "Innenputz",
-            raum_referenz: "Trennwände OG", berechnung: [`${egWhg} EG-Whg à ${ipPerWhgEG.toFixed(2)}m² → ${whgProOg} OG-Whg à ${ipPerWhgOG.toFixed(2)}m² × ${ogFloors} Geschosse = ${totalOG_IP.toFixed(2)}m²`],
-            endsumme: Math.round(totalOG_IP * 100) / 100, einheit: "m²", konfidenz: 90,
+            pos_nr: "2.3.2-OG", beschreibung: `Innenputz Waende OG (x${ogFloors} Geschosse)`, gewerk: "Innenputz",
+            raum_referenz: "Trennwaende OG", berechnung: [`${egWhg} EG-Whg a ${ipPerWhgEG.toFixed(2)}m2 -> ${whgProOg} OG-Whg a ${ipPerWhgOG.toFixed(2)}m2 x ${ogFloors} Geschosse = ${totalOG_IP.toFixed(2)}m2`],
+            endsumme: Math.round(totalOG_IP * 100) / 100, einheit: "m2", konfidenz: 90,
           },
           {
             pos_nr: "2.3.3", beschreibung: "Kantenprofil EG", gewerk: "Innenputz",
@@ -985,8 +1087,8 @@ ALLE GEWERKE berechnen:
             endsumme: Math.round(totalKP * 100) / 100, einheit: "lfm", konfidenz: 90,
           },
           {
-            pos_nr: "2.3.3-OG", beschreibung: `Kantenprofil OG (×${ogFloors})`, gewerk: "Innenputz",
-            raum_referenz: "Fenster OG", berechnung: [`EG ${totalKP.toFixed(2)} × ${(whgProOg/egWhg*ogFloors).toFixed(2)}`],
+            pos_nr: "2.3.3-OG", beschreibung: `Kantenprofil OG (x${ogFloors})`, gewerk: "Innenputz",
+            raum_referenz: "Fenster OG", berechnung: [`EG ${totalKP.toFixed(2)} x ${(whgProOg/egWhg*ogFloors).toFixed(2)}`],
             endsumme: Math.round(totalOG_KP * 100) / 100, einheit: "lfm", konfidenz: 85,
           },
           {
@@ -995,8 +1097,8 @@ ALLE GEWERKE berechnen:
             endsumme: Math.round(totalAP * 100) / 100, einheit: "lfm", konfidenz: 90,
           },
           {
-            pos_nr: "2.3.4-OG", beschreibung: `Anputzleiste OG (×${ogFloors})`, gewerk: "Innenputz",
-            raum_referenz: "Fenster OG", berechnung: [`EG ${totalAP.toFixed(2)} × ${(whgProOg/egWhg*ogFloors).toFixed(2)}`],
+            pos_nr: "2.3.4-OG", beschreibung: `Anputzleiste OG (x${ogFloors})`, gewerk: "Innenputz",
+            raum_referenz: "Fenster OG", berechnung: [`EG ${totalAP.toFixed(2)} x ${(whgProOg/egWhg*ogFloors).toFixed(2)}`],
             endsumme: Math.round(totalOG_AP * 100) / 100, einheit: "lfm", konfidenz: 85,
           },
         ]
@@ -1033,8 +1135,8 @@ ALLE GEWERKE berechnen:
       // ═══ OTHER GEWERKE: Deterministic math engine first, Claude as fallback ═══
       const geschosseVal = plan.agent_log?.geschosse || geschosse || 3
       const whgProOgVal = plan.agent_log?.whg_pro_og || whg_pro_og || 4
-      const hEGOther = 2.66  // Rohbaumaß EG
-      const hOGOther = 2.60  // Rohbaumaß OG
+      const hEGOther = 2.66  // Rohbaumass EG
+      const hOGOther = 2.60  // Rohbaumass OG
 
       // Supported gewerke for deterministic math
       const mathGewerke = ["maler", "fliesen", "estrich", "mauerwerk", "allgemein"]
@@ -1078,13 +1180,13 @@ ALLE GEWERKE berechnen:
       // ═══ FALLBACK: Claude-based calculation for unsupported gewerke or empty math results ═══
       const gewerkPrompt = gewerkPrompts[selectedGewerk] || gewerkPrompts.allgemein
 
-      const kalkSystem = `Du bist ein erfahrener österreichischer Baukalkulator.
+      const kalkSystem = `Du bist ein erfahrener oesterreichischer Baukalkulator.
 
-GEWÄHLTES GEWERK: ${selectedGewerk.toUpperCase()}
+GEWAEHLTES GEWERK: ${selectedGewerk.toUpperCase()}
 ${gewerkPrompt}
 
-BERECHNUNGSFORMAT: Jeder Schritt: Beschreibung | Anz × L × B × H = Zwischensumme
-ROHBAUMASS verwenden (Fertigmaß + 0.24m)!
+BERECHNUNGSFORMAT: Jeder Schritt: Beschreibung | Anz x L x B x H = Zwischensumme
+ROHBAUMASS verwenden (Fertigmass + 0.24m)!
 Antworte NUR mit validem JSON.`
 
       const kalkUser = `Geometriedaten:\n${JSON.stringify(geo)}\n\nErstelle professionelle Massenermittlung.
@@ -1120,27 +1222,45 @@ JSON: {"positionen":[{"pos_nr":"","beschreibung":"","gewerk":"","raum_referenz":
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
-    // ========== STEP 3: Kritik ==========
+    // ========== STEP 3: QUALITY CHECK WITH CROSS-VALIDATION ==========
     if (step === 3) {
       const log = plan.agent_log || {}
+      const pdfTextData = log.pdf_text || null
+      const geo = log.geo || {}
+
+      // Cross-validate calculated dimensions against extracted dimension chain values
+      const dimensionValidation = crossValidateDimensions(geo, pdfTextData)
+      const confirmedRooms = dimensionValidation.filter(v => v.confidence === "high").length
+      const totalValidated = dimensionValidation.length
+      const validationSummary = totalValidated > 0
+        ? `Dimension cross-validation: ${confirmedRooms}/${totalValidated} rooms confirmed by dimension chains.`
+        : "No dimension chain cross-validation possible (no pdf_text dimensions)."
+
+      // Build validation context for Claude
+      const validationContext = dimensionValidation.length > 0
+        ? `\n\nDIMENSION CHAIN CROSS-VALIDATION:\n${dimensionValidation.map(v =>
+            `${v.wohnung} ${v.room}: sides [${v.calculated_sides.join(", ")}]m, nearby dims [${v.nearby_dimensions.join(", ")}]m -> ${v.confidence} confidence (A:${v.sideA_confirmed}, B:${v.sideB_confirmed})`
+          ).join("\n")}`
+        : ""
 
       const kritik = await callClaude(cfg.value,
-        `Du bist ein unabhängiger Prüfingenieur für Massenermittlung.
+        `Du bist ein unabhaengiger Pruefingenieur fuer Massenermittlung.
 
 Bewerte die Analyse und Kalkulation:
-1. Raumgrößen plausibel? (Wohnzimmer 15-40m², Bad 5-12m², WC 1.5-4m², Vorraum 3-10m²)
+1. Raumgroessen plausibel? (Wohnzimmer 15-40m2, Bad 5-12m2, WC 1.5-4m2, Vorraum 3-10m2)
 2. Berechnungen korrekt? Stimmen die Abzugsregeln?
-3. Alles erfasst? Fehlen Räume, Fenster, Türen?
-4. Sind die Einheiten korrekt? (m², m, lfm, Stk)
+3. Alles erfasst? Fehlen Raeume, Fenster, Tueren?
+4. Sind die Einheiten korrekt? (m2, m, lfm, Stk)
 5. Stimmen die Summen?
+6. CROSS-VALIDATION: Wenn Dimension-Chain-Daten vorliegen, pruefe ob berechnete Wandlaengen (aus quadratischer Formel) mit den extrahierten Massketten-Werten uebereinstimmen. Uebereinstimmung = hohe Konfidenz. Abweichung = markiere zur Pruefung.
 
 STATUS:
-- AKZEPTIERT: Qualitätsscore ≥ 75
-- NACHBESSERUNG: Qualitätsscore 50-74
-- KRITISCH: Qualitätsscore < 50
+- AKZEPTIERT: Qualitaetsscore >= 75
+- NACHBESSERUNG: Qualitaetsscore 50-74
+- KRITISCH: Qualitaetsscore < 50
 
 Antworte NUR mit validem JSON, KEIN Markdown.`,
-        [{ type: "text", text: `Prüfe diese Ergebnisse:\n${JSON.stringify({ step1: log.step1, step2: log.step2 })}\n\nJSON-Format:
+        [{ type: "text", text: `Pruefe diese Ergebnisse:\n${JSON.stringify({ step1: log.step1, step2: log.step2 })}${validationContext}\n\n${validationSummary}\n\nJSON-Format:
 {
   "status": "AKZEPTIERT",
   "qualitaets_score": 85,
@@ -1149,17 +1269,24 @@ Antworte NUR mit validem JSON, KEIN Markdown.`,
   "details": {
     "raeume_plausibel": true,
     "berechnungen_korrekt": true,
-    "vollstaendigkeit": true
+    "vollstaendigkeit": true,
+    "dimension_chain_match": true
+  },
+  "dimension_validation": {
+    "rooms_confirmed": 0,
+    "rooms_total": 0,
+    "mismatches": []
   },
   "gesamt_konfidenz": 0.87
 }` }])
 
       const k = Math.round((kritik.gesamt_konfidenz || 0.5) * 100)
 
-      // Delete geo data to save space
+      // Delete geo data to save space but keep pdf_text reference
       delete log.geo
       log.step3 = { ts: new Date().toISOString(), ...kritik }
       log.kritik = kritik
+      log.dimension_validation = dimensionValidation
       await sb.from("plaene").update({ verarbeitet: true, gesamt_konfidenz: k, agent_log: log }).eq("id", plan_id)
 
       return new Response(JSON.stringify({
@@ -1168,6 +1295,11 @@ Antworte NUR mit validem JSON, KEIN Markdown.`,
         qualitaets_score: kritik.qualitaets_score || k,
         warnungen: kritik.warnungen || [],
         empfehlungen: kritik.empfehlungen || [],
+        dimension_validation: {
+          rooms_confirmed: confirmedRooms,
+          rooms_total: totalValidated,
+          details: dimensionValidation,
+        },
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } })
     }
 
