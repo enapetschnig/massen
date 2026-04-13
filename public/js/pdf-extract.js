@@ -64,6 +64,56 @@
 
     // Process all text items
     allPages.forEach(function(page) {
+      // FIRST PASS: Find all number-with-comma values (potential area values like "26,37")
+      // and check if a nearby text item looks like "m²" or "m2"
+      var numberItems = [];
+      page.items.forEach(function(item) {
+        var text = item.text.trim();
+        // Match numbers like 26,37 or 155,73 or 8,50
+        var numMatch = text.match(/^(\d{1,3}[.,]\d{1,2})$/);
+        if (numMatch) {
+          numberItems.push({
+            value: parseFloat(numMatch[1].replace(',', '.')),
+            text: text,
+            x: item.x, y: item.y, x_pct: item.x_pct, y_pct: item.y_pct,
+            width: item.width, page: page.page
+          });
+        }
+      });
+
+      // For each number, check if a nearby item (within ~2% horizontal) contains "m" or looks like a unit
+      numberItems.forEach(function(num) {
+        // Check nearby items for "m²", "m2", "m" unit markers
+        var isArea = false;
+        page.items.forEach(function(other) {
+          if (Math.abs(other.y_pct - num.y_pct) < 2 && other.x_pct > num.x_pct && other.x_pct - num.x_pct < 5) {
+            var ot = other.text.trim().toLowerCase();
+            if (ot === 'm²' || ot === 'm2' || ot.includes('m²') || ot.includes('m2')) {
+              isArea = true;
+            }
+          }
+        });
+
+        // Also: values between 1-200 with one decimal that are NOT dimensions → likely areas
+        if (!isArea && num.value >= 1 && num.value <= 200) {
+          // Heuristic: if the number has exactly X,XX format and is in the "room area" of the plan
+          // (roughly y: 10-70% of the page), it's likely an area
+          if (num.y_pct > 8 && num.y_pct < 75 && num.text.includes(',')) {
+            isArea = true;
+          }
+        }
+
+        if (isArea) {
+          result.areas.push({
+            text: num.text + ' m²',
+            value: num.value,
+            x_pct: num.x_pct,
+            y_pct: num.y_pct,
+            page: num.page,
+          });
+        }
+      });
+
       page.items.forEach(function(item) {
         var text = item.text.trim();
 
@@ -82,16 +132,20 @@
           }
         }
 
-        // Area values (contain m² or m2)
+        // Area values - also catch standalone "XX,XX m²" in one text
         if (/m[²2]/.test(text) || /\d+[.,]\d+\s*m/.test(text)) {
           var areaMatch = text.match(/(\d+[.,]\d+)/);
           if (areaMatch) {
-            result.areas.push({
-              text: text,
-              value: parseFloat(areaMatch[1].replace(',', '.')),
-              x_pct: item.x_pct,
-              y_pct: item.y_pct,
-              page: page.page,
+            // Don't add if already found by the number-proximity method
+            var val = parseFloat(areaMatch[1].replace(',', '.'));
+            var alreadyFound = result.areas.some(function(a) { return Math.abs(a.value - val) < 0.01 && Math.abs(a.x_pct - item.x_pct) < 2; });
+            if (!alreadyFound) {
+              result.areas.push({
+                text: text,
+                value: val,
+                x_pct: item.x_pct,
+                y_pct: item.y_pct,
+                page: page.page,
             });
           }
         }
