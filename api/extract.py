@@ -291,52 +291,113 @@ async def analyse_zoom(body: ExtractRequest):
     except Exception as e:
         raise HTTPException(500, f"PDF Download: {e}")
 
-    # Determine sections based on plan aspect ratio
+    # 2-PASS INTELLIGENT ANALYSIS:
+    # Pass 1: Low-res overview to find apartment regions
+    # Pass 2: High-DPI zoom on each apartment for precise reading
     import fitz
+    import anthropic
+    import base64
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page = doc[0]
     pw, ph = page.rect.width, page.rect.height
-    aspect = pw / ph
-
-    # Split strategy: more sections for wider plans
-    if aspect > 2.5:
-        # Very wide A0 plan (3+ buildings) - 4x2 = 8 sections
-        cols, rows = 4, 2
-        sections = []
-        for col in range(cols):
-            for row in range(rows):
-                sections.append({
-                    "name": f"section_{col}_{row}",
-                    "rect": (pw * col / cols, ph * row / rows, pw * (col + 1) / cols, ph * (row + 1) / rows),
-                    "position": f"col{col}_row{row}"
-                })
-    elif aspect > 2.0:
-        # Wide A0 plan - 3x2 = 6 sections
-        cols, rows = 3, 2
-        sections = []
-        for col in range(cols):
-            for row in range(rows):
-                sections.append({
-                    "name": f"section_{col}_{row}",
-                    "rect": (pw * col / cols, ph * row / rows, pw * (col + 1) / cols, ph * (row + 1) / rows),
-                    "position": f"col{col}_row{row}"
-                })
-    elif aspect > 1.3:
-        # Medium plan - 2x2
-        sections = [
-            {"name": "top_left", "rect": (0, 0, pw/2, ph/2), "position": "oben-links"},
-            {"name": "top_right", "rect": (pw/2, 0, pw, ph/2), "position": "oben-rechts"},
-            {"name": "bottom_left", "rect": (0, ph/2, pw/2, ph), "position": "unten-links"},
-            {"name": "bottom_right", "rect": (pw/2, ph/2, pw, ph), "position": "unten-rechts"},
-        ]
-    else:
-        # Single section
-        sections = [{"name": "full", "rect": (0, 0, pw, ph), "position": "gesamt"}]
-
-    # Render each section at 400 DPI as JPEG (smaller than PNG)
-    import anthropic
-    import base64
     client = anthropic.Anthropic(api_key=api_key)
+
+    # ═══ PASS 1: OVERVIEW - find apartment regions ═══
+    # Render whole plan at low DPI (just for layout detection)
+    overview_dpi = min(150, int(4_000_000 / (pw * ph) * 72))  # target ~4MP
+    overview_dpi = max(50, min(overview_dpi, 150))
+    mat = fitz.Matrix(overview_dpi/72, overview_dpi/72)
+    pix = page.get_pixmap(matrix=mat)
+    overview_bytes = pix.tobytes("jpeg", jpg_quality=75)
+
+    # Ensure under 4MB
+    while len(overview_bytes) > 4 * 1024 * 1024 and overview_dpi > 40:
+        overview_dpi -= 20
+        mat = fitz.Matrix(overview_dpi/72, overview_dpi/72)
+        pix = page.get_pixmap(matrix=mat)
+        overview_bytes = pix.tobytes("jpeg", jpg_quality=70)
+
+    overview_b64 = base64.standard_b64encode(overview_bytes).decode("utf-8")
+
+    # Ask Claude to find apartment regions
+    overview_response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        system="""Du bist Bauingenieur. Dies ist ein Gesamt-Uebersichtsbild eines Bauplans.
+Finde alle WOHNUNGSBEREICHE (Tops) und gib ihre Position als Prozent des Bildes zurueck.
+Auch: Massstab, Geschoss, Gebaeude-Layout.
+
+Antworte NUR mit validem JSON:
+{
+  "massstab": "1:100",
+  "geschoss": "EG",
+  "anzahl_gebaeude": 3,
+  "wohnungen": [
+    {"name": "TOP 25", "rect_pct": [5, 15, 30, 50]}
+  ]
+}
+
+rect_pct = [x_min%, y_min%, x_max%, y_max%] als Prozent des Gesamtbildes.
+Jede Wohnung sollte IHRE eigene Box haben (nicht mehrere zusammen).
+Wenn TOP-Nummern nicht sichtbar sind: als "Bereich 1", "Bereich 2" etc. bezeichnen.""",
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": overview_b64}},
+                {"type": "text", "text": "Finde alle Wohnungsbereiche in diesem Bauplan. Gib die exakten Positionen als Prozent-Koordinaten."}
+            ]
+        }]
+    )
+
+    overview_raw = overview_response.content[0].text if overview_response.content else "{}"
+    overview_result = None
+    try:
+        overview_result = json.loads(overview_raw)
+    except:
+        m = re.search(r'\{[\s\S]*\}', overview_raw)
+        if m:
+            try:
+                overview_result = json.loads(m.group())
+            except:
+                pass
+
+    massstab = (overview_result or {}).get("massstab")
+    geschoss = (overview_result or {}).get("geschoss")
+    wohnungen_list = (overview_result or {}).get("wohnungen", [])
+
+    # Build sections from detected apartments
+    sections = []
+    for w in wohnungen_list:
+        rect_pct = w.get("rect_pct", [0, 0, 100, 100])
+        if len(rect_pct) != 4:
+            continue
+        # Expand box by 2% for margin
+        x_min = max(0, rect_pct[0] - 2) / 100 * pw
+        y_min = max(0, rect_pct[1] - 2) / 100 * ph
+        x_max = min(100, rect_pct[2] + 2) / 100 * pw
+        y_max = min(100, rect_pct[3] + 2) / 100 * ph
+        sections.append({
+            "name": w.get("name", "Bereich"),
+            "rect": (x_min, y_min, x_max, y_max),
+            "position": w.get("name", "Bereich"),
+        })
+
+    # Fallback: if Claude didn't find apartments, use grid
+    if len(sections) < 2:
+        cols = 4 if (pw / ph) > 2.5 else (3 if (pw / ph) > 2.0 else 2)
+        rows = 2 if (pw / ph) > 1.3 else 1
+        sections = []
+        for col in range(cols):
+            for row in range(rows):
+                sections.append({
+                    "name": f"section_{col}_{row}",
+                    "rect": (pw * col / cols, ph * row / rows, pw * (col + 1) / cols, ph * (row + 1) / rows),
+                    "position": f"col{col}_row{row}"
+                })
+
+    all_rooms = []
+    all_fenster = []
+    all_tueren = []
 
     all_rooms = []
     all_fenster = []
@@ -365,18 +426,28 @@ Antworte NUR mit validem JSON:
 WICHTIG: Lies NUR was im Bildausschnitt zu sehen ist. Erfinde nichts!"""
 
     for sec in sections:
-        # Adaptive DPI: start at 300, reduce if image is too big for API (5MB limit)
-        dpi = 300
-        while dpi >= 100:
+        # Adaptive DPI: balance image size (<3.5MB binary, <5MB base64)
+        # AND pixel dimensions (max 8000 per side, Anthropic API limit)
+        rect = fitz.Rect(*sec["rect"])
+        sec_w_pt = rect.x1 - rect.x0
+        sec_h_pt = rect.y1 - rect.y0
+        # Calculate max DPI that stays under 7500 px on longer side
+        max_dim_pt = max(sec_w_pt, sec_h_pt)
+        max_dpi_by_dim = int(7500 / max_dim_pt * 72)
+        dpi = min(300, max_dpi_by_dim)
+        dpi = max(100, dpi)
+
+        while dpi >= 80:
             mat = fitz.Matrix(dpi/72, dpi/72)
-            pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(*sec["rect"]))
+            pix = page.get_pixmap(matrix=mat, clip=rect)
             img_bytes = pix.tobytes("jpeg", jpg_quality=80)
-            if len(img_bytes) < 4.5 * 1024 * 1024:
+            # Check both file size AND pixel dimensions
+            if len(img_bytes) < 3.5 * 1024 * 1024 and pix.width <= 7500 and pix.height <= 7500:
                 break
-            dpi -= 50
+            dpi -= 30
 
         # Skip if still too large
-        if len(img_bytes) > 5 * 1024 * 1024:
+        if len(img_bytes) > 5 * 1024 * 1024 or pix.width > 8000 or pix.height > 8000:
             continue
 
         img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
