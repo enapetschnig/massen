@@ -298,19 +298,27 @@ async def analyse_zoom(body: ExtractRequest):
     pw, ph = page.rect.width, page.rect.height
     aspect = pw / ph
 
-    # Split strategy: wide plans get 3 horizontal sections, tall plans get 2 vertical
-    if aspect > 2.0:
-        # Wide A0 plan - split 3 horizontal x 2 vertical
+    # Split strategy: more sections for wider plans
+    if aspect > 2.5:
+        # Very wide A0 plan (3+ buildings) - 4x2 = 8 sections
+        cols, rows = 4, 2
         sections = []
-        for col in range(3):
-            for row in range(2):
-                x0 = pw * col / 3
-                y0 = ph * row / 2
-                x1 = pw * (col + 1) / 3
-                y1 = ph * (row + 1) / 2
+        for col in range(cols):
+            for row in range(rows):
                 sections.append({
                     "name": f"section_{col}_{row}",
-                    "rect": (x0, y0, x1, y1),
+                    "rect": (pw * col / cols, ph * row / rows, pw * (col + 1) / cols, ph * (row + 1) / rows),
+                    "position": f"col{col}_row{row}"
+                })
+    elif aspect > 2.0:
+        # Wide A0 plan - 3x2 = 6 sections
+        cols, rows = 3, 2
+        sections = []
+        for col in range(cols):
+            for row in range(rows):
+                sections.append({
+                    "name": f"section_{col}_{row}",
+                    "rect": (pw * col / cols, ph * row / rows, pw * (col + 1) / cols, ph * (row + 1) / rows),
                     "position": f"col{col}_row{row}"
                 })
     elif aspect > 1.3:
@@ -357,17 +365,19 @@ Antworte NUR mit validem JSON:
 WICHTIG: Lies NUR was im Bildausschnitt zu sehen ist. Erfinde nichts!"""
 
     for sec in sections:
-        # Render at 400 DPI
-        mat = fitz.Matrix(400/72, 400/72)
-        pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(*sec["rect"]))
-        img_bytes = pix.tobytes("jpeg", jpg_quality=85)
-
-        # Skip if too large
-        if len(img_bytes) > 5 * 1024 * 1024:
-            # Lower DPI if too big
-            mat = fitz.Matrix(300/72, 300/72)
+        # Adaptive DPI: start at 300, reduce if image is too big for API (5MB limit)
+        dpi = 300
+        while dpi >= 100:
+            mat = fitz.Matrix(dpi/72, dpi/72)
             pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(*sec["rect"]))
             img_bytes = pix.tobytes("jpeg", jpg_quality=80)
+            if len(img_bytes) < 4.5 * 1024 * 1024:
+                break
+            dpi -= 50
+
+        # Skip if still too large
+        if len(img_bytes) > 5 * 1024 * 1024:
+            continue
 
         img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
 
