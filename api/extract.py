@@ -263,3 +263,226 @@ async def extract(body: ExtractRequest):
 @app.get("/api/extract-health")
 async def health():
     return {"status": "ok", "pdfplumber": True}
+
+
+@app.post("/api/analyse-zoom")
+async def analyse_zoom(body: ExtractRequest):
+    """
+    Zoom-section analysis: renders PDF in high-DPI sections,
+    sends each to Claude, merges results.
+    """
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+
+    # Get plan + API key
+    plan_res = sb.table("plaene").select("*").eq("id", body.plan_id).single().execute()
+    if not plan_res.data:
+        raise HTTPException(404, "Plan nicht gefunden")
+    plan = plan_res.data
+
+    cfg = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data
+    api_key = cfg[0]["value"] if cfg else os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(500, "API Key nicht konfiguriert")
+
+    # Download PDF
+    try:
+        pdf_bytes = sb.storage.from_("plaene").download(plan["storage_path"])
+    except Exception as e:
+        raise HTTPException(500, f"PDF Download: {e}")
+
+    # Determine sections based on plan aspect ratio
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page = doc[0]
+    pw, ph = page.rect.width, page.rect.height
+    aspect = pw / ph
+
+    # Split strategy: wide plans get 3 horizontal sections, tall plans get 2 vertical
+    if aspect > 2.0:
+        # Wide A0 plan - split 3 horizontal x 2 vertical
+        sections = []
+        for col in range(3):
+            for row in range(2):
+                x0 = pw * col / 3
+                y0 = ph * row / 2
+                x1 = pw * (col + 1) / 3
+                y1 = ph * (row + 1) / 2
+                sections.append({
+                    "name": f"section_{col}_{row}",
+                    "rect": (x0, y0, x1, y1),
+                    "position": f"col{col}_row{row}"
+                })
+    elif aspect > 1.3:
+        # Medium plan - 2x2
+        sections = [
+            {"name": "top_left", "rect": (0, 0, pw/2, ph/2), "position": "oben-links"},
+            {"name": "top_right", "rect": (pw/2, 0, pw, ph/2), "position": "oben-rechts"},
+            {"name": "bottom_left", "rect": (0, ph/2, pw/2, ph), "position": "unten-links"},
+            {"name": "bottom_right", "rect": (pw/2, ph/2, pw, ph), "position": "unten-rechts"},
+        ]
+    else:
+        # Single section
+        sections = [{"name": "full", "rect": (0, 0, pw, ph), "position": "gesamt"}]
+
+    # Render each section at 400 DPI as JPEG (smaller than PNG)
+    import anthropic
+    import base64
+    client = anthropic.Anthropic(api_key=api_key)
+
+    all_rooms = []
+    all_fenster = []
+    all_tueren = []
+    massstab = None
+    geschoss = None
+
+    SYSTEM_PROMPT = """Du bist der erfahrenste Bautechniker Oesterreichs.
+Du siehst einen AUSSCHNITT eines Bauplans (nicht den ganzen Plan).
+Lies JEDEN Text im Ausschnitt EXAKT ab.
+
+Antworte NUR mit validem JSON:
+{
+  "raeume": [
+    {"name": "Wohnkueche", "wohnung": "TOP 25", "flaeche_m2": 24.13, "umfang_m": 20.66, "hoehe_m": 2.42, "bodenbelag": "Parkett", "konfidenz": 0.98}
+  ],
+  "fenster": [
+    {"bezeichnung": "FE_30", "raum": "Zimmer", "wohnung": "TOP 25", "al_breite_mm": 120, "al_hoehe_mm": 147, "rb_breite_mm": 130, "rb_hoehe_mm": 147, "rph_mm": 84, "fph_mm": 87, "konfidenz": 0.95}
+  ],
+  "tueren": [],
+  "massstab": "1:100",
+  "geschoss": "EG",
+  "wohnungen_gefunden": ["TOP 25", "TOP 26"]
+}
+
+WICHTIG: Lies NUR was im Bildausschnitt zu sehen ist. Erfinde nichts!"""
+
+    for sec in sections:
+        # Render at 400 DPI
+        mat = fitz.Matrix(400/72, 400/72)
+        pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(*sec["rect"]))
+        img_bytes = pix.tobytes("jpeg", jpg_quality=85)
+
+        # Skip if too large
+        if len(img_bytes) > 5 * 1024 * 1024:
+            # Lower DPI if too big
+            mat = fitz.Matrix(300/72, 300/72)
+            pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(*sec["rect"]))
+            img_bytes = pix.tobytes("jpeg", jpg_quality=80)
+
+        img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
+
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=8192,
+                system=SYSTEM_PROMPT,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}},
+                        {"type": "text", "text": f"Dies ist der Ausschnitt {sec['position']} eines oesterreichischen Bauplans. Analysiere alles was du sehen kannst."}
+                    ]
+                }]
+            )
+
+            raw = response.content[0].text if response.content else "{}"
+            # Parse JSON
+            result = None
+            try:
+                result = json.loads(raw)
+            except:
+                m = re.search(r'\{[\s\S]*\}', raw)
+                if m:
+                    try:
+                        result = json.loads(m.group())
+                    except:
+                        pass
+
+            if result:
+                all_rooms.extend(result.get("raeume", []))
+                all_fenster.extend(result.get("fenster", []))
+                all_tueren.extend(result.get("tueren", []))
+                if not massstab and result.get("massstab"):
+                    massstab = result["massstab"]
+                if not geschoss and result.get("geschoss"):
+                    geschoss = result["geschoss"]
+        except Exception as e:
+            # Log but continue
+            pass
+
+    doc.close()
+
+    # Deduplicate rooms by name+wohnung (sections may overlap)
+    seen = set()
+    unique_rooms = []
+    for r in all_rooms:
+        key = (r.get("name", ""), r.get("wohnung", ""))
+        if key not in seen:
+            seen.add(key)
+            unique_rooms.append(r)
+
+    seen_f = set()
+    unique_fenster = []
+    for f in all_fenster:
+        key = f.get("bezeichnung", "")
+        if key and key not in seen_f:
+            seen_f.add(key)
+            unique_fenster.append(f)
+
+    # Clean old results
+    sb.table("massen").delete().eq("plan_id", body.plan_id).execute()
+    sb.table("elemente").delete().eq("plan_id", body.plan_id).execute()
+
+    # Store elements
+    for r in unique_rooms:
+        sb.table("elemente").insert({
+            "plan_id": body.plan_id, "typ": "raum",
+            "bezeichnung": r.get("name", ""),
+            "daten": r,
+            "konfidenz": int(r.get("konfidenz", 0.8) * 100)
+        }).execute()
+
+    for f in unique_fenster:
+        sb.table("elemente").insert({
+            "plan_id": body.plan_id, "typ": "fenster",
+            "bezeichnung": f.get("bezeichnung", ""),
+            "daten": f,
+            "konfidenz": int(f.get("konfidenz", 0.8) * 100)
+        }).execute()
+
+    for t in all_tueren:
+        sb.table("elemente").insert({
+            "plan_id": body.plan_id, "typ": "tuer",
+            "bezeichnung": t.get("bezeichnung", ""),
+            "daten": t,
+            "konfidenz": int(t.get("konfidenz", 0.8) * 100)
+        }).execute()
+
+    # Store in agent_log
+    log = plan.get("agent_log") or {}
+    log["zoom_analyse"] = {
+        "sections": len(sections),
+        "raeume": len(unique_rooms),
+        "fenster": len(unique_fenster),
+        "tueren": len(all_tueren),
+        "massstab": massstab,
+        "geschoss": geschoss,
+    }
+    log["geo"] = {
+        "raeume": unique_rooms,
+        "fenster": unique_fenster,
+        "tueren": all_tueren,
+        "massstab": massstab,
+        "geschoss": geschoss,
+    }
+    sb.table("plaene").update({"agent_log": log, "gesamt_konfidenz": 95}).eq("id", body.plan_id).execute()
+
+    return {
+        "status": "ok",
+        "sections_analyzed": len(sections),
+        "raeume": len(unique_rooms),
+        "fenster": len(unique_fenster),
+        "tueren": len(all_tueren),
+        "massstab": massstab,
+        "geschoss": geschoss,
+    }

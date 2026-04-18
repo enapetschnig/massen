@@ -169,39 +169,33 @@
       });
     }
 
-    // Extract text from PDF first (server-side pdfplumber for accuracy)
-    if (progressStatus) progressStatus.textContent = 'PDF-Texte extrahieren (pdfplumber)...';
-    if (analysisBar) { analysisBar.style.width = '5%'; analysisBar.textContent = '5%'; }
+    // Zoom-Section Analyse: rendert PDF in High-DPI Abschnitten und lässt Claude jeden lesen
+    setStepActive(0);
+    if (progressStatus) progressStatus.textContent = 'Schritt 1/2: PDF-Abschnitte werden in hoher Auflösung analysiert (Zoom)...';
+    if (analysisBar) { analysisBar.style.width = '10%'; analysisBar.textContent = '10%'; }
 
-    fetch('/api/extract', {
+    fetch('/api/analyse-zoom', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan_id: planId })
     })
       .then(function(res) {
         return res.json().then(function(data) {
-          if (data.error) console.warn('Extraktion:', data.error);
-          console.log('Extraktion:', data.rooms_grouped || 0, 'Räume,', data.dimensions || 0, 'Maße');
+          if (!res.ok || data.error) throw new Error(data.error || 'Zoom-Analyse fehlgeschlagen');
+          console.log('Zoom-Analyse:', data.sections_analyzed, 'Abschnitte,', data.raeume, 'Räume,', data.fenster, 'Fenster');
+          setStepDone(0); setStepActive(1);
+          if (progressStatus) progressStatus.textContent = 'Schritt 2/2: Massen werden berechnet... (' + (data.raeume || 0) + ' Räume, ' + (data.fenster || 0) + ' Fenster)';
+          if (analysisBar) { analysisBar.style.width = '40%'; analysisBar.textContent = '40%'; }
           return data;
         });
       })
-      .then(function() {
-        // Server hat die Daten bereits in agent_log gespeichert
-        // Step 1: Parser + Geometrie
-        setStepActive(0);
-        if (progressStatus) progressStatus.textContent = 'Schritt 1/3: PDF wird analysiert...';
-        if (analysisBar) { analysisBar.style.width = '10%'; analysisBar.textContent = '10%'; }
-        return callStep(1);
-      })
-      .then(function (r1) {
-        setStepDone(0); setStepActive(1);
-        if (progressStatus) progressStatus.textContent = 'Schritt 2/3: Massen werden berechnet... (' + r1.raeume + ' Räume, ' + r1.fenster + ' Fenster)';
-        if (analysisBar) { analysisBar.style.width = '40%'; analysisBar.textContent = '40%'; }
+      .then(function () {
+        // Zoom-Analyse hat alles in elemente + agent_log gespeichert - direkt zu Step 2
         return callStep(2);
       })
       .then(function (r2) {
         setStepDone(1); setStepActive(2);
-        if (progressStatus) progressStatus.textContent = 'Schritt 3/3: Qualitätsprüfung... (' + r2.massen + ' Positionen)';
+        if (progressStatus) progressStatus.textContent = 'Qualitätsprüfung... (' + r2.massen + ' Positionen)';
         if (analysisBar) { analysisBar.style.width = '70%'; analysisBar.textContent = '70%'; }
         return callStep(3);
       })
