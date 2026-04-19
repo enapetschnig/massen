@@ -291,9 +291,10 @@ async def analyse_zoom(body: ExtractRequest):
     except Exception as e:
         raise HTTPException(500, f"PDF Download: {e}")
 
-    # 2-PASS INTELLIGENT ANALYSIS:
-    # Pass 1: Low-res overview to find apartment regions
-    # Pass 2: High-DPI zoom on each apartment for precise reading
+    # DETERMINISTIC OVERLAPPING GRID:
+    # Split plan into sensible overlapping tiles so every apartment is
+    # fully visible (with F/U/H label columns intact) in at least one tile.
+    # No Claude overview pass -> fully deterministic section layout.
     import fitz
     import anthropic
     import base64
@@ -302,102 +303,37 @@ async def analyse_zoom(body: ExtractRequest):
     pw, ph = page.rect.width, page.rect.height
     client = anthropic.Anthropic(api_key=api_key)
 
-    # ═══ PASS 1: OVERVIEW - find apartment regions ═══
-    # Render whole plan at low DPI (just for layout detection)
-    overview_dpi = min(150, int(4_000_000 / (pw * ph) * 72))  # target ~4MP
-    overview_dpi = max(50, min(overview_dpi, 150))
-    mat = fitz.Matrix(overview_dpi/72, overview_dpi/72)
-    pix = page.get_pixmap(matrix=mat)
-    overview_bytes = pix.tobytes("jpeg", jpg_quality=75)
+    # Fixed-size overlapping tiles: 1800 pt per side guarantees DPI=300
+    # (7500 px / 1800 pt * 72 = 300). 30% overlap ensures every apartment
+    # is fully visible in at least one tile (with F/U/H label table intact).
+    TILE_PT = 1800.0
+    OVERLAP = 0.30
+    STEP = TILE_PT * (1 - OVERLAP)
 
-    # Ensure under 4MB
-    while len(overview_bytes) > 4 * 1024 * 1024 and overview_dpi > 40:
-        overview_dpi -= 20
-        mat = fitz.Matrix(overview_dpi/72, overview_dpi/72)
-        pix = page.get_pixmap(matrix=mat)
-        overview_bytes = pix.tobytes("jpeg", jpg_quality=70)
+    if pw <= TILE_PT:
+        col_positions = [0.0]
+    else:
+        n_cols = max(2, int(math.ceil((pw - TILE_PT) / STEP)) + 1)
+        step_x = (pw - TILE_PT) / (n_cols - 1)
+        col_positions = [i * step_x for i in range(n_cols)]
 
-    overview_b64 = base64.standard_b64encode(overview_bytes).decode("utf-8")
+    if ph <= TILE_PT:
+        row_positions = [0.0]
+    else:
+        n_rows = max(2, int(math.ceil((ph - TILE_PT) / STEP)) + 1)
+        step_y = (ph - TILE_PT) / (n_rows - 1)
+        row_positions = [i * step_y for i in range(n_rows)]
 
-    # Ask Claude to find apartment regions
-    overview_response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        system="""Du bist Bauingenieur. Dies ist ein Gesamt-Uebersichtsbild eines Bauplans.
-Finde alle WOHNUNGSBEREICHE (Tops) und gib ihre Position als Prozent des Bildes zurueck.
-Auch: Massstab, Geschoss, Gebaeude-Layout.
-
-Antworte NUR mit validem JSON:
-{
-  "massstab": "1:100",
-  "geschoss": "EG",
-  "anzahl_gebaeude": 3,
-  "wohnungen": [
-    {"name": "TOP 25", "rect_pct": [5, 15, 30, 50]}
-  ]
-}
-
-rect_pct = [x_min%, y_min%, x_max%, y_max%] als Prozent des Gesamtbildes.
-Jede Wohnung sollte IHRE eigene Box haben (nicht mehrere zusammen).
-Wenn TOP-Nummern nicht sichtbar sind: als "Bereich 1", "Bereich 2" etc. bezeichnen.""",
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": overview_b64}},
-                {"type": "text", "text": "Finde alle Wohnungsbereiche in diesem Bauplan. Gib die exakten Positionen als Prozent-Koordinaten."}
-            ]
-        }]
-    )
-
-    overview_raw = overview_response.content[0].text if overview_response.content else "{}"
-    overview_result = None
-    try:
-        overview_result = json.loads(overview_raw)
-    except:
-        m = re.search(r'\{[\s\S]*\}', overview_raw)
-        if m:
-            try:
-                overview_result = json.loads(m.group())
-            except:
-                pass
-
-    massstab = (overview_result or {}).get("massstab")
-    geschoss = (overview_result or {}).get("geschoss")
-    wohnungen_list = (overview_result or {}).get("wohnungen", [])
-
-    # Build sections from detected apartments
     sections = []
-    for w in wohnungen_list:
-        rect_pct = w.get("rect_pct", [0, 0, 100, 100])
-        if len(rect_pct) != 4:
-            continue
-        # Expand box by 2% for margin
-        x_min = max(0, rect_pct[0] - 2) / 100 * pw
-        y_min = max(0, rect_pct[1] - 2) / 100 * ph
-        x_max = min(100, rect_pct[2] + 2) / 100 * pw
-        y_max = min(100, rect_pct[3] + 2) / 100 * ph
-        sections.append({
-            "name": w.get("name", "Bereich"),
-            "rect": (x_min, y_min, x_max, y_max),
-            "position": w.get("name", "Bereich"),
-        })
-
-    # Fallback: if Claude didn't find apartments, use grid
-    if len(sections) < 2:
-        cols = 4 if (pw / ph) > 2.5 else (3 if (pw / ph) > 2.0 else 2)
-        rows = 2 if (pw / ph) > 1.3 else 1
-        sections = []
-        for col in range(cols):
-            for row in range(rows):
-                sections.append({
-                    "name": f"section_{col}_{row}",
-                    "rect": (pw * col / cols, ph * row / rows, pw * (col + 1) / cols, ph * (row + 1) / rows),
-                    "position": f"col{col}_row{row}"
-                })
-
-    all_rooms = []
-    all_fenster = []
-    all_tueren = []
+    for ci, x0 in enumerate(col_positions):
+        for ri, y0 in enumerate(row_positions):
+            x1 = min(x0 + TILE_PT, pw)
+            y1 = min(y0 + TILE_PT, ph)
+            sections.append({
+                "name": f"tile_{ci}_{ri}",
+                "rect": (x0, y0, x1, y1),
+                "position": f"col{ci}_row{ri}",
+            })
 
     all_rooms = []
     all_fenster = []
@@ -406,10 +342,20 @@ Wenn TOP-Nummern nicht sichtbar sind: als "Bereich 1", "Bereich 2" etc. bezeichn
     geschoss = None
 
     SYSTEM_PROMPT = """Du bist der erfahrenste Bautechniker Oesterreichs.
-Du siehst einen AUSSCHNITT eines Bauplans (nicht den ganzen Plan).
-Lies JEDEN Text im Ausschnitt EXAKT ab.
+Du siehst einen AUSSCHNITT eines oesterreichischen Bauplans.
+Bei jedem Raum steht IMMER ein Beschriftungsblock mit DREI Werten:
 
-Antworte NUR mit validem JSON:
+  Raumname (z.B. "Wohnkueche")
+  F: 24,13 m²     <- Flaeche (grosse Zahl mit m² Zeichen)
+  U: 20,66 m      <- Umfang (kleinere Zeile, meist direkt darunter)
+  H: 2,42 m       <- lichte Raumhoehe
+
+Du MUSST fuer JEDEN Raum alle drei Werte (F, U, H) aus diesem Beschriftungsblock ablesen.
+Schau GENAU hin - U und H stehen oft in kleinerer Schrift direkt unter F.
+Die Formate koennen leicht variieren: "U=20,66", "U 20.66 m", "Umfang 20,66".
+Kommas und Punkte als Dezimaltrenner beide moeglich - immer als Zahl zurueckgeben.
+
+Antworte NUR mit validem JSON (keine Markdown-Fences, kein Prefix):
 {
   "raeume": [
     {"name": "Wohnkueche", "wohnung": "TOP 25", "flaeche_m2": 24.13, "umfang_m": 20.66, "hoehe_m": 2.42, "bodenbelag": "Parkett", "konfidenz": 0.98}
@@ -423,7 +369,11 @@ Antworte NUR mit validem JSON:
   "wohnungen_gefunden": ["TOP 25", "TOP 26"]
 }
 
-WICHTIG: Lies NUR was im Bildausschnitt zu sehen ist. Erfinde nichts!"""
+REGELN:
+- JEDE Zeile im Raum-Beschriftungsblock lesen, nicht nur die groesste.
+- Wenn U oder H wirklich nicht im Ausschnitt zu sehen ist: Wert weglassen (nicht raten).
+- Fuer Loggia/Balkon: U und H trotzdem eintragen falls sichtbar.
+- Erfinde niemals Werte die du nicht siehst."""
 
     for sec in sections:
         # Adaptive DPI: balance image size (<3.5MB binary, <5MB base64)
@@ -493,22 +443,70 @@ WICHTIG: Lies NUR was im Bildausschnitt zu sehen ist. Erfinde nichts!"""
 
     doc.close()
 
-    # Deduplicate rooms by name+wohnung (sections may overlap)
-    seen = set()
-    unique_rooms = []
-    for r in all_rooms:
-        key = (r.get("name", ""), r.get("wohnung", ""))
-        if key not in seen:
-            seen.add(key)
-            unique_rooms.append(r)
+    # Dedup rooms: same room may be seen in multiple overlapping tiles.
+    # Match by (normalized name, wohnung) with flaeche fuzzy fallback (+-0.15m2).
+    # Keep the observation with highest confidence and most complete F/U/H.
+    def _norm(s):
+        return re.sub(r"[\s\-_/]+", "", (s or "").lower())
 
-    seen_f = set()
-    unique_fenster = []
+    def _score(r):
+        f = r.get("flaeche_m2") or 0
+        u = r.get("umfang_m") or 0
+        h = r.get("hoehe_m") or 0
+        completeness = (1 if f > 0 else 0) + (1 if u > 0 else 0) + (1 if h > 0 else 0)
+        return (completeness, float(r.get("konfidenz") or 0))
+
+    room_groups = {}
+    for r in all_rooms:
+        key = (_norm(r.get("name")), _norm(r.get("wohnung")))
+        f = r.get("flaeche_m2") or 0
+        # Try to match a nearby flaeche within existing groups with same name
+        merged = False
+        for (n, w), existing in room_groups.items():
+            if n == key[0] and (w == key[1] or not key[1] or not w):
+                ef = existing.get("flaeche_m2") or 0
+                if ef and f and abs(ef - f) < 0.15:
+                    if _score(r) > _score(existing):
+                        # Merge: keep best values from both
+                        for fld in ("flaeche_m2", "umfang_m", "hoehe_m", "bodenbelag", "konfidenz", "wohnung"):
+                            if r.get(fld) and not existing.get(fld):
+                                existing[fld] = r[fld]
+                        existing.update({k: v for k, v in r.items() if v not in (None, "", 0)})
+                    else:
+                        for fld in ("flaeche_m2", "umfang_m", "hoehe_m", "bodenbelag", "wohnung"):
+                            if r.get(fld) and not existing.get(fld):
+                                existing[fld] = r[fld]
+                    merged = True
+                    break
+        if not merged:
+            if key in room_groups:
+                # Same key but different flaeche -> keep higher score
+                if _score(r) > _score(room_groups[key]):
+                    room_groups[key] = dict(r)
+            else:
+                room_groups[key] = dict(r)
+
+    unique_rooms = list(room_groups.values())
+
+    # Fenster dedup: by bezeichnung, merge dimensions (highest confidence wins)
+    fenster_groups = {}
     for f in all_fenster:
-        key = f.get("bezeichnung", "")
-        if key and key not in seen_f:
-            seen_f.add(key)
-            unique_fenster.append(f)
+        key = _norm(f.get("bezeichnung"))
+        if not key:
+            continue
+        if key not in fenster_groups:
+            fenster_groups[key] = dict(f)
+        else:
+            existing = fenster_groups[key]
+            if float(f.get("konfidenz") or 0) > float(existing.get("konfidenz") or 0):
+                for fld, val in f.items():
+                    if val not in (None, "", 0):
+                        existing[fld] = val
+            else:
+                for fld, val in f.items():
+                    if val not in (None, "", 0) and not existing.get(fld):
+                        existing[fld] = val
+    unique_fenster = list(fenster_groups.values())
 
     # Clean old results
     sb.table("massen").delete().eq("plan_id", body.plan_id).execute()
