@@ -291,10 +291,12 @@ async def analyse_zoom(body: ExtractRequest):
     except Exception as e:
         raise HTTPException(500, f"PDF Download: {e}")
 
-    # DETERMINISTIC OVERLAPPING GRID:
-    # Split plan into sensible overlapping tiles so every apartment is
-    # fully visible (with F/U/H label columns intact) in at least one tile.
-    # No Claude overview pass -> fully deterministic section layout.
+    # DETERMINISTIC OVERLAPPING GRID + TEXT VERIFICATION + PASS 3 ULTRA ZOOM:
+    # 1. Extract text tokens with positions from PDF layer.
+    # 2. Tile-based Claude Vision (1800pt, 30% overlap, 300 DPI).
+    # 3. Consensus grouping across overlapping tiles.
+    # 4. Cross-verify every F/U/H against PDF text tokens near each room label.
+    # 5. Pass 3: per-room ultra-zoom (500 DPI) for any remaining gaps.
     import fitz
     import anthropic
     import base64
@@ -302,6 +304,67 @@ async def analyse_zoom(body: ExtractRequest):
     page = doc[0]
     pw, ph = page.rect.width, page.rect.height
     client = anthropic.Anthropic(api_key=api_key)
+
+    # ── Extract text tokens with positions from PDF text layer ──
+    text_tokens = []  # each: {"text": str, "bbox": (x0,y0,x1,y1), "num": float|None}
+    try:
+        td = page.get_text("dict")
+        for block in td.get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    txt = (span.get("text") or "").strip()
+                    if not txt:
+                        continue
+                    bbox = tuple(span.get("bbox") or (0, 0, 0, 0))
+                    num_val = None
+                    # Extract all numeric-looking tokens (handle spaces inside)
+                    for m in re.finditer(r"[0-9]+[.,][0-9]+", txt.replace(" ", "")):
+                        try:
+                            num_val = float(m.group(0).replace(",", "."))
+                            break
+                        except:
+                            pass
+                    text_tokens.append({"text": txt, "bbox": bbox, "num": num_val})
+    except Exception:
+        pass
+
+    def _tok_center(bbox):
+        return ((bbox[0]+bbox[2])/2.0, (bbox[1]+bbox[3])/2.0)
+
+    def _norm_name(s):
+        return re.sub(r"[\s\-_/]+", "", (s or "").lower())
+
+    def find_label_pos(room_name):
+        """Find approximate bbox where the room name appears in the PDF text layer."""
+        key = _norm_name(room_name)
+        if not key or len(key) < 3:
+            return None
+        matches = []
+        for tok in text_tokens:
+            nt = _norm_name(tok.get("text"))
+            if nt == key or (len(key) >= 4 and key in nt):
+                matches.append(tok["bbox"])
+        return matches  # list of bboxes (may be multiple rooms with same name)
+
+    def verify_value_near(pos_bbox, target, tolerance=0.04, radius_pt=300):
+        """Is `target` present as a numeric token within `radius_pt` of pos_bbox?"""
+        if pos_bbox is None or target is None:
+            return False
+        cx, cy = _tok_center(pos_bbox)
+        best_delta = float("inf")
+        for tok in text_tokens:
+            n = tok.get("num")
+            if n is None:
+                continue
+            tx, ty = _tok_center(tok["bbox"])
+            if abs(tx-cx) > radius_pt or abs(ty-cy) > radius_pt:
+                continue
+            rel = abs(n - target) / max(abs(target), 0.01)
+            if rel < tolerance and rel < best_delta:
+                best_delta = rel
+        return best_delta < tolerance
 
     # Fixed-size overlapping tiles: 1800 pt per side guarantees DPI=300
     # (7500 px / 1800 pt * 72 = 300). 30% overlap ensures every apartment
@@ -375,13 +438,12 @@ REGELN:
 - Fuer Loggia/Balkon: U und H trotzdem eintragen falls sichtbar.
 - Erfinde niemals Werte die du nicht siehst."""
 
-    for sec in sections:
+    for tile_idx, sec in enumerate(sections):
         # Adaptive DPI: balance image size (<3.5MB binary, <5MB base64)
         # AND pixel dimensions (max 8000 per side, Anthropic API limit)
         rect = fitz.Rect(*sec["rect"])
         sec_w_pt = rect.x1 - rect.x0
         sec_h_pt = rect.y1 - rect.y0
-        # Calculate max DPI that stays under 7500 px on longer side
         max_dim_pt = max(sec_w_pt, sec_h_pt)
         max_dpi_by_dim = int(7500 / max_dim_pt * 72)
         dpi = min(300, max_dpi_by_dim)
@@ -391,12 +453,10 @@ REGELN:
             mat = fitz.Matrix(dpi/72, dpi/72)
             pix = page.get_pixmap(matrix=mat, clip=rect)
             img_bytes = pix.tobytes("jpeg", jpg_quality=80)
-            # Check both file size AND pixel dimensions
             if len(img_bytes) < 3.5 * 1024 * 1024 and pix.width <= 7500 and pix.height <= 7500:
                 break
             dpi -= 30
 
-        # Skip if still too large
         if len(img_bytes) > 5 * 1024 * 1024 or pix.width > 8000 or pix.height > 8000:
             continue
 
@@ -417,7 +477,6 @@ REGELN:
             )
 
             raw = response.content[0].text if response.content else "{}"
-            # Parse JSON
             result = None
             try:
                 result = json.loads(raw)
@@ -430,68 +489,170 @@ REGELN:
                         pass
 
             if result:
-                all_rooms.extend(result.get("raeume", []))
-                all_fenster.extend(result.get("fenster", []))
-                all_tueren.extend(result.get("tueren", []))
+                # Tag each observation with its source tile index
+                for r in result.get("raeume", []):
+                    r["_tile"] = tile_idx
+                    all_rooms.append(r)
+                for f in result.get("fenster", []):
+                    f["_tile"] = tile_idx
+                    all_fenster.append(f)
+                for t in result.get("tueren", []):
+                    t["_tile"] = tile_idx
+                    all_tueren.append(t)
                 if not massstab and result.get("massstab"):
                     massstab = result["massstab"]
                 if not geschoss and result.get("geschoss"):
                     geschoss = result["geschoss"]
-        except Exception as e:
-            # Log but continue
+        except Exception:
             pass
 
-    doc.close()
+    # ═══ CONSENSUS GROUPING ═══
+    # Key: (normalized name, normalized wohnung, F-bucket of 0.2m2).
+    # Same identity seen in multiple tiles → consensus_count increases.
+    def _fbucket(f):
+        if not f:
+            return 0
+        return round(float(f) * 5) / 5  # 0.2 m2 bucket
 
-    # Dedup rooms: same room may be seen in multiple overlapping tiles.
-    # Match by (normalized name, wohnung) with flaeche fuzzy fallback (+-0.15m2).
-    # Keep the observation with highest confidence and most complete F/U/H.
-    def _norm(s):
-        return re.sub(r"[\s\-_/]+", "", (s or "").lower())
-
-    def _score(r):
-        f = r.get("flaeche_m2") or 0
-        u = r.get("umfang_m") or 0
-        h = r.get("hoehe_m") or 0
-        completeness = (1 if f > 0 else 0) + (1 if u > 0 else 0) + (1 if h > 0 else 0)
-        return (completeness, float(r.get("konfidenz") or 0))
-
-    room_groups = {}
+    groups = {}
     for r in all_rooms:
-        key = (_norm(r.get("name")), _norm(r.get("wohnung")))
-        f = r.get("flaeche_m2") or 0
-        # Try to match a nearby flaeche within existing groups with same name
-        merged = False
-        for (n, w), existing in room_groups.items():
-            if n == key[0] and (w == key[1] or not key[1] or not w):
-                ef = existing.get("flaeche_m2") or 0
-                if ef and f and abs(ef - f) < 0.15:
-                    if _score(r) > _score(existing):
-                        # Merge: keep best values from both
-                        for fld in ("flaeche_m2", "umfang_m", "hoehe_m", "bodenbelag", "konfidenz", "wohnung"):
-                            if r.get(fld) and not existing.get(fld):
-                                existing[fld] = r[fld]
-                        existing.update({k: v for k, v in r.items() if v not in (None, "", 0)})
-                    else:
-                        for fld in ("flaeche_m2", "umfang_m", "hoehe_m", "bodenbelag", "wohnung"):
-                            if r.get(fld) and not existing.get(fld):
-                                existing[fld] = r[fld]
-                    merged = True
-                    break
-        if not merged:
-            if key in room_groups:
-                # Same key but different flaeche -> keep higher score
-                if _score(r) > _score(room_groups[key]):
-                    room_groups[key] = dict(r)
-            else:
-                room_groups[key] = dict(r)
+        key = (_norm_name(r.get("name")), _norm_name(r.get("wohnung")), _fbucket(r.get("flaeche_m2")))
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(r)
 
-    unique_rooms = list(room_groups.values())
+    # For each group, merge into a single best observation keeping majority F/U/H
+    def _merge_observations(obs_list):
+        from collections import Counter
+        merged = {}
+        # Name/wohnung: take most common non-empty
+        for fld in ("name", "wohnung", "bodenbelag"):
+            vals = [o.get(fld) for o in obs_list if o.get(fld)]
+            if vals:
+                merged[fld] = Counter(vals).most_common(1)[0][0]
+        # Numeric fields: median of non-null values (robust to outliers)
+        for fld in ("flaeche_m2", "umfang_m", "hoehe_m"):
+            vals = sorted([float(o.get(fld)) for o in obs_list if o.get(fld)])
+            if vals:
+                merged[fld] = vals[len(vals)//2]
+        confs = [float(o.get("konfidenz") or 0) for o in obs_list]
+        merged["konfidenz"] = max(confs) if confs else 0.8
+        merged["_consensus"] = len(obs_list)
+        merged["_tile_sources"] = sorted({o.get("_tile") for o in obs_list if o.get("_tile") is not None})
+        return merged
+
+    merged_rooms = [_merge_observations(obs) for obs in groups.values()]
+
+    # ═══ TEXT-LAYER VERIFICATION ═══
+    # Cross-check F/U/H for every room against numeric tokens near the room name.
+    for r in merged_rooms:
+        label_positions = find_label_pos(r.get("name", ""))
+        r["_label_positions"] = label_positions  # list of bboxes
+        verified = {"F": False, "U": False, "H": False}
+        # Try verification against ANY of the label positions (multiple rooms with same name)
+        for pos in (label_positions or []):
+            if not verified["F"] and r.get("flaeche_m2"):
+                verified["F"] = verify_value_near(pos, r["flaeche_m2"], 0.02, 400)
+            if not verified["U"] and r.get("umfang_m"):
+                verified["U"] = verify_value_near(pos, r["umfang_m"], 0.02, 400)
+            if not verified["H"] and r.get("hoehe_m"):
+                verified["H"] = verify_value_near(pos, r["hoehe_m"], 0.02, 400)
+        r["_verified"] = verified
+        # Boost confidence for fully text-verified rooms
+        if verified["F"] and verified["U"] and verified["H"]:
+            r["konfidenz"] = 1.0
+
+    # ═══ PASS 3: PER-ROOM ULTRA ZOOM ═══
+    # For rooms with missing F/U/H AND a known label position, re-query Claude
+    # at 500 DPI on a tight rect around the label.
+    ULTRA_PROMPT = """Du siehst den Beschriftungsblock eines einzelnen Raums eines Bauplans.
+Gib NUR JSON zurueck - die drei Werte aus dem Block:
+{"flaeche_m2": 24.13, "umfang_m": 20.66, "hoehe_m": 2.42}
+Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
+
+    max_pass3 = 25  # safety cap on extra API calls
+    pass3_done = 0
+    for r in merged_rooms:
+        if pass3_done >= max_pass3:
+            break
+        missing = []
+        if not r.get("flaeche_m2"): missing.append("F")
+        if not r.get("umfang_m"): missing.append("U")
+        if not r.get("hoehe_m"): missing.append("H")
+        if not missing:
+            continue
+        positions = r.get("_label_positions") or []
+        if not positions:
+            continue
+        # Use first position; render 500x500pt centered rect at 500 DPI
+        bbox = positions[0]
+        cx, cy = _tok_center(bbox)
+        zoom_pt = 500.0
+        x0 = max(0, cx - zoom_pt/2)
+        y0 = max(0, cy - zoom_pt/2)
+        x1 = min(pw, x0 + zoom_pt)
+        y1 = min(ph, y0 + zoom_pt)
+        rect = fitz.Rect(x0, y0, x1, y1)
+        try:
+            zoom_dpi = 500
+            mat = fitz.Matrix(zoom_dpi/72, zoom_dpi/72)
+            pix = page.get_pixmap(matrix=mat, clip=rect)
+            zb = pix.tobytes("jpeg", jpg_quality=85)
+            if len(zb) > 4 * 1024 * 1024 or pix.width > 7500 or pix.height > 7500:
+                zoom_dpi = 400
+                mat = fitz.Matrix(zoom_dpi/72, zoom_dpi/72)
+                pix = page.get_pixmap(matrix=mat, clip=rect)
+                zb = pix.tobytes("jpeg", jpg_quality=80)
+            zb64 = base64.standard_b64encode(zb).decode("utf-8")
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=512,
+                system=ULTRA_PROMPT,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": zb64}},
+                        {"type": "text", "text": f"Raum: {r.get('name','?')}. Lies F, U, H."}
+                    ]
+                }]
+            )
+            raw = response.content[0].text if response.content else "{}"
+            sub = None
+            try:
+                sub = json.loads(raw)
+            except:
+                m = re.search(r'\{[\s\S]*\}', raw)
+                if m:
+                    try: sub = json.loads(m.group())
+                    except: pass
+            if sub:
+                for fld in ("flaeche_m2", "umfang_m", "hoehe_m"):
+                    if not r.get(fld) and sub.get(fld):
+                        r[fld] = sub[fld]
+                        r.setdefault("_verified", {})
+                        # verify the new value against text layer
+                        r["_verified"][fld[0].upper()] = verify_value_near(bbox, sub[fld], 0.02, 400)
+                r["_pass3"] = True
+            pass3_done += 1
+        except Exception:
+            continue
+
+    # Strip internal keys before output
+    unique_rooms = []
+    for r in merged_rooms:
+        clean = {k: v for k, v in r.items() if not k.startswith("_")}
+        # Keep verified/consensus/tile info in daten payload for UI
+        clean["_verified"] = r.get("_verified", {})
+        clean["_consensus"] = r.get("_consensus", 1)
+        clean["_pass3"] = r.get("_pass3", False)
+        unique_rooms.append(clean)
+
+    doc.close()
 
     # Fenster dedup: by bezeichnung, merge dimensions (highest confidence wins)
     fenster_groups = {}
     for f in all_fenster:
-        key = _norm(f.get("bezeichnung"))
+        key = _norm_name(f.get("bezeichnung"))
         if not key:
             continue
         if key not in fenster_groups:
