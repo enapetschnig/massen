@@ -305,8 +305,8 @@ async def analyse_zoom(body: ExtractRequest):
     pw, ph = page.rect.width, page.rect.height
     client = anthropic.Anthropic(api_key=api_key)
 
-    # ── Extract text tokens with positions from PDF text layer ──
-    text_tokens = []  # each: {"text": str, "bbox": (x0,y0,x1,y1), "num": float|None}
+    # ── Extract text spans with positions from PDF text layer ──
+    spans_all = []  # each: {"text", "bbox", "size", "cx", "cy"}
     try:
         td = page.get_text("dict")
         for block in td.get("blocks", []):
@@ -318,17 +318,27 @@ async def analyse_zoom(body: ExtractRequest):
                     if not txt:
                         continue
                     bbox = tuple(span.get("bbox") or (0, 0, 0, 0))
-                    num_val = None
-                    # Extract all numeric-looking tokens (handle spaces inside)
-                    for m in re.finditer(r"[0-9]+[.,][0-9]+", txt.replace(" ", "")):
-                        try:
-                            num_val = float(m.group(0).replace(",", "."))
-                            break
-                        except:
-                            pass
-                    text_tokens.append({"text": txt, "bbox": bbox, "num": num_val})
+                    spans_all.append({
+                        "text": txt,
+                        "bbox": bbox,
+                        "size": round(span.get("size", 0), 1),
+                        "cx": (bbox[0] + bbox[2]) / 2.0,
+                        "cy": (bbox[1] + bbox[3]) / 2.0,
+                    })
     except Exception:
         pass
+
+    # Numeric-token view for Vision verification
+    text_tokens = []
+    for s in spans_all:
+        num_val = None
+        for nm in re.finditer(r"[0-9]+[.,][0-9]+", s["text"].replace(" ", "")):
+            try:
+                num_val = float(nm.group(0).replace(",", "."))
+                break
+            except:
+                pass
+        text_tokens.append({"text": s["text"], "bbox": s["bbox"], "num": num_val})
 
     def _tok_center(bbox):
         return ((bbox[0]+bbox[2])/2.0, (bbox[1]+bbox[3])/2.0)
@@ -337,7 +347,6 @@ async def analyse_zoom(body: ExtractRequest):
         return re.sub(r"[\s\-_/]+", "", (s or "").lower())
 
     def find_label_pos(room_name):
-        """Find approximate bbox where the room name appears in the PDF text layer."""
         key = _norm_name(room_name)
         if not key or len(key) < 3:
             return None
@@ -346,10 +355,9 @@ async def analyse_zoom(body: ExtractRequest):
             nt = _norm_name(tok.get("text"))
             if nt == key or (len(key) >= 4 and key in nt):
                 matches.append(tok["bbox"])
-        return matches  # list of bboxes (may be multiple rooms with same name)
+        return matches
 
     def verify_value_near(pos_bbox, target, tolerance=0.04, radius_pt=300):
-        """Is `target` present as a numeric token within `radius_pt` of pos_bbox?"""
         if pos_bbox is None or target is None:
             return False
         cx, cy = _tok_center(pos_bbox)
@@ -365,6 +373,134 @@ async def analyse_zoom(body: ExtractRequest):
             if rel < tolerance and rel < best_delta:
                 best_delta = rel
         return best_delta < tolerance
+
+    # ─────────────────────────────────────────────────────────────────
+    # TEXT-FIRST ROOM EXTRACTION
+    # If the PDF has a proper text layer, every room label is present
+    # as spans: Name / [Bodenbelag] / "XX,XX m" + small "2" / "U: ..." / "H: ..."
+    # Pulling these directly gives byte-exact ground truth.
+    # ─────────────────────────────────────────────────────────────────
+    ROOM_KWS = {
+        "wohnküche","wohnkueche","wohnk","wohnen","zimmer","schlafzimmer","kinderzimmer",
+        "bad","wc","dusche","vorraum","vorzimmer","flur","gang","diele",
+        "küche","kueche","loggia","balkon","terrasse","stiegenhaus","stiege",
+        "abstellraum","abstellr","garderobe","speis","technik","keller",
+        "waschküche","waschkueche","werkstätte","werkstatt","lager","kellerabteil",
+        "büro","buero","atelier","studio","praxis",
+    }
+    BODENBELAG_KWS = {"parkett","fliesen","laminat","vinyl","estrich","teppich","feinsteinzeug","naturstein","keramik"}
+
+    def is_room_name_span(s):
+        t = s["text"].lower().strip()
+        if re.search(r"\d", t) or len(t) < 3:
+            return False
+        for k in ROOM_KWS:
+            if t == k or (k in t and len(t) <= len(k) + 4):
+                return True
+        return False
+
+    def has_m2_superscript(s, tolerance_pt=20):
+        sx_right = s["bbox"][2]
+        sy = s["cy"]
+        for o in spans_all:
+            if o is s or o["text"] != "2":
+                continue
+            if o["size"] >= s["size"] * 0.8:
+                continue
+            if abs(o["cy"] - sy) > 8:
+                continue
+            if -2 <= (o["bbox"][0] - sx_right) <= tolerance_pt:
+                return True
+        return False
+
+    def extract_room_from_label(rs):
+        rx, ry = rs["cx"], rs["cy"]
+        candidates = []
+        for s in spans_all:
+            if s is rs: continue
+            dx = s["cx"] - rx; dy = s["cy"] - ry
+            if abs(dx) <= 60 and -5 <= dy <= 60:
+                candidates.append((dy, dx, s))
+        candidates.sort()
+        f_val = u_val = h_val = None
+        bodenbelag = None
+        for dy, dx, s in candidates:
+            t = s["text"]
+            m = re.match(r"^U\s*[:=]?\s*([0-9]+[,.][0-9]+)", t)
+            if m and u_val is None:
+                u_val = float(m.group(1).replace(",", "."))
+                continue
+            m = re.match(r"^H\s*[:=]?\s*([0-9]+[,.][0-9]+)", t)
+            if m and h_val is None:
+                h_val = float(m.group(1).replace(",", "."))
+                continue
+            m = re.match(r"^F\s*[:=]?\s*([0-9]+[,.][0-9]+)", t)
+            if m and f_val is None:
+                f_val = float(m.group(1).replace(",", "."))
+                continue
+            m = re.match(r"^([0-9]+[,.][0-9]+)\s*m\s*(²|2)?\s*$", t)
+            if m and f_val is None and not t.startswith(("U", "H", "F")):
+                val = float(m.group(1).replace(",", "."))
+                if "²" in t or has_m2_superscript(s):
+                    f_val = val
+                    continue
+            if bodenbelag is None and t.lower() in BODENBELAG_KWS:
+                bodenbelag = t
+        return {
+            "name": rs["text"],
+            "flaeche_m2": f_val,
+            "umfang_m": u_val,
+            "hoehe_m": h_val,
+            "bodenbelag": bodenbelag,
+            "bbox": rs["bbox"],
+            "cx": rs["cx"],
+            "cy": rs["cy"],
+        }
+
+    text_first_rooms = []
+    for s in spans_all:
+        if is_room_name_span(s):
+            text_first_rooms.append(extract_room_from_label(s))
+
+    # Find TOP labels with positions; assign each room to nearest TOP by distance
+    top_labels = []  # [{"name": "TOP 25", "cx":, "cy":}, ...]
+    top_re = re.compile(r"^(TOP|Top|top)\s*\.?\s*([0-9]{1,3}[a-zA-Z]?)$")
+    for s in spans_all:
+        m = top_re.match(s["text"].strip())
+        if m:
+            top_labels.append({"name": f"TOP {m.group(2)}", "cx": s["cx"], "cy": s["cy"]})
+
+    def nearest_top(rx, ry, max_dist=500):
+        best = None; best_d = float("inf")
+        for t in top_labels:
+            d = ((t["cx"]-rx)**2 + (t["cy"]-ry)**2) ** 0.5
+            if d < best_d and d < max_dist:
+                best_d = d; best = t["name"]
+        return best
+
+    for r in text_first_rooms:
+        r["wohnung"] = nearest_top(r["cx"], r["cy"])
+        r["konfidenz"] = 1.0 if (r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m")) else 0.7
+        r["_text_first"] = True
+
+    # Dedup text_first: merge incomplete duplicates into complete ones with same name+F
+    def _rkey(r):
+        return (_norm_name(r.get("name")), round((r.get("flaeche_m2") or 0)*10)/10)
+
+    tf_map = {}
+    for r in text_first_rooms:
+        k = _rkey(r)
+        if k[1] == 0:  # no F at all
+            continue
+        ex = tf_map.get(k)
+        complete_new = bool(r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m"))
+        complete_old = bool(ex and ex.get("flaeche_m2") and ex.get("umfang_m") and ex.get("hoehe_m"))
+        if ex is None or (complete_new and not complete_old):
+            tf_map[k] = r
+    text_first_rooms = list(tf_map.values())
+    # Flag whether text-first produced enough data to skip / trust over Vision
+    text_first_count = sum(1 for r in text_first_rooms if r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m"))
+    text_first_enough = text_first_count >= 5  # threshold: at least 5 solid rooms
 
     # Fixed-size overlapping tiles: 1800 pt per side guarantees DPI=300
     # (7500 px / 1800 pt * 72 = 300). 30% overlap ensures every apartment
@@ -637,15 +773,57 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
         except Exception:
             continue
 
-    # Strip internal keys before output
+    # ═══ MERGE TEXT-FIRST GROUND TRUTH WITH VISION ═══
+    # Text-first rooms carry byte-exact F/U/H from the PDF text layer.
+    # Vision-only rooms (merged_rooms) contribute when text-layer is thin
+    # and/or add wohnung/TOP assignment. For rooms present in both, text
+    # values ALWAYS win; Vision fills in TOP if text couldn't.
+    def _fkey(r):
+        return (_norm_name(r.get("name")), round((r.get("flaeche_m2") or 0) * 10) / 10)
+
     unique_rooms = []
-    for r in merged_rooms:
-        clean = {k: v for k, v in r.items() if not k.startswith("_")}
-        # Keep verified/consensus/tile info in daten payload for UI
-        clean["_verified"] = r.get("_verified", {})
-        clean["_consensus"] = r.get("_consensus", 1)
-        clean["_pass3"] = r.get("_pass3", False)
-        unique_rooms.append(clean)
+    used_vision = set()
+
+    # Pass A: emit every text-first room with F>0 as the ground-truth record.
+    for tr in text_first_rooms:
+        if not tr.get("flaeche_m2"):
+            continue
+        tk = _fkey(tr)
+        # Find a matching vision observation for TOP assignment
+        best_vision = None
+        for i, vr in enumerate(merged_rooms):
+            if i in used_vision: continue
+            if _fkey(vr) == tk:
+                best_vision = vr
+                used_vision.add(i)
+                break
+        rec = {
+            "name": tr.get("name"),
+            "wohnung": tr.get("wohnung") or (best_vision.get("wohnung") if best_vision else None),
+            "flaeche_m2": tr.get("flaeche_m2"),
+            "umfang_m": tr.get("umfang_m"),
+            "hoehe_m": tr.get("hoehe_m"),
+            "bodenbelag": tr.get("bodenbelag") or (best_vision.get("bodenbelag") if best_vision else None),
+            "konfidenz": 1.0 if (tr.get("flaeche_m2") and tr.get("umfang_m") and tr.get("hoehe_m")) else 0.85,
+            "_source": "text",
+            "_verified": {"F": bool(tr.get("flaeche_m2")), "U": bool(tr.get("umfang_m")), "H": bool(tr.get("hoehe_m"))},
+            "_bbox": list(tr.get("bbox") or []),
+        }
+        unique_rooms.append(rec)
+
+    # Pass B: Vision rooms NOT matched by any text-first record (things the
+    # text layer missed - e.g. outdoor annotations, rooms without a label block)
+    for i, vr in enumerate(merged_rooms):
+        if i in used_vision:
+            continue
+        if not vr.get("flaeche_m2"):
+            continue
+        rec = {k: v for k, v in vr.items() if not k.startswith("_")}
+        rec["_source"] = "vision"
+        rec["_verified"] = vr.get("_verified", {})
+        rec["_consensus"] = vr.get("_consensus", 1)
+        rec["_pass3"] = vr.get("_pass3", False)
+        unique_rooms.append(rec)
 
     doc.close()
 
