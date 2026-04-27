@@ -384,18 +384,27 @@ async def analyse_zoom(body: ExtractRequest):
         "wohnküche","wohnkueche","wohnk","wohnen","zimmer","schlafzimmer","kinderzimmer",
         "bad","wc","dusche","vorraum","vorzimmer","flur","gang","diele",
         "küche","kueche","loggia","balkon","terrasse","stiegenhaus","stiege",
-        "abstellraum","abstellr","garderobe","speis","technik","keller",
-        "waschküche","waschkueche","werkstätte","werkstatt","lager","kellerabteil",
+        "stiegenaufg","abstellraum","abstellr","garderobe","speis","technik","keller",
+        "waschküche","waschkueche","waschraum","werkstätte","werkstatt","lager","kellerabteil",
         "büro","buero","atelier","studio","praxis",
+        # Tiefgaragen/Allgemeinräume
+        "tiefgarage","fahrrad","kinderwagen","fahrradraum","schleuse","fittness",
+        "treppenhaus","e-technik","elektroraum","pelletslagerraum","müllraum",
+        "ar","ar top","kiwa",
     }
-    BODENBELAG_KWS = {"parkett","fliesen","laminat","vinyl","estrich","teppich","feinsteinzeug","naturstein","keramik"}
+    BODENBELAG_KWS = {"parkett","fliesen","laminat","vinyl","estrich","teppich","feinsteinzeug","naturstein","keramik","beschichtung","beton"}
+    AR_TOP_RX = re.compile(r"^(ar\s+)?top\s*\d+\s*(ar)?\s*[a-z]?$", re.I)
 
     def is_room_name_span(s):
         t = s["text"].lower().strip()
-        if re.search(r"\d", t) or len(t) < 3:
+        # AR TOP NN / Top N AR pattern
+        if AR_TOP_RX.match(t): return True
+        if re.search(r"\d", t):
+            return False
+        if len(t) < 2:
             return False
         for k in ROOM_KWS:
-            if t == k or (k in t and len(t) <= len(k) + 4):
+            if t == k or t.startswith(k + " ") or (k in t and len(t) <= len(k) + 6):
                 return True
         return False
 
@@ -461,6 +470,89 @@ async def analyse_zoom(body: ExtractRequest):
     for s in spans_all:
         if is_room_name_span(s):
             text_first_rooms.append(extract_room_from_label(s))
+
+    # ─── ROTATED-LABEL GLOBAL CLAIMS (handles ArchiCAD/GSPublisher plans) ───
+    # Build a list of (kind, value, position) claims from the page:
+    #   - Standalone "F:" / "U:" / "H:" / "B:" prefix spans with value above
+    #   - Inline "F: 12,16 m" prefix+value spans
+    # Then fill gaps in text_first_rooms via greedy assignment so each claim
+    # is used at most once.
+    def _value_above(label_s, x_tol=6, y_max=60):
+        lx, ly = label_s["cx"], label_s["cy"]
+        best = None; bd = float("inf")
+        for o in spans_all:
+            if o is label_s: continue
+            if abs(o["cx"] - lx) > x_tol: continue
+            dy = ly - o["cy"]
+            if 0 < dy <= y_max:
+                ot = o["text"].strip()
+                if ot in ("F:", "U:", "H:", "B:"): continue
+                if len(ot) <= 1 and o["size"] < 5.5: continue
+                if dy < bd:
+                    bd = dy
+                    best = ot
+        return best
+
+    claims = []  # {"kind","value","cx","cy"}
+    for s in spans_all:
+        t = s["text"].strip()
+        # Standalone label (rotated layout)
+        if t in ("F:", "U:", "H:"):
+            v_text = _value_above(s)
+            if v_text:
+                m = re.search(r"([0-9]+[,.][0-9]+)", v_text)
+                if m:
+                    claims.append({"kind": t[0], "value": float(m.group(1).replace(",", ".")),
+                                   "cx": s["cx"], "cy": s["cy"]})
+        elif t == "B:":
+            v_text = _value_above(s)
+            if v_text:
+                vl = v_text.lower().strip()
+                for b in BODENBELAG_KWS:
+                    if vl == b or vl.startswith(b):
+                        claims.append({"kind": "B", "value": b.title(),
+                                       "cx": s["cx"], "cy": s["cy"]})
+                        break
+        # Inline (e.g. "F: 12,16 m" all in one span)
+        for kind in ("F", "U", "H"):
+            m = re.match(rf"^{kind}\s*[:=]\s*([0-9]+[,.][0-9]+)", t)
+            if m:
+                claims.append({"kind": kind, "value": float(m.group(1).replace(",", ".")),
+                               "cx": s["cx"], "cy": s["cy"]})
+
+    # Greedy fill gaps — each claim used at most once
+    def _greedy_fill(rooms, claims, kind, attr):
+        # Tight 150pt radius: typical label-block size. Wider radius yields
+        # higher completeness but lets greedy assign WRONG claims from
+        # neighbouring rooms (correctness > completeness).
+        kc = [c for c in claims if c["kind"] == kind]
+        if not kc:
+            return
+        missing = [(i, r) for i, r in enumerate(rooms) if not r.get(attr)]
+        if not missing:
+            return
+        pairs = []
+        for mi, (ri, r) in enumerate(missing):
+            for ci, c in enumerate(kc):
+                d = ((r["cx"] - c["cx"]) ** 2 + (r["cy"] - c["cy"]) ** 2) ** 0.5
+                if d > 150:
+                    continue
+                pairs.append((d, mi, ci))
+        pairs.sort()
+        used_r = set()
+        used_c = set()
+        for d, mi, ci in pairs:
+            if mi in used_r or ci in used_c:
+                continue
+            ri, r = missing[mi]
+            r[attr] = kc[ci]["value"]
+            used_r.add(mi)
+            used_c.add(ci)
+
+    _greedy_fill(text_first_rooms, claims, "F", "flaeche_m2")
+    _greedy_fill(text_first_rooms, claims, "U", "umfang_m")
+    _greedy_fill(text_first_rooms, claims, "H", "hoehe_m")
+    _greedy_fill(text_first_rooms, claims, "B", "bodenbelag")
 
     # Find TOP labels with positions; assign each room to nearest TOP by distance
     top_labels = []  # [{"name": "TOP 25", "cx":, "cy":}, ...]
