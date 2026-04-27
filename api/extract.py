@@ -17,18 +17,19 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY", ""))
-sb = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+SUPABASE_INIT_ERROR = None
+sb = None
 
-# If no env vars, try loading from Supabase config
-if not sb:
+if SUPABASE_URL and SUPABASE_KEY:
     try:
-        sb = create_client(
-            "https://ndojdrjwfelykpycrdjh.supabase.co",
-            # Will be set via env vars on Vercel
-            SUPABASE_KEY or ""
-        )
-    except:
-        pass
+        sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as _e:
+        SUPABASE_INIT_ERROR = f"create_client raised: {type(_e).__name__}: {_e}"
+else:
+    missing = []
+    if not SUPABASE_URL: missing.append("SUPABASE_URL")
+    if not SUPABASE_KEY: missing.append("SUPABASE_KEY (or SUPABASE_SERVICE_KEY)")
+    SUPABASE_INIT_ERROR = "Missing env vars: " + ", ".join(missing)
 
 
 class ExtractRequest(BaseModel):
