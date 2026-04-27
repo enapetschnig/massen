@@ -771,6 +771,40 @@ REGELN:
 
     merged_rooms = [_merge_observations(obs) for obs in groups.values()]
 
+    # ═══ HALLUCINATION FILTER ═══
+    # When PDF has a usable text layer, Vision rooms must have at least one
+    # piece of text-layer evidence (room name OR F-value present in spans),
+    # otherwise discard. Vision frequently invents typical-apartment rooms
+    # (Wohnzimmer, Bad, Foyer) on technical plans where it can't read the
+    # rotated/dense labels.
+    if len(spans_all) > 100:  # only enforce on plans with real text layer
+        full_text_lower = " ".join(s["text"] for s in spans_all).lower()
+        all_numbers = set()
+        for tok in text_tokens:
+            if tok.get("num") is not None:
+                all_numbers.add(round(tok["num"], 2))
+
+        def vision_has_evidence(r):
+            # STRICT: room name must appear in PDF text layer.
+            # F-value alone isn't enough (plans have hundreds of numeric
+            # dimension tokens, easily false-positive).
+            name = (r.get("name") or "").strip().lower()
+            if len(name) < 4:
+                return False
+            if name in full_text_lower:
+                return True
+            # Substring match for compound names (e.g. "Wohnkueche" -> "wohnk")
+            for w in re.split(r"[\s/+\-]+", name):
+                if len(w) >= 5 and w in full_text_lower:
+                    return True
+            return False
+
+        before = len(merged_rooms)
+        merged_rooms = [r for r in merged_rooms if vision_has_evidence(r)]
+        dropped = before - len(merged_rooms)
+        if dropped:
+            print(f"[hallucination filter] dropped {dropped}/{before} vision rooms without text-layer evidence")
+
     # ═══ TEXT-LAYER VERIFICATION ═══
     # Cross-check F/U/H for every room against numeric tokens near the room name.
     for r in merged_rooms:
