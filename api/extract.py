@@ -16,7 +16,17 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY", ""))
+# Accept any of these env var names (in priority order):
+# SUPABASE_SERVICE_KEY > SUPABASE_KEY > SUPABASE_ANON_KEY
+# service_role is preferred (bypasses RLS for writes); anon works
+# only if RLS policies allow inserts/updates from anon role.
+SUPABASE_KEY = (
+    os.environ.get("SUPABASE_SERVICE_KEY")
+    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_KEY")
+    or os.environ.get("SUPABASE_ANON_KEY")
+    or ""
+)
 SUPABASE_INIT_ERROR = None
 sb = None
 
@@ -28,7 +38,7 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     missing = []
     if not SUPABASE_URL: missing.append("SUPABASE_URL")
-    if not SUPABASE_KEY: missing.append("SUPABASE_KEY (or SUPABASE_SERVICE_KEY)")
+    if not SUPABASE_KEY: missing.append("SUPABASE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_ANON_KEY")
     SUPABASE_INIT_ERROR = "Missing env vars: " + ", ".join(missing)
 
 
