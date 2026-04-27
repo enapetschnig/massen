@@ -180,8 +180,15 @@
       body: JSON.stringify({ plan_id: planId })
     })
       .then(function(res) {
+        // Try to parse JSON, but if response is HTML (404/500 page) show raw text
+        var ct = res.headers.get('content-type') || '';
+        if (!ct.includes('json')) {
+          return res.text().then(function(text) {
+            throw new Error('Server-Fehler ' + res.status + ': ' + text.slice(0, 200));
+          });
+        }
         return res.json().then(function(data) {
-          if (!res.ok || data.error) throw new Error(data.error || 'Zoom-Analyse fehlgeschlagen');
+          if (!res.ok || data.error) throw new Error('Status ' + res.status + ': ' + (data.error || data.detail || JSON.stringify(data).slice(0,200)));
           console.log('Zoom-Analyse:', data.sections_analyzed, 'Abschnitte,', data.raeume, 'Räume,', data.fenster, 'Fenster');
           setStepDone(0); setStepActive(1);
           if (progressStatus) progressStatus.textContent = 'Schritt 2/2: Massen werden berechnet... (' + (data.raeume || 0) + ' Räume, ' + (data.fenster || 0) + ' Fenster)';

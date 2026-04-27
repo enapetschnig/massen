@@ -467,9 +467,13 @@ async def analyse_zoom(body: ExtractRequest):
         }
 
     text_first_rooms = []
-    for s in spans_all:
-        if is_room_name_span(s):
-            text_first_rooms.append(extract_room_from_label(s))
+    try:
+        for s in spans_all:
+            if is_room_name_span(s):
+                text_first_rooms.append(extract_room_from_label(s))
+    except Exception as _exc:
+        print(f"[text-first] room extraction failed: {_exc!r}")
+        text_first_rooms = []
 
     # ─── ROTATED-LABEL GLOBAL CLAIMS (handles ArchiCAD/GSPublisher plans) ───
     # Build a list of (kind, value, position) claims from the page:
@@ -549,10 +553,13 @@ async def analyse_zoom(body: ExtractRequest):
             used_r.add(mi)
             used_c.add(ci)
 
-    _greedy_fill(text_first_rooms, claims, "F", "flaeche_m2")
-    _greedy_fill(text_first_rooms, claims, "U", "umfang_m")
-    _greedy_fill(text_first_rooms, claims, "H", "hoehe_m")
-    _greedy_fill(text_first_rooms, claims, "B", "bodenbelag")
+    try:
+        _greedy_fill(text_first_rooms, claims, "F", "flaeche_m2")
+        _greedy_fill(text_first_rooms, claims, "U", "umfang_m")
+        _greedy_fill(text_first_rooms, claims, "H", "hoehe_m")
+        _greedy_fill(text_first_rooms, claims, "B", "bodenbelag")
+    except Exception as _exc:
+        print(f"[greedy fill] failed: {_exc!r}")
 
     # Find TOP labels with positions; assign each room to nearest TOP by distance
     top_labels = []  # [{"name": "TOP 25", "cx":, "cy":}, ...]
@@ -777,33 +784,29 @@ REGELN:
     # otherwise discard. Vision frequently invents typical-apartment rooms
     # (Wohnzimmer, Bad, Foyer) on technical plans where it can't read the
     # rotated/dense labels.
-    if len(spans_all) > 100:  # only enforce on plans with real text layer
-        full_text_lower = " ".join(s["text"] for s in spans_all).lower()
-        all_numbers = set()
-        for tok in text_tokens:
-            if tok.get("num") is not None:
-                all_numbers.add(round(tok["num"], 2))
+    try:
+        if len(spans_all) > 100:  # only enforce on plans with real text layer
+            full_text_lower = " ".join(s["text"] for s in spans_all).lower()
 
-        def vision_has_evidence(r):
-            # STRICT: room name must appear in PDF text layer.
-            # F-value alone isn't enough (plans have hundreds of numeric
-            # dimension tokens, easily false-positive).
-            name = (r.get("name") or "").strip().lower()
-            if len(name) < 4:
-                return False
-            if name in full_text_lower:
-                return True
-            # Substring match for compound names (e.g. "Wohnkueche" -> "wohnk")
-            for w in re.split(r"[\s/+\-]+", name):
-                if len(w) >= 5 and w in full_text_lower:
+            def vision_has_evidence(r):
+                # STRICT: room name must appear in PDF text layer.
+                name = (r.get("name") or "").strip().lower()
+                if len(name) < 4:
+                    return False
+                if name in full_text_lower:
                     return True
-            return False
+                for w in re.split(r"[\s/+\-]+", name):
+                    if len(w) >= 5 and w in full_text_lower:
+                        return True
+                return False
 
-        before = len(merged_rooms)
-        merged_rooms = [r for r in merged_rooms if vision_has_evidence(r)]
-        dropped = before - len(merged_rooms)
-        if dropped:
-            print(f"[hallucination filter] dropped {dropped}/{before} vision rooms without text-layer evidence")
+            before = len(merged_rooms)
+            merged_rooms = [r for r in merged_rooms if vision_has_evidence(r)]
+            dropped = before - len(merged_rooms)
+            if dropped:
+                print(f"[hallucination filter] dropped {dropped}/{before} vision rooms without text-layer evidence")
+    except Exception as _exc:
+        print(f"[hallucination filter] failed: {_exc!r}")
 
     # ═══ TEXT-LAYER VERIFICATION ═══
     # Cross-check F/U/H for every room against numeric tokens near the room name.
