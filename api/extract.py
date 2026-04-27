@@ -7,13 +7,27 @@ from __future__ import annotations
 import json, os, re, math, tempfile
 from collections import defaultdict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from supabase import create_client
+import traceback
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Global handler so any uncaught exception becomes a JSON response with the
+# real error message - otherwise Vercel returns plain-text "Internal Server
+# Error" and the frontend shows nothing useful.
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    print(f"[uncaught {type(exc).__name__}] {exc}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": f"{type(exc).__name__}: {exc}", "where": str(request.url.path)},
+    )
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 # Accept any of these env var names (in priority order):
