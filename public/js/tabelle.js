@@ -49,17 +49,37 @@
     });
   }
 
-  // --- Konfidenz-Ampel HTML ---
-  function confidenceHtml(value) {
+  // --- Konfidenz-Anzeige: Trust-Tier-Dot (Source-basiert) statt Prozent-Ampel ---
+  // Tiers: text (byte-exact), matched (vision+text), inferred (vision-only), manual
+  function tierFromData(d, value) {
+    if (!d) {
+      if (value >= 95) return 'text';
+      if (value >= 80) return 'matched';
+      return 'inferred';
+    }
+    if (d._source === 'manual' || d.manuell_korrigiert) return 'manual';
+    if (d._source === 'text') return 'text';
+    var v = d._verified || {};
+    if (v.F && v.U && v.H) return 'matched';
+    if (d._source === 'vision' && d.name) return 'matched';
+    return 'inferred';
+  }
+  function tierLabel(t) {
+    return t === 'text' ? 'Aus PDF-Text · 100% byte-genau'
+      : t === 'matched' ? 'KI + Text bestätigt · ~95%'
+      : t === 'manual' ? 'Manuell korrigiert'
+      : 'Nur KI-Erkennung · prüfen';
+  }
+  function confidenceHtml(value, daten) {
     if (value === undefined || value === null) return '';
-    var cls = 'confidence-green';
-    if (value < 60) cls = 'confidence-red';
-    else if (value < 80) cls = 'confidence-yellow';
-    return '<span class="confidence ' + cls + '">' +
-      '<span class="confidence-dot dot-red"></span>' +
-      '<span class="confidence-dot dot-yellow"></span>' +
-      '<span class="confidence-dot dot-green"></span>' +
-      '<span class="confidence-value">' + Math.round(value) + '%</span>' +
+    var t = tierFromData(daten, value);
+    var label = t === 'text' ? 'byte-exakt'
+      : t === 'matched' ? 'verifiziert'
+      : t === 'manual' ? 'manuell'
+      : 'prüfen';
+    return '<span class="confidence" title="' + tierLabel(t) + '">' +
+      '<span class="trust-dot ' + t + '"></span>' +
+      '<span class="confidence-value" style="margin-left:6px">' + label + '</span>' +
       '</span>';
   }
 
@@ -162,7 +182,7 @@
       addCell(tr, formatNum(d.hoehe_m));
       addCell(tr, formatNum(d.wandflaeche_m2));
       var tdConf = document.createElement('td');
-      tdConf.innerHTML = confidenceHtml(r.konfidenz);
+      tdConf.innerHTML = confidenceHtml(r.konfidenz, d);
       tr.appendChild(tdConf);
       tbody.appendChild(tr);
     });
@@ -191,7 +211,7 @@
       addCell(tr, formatNum(d.fph_mm));
       addCell(tr, formatNum(d.flaeche_m2));
       var tdConf = document.createElement('td');
-      tdConf.innerHTML = confidenceHtml(w.konfidenz);
+      tdConf.innerHTML = confidenceHtml(w.konfidenz, d);
       tr.appendChild(tdConf);
       tbody.appendChild(tr);
     });
@@ -216,7 +236,7 @@
       addCell(tr, formatNum(d.hoehe_mm));
       addCell(tr, d.typ || '-');
       var tdConf = document.createElement('td');
-      tdConf.innerHTML = confidenceHtml(t.konfidenz);
+      tdConf.innerHTML = confidenceHtml(t.konfidenz, d);
       tr.appendChild(tdConf);
       tbody.appendChild(tr);
     });
@@ -317,7 +337,8 @@
       addCell(tr, m.einheit || '');
 
       var tdConf = document.createElement('td');
-      tdConf.innerHTML = confidenceHtml(m.konfidenz);
+      // For massen rows: source flag is on the mass record itself
+      tdConf.innerHTML = confidenceHtml(m.konfidenz, m);
       tr.appendChild(tdConf);
 
       // Details-Button fuer Berechnungsschritte

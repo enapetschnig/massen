@@ -1797,6 +1797,98 @@ img {
 .pv-conf.green { background: #dcfce7; color: #166534; }
 .pv-conf.yellow { background: #fef3c7; color: #92400e; }
 .pv-conf.red { background: #fef2f2; color: #991b1b; }
+
+/* --- Trust Tier System (text vs vision-validated vs vision-only) --- */
+/* Avoid red/yellow/green to not collide with construction plan color codes */
+.trust-bar {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  padding: 0.65rem 1rem; background: #ffffff; border-bottom: 1px solid #e5e9f0;
+  font-size: 0.85rem;
+}
+.trust-bar.flag-warn { background: #fff7ed; }
+.trust-bar.flag-clean { background: #f0fdf4; }
+.trust-headline { font-weight: 600; color: #1a3a5c; }
+.trust-counter {
+  display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;
+  padding: 2px 8px; border-radius: 12px; transition: background 0.15s;
+}
+.trust-counter:hover { background: #f5f7fa; }
+.trust-counter.active { background: #eef2f7; }
+.trust-counter.flag-pulse { font-weight: 600; color: #b45309; }
+.trust-counter.zero { color: #94a3b8; }
+
+.trust-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.trust-dot.text { background: #0f766e; }              /* teal-700 byte-exact */
+.trust-dot.matched { background: #1a3a5c; }            /* navy vision+text */
+.trust-dot.inferred {
+  background: #fff; border: 2px solid #b45309;        /* hollow amber unverified */
+  width: 8px; height: 8px;
+}
+.trust-dot.manual { background: #6366f1; }            /* indigo manual override */
+.trust-dot.empty { background: #e5e9f0; }
+
+/* Source dot inline next to a value */
+.src-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 4px; vertical-align: middle;
+}
+.src-dot.text { background: #0f766e; }
+.src-dot.matched { background: #1a3a5c; }
+.src-dot.inferred { background: #fff; border: 1.5px solid #b45309; width: 5px; height: 5px; }
+.src-dot.manual { background: #6366f1; }
+
+/* Room card v2 (replaces pv-room when source info exists) */
+.pv-room-v2 {
+  margin: 0.4rem 0.5rem; padding: 0.6rem 0.75rem;
+  border: 1px solid #e5e9f0; border-radius: 8px; background: #fff;
+  font-size: 0.83rem; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+}
+.pv-room-v2:hover { background: #f5f7fa; border-color: #cbd5e1; }
+.pv-room-v2.active { background: #f8fafc; border-left: 2px solid #1a3a5c; }
+.pv-room-v2-head {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 4px;
+}
+.pv-room-v2-name {
+  font-weight: 600; color: #1a3a5c; font-size: 0.92rem;
+  flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pv-room-v2-top {
+  font-size: 0.7rem; padding: 1px 7px; border-radius: 10px;
+  background: #eef2f7; color: #6b7280; text-transform: uppercase;
+  letter-spacing: 0.04em; font-weight: 600;
+}
+.pv-room-v2-kpis {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;
+}
+.kpi-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-variant-numeric: tabular-nums; font-size: 0.78rem;
+  padding: 2px 7px; border-radius: 5px; background: #f5f7fa; color: #1a3a5c;
+}
+.kpi-chip .kpi-label { color: #6b7280; font-weight: 500; margin-right: 1px; }
+.kpi-chip .kpi-val { font-weight: 600; }
+.kpi-chip.empty { background: transparent; border: 1px dashed #e5e9f0; color: #cbd5e1; }
+.pv-room-v2-bod {
+  font-size: 0.74rem; color: #6b7280; display: flex; align-items: center; gap: 4px;
+}
+
+/* Filter strip in sidebar */
+.pv-filter-strip {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; gap: 4px; padding: 0.5rem 0.75rem;
+  background: #f8fafc; border-bottom: 1px solid #e5e9f0;
+}
+.pv-filter-pill {
+  flex: 1; text-align: center; font-size: 0.74rem; padding: 4px 6px;
+  border-radius: 5px; cursor: pointer; color: #6b7280;
+  background: #fff; border: 1px solid #e5e9f0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+}
+.pv-filter-pill.active { background: #1a3a5c; color: #fff; border-color: #1a3a5c; }
+.pv-filter-pill .filter-count { font-weight: 600; opacity: 0.8; }
 .plan-canvas-container { flex: 1; overflow: auto; background: #e5e7eb; cursor: grab; position: relative; }
 .plan-canvas-container:active { cursor: grabbing; }
 #pv-pdf-canvas { display: block; margin: 1rem auto; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }

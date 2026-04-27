@@ -38,8 +38,10 @@
         '<button class="btn btn-sm" id="pv-close">&times;</button>' +
       '</div>' +
       '<div class="plan-viewer-legend">' +
-        '<span class="legend-item"><span class="legend-color" style="background:rgba(26,58,92,0.25);border:2px solid #1a3a5c"></span> R&auml;ume/Fl&auml;chen</span>' +
-        '<span class="legend-item"><span class="legend-color" style="background:rgba(34,197,94,0.25);border:2px solid #22c55e"></span> Fenster</span>' +
+        '<span class="legend-item"><span class="trust-dot text"></span> Byte-exakt aus PDF-Text</span>' +
+        '<span class="legend-item"><span class="trust-dot matched"></span> KI + Text bestätigt</span>' +
+        '<span class="legend-item"><span class="trust-dot inferred"></span> Nur KI · prüfen</span>' +
+        '<span class="legend-item" style="margin-left:auto"><span class="legend-color" style="background:rgba(34,197,94,0.25);border:2px solid #22c55e"></span> Fenster</span>' +
         '<span class="legend-item"><span class="legend-color" style="background:rgba(243,147,1,0.25);border:2px solid #f39301"></span> Ma&szlig;e</span>' +
       '</div>' +
       '<div class="plan-viewer-body">' +
@@ -239,7 +241,9 @@
       }
     });
 
-    // Draw room cluster outlines
+    // Draw room cluster outlines — clusters come from pdf.js text layer
+    // so they're inherently "text-tier" (byte-exact positions). Color =
+    // teal #0f766e to match sidebar dots.
     if (showRooms) {
       roomClusters.forEach(function (cluster) {
         var sx = cluster.x * scale - 8;
@@ -248,19 +252,24 @@
         var sh = cluster.h * scale + 16;
         var isActive = cluster === activeCluster;
 
-        overlayCtx.strokeStyle = isActive ? '#1a3a5c' : 'rgba(26,58,92,0.4)';
-        overlayCtx.lineWidth = isActive ? 3 : 1;
-        overlayCtx.setLineDash(isActive ? [] : [4, 4]);
-        overlayCtx.strokeRect(sx, sy, sw, sh);
+        overlayCtx.fillStyle = isActive ? 'rgba(15,118,110,0.16)' : 'rgba(15,118,110,0.06)';
+        overlayCtx.fillRect(sx, sy, sw, sh);
+        overlayCtx.strokeStyle = isActive ? '#0f766e' : 'rgba(15,118,110,0.55)';
+        overlayCtx.lineWidth = isActive ? 2.5 : 1.5;
         overlayCtx.setLineDash([]);
+        overlayCtx.strokeRect(sx, sy, sw, sh);
 
         if (isActive && cluster.name) {
           overlayCtx.font = 'bold 12px sans-serif';
-          overlayCtx.fillStyle = 'rgba(255,255,255,0.9)';
-          var tw = overlayCtx.measureText(cluster.name + ' ' + cluster.area).width;
-          overlayCtx.fillRect(sx, sy - 18, tw + 8, 18);
-          overlayCtx.fillStyle = '#1a3a5c';
-          overlayCtx.fillText(cluster.name + ' ' + cluster.area, sx + 4, sy - 5);
+          var labelText = cluster.name + (cluster.area ? ' · ' + cluster.area : '');
+          var tw = overlayCtx.measureText(labelText).width;
+          overlayCtx.fillStyle = '#fff';
+          overlayCtx.fillRect(sx, sy - 20, tw + 12, 20);
+          overlayCtx.strokeStyle = '#0f766e';
+          overlayCtx.lineWidth = 1;
+          overlayCtx.strokeRect(sx, sy - 20, tw + 12, 20);
+          overlayCtx.fillStyle = '#0f766e';
+          overlayCtx.fillText(labelText, sx + 6, sy - 6);
         }
       });
     }
@@ -307,43 +316,160 @@
     renderPage();
   }
 
+  function getTier(d) {
+    // Map a room's data payload to a confidence tier
+    // Returns one of: "text" | "matched" | "inferred" | "manual"
+    if (!d) return 'inferred';
+    if (d._source === 'manual' || d.manuell_korrigiert) return 'manual';
+    if (d._source === 'text') return 'text';
+    var v = d._verified || {};
+    var verifiedAll = v.F && v.U && v.H;
+    if (verifiedAll) return 'matched';
+    if (d._source === 'vision' && d.name) return 'matched';
+    return 'inferred';
+  }
+
+  function tierLabel(t) {
+    return t === 'text' ? 'Aus PDF-Text · 100% byte-genau'
+      : t === 'matched' ? 'KI + Text bestätigt · ~95%'
+      : t === 'manual' ? 'Manuell korrigiert'
+      : 'Nur KI-Erkennung · bitte prüfen';
+  }
+
   function renderSidebar(elemente, massen) {
     var sb = document.getElementById('pv-sidebar');
     var raeume = elemente.filter(function (e) { return e.typ === 'raum'; });
-    var fenster = elemente.filter(function (e) { return e.typ === 'fenster'; });
 
-    var html = '<div style="padding:0.75rem;background:#1a3a5c;color:white;font-size:0.85rem">';
-    html += '<strong>' + raeume.length + ' R&auml;ume</strong> &middot; ' + fenster.length + ' Fenster &middot; ' + massen.length + ' Massen';
-    html += '<br><span style="opacity:0.8">' + textItems.filter(function(t){return t.type==="dimension";}).length + ' Ma&szlig;ketten pixelgenau markiert</span>';
+    // Compute tier counts
+    var tiers = { text: 0, matched: 0, inferred: 0, manual: 0 };
+    raeume.forEach(function(r){ tiers[getTier(r.daten || {})]++; });
+
+    var totalRooms = raeume.length;
+    var trustClass = 'trust-bar';
+    var headlineHtml = '';
+    if (totalRooms === 0) {
+      trustClass += ' flag-warn';
+      headlineHtml = '<span class="trust-headline">Analyse ohne Treffer</span>';
+    } else if (tiers.inferred === 0 && tiers.text > 0) {
+      trustClass += ' flag-clean';
+      headlineHtml = '<span class="trust-headline">' + totalRooms + ' Räume · alle byte-exakt aus PDF-Text</span>';
+    } else if (tiers.text === 0 && tiers.matched === 0) {
+      trustClass += ' flag-warn';
+      headlineHtml = '<span class="trust-headline">' + totalRooms + ' Räume · KI-Erkennung · bitte prüfen</span>';
+    } else {
+      headlineHtml = '<span class="trust-headline">' + totalRooms + ' Räume erkannt</span>';
+    }
+
+    // Trust bar
+    var html = '<div class="' + trustClass + '">';
+    html += headlineHtml;
+    if (tiers.text) html += '<span class="trust-counter" data-filter="text" title="Byte-genau aus PDF-Text-Layer"><span class="trust-dot text"></span>' + tiers.text + ' byte-exakt</span>';
+    if (tiers.matched) html += '<span class="trust-counter" data-filter="matched" title="KI-erkannt und gegen PDF-Text validiert"><span class="trust-dot matched"></span>' + tiers.matched + ' verifiziert</span>';
+    if (tiers.inferred) html += '<span class="trust-counter flag-pulse" data-filter="inferred" title="Nur KI-Erkennung — manuell prüfen"><span class="trust-dot inferred"></span>' + tiers.inferred + ' zu prüfen</span>';
+    if (tiers.manual) html += '<span class="trust-counter" data-filter="manual" title="Manuell vom Nutzer angepasst"><span class="trust-dot manual"></span>' + tiers.manual + ' korrigiert</span>';
     html += '</div>';
 
+    // Filter pills
+    html += '<div class="pv-filter-strip">';
+    html += '<span class="pv-filter-pill active" data-pill="all">Alle <span class="filter-count">' + totalRooms + '</span></span>';
+    html += '<span class="pv-filter-pill" data-pill="text"><span class="trust-dot text"></span><span class="filter-count">' + tiers.text + '</span></span>';
+    html += '<span class="pv-filter-pill" data-pill="matched"><span class="trust-dot matched"></span><span class="filter-count">' + tiers.matched + '</span></span>';
+    html += '<span class="pv-filter-pill" data-pill="inferred"><span class="trust-dot inferred"></span><span class="filter-count">' + tiers.inferred + '</span></span>';
+    html += '</div>';
+
+    // Group rooms by Wohnung
     var whg = {};
-    raeume.forEach(function (r) { var w = (r.daten||{}).wohnung||'Sonstige'; if(!whg[w])whg[w]=[]; whg[w].push(r); });
+    raeume.forEach(function (r) {
+      var w = (r.daten || {}).wohnung || 'Sonstige';
+      if (!whg[w]) whg[w] = [];
+      whg[w].push(r);
+    });
 
     Object.keys(whg).sort().forEach(function (wName) {
       var rooms = whg[wName];
-      html += '<div class="pv-whg"><div class="pv-whg-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' + esc(wName) + ' (' + rooms.length + ') <span style="float:right">&#9660;</span></div>';
+      html += '<div class="pv-whg">';
+      html += '<div class="pv-whg-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' + esc(wName) + ' <span style="color:#94a3b8;font-weight:400">&middot; ' + rooms.length + '</span><span style="float:right">&#9660;</span></div>';
       rooms.forEach(function (r) {
         var d = r.daten || {};
-        html += '<div class="pv-room"><div class="pv-room-name">' + esc(r.bezeichnung||d.name||'?') + '</div>';
-        html += '<div class="pv-room-data">';
-        if(d.flaeche_m2) html += '<span>' + d.flaeche_m2 + 'm&sup2;</span>';
-        if(d.umfang_m) html += '<span>U:' + d.umfang_m + 'm</span>';
-        if(d.hoehe_m) html += '<span>H:' + d.hoehe_m + 'm</span>';
-        html += '</div></div>';
+        var tier = getTier(d);
+        var name = r.bezeichnung || d.name || '?';
+        var topBadge = '';
+        if (d.wohnung && d.wohnung !== wName) {
+          topBadge = '<span class="pv-room-v2-top">' + esc(d.wohnung) + '</span>';
+        }
+
+        html += '<div class="pv-room-v2" data-tier="' + tier + '" data-room="' + esc(r.id || '') + '" title="' + esc(tierLabel(tier)) + '">';
+        html += '<div class="pv-room-v2-head">';
+        html += '<span class="trust-dot ' + tier + '"></span>';
+        html += '<span class="pv-room-v2-name">' + esc(name) + '</span>';
+        html += topBadge;
+        html += '</div>';
+
+        html += '<div class="pv-room-v2-kpis">';
+        if (d.flaeche_m2) {
+          html += '<span class="kpi-chip"><span class="kpi-label">F</span><span class="kpi-val">' + fnum(d.flaeche_m2) + ' m²</span></span>';
+        } else {
+          html += '<span class="kpi-chip empty">F —</span>';
+        }
+        if (d.umfang_m) {
+          html += '<span class="kpi-chip"><span class="kpi-label">U</span><span class="kpi-val">' + fnum(d.umfang_m) + ' m</span></span>';
+        } else {
+          html += '<span class="kpi-chip empty">U —</span>';
+        }
+        if (d.hoehe_m) {
+          html += '<span class="kpi-chip"><span class="kpi-label">H</span><span class="kpi-val">' + fnum(d.hoehe_m) + ' m</span></span>';
+        } else {
+          html += '<span class="kpi-chip empty">H —</span>';
+        }
+        html += '</div>';
+
+        if (d.bodenbelag) {
+          html += '<div class="pv-room-v2-bod">▦ ' + esc(d.bodenbelag) + '</div>';
+        }
+
+        html += '</div>';
       });
       html += '</div>';
     });
 
     if (massen.length > 0) {
-      html += '<div style="padding:0.5rem 0.75rem;background:#fce4ec;font-weight:600;font-size:0.85rem">Massen (' + massen.length + ')</div>';
+      html += '<div style="padding:0.6rem 0.75rem;background:#fff7ed;font-weight:600;font-size:0.82rem;color:#9a3412;border-top:1px solid #fdba74">Massen (' + massen.length + ')</div>';
       massen.sort(function(a,b){return (a.pos_nr||'').localeCompare(b.pos_nr||'');});
       massen.forEach(function(m){
-        html += '<div class="pv-room" style="border-left-color:#f39301"><div class="pv-room-name" style="color:#f39301;font-size:0.8rem"><strong>' + esc(m.pos_nr||'') + '</strong> ' + esc(m.beschreibung||'') + ' = <strong>' + fnum(m.endsumme) + ' ' + esc(m.einheit||'') + '</strong></div></div>';
+        html += '<div class="pv-room-v2" style="border-color:#fdba74"><div class="pv-room-v2-head"><span class="pv-room-v2-name" style="color:#9a3412;font-size:0.82rem"><strong>' + esc(m.pos_nr||'') + '</strong> ' + esc(m.beschreibung||'') + '</span></div><div style="font-variant-numeric:tabular-nums;font-size:0.85rem;font-weight:600;color:#1a3a5c">= ' + fnum(m.endsumme) + ' ' + esc(m.einheit||'') + '</div></div>';
       });
     }
 
     sb.innerHTML = html;
+
+    // Wire up filter pills
+    var pills = sb.querySelectorAll('.pv-filter-pill');
+    pills.forEach(function(p){
+      p.addEventListener('click', function(){
+        pills.forEach(function(x){ x.classList.remove('active'); });
+        p.classList.add('active');
+        var f = p.getAttribute('data-pill');
+        sb.querySelectorAll('.pv-room-v2').forEach(function(card){
+          var t = card.getAttribute('data-tier');
+          card.style.display = (f === 'all' || t === f) ? '' : 'none';
+        });
+        // Hide empty Wohnung groups
+        sb.querySelectorAll('.pv-whg').forEach(function(g){
+          var visible = g.querySelectorAll('.pv-room-v2:not([style*="display: none"])').length;
+          g.style.display = visible > 0 ? '' : 'none';
+        });
+      });
+    });
+
+    // Trust counter click → filter to that tier
+    var counters = sb.querySelectorAll('.trust-counter');
+    counters.forEach(function(c){
+      c.addEventListener('click', function(){
+        var f = c.getAttribute('data-filter');
+        var pill = sb.querySelector('.pv-filter-pill[data-pill="' + f + '"]');
+        if (pill) pill.click();
+      });
+    });
   }
 
   function loadPdfJs() {
