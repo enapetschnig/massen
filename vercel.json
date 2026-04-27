@@ -9,7 +9,7 @@
     { "src": "public/**", "use": "@vercel/static" }
   ],
   "routes": [
-    { "src": "/api/extract(.*)", "dest": "/api/extract.py" },
+    { "src": "/api/(.*)", "dest": "/api/extract.py" },
     { "src": "/css/(.*)", "dest": "/public/css/$1" },
     { "src": "/js/(.*)", "dest": "/public/js/$1" },
     { "src": "/(.*)\\.html", "dest": "/public/$1.html" },
