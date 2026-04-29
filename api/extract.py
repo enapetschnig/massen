@@ -29,17 +29,19 @@ async def _global_exception_handler(request: Request, exc: Exception):
         content={"error": f"{type(exc).__name__}: {exc}", "where": str(request.url.path)},
     )
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+def _env(name):
+    """Read env var and strip surrounding whitespace/newlines (common
+    paste error in Vercel UI)."""
+    return (os.environ.get(name) or "").strip()
+
+SUPABASE_URL = _env("SUPABASE_URL")
 # Accept any of these env var names (in priority order):
 # SUPABASE_SERVICE_KEY > SUPABASE_KEY > SUPABASE_ANON_KEY
-# service_role is preferred (bypasses RLS for writes); anon works
-# only if RLS policies allow inserts/updates from anon role.
 SUPABASE_KEY = (
-    os.environ.get("SUPABASE_SERVICE_KEY")
-    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    or os.environ.get("SUPABASE_KEY")
-    or os.environ.get("SUPABASE_ANON_KEY")
-    or ""
+    _env("SUPABASE_SERVICE_KEY")
+    or _env("SUPABASE_SERVICE_ROLE_KEY")
+    or _env("SUPABASE_KEY")
+    or _env("SUPABASE_ANON_KEY")
 )
 SUPABASE_INIT_ERROR = None
 sb = None
@@ -350,7 +352,7 @@ async def analyse_zoom(body: ExtractRequest):
     plan = plan_res.data
 
     cfg = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data
-    api_key = cfg[0]["value"] if cfg else os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = (cfg[0]["value"] if cfg else os.environ.get("ANTHROPIC_API_KEY", "")).strip()
     if not api_key:
         raise HTTPException(500, "API Key nicht konfiguriert")
 
