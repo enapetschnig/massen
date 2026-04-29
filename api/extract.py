@@ -317,6 +317,20 @@ async def diag():
 
     info["sb_initialized"] = sb is not None
     info["sb_init_error"] = SUPABASE_INIT_ERROR
+
+    # Hash key value to detect hidden chars that prefix/length didn't catch
+    import hashlib
+    raw_key = os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_ANON_KEY") or ""
+    info["key_sha256_first8"] = hashlib.sha256(raw_key.encode()).hexdigest()[:8] if raw_key else None
+    info["key_strip_diff"] = (len(raw_key) - len(raw_key.strip())) if raw_key else None
+
+    # Live query test: does the configured client actually work?
+    if sb:
+        try:
+            r = sb.table("plaene").select("id").limit(1).execute()
+            info["live_query"] = "ok (" + str(len(r.data)) + " rows)"
+        except Exception as e:
+            info["live_query"] = "FAIL: " + type(e).__name__ + ": " + str(e)[:200]
     return info
 
 
