@@ -290,6 +290,36 @@ async def health():
     return {"status": "ok", "pdfplumber": True}
 
 
+@app.get("/api/diag")
+async def diag():
+    """Show which Supabase env vars are present + key prefix/length
+    so user can verify the value got through correctly. Does not leak
+    full secrets - only first 12 + last 6 chars."""
+    def _redact(v):
+        if not v:
+            return None
+        if len(v) <= 18:
+            return "(too short - " + str(len(v)) + " chars)"
+        return v[:12] + "..." + v[-6:] + " (" + str(len(v)) + " chars)"
+
+    keys = ["SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_ANON_KEY",
+            "SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_ROLE_KEY",
+            "ANTHROPIC_API_KEY"]
+    info = {}
+    for k in keys:
+        v = os.environ.get(k)
+        if v is None:
+            info[k] = "NOT SET"
+        elif k == "SUPABASE_URL":
+            info[k] = v  # url is not a secret
+        else:
+            info[k] = _redact(v)
+
+    info["sb_initialized"] = sb is not None
+    info["sb_init_error"] = SUPABASE_INIT_ERROR
+    return info
+
+
 @app.post("/api/analyse-zoom")
 async def analyse_zoom(body: ExtractRequest):
     """
