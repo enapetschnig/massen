@@ -766,12 +766,13 @@ async def analyse_zoom(body: ExtractRequest):
             tf_pos[k] = r
     text_first_rooms = list(tf_pos.values())
     # Flag whether text-first produced enough data to trust over Vision.
-    # WICHTIG: F (Fläche) ist der Kern-Beleg dafür, dass der Text-Layer den
-    # Raum sauber liefert. U und H fehlen bei Einreichplänen oft komplett —
-    # darf NICHT zur Bedingung gehören, sonst übernimmt die Vision-Pipeline
-    # und halluziniert Räume mit geratenen Werten.
-    text_first_count = sum(1 for r in text_first_rooms if r.get("flaeche_m2"))
-    text_first_enough = text_first_count >= 5  # ≥5 Räume mit byte-exakter Fläche
+    # WICHTIG: Ein Raum gilt als sauber gelesen, wenn er IRGENDEINEN Maßwert
+    # hat (F, U oder H). Einreichpläne liefern F+U ohne H, Polierpläne H ohne
+    # F — beide sind gültige Text-Layer. Würde man nur F zählen, übernähme bei
+    # einem Polierplan die Vision-Pipeline und halluziniert Räume.
+    text_first_count = sum(1 for r in text_first_rooms
+                           if r.get("flaeche_m2") or r.get("umfang_m") or r.get("hoehe_m"))
+    text_first_enough = text_first_count >= 5  # ≥5 Räume mit byte-exaktem Maßwert
 
     # Fixed-size overlapping tiles: 1800 pt per side guarantees DPI=300
     # (7500 px / 1800 pt * 72 = 300). 30% overlap ensures every apartment
@@ -1085,9 +1086,11 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
     unique_rooms = []
     used_vision = set()
 
-    # Pass A: emit every text-first room with F>0 as the ground-truth record.
+    # Pass A: jeden text-first Raum mit MINDESTENS einem Maßwert (F, U oder H)
+    # als Ground-Truth ausgeben. Polierpläne liefern Räume nur mit H — die
+    # dürfen nicht verworfen werden, sonst springt Vision ein und halluziniert.
     for tr in text_first_rooms:
-        if not tr.get("flaeche_m2"):
+        if not (tr.get("flaeche_m2") or tr.get("umfang_m") or tr.get("hoehe_m")):
             continue
         tk = _fkey(tr)
         # Find a matching vision observation for TOP assignment
