@@ -796,6 +796,16 @@
       // Sektion anzeigen
       if (resultsSection) {
         resultsSection.classList.remove('hidden');
+      }
+
+      // UX: direkt die Planansicht oeffnen, weil sie die primaere Korrektur-UI
+      // ist. Die Tabs bleiben als Detail-Ansicht erhalten, aber stehen unter
+      // der Planview. Vorhandene Planview entfernen, neue oeffnen.
+      var existing = document.getElementById('plan-viewer');
+      if (existing) existing.remove();
+      if (typeof window.showPlanView === 'function') {
+        window.showPlanView(planId);
+      } else if (resultsSection) {
         resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }).catch(function (err) {

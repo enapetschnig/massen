@@ -34,12 +34,12 @@
 
     <!-- Upload Section -->
     <div class="section" id="upload-section">
-      <h3 class="section-title">&#128196; Pl&auml;ne hochladen</h3>
+      <h3 class="section-title">&#128196; Plan hochladen &ndash; Rest l&auml;uft automatisch</h3>
       <div class="upload-zone" id="upload-zone">
         <div class="upload-icon">&#128193;</div>
-        <h3>PDF hochladen</h3>
-        <p>Ziehen Sie Ihre Baupl&auml;ne hierher oder klicken Sie zum Ausw&auml;hlen</p>
-        <p class="mt-1 text-light" style="font-size:0.8rem">Unterst&uuml;tzte Formate: PDF (max. 50 MB)</p>
+        <h3>PDF hierher ziehen</h3>
+        <p>Sobald der Plan hochgeladen ist, wird er <strong>automatisch analysiert</strong> &ndash; Sie m&uuml;ssen nichts weiter klicken.</p>
+        <p class="mt-1 text-light" style="font-size:0.8rem">Bauplan als PDF (max. 50 MB) &middot; mehrere Pl&auml;ne gleichzeitig m&ouml;glich</p>
         <input type="file" id="file-input" accept=".pdf" multiple>
       </div>
       <div id="upload-progress" class="hidden mt-2">
@@ -102,9 +102,13 @@
     <!-- Inline error display -->
     <div id="analysis-error" class="alert-inline hidden" style="margin-bottom:1.5rem"></div>
 
-    <!-- Results Section (hidden, shown when plan has results) -->
+    <!-- Results Section (hidden, shown when plan has results)
+         Hinweis: Die Hauptansicht ist die Planview oben (mit Trust-Bar,
+         Source-Dots, Detail-Drawer, Korrektur-UI). Diese Tabellen-Tabs
+         sind eine Detail-Ansicht fuer Power-User. -->
     <div class="section hidden" id="results-section">
-      <h3 class="section-title">&#128200; Ergebnisse</h3>
+      <details class="results-details">
+        <summary class="section-title" style="cursor:pointer">&#128200; Detail-Tabellen (Räume / Fenster / Türen / Massen)</summary>
 
       <!-- Summary Cards Row -->
       <div class="summary-row" id="summary-row">
@@ -245,9 +249,10 @@
 
       <!-- Export -->
       <div class="export-area">
-        <button class="btn btn-primary" id="planview-btn" style="margin-right:0.5rem">&#128065; Planansicht</button>
+        <button class="btn btn-primary" id="planview-btn" style="margin-right:0.5rem">&#128065; Planansicht öffnen</button>
         <button class="btn btn-accent" id="export-btn">&#128229; Excel Export</button>
       </div>
+      </details>
     </div>
   </div>
 

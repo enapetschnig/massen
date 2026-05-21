@@ -4,7 +4,11 @@
     {
       "src": "api/extract.py",
       "use": "@vercel/python",
-      "config": { "maxLambdaSize": "50mb", "maxDuration": 300 }
+      "config": {
+        "maxLambdaSize": "50mb",
+        "maxDuration": 300,
+        "includeFiles": "api/massen_logic.py"
+      }
     },
     { "src": "public/**", "use": "@vercel/static" }
   ],

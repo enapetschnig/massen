@@ -105,14 +105,128 @@
       });
     });
 
-    // Load DB elements for sidebar
+    // Load room/lv data — prefer agent_log (richer source-info), fallback elemente
     Promise.all([
       _sb.from('elemente').select('*').eq('plan_id', planId),
       _sb.from('massen').select('*').eq('plan_id', planId),
+      _sb.from('plaene').select('agent_log, projekt_id').eq('id', planId).single(),
     ]).then(function (res) {
-      renderSidebar(res[0].data || [], res[1].data || []);
+      var elemente = res[0].data || [];
+      var massen = res[1].data || [];
+      var agentLog = (res[2].data && res[2].data.agent_log) || {};
+      var projektId = res[2].data && res[2].data.projekt_id;
+      var rooms = mergeRoomSources(elemente, agentLog);
+      var lv = (agentLog.oenorm_lv) || [];
+
+      // ─── MULTI-PLAN-MERGE ───
+      // Einreichplan hat F+U+Bodenbelag, Polierplan hat H — durch
+      // Anreicherung aus anderen Plänen desselben Projekts entstehen
+      // vollständige Raum-Datensätze. Bei jedem Fehler: Fallback auf
+      // Einzelplan-Anzeige (renderSidebar wird IMMER aufgerufen).
+      if (projektId) {
+        _sb.from('plaene').select('id').eq('projekt_id', projektId).then(function (pr) {
+          var andereIds = (pr.data || []).map(function (p) { return p.id; })
+            .filter(function (id) { return id !== planId; });
+          if (!andereIds.length) {
+            renderSidebar(rooms, massen, lv, agentLog);
+            return;
+          }
+          _sb.from('elemente').select('*').in('plan_id', andereIds).then(function (er) {
+            var andereRaeume = (er.data || []).filter(function (e) { return e.typ === 'raum'; });
+            var enriched = mergeMultiPlan(rooms, andereRaeume);
+            renderSidebar(enriched, massen, lv, agentLog);
+          }, function () {
+            renderSidebar(rooms, massen, lv, agentLog);  // Fehler → Einzelplan
+          });
+        }, function () {
+          renderSidebar(rooms, massen, lv, agentLog);  // Fehler → Einzelplan
+        });
+      } else {
+        renderSidebar(rooms, massen, lv, agentLog);
+      }
+    }, function (err) {
+      // Selbst der Haupt-Load fehlgeschlagen → Sidebar zeigt Fehler statt Spinner
+      var sb = document.getElementById('pv-sidebar');
+      if (sb) sb.innerHTML = '<div class="pv-empty-state"><div class="pv-empty-state-icon">⚠</div>' +
+        '<h4>Daten konnten nicht geladen werden</h4><p>' + esc((err && err.message) || 'Bitte Seite neu laden.') + '</p></div>';
     });
   };
+
+  // ─── Multi-Plan-Merge: Räume aus anderen Plänen desselben Projekts ───
+  // Für jeden Raum im aktuellen Plan: suche namensgleiche Räume in den
+  // anderen Plänen und ergänze fehlende Werte (H, U, Bodenbelag, F).
+  // Die Positionen (bbox) des aktuellen Plans bleiben maßgeblich.
+  function mergeMultiPlan(currentRooms, otherRooms) {
+    if (!otherRooms.length) return currentRooms;
+    function nk(s) { return (s || '').toLowerCase().replace(/[\s\-_/]+/g, ''); }
+    // Index: normierter Name → Liste der Räume aus anderen Plänen
+    var idx = {};
+    otherRooms.forEach(function (o) {
+      var od = o.daten || {};
+      var key = nk(o.bezeichnung || od.name);
+      if (!key) return;
+      (idx[key] = idx[key] || []).push(od);
+    });
+    var enrichedCount = 0;
+    currentRooms.forEach(function (r) {
+      var d = r.daten || {};
+      var key = nk(r.bezeichnung || d.name);
+      var matches = idx[key];
+      if (!matches || !matches.length) return;
+      ['flaeche_m2', 'umfang_m', 'hoehe_m', 'bodenbelag'].forEach(function (fld) {
+        if (d[fld] == null || d[fld] === '') {
+          for (var i = 0; i < matches.length; i++) {
+            if (matches[i][fld] != null && matches[i][fld] !== '') {
+              d[fld] = matches[i][fld];
+              d._merged_from_plan = true;
+              enrichedCount++;
+              break;
+            }
+          }
+        }
+      });
+      r.daten = d;
+    });
+    if (enrichedCount > 0) {
+      console.log('Multi-Plan-Merge: ' + enrichedCount + ' Werte aus anderen Plänen ergänzt');
+    }
+    return currentRooms;
+  }
+
+  // ─── Daten-Merge: elemente-Tabelle + agent_log.geo.raeume vereinen ───
+  // agent_log.geo.raeume ist die direkte Pipeline-Ausgabe mit allen
+  // Quelle-Informationen (_source, _verified, _consensus, bbox). Die
+  // elemente-Tabelle enthält stabile IDs für Editier-Operationen.
+  // Wir nutzen elemente als primäre Liste und reichern jeden Raum mit den
+  // detaillierten Quellen-Infos aus agent_log an, falls verfügbar.
+  function mergeRoomSources(elemente, agentLog) {
+    var rooms = elemente.filter(function(e){ return e.typ === 'raum'; });
+    var geoRooms = (agentLog && agentLog.geo && agentLog.geo.raeume) || [];
+    if (!geoRooms.length) return rooms;
+    // Map per (norm-name, F-bucket) zur Anreicherung
+    function nk(s) { return (s||'').toLowerCase().replace(/[\s\-_/]+/g,''); }
+    function bk(f) { return Math.round((f||0)*10)/10; }
+    var idx = {};
+    geoRooms.forEach(function(g){
+      var key = nk(g.name) + '|' + bk(g.flaeche_m2);
+      idx[key] = g;
+    });
+    return rooms.map(function(r){
+      var d = r.daten || {};
+      var key = nk(r.bezeichnung || d.name) + '|' + bk(d.flaeche_m2);
+      var g = idx[key];
+      if (g) {
+        // Anreichern, ohne bestehende Werte zu überschreiben
+        if (!d._source && g._source) d._source = g._source;
+        if (!d._verified && g._verified) d._verified = g._verified;
+        if (!d._consensus && g._consensus) d._consensus = g._consensus;
+        if (!d.bbox && g.bbox) d.bbox = g.bbox;
+        if (!d.wohnung && g.wohnung) d.wohnung = g.wohnung;
+        r.daten = d;
+      }
+      return r;
+    });
+  }
 
   // Process pdf.js text content into classified items
   function processTextContent(tc, pageW, pageH) {
@@ -362,9 +476,12 @@
     h = h.replace(/^#&?/, '');
     window.location.hash = (h ? h + '&' : '') + 'pv:' + enc;
   }
-  // ─── Excel export ───
+  // ─── Excel export (Räume + ÖNORM-LV) ───
   function exportToExcel(raeume) {
-    var rows = [['Wohnung', 'Raum', 'Quelle', 'Fläche m²', 'Umfang m', 'Höhe m', 'Bodenbelag']];
+    var rows = [];
+    // Raum-Detail-Sektion
+    rows.push(['== Räume (Plan-Detail) ==']);
+    rows.push(['Wohnung', 'Raum', 'Quelle', 'Fläche m²', 'Umfang m', 'Höhe m', 'Bodenbelag']);
     raeume.forEach(function(r){
       var d = r.daten || {};
       var t = getTier(d);
@@ -382,6 +499,22 @@
         d.bodenbelag || '',
       ]);
     });
+    // ÖNORM A 2063 LV-Sektion
+    if (_stateLV && _stateLV.length > 0) {
+      rows.push([]);
+      rows.push(['== ÖNORM A 2063 LV pro Wohnung ==']);
+      rows.push(['Top', 'Position', 'Menge', 'Einheit', 'Konfidenz %']);
+      _stateLV.forEach(function(pos){
+        var conf = pos.konfidenz_aggregation != null ? Math.round(pos.konfidenz_aggregation * 100) : 92;
+        if (pos.innenputz_waende_uxh_m2) rows.push([pos.top, 'Innenputz Wände (Σ U×H)', pos.innenputz_waende_uxh_m2, 'm²', conf]);
+        if (pos.vision_innenputz_waende_m2) rows.push([pos.top, 'Vision-Wandlängen', pos.vision_innenputz_waende_m2, 'm²', conf]);
+        if (pos.innenputz_decken_m2) rows.push([pos.top, 'Innenputz Decken (Σ F)', pos.innenputz_decken_m2, 'm²', 99]);
+        var beläge = pos.boden_pro_material_m2 || {};
+        Object.keys(beläge).forEach(function(material){
+          rows.push([pos.top, 'Boden ' + material, beläge[material], 'm²', 97]);
+        });
+      });
+    }
     // Build CSV (Excel opens .csv natively with UTF-8 BOM)
     var csv = '﻿' + rows.map(function(r){
       return r.map(function(c){
@@ -399,11 +532,15 @@
   }
 
   // Cached state for re-rendering on filter/sort change
-  var _stateRaeume = [], _stateMassen = [], _stateFilter = null;
+  var _stateRaeume = [], _stateMassen = [], _stateLV = [], _stateAgentLog = null, _stateFilter = null;
+  // Gewerk-Auswahl: welche Gewerke der Nutzer angehakt hat (null = noch nicht initialisiert)
+  var _gewerkAuswahl = null;
 
-  function renderSidebar(elemente, massen) {
-    _stateRaeume = elemente.filter(function (e) { return e.typ === 'raum'; });
+  function renderSidebar(rooms, massen, lv, agentLog) {
+    _stateRaeume = rooms || [];
     _stateMassen = massen || [];
+    _stateLV = lv || [];
+    _stateAgentLog = agentLog || null;
     _stateFilter = readFilterState();
     drawSidebar();
   }
@@ -427,7 +564,10 @@
           '<div class="pv-empty-state-icon">🚪</div>' +
           '<h4>Keine Räume erkannt</h4>' +
           '<p>Der Plan war vermutlich kein Wohnungsgrundriss oder hat keine Beschriftungen für Räume.</p>' +
+          '<button class="btn btn-outline btn-sm" id="pv-add-room-empty" style="margin-top:0.75rem">+ Raum manuell hinzufügen</button>' +
         '</div>';
+      var addBtn = document.getElementById('pv-add-room-empty');
+      if (addBtn) addBtn.onclick = addRoomManually;
       return;
     }
 
@@ -557,7 +697,107 @@
       html += '</div>';
     });
 
-    if (massen.length > 0) {
+    // ── ÖNORM-Gewerk-Massenermittlung aus agent_log.gewerke ──
+    var gwData = _stateAgentLog && _stateAgentLog.gewerke;
+    if (gwData && gwData.gewerke && Object.keys(gwData.gewerke).length) {
+      var alleGewerke = Object.keys(gwData.gewerke);
+      // Auswahl initialisieren — beim ersten Render alle Gewerke aktiv
+      if (_gewerkAuswahl === null) {
+        _gewerkAuswahl = {};
+        alleGewerke.forEach(function (g) { _gewerkAuswahl[g] = true; });
+      }
+      html += '<div class="pv-gw-section">';
+      html += '<div class="pv-gw-head">🏗 ÖNORM-Massenermittlung nach Gewerk</div>';
+
+      // Baudaten-Zeile (Wandstärken etc.)
+      var bd = gwData.baudaten || {};
+      var bq = bd._quellen || {};
+      function bdItem(label, key, einheit) {
+        if (bd[key] == null) return '';
+        var q = bq[key] === 'vision' ? '👁' : '≈';
+        return '<span class="pv-gw-bd-item" title="' +
+          (bq[key] === 'vision' ? 'per Vision aus Plan gemessen' : 'Standard-Annahme') +
+          '">' + label + ' <strong>' + bd[key] + einheit + '</strong> ' + q + '</span>';
+      }
+      html += '<div class="pv-gw-baudaten">' +
+        bdItem('Außenwand', 'aussenwand_cm', 'cm') +
+        bdItem('Innenwand', 'innenwand_tragend_cm', 'cm') +
+        bdItem('Decke', 'decke_cm', 'cm') +
+        bdItem('Bodenplatte', 'bodenplatte_cm', 'cm') +
+        bdItem('Geschoss-H', 'geschosshoehe_m', 'm') +
+        '</div>';
+
+      // Gewerk-Auswahl-Chips
+      html += '<div class="pv-gw-tabs">';
+      alleGewerke.forEach(function (gk) {
+        var aktiv = _gewerkAuswahl[gk];
+        var label = (gwData.gewerke[gk].label || gk).replace(/\s*\(.*\)/, '');
+        html += '<label class="pv-gw-chip' + (aktiv ? ' active' : '') + '">' +
+          '<input type="checkbox" data-gewerk="' + esc(gk) + '"' + (aktiv ? ' checked' : '') + '> ' +
+          esc(label) + '</label>';
+      });
+      html += '</div>';
+
+      // Pro aktivem Gewerk: Positionen in Buchform
+      alleGewerke.forEach(function (gk) {
+        if (!_gewerkAuswahl[gk]) return;
+        var gd = gwData.gewerke[gk];
+        html += '<div class="pv-gw-block">';
+        html += '<div class="pv-gw-block-head">' + esc(gd.label || gk) + '</div>';
+        (gd.positionen || []).forEach(function (p) {
+          var konf = Math.round((p.konfidenz || 0) * 100);
+          var konfClass = konf >= 85 ? 'hoch' : (konf >= 65 ? 'mittel' : 'niedrig');
+          html += '<details class="pv-gw-pos">';
+          html += '<summary><span class="pv-gw-pos-nr">' + esc(p.posnr || '') + '</span>' +
+            '<span class="pv-gw-pos-txt">' + esc(p.beschreibung || '') + '</span>' +
+            '<span class="pv-gw-pos-sum">' + fnum(p.endsumme) + ' ' + esc(p.einheit || '') + '</span>' +
+            '<span class="pv-gw-konf ' + konfClass + '">' + konf + '%</span></summary>';
+          html += '<div class="pv-gw-detail">';
+          if (p.quelle) html += '<div class="pv-gw-quelle">' + esc(p.quelle) + '</div>';
+          (p.zeilen || []).forEach(function (z) {
+            var dim = [];
+            if (z.anzahl) dim.push(z.anzahl + '×');
+            if (z.laenge) dim.push('L ' + fnum(z.laenge));
+            if (z.breite) dim.push('B ' + fnum(z.breite));
+            if (z.hoehe) dim.push('H ' + fnum(z.hoehe));
+            html += '<div class="pv-gw-zeile"><span>' + esc(z.text || '') + '</span>' +
+              '<span class="pv-gw-zeile-dim">' + dim.join(' · ') + '</span>' +
+              '<span class="pv-gw-zeile-wert">' + fnum(z.wert) + '</span></div>';
+          });
+          html += '</div></details>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // ── ÖNORM A 2063 LV-Positionen aus agent_log.oenorm_lv ──
+    if (_stateLV && _stateLV.length > 0) {
+      html += '<div class="pv-lv-section">';
+      html += '<div class="pv-lv-section-head">📋 ÖNORM A 2063 — Massenermittlung pro Wohnung</div>';
+      _stateLV.forEach(function(pos){
+        var conf_lese = pos.konfidenz_lese != null ? Math.round(pos.konfidenz_lese * 100) : 100;
+        var conf_agg = pos.konfidenz_aggregation != null ? Math.round(pos.konfidenz_aggregation * 100) : 92;
+        html += '<div class="pv-lv-pos">';
+        html += '<div class="pv-lv-pos-head"><strong>' + esc(pos.top || '?') + '</strong><span class="pv-lv-conf">' + conf_agg + '%</span></div>';
+        if (pos.innenputz_waende_uxh_m2) {
+          html += '<div class="pv-lv-row"><span>Innenputz Wände (Σ U×H)</span><strong>' + fnum(pos.innenputz_waende_uxh_m2) + ' m²</strong></div>';
+        }
+        if (pos.vision_innenputz_waende_m2) {
+          html += '<div class="pv-lv-row pv-lv-vision"><span>Vision-Wandlängen</span><strong>' + fnum(pos.vision_innenputz_waende_m2) + ' m²</strong></div>';
+        }
+        if (pos.innenputz_decken_m2) {
+          html += '<div class="pv-lv-row"><span>Innenputz Decken (Σ F)</span><strong>' + fnum(pos.innenputz_decken_m2) + ' m²</strong></div>';
+        }
+        var beläge = pos.boden_pro_material_m2 || {};
+        Object.keys(beläge).forEach(function(material){
+          html += '<div class="pv-lv-row"><span>Boden ' + esc(material) + '</span><strong>' + fnum(beläge[material]) + ' m²</strong></div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    } else if (massen.length > 0) {
+      // Fallback: alte massen-Tabelle wenn keine oenorm_lv vorhanden
       html += '<div style="padding:0.6rem 0.75rem;background:#fff7ed;font-weight:600;font-size:0.82rem;color:#9a3412;border-top:1px solid #fdba74">Massen (' + massen.length + ')</div>';
       massen.sort(function(a,b){return (a.pos_nr||'').localeCompare(b.pos_nr||'');});
       massen.forEach(function(m){
@@ -566,6 +806,15 @@
     }
 
     sb.innerHTML = html;
+
+    // ── Wire up: Gewerk-Auswahl-Checkboxen ──
+    sb.querySelectorAll('.pv-gw-chip input[data-gewerk]').forEach(function(cb){
+      cb.addEventListener('change', function(){
+        var gk = cb.getAttribute('data-gewerk');
+        _gewerkAuswahl[gk] = cb.checked;
+        drawSidebar();
+      });
+    });
 
     // ── Wire up: filter pills ──
     sb.querySelectorAll('.pv-filter-pill').forEach(function(p){
@@ -702,9 +951,9 @@
         '</div>' +
       '</div>' +
       '<div class="pv-drawer-actions">' +
-        '<button class="btn btn-primary btn-sm" id="pv-drawer-save">Speichern</button>' +
+        '<button class="btn btn-primary btn-sm" id="pv-drawer-save">✓ Übernehmen</button>' +
         '<button class="btn btn-outline btn-sm" id="pv-drawer-cancel">Abbrechen</button>' +
-        '<button class="btn btn-danger btn-sm" id="pv-drawer-delete">Löschen</button>' +
+        '<button class="btn btn-danger btn-sm" id="pv-drawer-delete">Aus Plan entfernen</button>' +
       '</div>';
 
     document.body.appendChild(backdrop);
@@ -764,6 +1013,32 @@
       });
     };
   }
+  // ─── Raum manuell hinzufügen (Empty-State + Edge-Case) ───
+  function addRoomManually() {
+    var name = prompt('Raum-Name (z.B. "Wohnküche", "Bad", "Zimmer"):');
+    if (!name || !name.trim()) return;
+    var plan_id = _stateRaeume.length > 0 ? _stateRaeume[0].plan_id : null;
+    if (!plan_id) {
+      // Aus URL holen
+      var m = window.location.search.match(/plan[_=]?([a-f0-9-]+)/i);
+      if (m) plan_id = m[1];
+    }
+    if (!plan_id) { alert('Plan-ID nicht gefunden — bitte Plan neu öffnen.'); return; }
+    var neu = {
+      plan_id: plan_id, typ: 'raum',
+      bezeichnung: name.trim(),
+      daten: { name: name.trim(), _source: 'manual', manuell_korrigiert: true },
+      konfidenz: 100,
+    };
+    _sb.from('elemente').insert(neu).select().single().then(function(res){
+      if (res.error) { alert('Fehler beim Anlegen: ' + res.error.message); return; }
+      _stateRaeume.push(res.data);
+      drawSidebar();
+      // Direkt öffnen
+      setTimeout(function(){ openDrawer(res.data); }, 100);
+    });
+  }
+
   function closeDrawer() {
     var d = document.getElementById('pv-drawer');
     if (d) {

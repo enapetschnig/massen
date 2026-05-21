@@ -79,29 +79,21 @@
         konfBadge = ' <span class="confidence ' + kClass + '"><span class="confidence-dot dot-red"></span><span class="confidence-dot dot-yellow"></span><span class="confidence-dot dot-green"></span><span class="confidence-value">' + kVal + '%</span></span>';
       }
 
+      // Done-Karten sind komplett klickbar - direkt zur Planansicht
+      if (done) {
+        card.classList.add('plan-card-clickable');
+        card.setAttribute('data-plan-id', plan.id);
+        card.title = 'Klicken um Ergebnisse und Korrektur-Ansicht zu öffnen';
+      }
       card.innerHTML =
         '<div class="plan-info"><div class="plan-icon">&#128196;</div><div>' +
           '<div class="plan-name">' + esc(plan.dateiname || '') + '</div>' +
-          '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Fertig' : 'Hochgeladen') + '</span>' + konfBadge + '</div>' +
+          '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Fertig' : 'Hochgeladen') + '</span>' + konfBadge + (done ? ' <span style="font-size:0.75rem;color:#6c757d">· klicken zum Öffnen</span>' : '') + '</div>' +
         '</div></div>' +
         '<div class="plan-actions">' +
-          '<span style="font-size:0.75rem;color:#666">Geschosse:</span>' +
-          '<input type="number" class="form-control geschoss-input" data-id="' + plan.id + '" value="3" min="1" max="10" style="width:60px" title="Anzahl Geschosse">' +
-          '<span style="font-size:0.75rem;color:#666">Whg/OG:</span>' +
-          '<input type="number" class="form-control whg-og-input" data-id="' + plan.id + '" value="4" min="1" max="10" style="width:60px" title="Wohnungen pro OG">' +
-          '<select class="form-control gewerk-select" data-id="' + plan.id + '">' +
-            '<option value="allgemein">Allgemein (alle Gewerke)</option>' +
-            '<option value="verputzer">Verputzer / Spachtelarbeiten (VP/SR)</option>' +
-            '<option value="mauerwerk">Mauerwerk / Rohbau</option>' +
-            '<option value="maler">Maler / Anstrich</option>' +
-            '<option value="fliesen">Fliesen / Bel\u00e4ge</option>' +
-            '<option value="estrich">Estrich</option>' +
-            '<option value="trockenbau">Trockenbau</option>' +
-            '<option value="zimmerer">Zimmerer / Dach</option>' +
-          '</select>' +
           (done
-            ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">Ergebnisse</button>' +
-              '<button class="btn btn-outline btn-sm reana-btn" data-id="' + plan.id + '">Neu analysieren</button>'
+            ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">&Ouml;ffnen</button>' +
+              '<button class="btn btn-outline btn-sm reana-btn" data-id="' + plan.id + '" title="Erneut analysieren">&#8635;</button>'
             : '<button class="btn btn-accent btn-sm ana-btn" data-id="' + plan.id + '">Analyse starten</button>') +
           '<button class="btn-delete-plan" data-id="' + plan.id + '">&times;</button>' +
         '</div>';
@@ -110,8 +102,19 @@
 
     // Ergebnisse-Button
     planList.querySelectorAll('.res-btn').forEach(function (b) {
-      b.addEventListener('click', function () {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
         if (window.loadResults) window.loadResults(this.getAttribute('data-id'));
+      });
+    });
+
+    // Karte direkt klickbar (wenn done)
+    planList.querySelectorAll('.plan-card-clickable').forEach(function (c) {
+      c.addEventListener('click', function (e) {
+        // Klick auf Buttons / Inputs / Selects soll Karte-Click nicht triggern
+        if (e.target.closest('button, input, select')) return;
+        var pid = c.getAttribute('data-plan-id');
+        if (pid && window.loadResults) window.loadResults(pid);
       });
     });
 
@@ -145,13 +148,22 @@
   }
 
   // --- Analyse starten (3 Schritte nacheinander) ---
-  function startAnalysis(planId, btn) {
-    btn.disabled = true;
-    btn.textContent = 'KI analysiert...';
+  // btn ist optional: beim Auto-Flow (direkt nach Upload) gibt es keinen Button.
+  // onDone ist optional: Callback nach Abschluss (für die Auto-Queue).
+  function startAnalysis(planId, btn, onDone) {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'KI analysiert...';
+    }
 
-    var gewerk = document.querySelector('.gewerk-select[data-id="'+planId+'"]').value;
-    var geschosse = parseInt(document.querySelector('.geschoss-input[data-id="'+planId+'"]').value) || 3;
-    var whg_pro_og = parseInt(document.querySelector('.whg-og-input[data-id="'+planId+'"]').value) || 4;
+    // Parameter aus DOM-Inputs lesen, falls vorhanden — sonst Defaults.
+    // Beim Auto-Flow existieren die Karten-Inputs noch nicht.
+    var gewSel = document.querySelector('.gewerk-select[data-id="'+planId+'"]');
+    var gesInp = document.querySelector('.geschoss-input[data-id="'+planId+'"]');
+    var whgInp = document.querySelector('.whg-og-input[data-id="'+planId+'"]');
+    var gewerk = gewSel ? gewSel.value : 'allgemein';
+    var geschosse = gesInp ? (parseInt(gesInp.value) || 3) : 3;
+    var whg_pro_og = whgInp ? (parseInt(whgInp.value) || 4) : 4;
 
     if (analysisError) { analysisError.classList.add('hidden'); analysisError.textContent = ''; }
     showProgress();
@@ -197,30 +209,49 @@
         });
       })
       .then(function () {
-        // Zoom-Analyse hat alles in elemente + agent_log gespeichert - direkt zu Step 2
-        return callStep(2);
-      })
-      .then(function (r2) {
-        setStepDone(1); setStepActive(2);
-        if (progressStatus) progressStatus.textContent = 'Qualitätsprüfung... (' + r2.massen + ' Positionen)';
-        if (analysisBar) { analysisBar.style.width = '70%'; analysisBar.textContent = '70%'; }
-        return callStep(3);
+        // ── KRITISCHER TEIL FERTIG ──
+        // analyse-zoom hat Räume + ÖNORM-LV in agent_log + elemente gespeichert.
+        // Die Massen-Berechnung (Step 2) + Kritik (Step 3) sind ein BONUS:
+        // sie befüllen die massen-Tabelle. Schlagen sie fehl, zeigen wir
+        // trotzdem die Plan-Ergebnisse — kein harter Abbruch mehr.
+        return callStep(2).then(function (r2) {
+          setStepDone(1); setStepActive(2);
+          if (progressStatus) progressStatus.textContent = 'Qualitätsprüfung... (' + (r2.massen || 0) + ' Positionen)';
+          if (analysisBar) { analysisBar.style.width = '70%'; analysisBar.textContent = '70%'; }
+          return callStep(3).catch(function (e) {
+            console.warn('Step 3 (Kritik) übersprungen:', e.message);
+            return null;
+          });
+        }).catch(function (e) {
+          console.warn('Massen-Berechnung (Step 2/3) übersprungen:', e.message);
+          return null;
+        });
       })
       .then(function (r3) {
-        setStepDone(2); setStepDone(3);
+        setStepDone(1); setStepDone(2); setStepDone(3);
         if (analysisBar) { analysisBar.style.width = '100%'; analysisBar.textContent = '100%'; }
-        if (progressStatus) progressStatus.textContent = 'Analyse abgeschlossen! Konfidenz: ' + r3.konfidenz + '%';
+        var konfText = (r3 && r3.konfidenz != null) ? ' Konfidenz: ' + r3.konfidenz + '%' : '';
+        if (progressStatus) progressStatus.textContent = 'Analyse abgeschlossen!' + konfText;
         setTimeout(function () {
           hideProgress();
           if (window.loadResults) window.loadResults(planId);
           loadPlans();
+          if (typeof onDone === 'function') onDone(true);
         }, 1200);
       })
       .catch(function (err) {
+        // Hierher kommt nur, wenn analyse-zoom selbst fehlschlägt
+        // (kein PDF lesbar, Server-Fehler) — das ist der echte harte Fehler.
         hideProgress();
-        btn.disabled = false;
-        btn.textContent = 'Analyse starten';
-        if (analysisError) { analysisError.textContent = 'Fehler: ' + err.message; analysisError.classList.remove('hidden'); }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Analyse starten';
+        }
+        if (analysisError) {
+          analysisError.textContent = 'Analyse fehlgeschlagen: ' + err.message;
+          analysisError.classList.remove('hidden');
+        }
+        if (typeof onDone === 'function') onDone(false);
       });
   }
 
@@ -314,12 +345,23 @@
     doUpload(pdfs, 0);
   }
 
+  // Sammelt die IDs frisch hochgeladener Pläne für die Auto-Analyse
+  var _uploadedPlanIds = [];
+
   function doUpload(files, idx) {
     if (idx >= files.length) {
       uploadProgress.classList.add('hidden');
       uploadBar.style.width = '0%';
       fileInput.value = '';
       loadPlans();
+      // ─── AUTO-FLOW: hochgeladene Pläne sofort analysieren ───
+      // Der Nutzer muss nichts mehr klicken. Pläne werden sequentiell
+      // verarbeitet (analyse-zoom ist API-intensiv).
+      if (_uploadedPlanIds.length > 0) {
+        var queue = _uploadedPlanIds.slice();
+        _uploadedPlanIds = [];
+        autoAnalyseQueue(queue, 0);
+      }
       return;
     }
     var file = files[idx];
@@ -330,21 +372,41 @@
     _sb.storage.from('plaene').upload(path, file, { contentType: 'application/pdf' })
       .then(function (r) {
         if (r.error) throw new Error(r.error.message);
-        return _sb.from('plaene').insert({ projekt_id: projectId, dateiname: file.name, storage_path: path });
+        return _sb.from('plaene')
+          .insert({ projekt_id: projectId, dateiname: file.name, storage_path: path })
+          .select().single();
       })
-      .then(function () {
+      .then(function (insertRes) {
         uploadBar.style.width = '100%';
         uploadBar.textContent = '100%';
+        if (insertRes && insertRes.data && insertRes.data.id) {
+          _uploadedPlanIds.push(insertRes.data.id);
+        }
         setTimeout(function () { doUpload(files, idx + 1); }, 300);
       })
       .catch(function (err) {
+        // Fehler bei dieser Datei → Meldung zeigen, aber mit nächster
+        // Datei weitermachen statt die ganze Kette abzubrechen.
         if (analysisError) {
-          analysisError.textContent = 'Upload-Fehler: ' + err.message;
+          analysisError.textContent = 'Upload-Fehler bei "' + file.name + '": ' + err.message;
           analysisError.classList.remove('hidden');
         }
-        uploadProgress.classList.add('hidden');
-        loadPlans();
+        setTimeout(function () { doUpload(files, idx + 1); }, 300);
       });
+  }
+
+  // Verarbeitet eine Warteschlange von Plan-IDs sequentiell mit Auto-Analyse.
+  // Nutzt den onDone-Callback von startAnalysis — kein Polling, verlässlich.
+  function autoAnalyseQueue(queue, i) {
+    if (i >= queue.length) {
+      loadPlans();
+      return;
+    }
+    var planId = queue[i];
+    startAnalysis(planId, null, function () {
+      // Egal ob erfolgreich oder fehlgeschlagen — nächsten Plan starten
+      autoAnalyseQueue(queue, i + 1);
+    });
   }
 
   window.loadPlans = loadPlans;

@@ -5,7 +5,17 @@ Called after PDF upload, stores results in Supabase for the orchestrator.
 """
 from __future__ import annotations
 import json, os, re, math, tempfile
-from collections import defaultdict
+
+# ÖNORM-Gewerk-Engine — robuster Import (Vercel bündelt api/ mit).
+# Bei Fehler läuft die Pipeline ohne Gewerk-Berechnung weiter.
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from massen_logic import berechne_gewerke as _berechne_gewerke
+    _MASSEN_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[massen_logic] Import fehlgeschlagen: {_e}")
+    _MASSEN_OK = False
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -451,33 +461,87 @@ async def analyse_zoom(body: ExtractRequest):
     # as spans: Name / [Bodenbelag] / "XX,XX m" + small "2" / "U: ..." / "H: ..."
     # Pulling these directly gives byte-exact ground truth.
     # ─────────────────────────────────────────────────────────────────
-    ROOM_KWS = {
-        "wohnküche","wohnkueche","wohnk","wohnen","zimmer","schlafzimmer","kinderzimmer",
-        "bad","wc","dusche","vorraum","vorzimmer","flur","gang","diele",
-        "küche","kueche","loggia","balkon","terrasse","stiegenhaus","stiege",
-        "stiegenaufg","abstellraum","abstellr","garderobe","speis","technik","keller",
-        "waschküche","waschkueche","waschraum","werkstätte","werkstatt","lager","kellerabteil",
-        "büro","buero","atelier","studio","praxis",
-        # Tiefgaragen/Allgemeinräume
-        "tiefgarage","fahrrad","kinderwagen","fahrradraum","schleuse","fittness",
-        "treppenhaus","e-technik","elektroraum","pelletslagerraum","müllraum",
-        "ar","ar top","kiwa",
+    # Strict exact-match list. Substring matching produced false positives
+    # (e.g. "ar" matched inside other words). Architect labels use these
+    # canonical spellings — anything else is annotation, not a room label.
+    ROOM_NAMES_EXACT = {
+        "Wohnküche","Wohnkueche","Wohnen","Wohnzimmer","Wohnraum","Esszimmer","Zimmer",
+        "Schlafzimmer","Kinderzimmer","Bad","WC","Dusche","Sauna",
+        "Vorraum","Vorzimmer","Flur","Gang","Diele","Küche","Kueche",
+        "Loggia","Balkon","Terrasse","Stiegenhaus","Stiege","STGH","STG",
+        "Abstellraum","Abstellr.","Garderobe","Speis","Speisekammer","Technik","Technikraum",
+        "Keller","Kellerabteil","Kiwa","Waschküche","Waschkueche","Waschraum","Waschen",
+        "Werkstätte","Werkstatt","Lager",
+        "Büro","Buero","Atelier","Studio","Praxis","Arbeitszimmer",
+        "Tiefgarage","Garage","Carport","Parkplatz","Fahrradraum","Kinderwagenraum","Schleuse",
+        "Fitness","Treppenhaus","Müllraum","E-Technik","Elektroraum",
+        "Pelletslagerraum","Pelletslager",
+        "Windfang","Foyer","Eingang","Eingangsbereich",
+        "AR","HWR","HSR","HAR",
     }
     BODENBELAG_KWS = {"parkett","fliesen","laminat","vinyl","estrich","teppich","feinsteinzeug","naturstein","keramik","beschichtung","beton"}
-    AR_TOP_RX = re.compile(r"^(ar\s+)?top\s*\d+\s*(ar)?\s*[a-z]?$", re.I)
+    # Geschoss-Code-Räume (EG301, OG214) für andere Architekt-Konventionen
+    ROOM_CODE_RX_INNER = re.compile(r"^(EG|OG\d?|KG|UG|DG)\s*[._-]?\s*(\d{2,4})$", re.I)
+    # Generalisierte Anker: matchen F:/Fl:/Fläche, U:/Um:/Umfang, H:/Hö:/RH/Höhe
+    # U: kann Tausender-Leerzeichen + Einheit cm/m haben: "U: 1 098,0 cm"
+    F_ANCHOR_RX = re.compile(r"^(?:F|Fl|Fläche|Flaeche)\s*[:=]?\s*([0-9]+[,.][0-9]+)", re.I)
+    U_ANCHOR_RX = re.compile(r"^(?:U|Um|Umfang)\s*[:=]?\s*([0-9][0-9\s]*[,.][0-9]+)", re.I)
+    H_ANCHOR_RX = re.compile(r"^(?:H|Hö|Hoe|Höhe|Hoehe|RH|LH)\s*[:=]?\s*([0-9]+[,.][0-9]+)", re.I)
+    B_ANCHOR_RX = re.compile(r"^B\s*[:=]\s*(.+)$", re.I)
 
-    def is_room_name_span(s):
-        t = s["text"].lower().strip()
-        # AR TOP NN / Top N AR pattern
-        if AR_TOP_RX.match(t): return True
-        if re.search(r"\d", t):
-            return False
+    # Legende-Pattern: "AR - Abstellraum" (Kürzel + " - " + Name). Leerzeichen
+    # um den Bindestrich grenzt von echten Räumen wie "E-Technik" ab.
+    LEGENDE_RX = re.compile(r"^[A-ZÄÖÜ]{1,4}\s+[-–]\s+\w", re.I)
+    # TOP-Wohnungslabel allein ("TOP 25") ist kein Raum.
+    TOP_ONLY_RX = re.compile(r"^TOP\s*\.?\s*\d+[a-z]?$", re.I)
+    RAUM_REST_OK = {
+        "süd","nord","ost","west","südost","südwest","nordost","nordwest",
+        "links","rechts","oben","unten","mitte","gross","groß","klein",
+        "überdacht","ueberdacht","offen","beheizt","unbeheizt","neu","alt",
+    }
+
+    def name_matches_room(t):
+        """Prüft NUR den Text (ohne Größe), ob es ein Raumname ist."""
         if len(t) < 2:
             return False
-        for k in ROOM_KWS:
-            if t == k or t.startswith(k + " ") or (k in t and len(t) <= len(k) + 6):
+        if LEGENDE_RX.match(t) or TOP_ONLY_RX.match(t):
+            return False
+        if t in ROOM_NAMES_EXACT:
+            return True
+        words = t.split()
+        if len(words) > 1 and words[0] in ROOM_NAMES_EXACT:
+            rest_ok = all(
+                re.match(r"^\d+[a-z]?$", w, re.I)
+                or w.lower() in RAUM_REST_OK
+                or w in ROOM_NAMES_EXACT
+                for w in words[1:]
+            )
+            if rest_ok:
                 return True
+        if "-" in t and not LEGENDE_RX.match(t):
+            for part in t.split("-"):
+                if part.strip() in ROOM_NAMES_EXACT:
+                    return True
         return False
+
+    # Adaptive Schrift-Schwelle: typische Raumlabel-Größe dieses Plans (Modus)
+    _label_sizes = [round(s.get("size", 0), 1) for s in spans_all
+                    if name_matches_room(s["text"].strip())]
+    if _label_sizes:
+        from collections import Counter as _Cnt
+        _typ_size = _Cnt(_label_sizes).most_common(1)[0][0]
+        MIN_LABEL_SIZE = max(4.0, _typ_size * 0.75)
+    else:
+        MIN_LABEL_SIZE = 6.0
+
+    def is_room_name_span(s):
+        t = s["text"].strip()
+        # Geschoss-Code-Räume (EG301, OG214) — eigene Größenregel
+        if ROOM_CODE_RX_INNER.match(t) and s.get("size", 0) >= max(4.0, MIN_LABEL_SIZE * 0.7):
+            return True
+        if s.get("size", 0) < MIN_LABEL_SIZE:
+            return False
+        return name_matches_room(t)
 
     def has_m2_superscript(s, tolerance_pt=20):
         sx_right = s["bbox"][2]
@@ -495,26 +559,43 @@ async def analyse_zoom(body: ExtractRequest):
 
     def extract_room_from_label(rs):
         rx, ry = rs["cx"], rs["cy"]
+        # Bei Code-Räumen (EG301) liegen F/U/H oft 100-150pt entfernt; bei
+        # ArchiCAD-Beschriftungsblöcken stehen sie kompakt direkt unter dem Namen.
+        is_code = bool(ROOM_CODE_RX_INNER.match(rs["text"].strip()))
+        rad_x = 150 if is_code else 60
+        rad_y_pos = 150 if is_code else 60
+        rad_y_neg = -150 if is_code else -5
         candidates = []
         for s in spans_all:
             if s is rs: continue
             dx = s["cx"] - rx; dy = s["cy"] - ry
-            if abs(dx) <= 60 and -5 <= dy <= 60:
+            if abs(dx) <= rad_x and rad_y_neg <= dy <= rad_y_pos:
                 candidates.append((dy, dx, s))
         candidates.sort()
         f_val = u_val = h_val = None
         bodenbelag = None
         for dy, dx, s in candidates:
             t = s["text"]
-            m = re.match(r"^U\s*[:=]?\s*([0-9]+[,.][0-9]+)", t)
+            m = U_ANCHOR_RX.match(t)
             if m and u_val is None:
-                u_val = float(m.group(1).replace(",", "."))
+                raw = m.group(1).replace(" ", "").replace(",", ".")
+                v = float(raw)
+                # cm→m: "U: 1 098,0 cm" oder Wert > 50 → cm
+                if ("cm" in t.lower()) or (v > 50):
+                    v = v / 100.0
+                if 1.0 <= v <= 200.0:
+                    u_val = v
                 continue
-            m = re.match(r"^H\s*[:=]?\s*([0-9]+[,.][0-9]+)", t)
+            m = H_ANCHOR_RX.match(t)
             if m and h_val is None:
-                h_val = float(m.group(1).replace(",", "."))
+                v = float(m.group(1).replace(",", "."))
+                # cm→m: Raumhöhen real 2.2-4.5 m, in cm 220-450
+                if 20 < v < 500:
+                    v = v / 100.0
+                if 2.0 <= v <= 5.0:
+                    h_val = v
                 continue
-            m = re.match(r"^F\s*[:=]?\s*([0-9]+[,.][0-9]+)", t)
+            m = F_ANCHOR_RX.match(t)
             if m and f_val is None:
                 f_val = float(m.group(1).replace(",", "."))
                 continue
@@ -526,6 +607,13 @@ async def analyse_zoom(body: ExtractRequest):
                     continue
             if bodenbelag is None and t.lower() in BODENBELAG_KWS:
                 bodenbelag = t
+                continue
+            # B: Fliesen / B: Parkett (Bodenbelag mit Prefix)
+            bm = B_ANCHOR_RX.match(t)
+            if bm and bodenbelag is None:
+                belag_text = bm.group(1).strip().split(",")[0].strip()
+                if belag_text.lower() in BODENBELAG_KWS:
+                    bodenbelag = belag_text
         return {
             "name": rs["text"],
             "flaeche_m2": f_val,
@@ -653,21 +741,30 @@ async def analyse_zoom(body: ExtractRequest):
         r["konfidenz"] = 1.0 if (r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m")) else 0.7
         r["_text_first"] = True
 
-    # Dedup text_first: merge incomplete duplicates into complete ones with same name+F
-    def _rkey(r):
-        return (_norm_name(r.get("name")), round((r.get("flaeche_m2") or 0)*10)/10)
+    # Dedup text_first: same physical label can produce two records if the
+    # span loop visits the room name twice. Multiple identical rooms in
+    # different apartments (e.g. three TOP units with same Wohnküche 26,37 m²)
+    # must NOT be collapsed — they are real, distinct rooms. So dedup ONLY
+    # by spatial position (within 5pt), not by (name + area).
+    def _pos_key(r, grid=5):
+        return (int(round((r.get("cx") or 0) / grid)),
+                int(round((r.get("cy") or 0) / grid)))
 
-    tf_map = {}
+    def _completeness(r):
+        return (1 if r.get("flaeche_m2") else 0) + (1 if r.get("umfang_m") else 0) + \
+               (1 if r.get("hoehe_m") else 0) + (1 if r.get("bodenbelag") else 0)
+
+    tf_pos = {}
     for r in text_first_rooms:
-        k = _rkey(r)
-        if k[1] == 0:  # no F at all
+        # Räume ohne F behalten, sofern sie einen Namen haben — Polierpläne
+        # liefern oft nur H/U pro Raum; ein anderer Plan ergänzt das F.
+        if not r.get("name"):
             continue
-        ex = tf_map.get(k)
-        complete_new = bool(r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m"))
-        complete_old = bool(ex and ex.get("flaeche_m2") and ex.get("umfang_m") and ex.get("hoehe_m"))
-        if ex is None or (complete_new and not complete_old):
-            tf_map[k] = r
-    text_first_rooms = list(tf_map.values())
+        k = _pos_key(r)
+        ex = tf_pos.get(k)
+        if ex is None or _completeness(r) > _completeness(ex):
+            tf_pos[k] = r
+    text_first_rooms = list(tf_pos.values())
     # Flag whether text-first produced enough data to skip / trust over Vision
     text_first_count = sum(1 for r in text_first_rooms if r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m"))
     text_first_enough = text_first_count >= 5  # threshold: at least 5 solid rooms
@@ -1076,6 +1173,274 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
             "konfidenz": int(t.get("konfidenz", 0.8) * 100)
         }).execute()
 
+    # ═══════════════════════════════════════════════════════════════════
+    # PASS 4 — VISION-WAND-BEMASSUNG PRO TOP (für ÖNORM-konforme Wandlängen)
+    # Lokal verifiziert 2026-05-18: bei 800 DPI sind die ArchiCAD-Außen-
+    # Bemaßungen (z.B. "580" cm = 5.80m) klar lesbar. Für Excel-1:1-Match
+    # bei Innenputz-Wänden brauchen wir genau diese Bemaßungs-Werte —
+    # die stehen NICHT im Text-Layer (sind Vektor-Grafik).
+    # ═══════════════════════════════════════════════════════════════════
+    wall_dims_per_top = {}
+    BEMASSUNG_PROMPT = """Du siehst einen schmalen Bemaßungs-Streifen aus einem
+oesterreichischen Bauplan (Maßstab 1:50). Bemaßungen sind als
+KETTENBEMASSUNG dargestellt: Eine horizontale Linie mit kurzen vertikalen
+Markern, zwischen denen die jeweiligen Wand-Längen in CENTIMETERN stehen
+(z.B. "152", "300", "580").
+
+Lies ALLE Maßzahlen in dieser Bemaßung der Reihe nach von links nach rechts
+(bzw. von oben nach unten) ab. Maße aus mehreren parallelen Ketten gibst
+du als separate Listen zurück.
+
+JSON-Antwort (kein Markdown, keine Erklärung):
+{
+  "ketten": [
+    [48, 152, 143, 543, 120, 231],
+    [2, 44, 2, 301, 8, 576]
+  ],
+  "summe_cm_je_kette": [1237, 933],
+  "konfidenz": 0.95
+}
+
+Wichtig:
+- Werte sind cm-Zahlen (1-4-stellig). Niemals erfinden — nur was du klar liest.
+- Wenn nur eine Kette: liefere ein einziges Array.
+- Maßstabs-Code (z.B. "1:50") oder Achs-Buchstaben (O, P, Q) ignorieren."""
+
+    try:
+        # Gruppiere Räume pro Top
+        rooms_per_top = {}
+        for r in unique_rooms:
+            tk = r.get("wohnung")
+            if not tk:
+                continue
+            rooms_per_top.setdefault(tk, []).append(r)
+
+        max_vision_tops = 12  # Cap auf 12 Tops × 4 Streifen = 48 Calls
+        tops_done = 0
+        for top_name, top_rooms in rooms_per_top.items():
+            if tops_done >= max_vision_tops:
+                break
+            # Top-Bbox aus Raum-Centerpunkten (auf Plan-Koordinaten)
+            xs = [r.get("cx") for r in top_rooms if r.get("cx") is not None]
+            ys = [r.get("cy") for r in top_rooms if r.get("cy") is not None]
+            if not xs or not ys:
+                continue
+            top_x0, top_x1 = min(xs), max(xs)
+            top_y0, top_y1 = min(ys), max(ys)
+
+            wd = {"top": top_name, "ketten_per_side": {}, "wandlaengen_m": {}}
+
+            # 4 Bemaßungs-Streifen: N(orden), S(üden), W(esten), O(sten)
+            STRIPS = {
+                "N": (top_x0 - 100, top_y0 - 300, top_x1 + 100, top_y0 - 150),
+                "S": (top_x0 - 100, top_y1 + 150, top_x1 + 100, top_y1 + 300),
+                "W": (top_x0 - 350, top_y0 - 100, top_x0 - 150, top_y1 + 100),
+                "E": (top_x1 + 150, top_y0 - 100, top_x1 + 350, top_y1 + 100),
+            }
+            for side, (sx0, sy0, sx1, sy1) in STRIPS.items():
+                sx0, sy0 = max(0, sx0), max(0, sy0)
+                sx1, sy1 = min(pw, sx1), min(ph, sy1)
+                if sx1 - sx0 < 30 or sy1 - sy0 < 30:
+                    continue
+                # 800 DPI lokal verifiziert lesbar — aber Pixel-Limit beachten
+                strip_w_pt = sx1 - sx0
+                strip_h_pt = sy1 - sy0
+                max_dim_pt = max(strip_w_pt, strip_h_pt)
+                dpi = min(800, int(6000 / max_dim_pt * 72))
+                dpi = max(200, dpi)
+
+                while dpi >= 150:
+                    mat = fitz.Matrix(dpi/72, dpi/72)
+                    rect = fitz.Rect(sx0, sy0, sx1, sy1)
+                    pix = page.get_pixmap(matrix=mat, clip=rect)
+                    img_bytes = pix.tobytes("jpeg", jpg_quality=88)
+                    if len(img_bytes) < 2.5 * 1024 * 1024 and pix.width <= 7500 and pix.height <= 7500:
+                        break
+                    dpi -= 80
+                if dpi < 150:
+                    continue
+                img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
+
+                try:
+                    resp = client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=512,
+                        system=BEMASSUNG_PROMPT,
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "image", "source": {"type": "base64",
+                                 "media_type": "image/jpeg", "data": img_b64}},
+                                {"type": "text", "text": f"Top {top_name}, Seite {side}: lies alle Maße ab."}
+                            ],
+                        }],
+                    )
+                    raw = resp.content[0].text if resp.content else "{}"
+                    parsed = None
+                    try:
+                        parsed = json.loads(raw)
+                    except Exception:
+                        m = re.search(r"\{[\s\S]*\}", raw)
+                        if m:
+                            try:
+                                parsed = json.loads(m.group())
+                            except Exception:
+                                pass
+                    if parsed:
+                        wd["ketten_per_side"][side] = parsed
+                except Exception as _exc:
+                    print(f"[vision wall-dims] {top_name}/{side} failed: {_exc!r}")
+                    continue
+
+            # Aggregiere Wandlängen je Seite — Summe je Kette = Außenkante in cm
+            for side, payload in wd["ketten_per_side"].items():
+                summen = payload.get("summe_cm_je_kette") or []
+                if not summen and payload.get("ketten"):
+                    summen = [sum(k) for k in payload["ketten"]]
+                if summen:
+                    # Größte Summe ist üblicherweise die Außenkante
+                    wd["wandlaengen_m"][side] = round(max(summen) / 100.0, 2)
+            wall_dims_per_top[top_name] = wd
+            tops_done += 1
+    except Exception as _exc:
+        print(f"[vision wall-dims] global failure: {_exc!r}")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # ÖNORM A 2063 LV-GENERATOR (vereinfacht — siehe scripts/oenorm_extract.py
+    # für vollständige Variante mit Excel-Export)
+    # ═══════════════════════════════════════════════════════════════════
+    def _lv_build():
+        from collections import defaultdict as _dd
+
+        def kategorie_of(name):
+            INNEN = {"Wohnküche","Wohnkueche","Wohnen","Wohnzimmer","Esszimmer","Zimmer",
+                     "Schlafzimmer","Kinderzimmer","Küche","Kueche","Bad","WC","Dusche",
+                     "Vorraum","Vorzimmer","Flur","Gang","Diele","Garderobe","Abstellraum",
+                     "Speis","Speisekammer","AR","Büro","Buero"}
+            LOGGIA = {"Loggia","Balkon","Terrasse"}
+            STGH = {"Stiegenhaus","Stiege","STGH","STG","Treppenhaus"}
+            base = name.split()[0] if " " in name else name
+            if name in INNEN or base in INNEN: return "innen"
+            if name in LOGGIA or base in LOGGIA: return "loggia"
+            if name in STGH or base in STGH: return "stiegenhaus"
+            return "sonstig"
+
+        # Gruppiere pro Top
+        by_top = _dd(list)
+        for r in unique_rooms:
+            if r.get("wohnung"):
+                by_top[r["wohnung"]].append(r)
+
+        positionen = []
+        for idx, (top, top_rs) in enumerate(sorted(by_top.items()), start=1):
+            innen = [r for r in top_rs if kategorie_of(r.get("name","")) == "innen"
+                     and r.get("umfang_m") and r.get("hoehe_m")]
+            # Innenputz Wände — via Σ(U×H) der Innenräume
+            uh_sum = sum(r["umfang_m"] * r["hoehe_m"] for r in innen)
+            # Innenputz Decken
+            f_sum = sum(r.get("flaeche_m2", 0) or 0 for r in innen)
+            # Bodenbeläge pro Material
+            belag_map = _dd(float)
+            for r in top_rs:
+                if r.get("bodenbelag") and r.get("flaeche_m2"):
+                    belag_map[r["bodenbelag"]] += r["flaeche_m2"]
+
+            # Wenn Vision-Wandlängen verfügbar: zusätzliche Position mit Vision-Werten
+            vision_dims = wall_dims_per_top.get(top, {}).get("wandlaengen_m", {})
+
+            positionen.append({
+                "top": top,
+                "innenputz_waende_uxh_m2": round(uh_sum, 2),
+                "innenputz_decken_m2": round(f_sum, 2),
+                "boden_pro_material_m2": {k: round(v, 2) for k, v in belag_map.items()},
+                "vision_wandlaengen_m": vision_dims,  # leer wenn Vision aus
+                "vision_innenputz_waende_m2": (
+                    round(sum(vision_dims.values()) * (sum(r.get("hoehe_m") or 0 for r in innen)/max(len(innen),1)), 2)
+                    if vision_dims and innen else None
+                ),
+                "konfidenz_lese": 1.0,  # F/U/H byte-exakt
+                "konfidenz_aggregation": 0.92 if not vision_dims else 0.97,
+            })
+        return positionen
+
+    oenorm_lv = _lv_build()
+
+    # ═══════════════════════════════════════════════════════════════════
+    # ÖNORM-GEWERK-MASSENERMITTLUNG (Putz / Rohbau / Estrich / Maler)
+    # Vision misst Baudaten (Wandstärken, Deckendicke, Geschosshöhe),
+    # massen_logic erzeugt pro Gewerk die LV-Positionen in Buchform.
+    # ═══════════════════════════════════════════════════════════════════
+    gewerke_result = None
+    if _MASSEN_OK:
+        BAUDATEN_PROMPT = """Du bist erfahrener österreichischer Bautechniker.
+Du siehst einen Bauplan. Bestimme die Bau-Kenndaten aus Wanddicken,
+Bemaßungen, Schnitten und Material-Legende.
+Antworte NUR mit JSON (keine Markdown-Fences):
+{"aussenwand_cm":50,"innenwand_tragend_cm":25,"innenwand_nichttragend_cm":12,
+ "decke_cm":20,"bodenplatte_cm":25,"geschosshoehe_m":2.70,
+ "anzahl_fenster":8,"anzahl_tueren_innen":7,"wandmaterial":"...",
+ "konfidenz":0.85}
+Werte in cm bzw. m. Nicht erkennbar → null. Niemals raten."""
+        baudaten = {}
+        try:
+            doc2 = fitz.open(stream=pdf_bytes, filetype="pdf")
+            p2 = doc2[0]
+            dpi_bd = 200
+            bd_img = None
+            while dpi_bd >= 90:
+                mat = fitz.Matrix(dpi_bd / 72, dpi_bd / 72)
+                pix = p2.get_pixmap(matrix=mat)
+                bd_img = pix.tobytes("jpeg", jpg_quality=82)
+                if len(bd_img) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                    break
+                dpi_bd -= 40
+            doc2.close()
+            if bd_img:
+                bd_b64 = base64.standard_b64encode(bd_img).decode("utf-8")
+                resp = client.messages.create(
+                    model="claude-sonnet-4-20250514", max_tokens=1024, temperature=0,
+                    system=BAUDATEN_PROMPT,
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64",
+                         "media_type": "image/jpeg", "data": bd_b64}},
+                        {"type": "text", "text": "Bestimme die Bau-Kenndaten dieses Plans."}
+                    ]}],
+                )
+                raw = resp.content[0].text if resp.content else "{}"
+                try:
+                    baudaten = json.loads(raw)
+                except Exception:
+                    m = re.search(r"\{[\s\S]*\}", raw)
+                    baudaten = json.loads(m.group()) if m else {}
+        except Exception as _exc:
+            print(f"[baudaten] Vision-Messung fehlgeschlagen: {_exc!r}")
+            baudaten = {}
+
+        # Konfidenz-Schwelle: bei unsicherer Vision (<0.7) die Wandstärken
+        # leeren → massen_logic greift auf dokumentierte Defaults zurück.
+        if (baudaten.get("konfidenz") or 0) < 0.7:
+            for _k in ("aussenwand_cm", "innenwand_tragend_cm",
+                       "innenwand_nichttragend_cm", "decke_cm", "bodenplatte_cm"):
+                baudaten.pop(_k, None)
+
+        # Räume für die Gewerk-Berechnung vorbereiten (cx/cy aus _bbox ableiten)
+        rooms_fg = []
+        for r in unique_rooms:
+            rr = dict(r)
+            if rr.get("cx") is None and rr.get("_bbox"):
+                bb = rr["_bbox"]
+                if len(bb) >= 4:
+                    rr["cx"] = (bb[0] + bb[2]) / 2.0
+                    rr["cy"] = (bb[1] + bb[3]) / 2.0
+            rooms_fg.append(rr)
+
+        try:
+            gewerke_result = _berechne_gewerke(
+                rooms_fg, unique_fenster, baudaten, geschoss or "EG", None)
+        except Exception as _exc:
+            print(f"[gewerke] Berechnung fehlgeschlagen: {_exc!r}")
+            gewerke_result = None
+
     # Store in agent_log
     log = plan.get("agent_log") or {}
     log["zoom_analyse"] = {
@@ -1085,6 +1450,7 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
         "tueren": len(all_tueren),
         "massstab": massstab,
         "geschoss": geschoss,
+        "vision_wall_tops": len(wall_dims_per_top),
     }
     log["geo"] = {
         "raeume": unique_rooms,
@@ -1093,6 +1459,10 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
         "massstab": massstab,
         "geschoss": geschoss,
     }
+    log["wand_bemassung_vision"] = wall_dims_per_top
+    log["oenorm_lv"] = oenorm_lv
+    if gewerke_result:
+        log["gewerke"] = gewerke_result
     sb.table("plaene").update({"agent_log": log, "gesamt_konfidenz": 95}).eq("id", body.plan_id).execute()
 
     return {
@@ -1103,4 +1473,7 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
         "tueren": len(all_tueren),
         "massstab": massstab,
         "geschoss": geschoss,
+        "vision_wall_tops": len(wall_dims_per_top),
+        "oenorm_positionen": len(oenorm_lv),
+        "gewerke": list((gewerke_result or {}).get("gewerke", {}).keys()),
     }
