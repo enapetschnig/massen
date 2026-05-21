@@ -765,9 +765,13 @@ async def analyse_zoom(body: ExtractRequest):
         if ex is None or _completeness(r) > _completeness(ex):
             tf_pos[k] = r
     text_first_rooms = list(tf_pos.values())
-    # Flag whether text-first produced enough data to skip / trust over Vision
-    text_first_count = sum(1 for r in text_first_rooms if r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m"))
-    text_first_enough = text_first_count >= 5  # threshold: at least 5 solid rooms
+    # Flag whether text-first produced enough data to trust over Vision.
+    # WICHTIG: F (Fläche) ist der Kern-Beleg dafür, dass der Text-Layer den
+    # Raum sauber liefert. U und H fehlen bei Einreichplänen oft komplett —
+    # darf NICHT zur Bedingung gehören, sonst übernimmt die Vision-Pipeline
+    # und halluziniert Räume mit geratenen Werten.
+    text_first_count = sum(1 for r in text_first_rooms if r.get("flaeche_m2"))
+    text_first_enough = text_first_count >= 5  # ≥5 Räume mit byte-exakter Fläche
 
     # Fixed-size overlapping tiles: 1800 pt per side guarantees DPI=300
     # (7500 px / 1800 pt * 72 = 300). 30% overlap ensures every apartment
@@ -1108,19 +1112,39 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
         }
         unique_rooms.append(rec)
 
-    # Pass B: Vision rooms NOT matched by any text-first record (things the
-    # text layer missed - e.g. outdoor annotations, rooms without a label block)
-    for i, vr in enumerate(merged_rooms):
-        if i in used_vision:
-            continue
-        if not vr.get("flaeche_m2"):
-            continue
-        rec = {k: v for k, v in vr.items() if not k.startswith("_")}
-        rec["_source"] = "vision"
-        rec["_verified"] = vr.get("_verified", {})
-        rec["_consensus"] = vr.get("_consensus", 1)
-        rec["_pass3"] = vr.get("_pass3", False)
-        unique_rooms.append(rec)
+    # Pass B: Vision-Räume, die text-first NICHT abgedeckt hat.
+    # Bei gutem Text-Layer (text_first_enough) ist die byte-exakte Lesung
+    # die Wahrheit — Vision darf dann KEINE zusätzlichen Räume erfinden
+    # (sonst entstehen Duplikate wie "Zimmer 1" 3× mit geratenen Werten).
+    # Einzige Ausnahme: ein Vision-Raum, dessen normalisierter Name in
+    # KEINEM text-first Raum vorkommt (echte Lücke, kein Duplikat).
+    if not text_first_enough:
+        # Schwacher/kein Text-Layer → Vision liefert die Räume
+        for i, vr in enumerate(merged_rooms):
+            if i in used_vision:
+                continue
+            if not vr.get("flaeche_m2"):
+                continue
+            rec = {k: v for k, v in vr.items() if not k.startswith("_")}
+            rec["_source"] = "vision"
+            rec["_verified"] = vr.get("_verified", {})
+            rec["_consensus"] = vr.get("_consensus", 1)
+            rec["_pass3"] = vr.get("_pass3", False)
+            unique_rooms.append(rec)
+    else:
+        # Guter Text-Layer → nur Vision-Räume mit komplett neuem Namen
+        tf_names = {_norm_name(tr.get("name")) for tr in text_first_rooms}
+        for i, vr in enumerate(merged_rooms):
+            if i in used_vision or not vr.get("flaeche_m2"):
+                continue
+            if _norm_name(vr.get("name")) in tf_names:
+                continue  # Name schon im Text-Layer → kein Vision-Duplikat
+            rec = {k: v for k, v in vr.items() if not k.startswith("_")}
+            rec["_source"] = "vision"
+            rec["_verified"] = vr.get("_verified", {})
+            rec["_consensus"] = vr.get("_consensus", 1)
+            rec["_pass3"] = vr.get("_pass3", False)
+            unique_rooms.append(rec)
 
     doc.close()
 
