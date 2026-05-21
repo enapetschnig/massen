@@ -126,10 +126,27 @@ def laibungsflaeche(breite_m, hoehe_m, tiefe_m, mit_sohlbank=False):
     return tiefe_m * umfang
 
 
+def _nk(s):
+    return re.sub(r"[\s\-_/]+", "", (s or "").lower())
+
+
 def fenster_pro_raum(rooms, windows):
-    """Ordnet jedes Fenster dem nächstgelegenen Raum zu (per Position)."""
+    """Ordnet jedes Fenster einem Raum zu — per Raum-Name (Vision-Fenster)
+    oder per Position (FE_-Code-Fenster mit cx/cy)."""
     zuord = {id(r): [] for r in rooms}
+    # Name-Index für Vision-Fenster
+    name_idx = {}
+    for r in rooms:
+        name_idx.setdefault(_nk(_room_name(r)), []).append(r)
     for w in windows:
+        # 1. Vision-Fenster: Zuordnung per Raum-Name
+        wraum = w.get("raum")
+        if wraum:
+            matches = name_idx.get(_nk(wraum))
+            if matches:
+                zuord[id(matches[0])].append(w)
+                continue
+        # 2. FE_-Code-Fenster: Zuordnung per Position
         wx, wy = w.get("cx"), w.get("cy")
         if wx is None:
             continue

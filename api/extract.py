@@ -1397,14 +1397,22 @@ Wichtig:
     gewerke_result = None
     if _MASSEN_OK:
         BAUDATEN_PROMPT = """Du bist erfahrener österreichischer Bautechniker.
-Du siehst einen Bauplan. Bestimme die Bau-Kenndaten aus Wanddicken,
-Bemaßungen, Schnitten und Material-Legende.
+Du siehst einen Bauplan-Grundriss. Bestimme die Bau-Kenndaten aus
+Wanddicken, Bemaßungen, Schnitten und Material-Legende.
+
+Erfasse AUSSERDEM jedes Fenster: Fenster sind im Grundriss als
+Wandunterbrechung mit dünnen parallelen Linien (Glas) dargestellt,
+oft mit Bemaßung der Öffnungsbreite. Ordne jedes Fenster dem Raum zu,
+in dem es liegt, und schätze Breite × Höhe in cm.
+
 Antworte NUR mit JSON (keine Markdown-Fences):
 {"aussenwand_cm":50,"innenwand_tragend_cm":25,"innenwand_nichttragend_cm":12,
  "decke_cm":20,"bodenplatte_cm":25,"geschosshoehe_m":2.70,
- "anzahl_fenster":8,"anzahl_tueren_innen":7,"wandmaterial":"...",
- "konfidenz":0.85}
-Werte in cm bzw. m. Nicht erkennbar → null. Niemals raten."""
+ "anzahl_tueren_innen":7,"wandmaterial":"...","konfidenz":0.85,
+ "fenster":[{"raum":"Wohnraum Küche","breite_cm":240,"hoehe_cm":210},
+            {"raum":"Zimmer 1","breite_cm":120,"hoehe_cm":140}]}
+Werte in cm bzw. m. Nicht erkennbar → null. Fenster nur eintragen wenn
+im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
         baudaten = {}
         try:
             doc2 = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -1458,9 +1466,24 @@ Werte in cm bzw. m. Nicht erkennbar → null. Niemals raten."""
                     rr["cy"] = (bb[1] + bb[3]) / 2.0
             rooms_fg.append(rr)
 
+        # Vision-erkannte Fenster (aus Baudaten) ergänzen — wichtig für
+        # Pläne ohne FE_-Codes (Einreichpläne): ohne Fenster keine Laibungen.
+        alle_fenster = list(unique_fenster)
+        for _vf in (baudaten.get("fenster") or []):
+            _bw, _hw = _vf.get("breite_cm"), _vf.get("hoehe_cm")
+            if _bw and _hw:
+                alle_fenster.append({
+                    "code": "F-Vision",
+                    "raum": _vf.get("raum"),
+                    "breite_m": round(_bw / 100.0, 2),
+                    "hoehe_m": round(_hw / 100.0, 2),
+                    "flaeche_m2": round(_bw * _hw / 10000.0, 2),
+                    "quelle": "vision",
+                })
+
         try:
             gewerke_result = _berechne_gewerke(
-                rooms_fg, unique_fenster, baudaten, geschoss or "EG", None)
+                rooms_fg, alle_fenster, baudaten, geschoss or "EG", None)
         except Exception as _exc:
             print(f"[gewerke] Berechnung fehlgeschlagen: {_exc!r}")
             gewerke_result = None
