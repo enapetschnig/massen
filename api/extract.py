@@ -1530,9 +1530,20 @@ im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
 
 
 class ProjektMassenRequest(BaseModel):
-    """Eingang: entweder projekt_id ODER plan_id (dann wird projekt_id daraus ermittelt)."""
+    """Eingang: entweder projekt_id ODER plan_id (dann wird projekt_id daraus ermittelt).
+
+    Filter (alle optional):
+      - gewerke_filter: Liste der Gewerk-Keys (putz/rohbau/estrich/maler).
+        Leer/None = alle.
+      - plan_ids: nur Räume aus diesen Plänen einbeziehen. Leer/None = alle.
+      - baudaten_override: User-Werte für aussenwand_cm/decke_cm/
+        geschosshoehe_m etc., überschreiben Vision-Werte 1:1.
+    """
     projekt_id: str | None = None
     plan_id: str | None = None
+    gewerke_filter: list[str] | None = None
+    plan_ids: list[str] | None = None
+    baudaten_override: dict | None = None
 
 
 @app.post("/api/projekt-massen")
@@ -1565,9 +1576,19 @@ async def projekt_massen(body: ProjektMassenRequest):
     plaene_res = sb.table("plaene").select(
         "id, dateiname, agent_log"
     ).eq("projekt_id", projekt_id).execute()
-    plaene = plaene_res.data or []
-    if not plaene:
+    plaene_all = plaene_res.data or []
+    if not plaene_all:
         return {"status": "empty", "raeume_count": 0, "gewerke": {}}
+
+    # Plan-Filter: User kann z.B. einen Bestandsplan ausschließen
+    if body.plan_ids:
+        plan_filter = set(body.plan_ids)
+        plaene = [p for p in plaene_all if p["id"] in plan_filter]
+    else:
+        plaene = plaene_all
+    if not plaene:
+        return {"status": "empty", "raeume_count": 0, "gewerke": {},
+                "hinweis": "Alle Pläne durch plan_ids-Filter ausgeschlossen"}
 
     plan_ids = [p["id"] for p in plaene]
 
@@ -1649,20 +1670,63 @@ async def projekt_massen(body: ProjektMassenRequest):
             if g:
                 geschoss = g
 
-    # 7) Gewerk-Berechnung neu mit gemergten Räumen
+    # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
+    if body.baudaten_override:
+        ov = body.baudaten_override
+        # Nur erlaubte Schlüssel + plausible Werte übernehmen
+        ALLOWED = {"aussenwand_cm","innenwand_tragend_cm","innenwand_nichttragend_cm",
+                   "decke_cm","bodenplatte_cm","geschosshoehe_m",
+                   "tuer_breite_m","tuer_hoehe_m"}
+        applied = {}
+        for k, v in (ov.items() if isinstance(ov, dict) else []):
+            if k not in ALLOWED:
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if fv <= 0 or fv > 1000:
+                continue
+            best_baudaten[k] = fv
+            applied[k] = fv
+        if applied:
+            best_baudaten.setdefault("_quellen", {})
+            for k in applied:
+                best_baudaten["_quellen"][k] = "user"
+            best_baudaten["konfidenz"] = max(float(best_baudaten.get("konfidenz") or 0), 0.95)
+
+    # 7) Gewerk-Berechnung neu mit gemergten Räumen — nur ausgewählte Gewerke
+    gewerke_keys = body.gewerke_filter if body.gewerke_filter else None
     try:
         gewerke_result = _berechne_gewerke(
-            merged_rooms, alle_fenster, best_baudaten, geschoss, None
+            merged_rooms, alle_fenster, best_baudaten, geschoss, gewerke_keys
         )
     except Exception as e:
         raise HTTPException(500, f"berechne_gewerke: {e}")
 
-    # 8) Übersicht der Merge-Wirkung
+    # 8) Übersicht der Merge-Wirkung + Plan-Manifest für die UI
     enrichments = sum(len(r.get("_merged_from", [])) for r in merged_rooms)
+    plaene_manifest = [{
+        "id": p["id"],
+        "dateiname": p.get("dateiname", ""),
+        "selected": True,
+    } for p in plaene]
+    # Auch ausgeschlossene Pläne aufführen, damit das UI Checkboxen rendern kann
+    if body.plan_ids:
+        excluded_ids = [p["id"] for p in plaene_all if p["id"] not in set(body.plan_ids)]
+        for p in plaene_all:
+            if p["id"] in excluded_ids:
+                plaene_manifest.append({
+                    "id": p["id"],
+                    "dateiname": p.get("dateiname", ""),
+                    "selected": False,
+                })
     return {
         "status": "ok",
         "projekt_id": projekt_id,
         "plaene_count": len(plaene),
+        "plaene_total": len(plaene_all),
+        "plaene": plaene_manifest,
         "raeume_count": len(merged_rooms),
         "fenster_count": len(alle_fenster),
         "merge_enrichments": enrichments,

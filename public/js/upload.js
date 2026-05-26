@@ -73,6 +73,82 @@
     });
   }
 
+  // --- Filter-State für Projekt-Massen (in Memory, kein localStorage) ---
+  var _filterState = {
+    gewerke: null,           // null = alle, sonst array
+    plan_ids: null,          // null = alle, sonst array
+    baudaten_override: null, // {key:value} oder null
+  };
+
+  function bindFilterControls() {
+    // Gewerk-Chips → State
+    var gwBox = document.getElementById('filter-gewerke');
+    if (gwBox && !gwBox.dataset.bound) {
+      gwBox.dataset.bound = '1';
+      gwBox.addEventListener('change', function (e) {
+        var checks = gwBox.querySelectorAll('input[data-gw]');
+        var sel = [];
+        checks.forEach(function (c) { if (c.checked) sel.push(c.getAttribute('data-gw')); });
+        _filterState.gewerke = (sel.length === checks.length || sel.length === 0) ? null : sel;
+        refreshProjektMassen();
+      });
+    }
+    // Plan-Chips (werden in renderPlanFilter befüllt)
+    // Baudaten-Apply / Reset
+    var apply = document.getElementById('filter-baudaten-apply');
+    if (apply && !apply.dataset.bound) {
+      apply.dataset.bound = '1';
+      apply.addEventListener('click', function () {
+        var inputs = document.querySelectorAll('#filter-baudaten input[data-bd]');
+        var ov = {};
+        inputs.forEach(function (i) {
+          var v = i.value.trim();
+          if (v !== '') {
+            var n = parseFloat(v.replace(',', '.'));
+            if (!isNaN(n) && n > 0) ov[i.getAttribute('data-bd')] = n;
+          }
+        });
+        _filterState.baudaten_override = Object.keys(ov).length ? ov : null;
+        refreshProjektMassen();
+      });
+    }
+    var reset = document.getElementById('filter-baudaten-reset');
+    if (reset && !reset.dataset.bound) {
+      reset.dataset.bound = '1';
+      reset.addEventListener('click', function () {
+        document.querySelectorAll('#filter-baudaten input[data-bd]').forEach(function (i) { i.value = ''; });
+        _filterState.baudaten_override = null;
+        refreshProjektMassen();
+      });
+    }
+  }
+
+  function renderPlanFilter(plaeneManifest) {
+    var box = document.getElementById('filter-plaene');
+    if (!box || !plaeneManifest) return;
+    box.innerHTML = plaeneManifest.map(function (p) {
+      var checked = p.selected ? ' checked' : '';
+      return '<label class="projekt-chip"><input type="checkbox" data-plan="' + esc(p.id) + '"' + checked + '> ' +
+        esc((p.dateiname || '').slice(0, 40)) + '</label>';
+    }).join('');
+    if (!box.dataset.bound) {
+      box.dataset.bound = '1';
+      box.addEventListener('change', function () {
+        var checks = box.querySelectorAll('input[data-plan]');
+        var sel = [];
+        checks.forEach(function (c) { if (c.checked) sel.push(c.getAttribute('data-plan')); });
+        _filterState.plan_ids = (sel.length === checks.length || sel.length === 0) ? null : sel;
+        refreshProjektMassen();
+      });
+    }
+  }
+
+  // Letzte Werte für Refresh (ohne Plans-Liste neu zu laden)
+  var _lastFertig = 0, _lastTotal = 0;
+  function refreshProjektMassen() {
+    if (_lastFertig > 0) loadProjektMassen(_lastFertig, _lastTotal);
+  }
+
   // --- Projekt-weite Massenermittlung (gemerged über alle Pläne) ---
   function loadProjektMassen(fertigCount, totalCount) {
     var sec = document.getElementById('projekt-massen-section');
@@ -84,16 +160,23 @@
     var detailWrap = document.getElementById('projekt-massen-detail-wrap');
 
     sec.classList.remove('hidden');
+    _lastFertig = fertigCount; _lastTotal = totalCount;
+    bindFilterControls();
     if (badge) badge.textContent = 'lädt...';
     if (info) info.textContent = '';
     if (grid) grid.innerHTML = '<div class="loading" style="padding:1rem"><div class="spinner"></div> Räume aller Pläne werden zusammengeführt...</div>';
     if (detail) detail.innerHTML = '';
     if (detailWrap) detailWrap.style.display = 'none';
 
+    var payload = { projekt_id: projectId };
+    if (_filterState.gewerke) payload.gewerke_filter = _filterState.gewerke;
+    if (_filterState.plan_ids) payload.plan_ids = _filterState.plan_ids;
+    if (_filterState.baudaten_override) payload.baudaten_override = _filterState.baudaten_override;
+
     fetch('/api/projekt-massen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projekt_id: projectId })
+      body: JSON.stringify(payload)
     })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
@@ -123,6 +206,9 @@
       if (data.merge_enrichments > 0) bt += ' · ' + data.merge_enrichments + ' Lücken gefüllt';
       badge.textContent = bt;
     }
+
+    // Plan-Filter-Chips befüllen
+    if (data.plaene) renderPlanFilter(data.plaene);
     if (info) {
       var bd = data.baudaten || {};
       var bq = bd._quellen || {};

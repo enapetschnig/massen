@@ -55,6 +55,44 @@
         &#127959; Projekt-Massenermittlung
         <span class="projekt-massen-badge" id="projekt-massen-badge"></span>
       </h3>
+
+      <!-- Filter-Bar: Gewerke / Pläne / Baudaten -->
+      <div class="projekt-filter-bar">
+        <div class="projekt-filter-group">
+          <label class="projekt-filter-label">Gewerke</label>
+          <div class="projekt-filter-chips" id="filter-gewerke">
+            <label class="projekt-chip"><input type="checkbox" data-gw="putz" checked> Putz</label>
+            <label class="projekt-chip"><input type="checkbox" data-gw="rohbau" checked> Rohbau</label>
+            <label class="projekt-chip"><input type="checkbox" data-gw="estrich" checked> Estrich</label>
+            <label class="projekt-chip"><input type="checkbox" data-gw="maler" checked> Maler</label>
+          </div>
+        </div>
+
+        <div class="projekt-filter-group">
+          <label class="projekt-filter-label">Pläne einbeziehen</label>
+          <div class="projekt-filter-chips" id="filter-plaene">
+            <span style="color:#6c757d;font-size:0.78rem">wird gef&uuml;llt sobald Pl&auml;ne analysiert sind</span>
+          </div>
+        </div>
+
+        <div class="projekt-filter-group" style="flex-basis:100%">
+          <label class="projekt-filter-label">
+            Bau-Kenndaten &uuml;berschreiben
+            <span style="font-weight:400;color:#6c757d;font-size:0.72rem">(leer = Vision/Default)</span>
+          </label>
+          <div class="projekt-filter-baudaten" id="filter-baudaten">
+            <label>Au&szlig;enwand <input type="number" data-bd="aussenwand_cm" placeholder="cm" min="10" max="100"></label>
+            <label>Innenwand tragend <input type="number" data-bd="innenwand_tragend_cm" placeholder="cm" min="6" max="50"></label>
+            <label>Innenwand n.tr. <input type="number" data-bd="innenwand_nichttragend_cm" placeholder="cm" min="6" max="30"></label>
+            <label>Decke <input type="number" data-bd="decke_cm" placeholder="cm" min="10" max="60"></label>
+            <label>Bodenplatte <input type="number" data-bd="bodenplatte_cm" placeholder="cm" min="10" max="80"></label>
+            <label>Geschoss-H <input type="number" data-bd="geschosshoehe_m" placeholder="m" min="2" max="6" step="0.05"></label>
+            <button class="btn btn-sm btn-primary" id="filter-baudaten-apply">Anwenden</button>
+            <button class="btn btn-sm btn-outline" id="filter-baudaten-reset">Zur&uuml;cksetzen</button>
+          </div>
+        </div>
+      </div>
+
       <div class="projekt-massen-info" id="projekt-massen-info"></div>
       <div class="projekt-massen-grid" id="projekt-massen-grid"></div>
       <details class="projekt-massen-detail" id="projekt-massen-detail-wrap">

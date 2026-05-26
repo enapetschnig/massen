@@ -1948,6 +1948,36 @@ img {
 .projekt-massen-detail td.num {
   text-align: right; font-variant-numeric: tabular-nums;
 }
+
+.projekt-filter-bar {
+  display: flex; flex-wrap: wrap; gap: 1rem;
+  padding: 0.7rem 0.9rem; background: #f8fafc;
+  border: 1px solid #e5e9f0; border-radius: 6px;
+  margin-bottom: 0.9rem;
+}
+.projekt-filter-group { display: flex; flex-direction: column; gap: 0.35rem; }
+.projekt-filter-label {
+  font-size: 0.72rem; font-weight: 600; color: #6c757d;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.projekt-filter-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.projekt-chip {
+  background: #fff; border: 1px solid #e5e9f0; border-radius: 12px;
+  padding: 3px 9px; font-size: 0.78rem; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 0.3rem;
+}
+.projekt-chip:has(input:checked) { background: #fff4e3; border-color: #fdba74; color: #9a3412; font-weight: 600; }
+.projekt-chip input { margin: 0; cursor: pointer; }
+.projekt-filter-baudaten {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: end;
+}
+.projekt-filter-baudaten label {
+  display: flex; flex-direction: column; font-size: 0.72rem; color: #555;
+}
+.projekt-filter-baudaten input {
+  width: 80px; padding: 3px 6px; font-size: 0.82rem;
+  border: 1px solid #d1d5db; border-radius: 4px;
+}
 .pv-gw-baudaten {
   display: flex; flex-wrap: wrap; gap: 0.4rem;
   padding: 0.5rem 0.75rem; background: #f8fafc; font-size: 0.72rem;
