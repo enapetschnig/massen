@@ -78,6 +78,7 @@
     gewerke: null,           // null = alle, sonst array
     plan_ids: null,          // null = alle, sonst array
     baudaten_override: null, // {key:value} oder null
+    materialliste_override: null, // {key:value} oder null
   };
 
   function bindFilterControls() {
@@ -118,6 +119,33 @@
       reset.addEventListener('click', function () {
         document.querySelectorAll('#filter-baudaten input[data-bd]').forEach(function (i) { i.value = ''; });
         _filterState.baudaten_override = null;
+        refreshProjektMassen();
+      });
+    }
+    // Materialliste-Annahmen: Apply / Reset
+    var mlApply = document.getElementById('materialliste-apply');
+    if (mlApply && !mlApply.dataset.bound) {
+      mlApply.dataset.bound = '1';
+      mlApply.addEventListener('click', function () {
+        var inputs = document.querySelectorAll('#materialliste-annahmen-grid input[data-ml]');
+        var ov = {};
+        inputs.forEach(function (i) {
+          var v = i.value.trim();
+          if (v !== '') {
+            var n = parseFloat(v.replace(',', '.'));
+            if (!isNaN(n)) ov[i.getAttribute('data-ml')] = n;
+          }
+        });
+        _filterState.materialliste_override = Object.keys(ov).length ? ov : null;
+        refreshProjektMassen();
+      });
+    }
+    var mlReset = document.getElementById('materialliste-reset');
+    if (mlReset && !mlReset.dataset.bound) {
+      mlReset.dataset.bound = '1';
+      mlReset.addEventListener('click', function () {
+        document.querySelectorAll('#materialliste-annahmen-grid input[data-ml]').forEach(function (i) { i.value = ''; });
+        _filterState.materialliste_override = null;
         refreshProjektMassen();
       });
     }
@@ -172,6 +200,7 @@
     if (_filterState.gewerke) payload.gewerke_filter = _filterState.gewerke;
     if (_filterState.plan_ids) payload.plan_ids = _filterState.plan_ids;
     if (_filterState.baudaten_override) payload.baudaten_override = _filterState.baudaten_override;
+    if (_filterState.materialliste_override) payload.materialliste_override = _filterState.materialliste_override;
 
     fetch('/api/projekt-massen', {
       method: 'POST',
@@ -286,6 +315,38 @@
         ' noch nicht analysiert — Massen aktualisieren sich automatisch nach Abschluss.</div>';
       if (info) info.innerHTML += hint;
     }
+
+    // Materialliste rendern
+    renderMaterialliste(data.materialliste);
+  }
+
+  function renderMaterialliste(ml) {
+    var sec = document.getElementById('materialliste-section');
+    if (!sec) return;
+    if (!ml || ml.error || !ml.bauteile) {
+      sec.classList.add('hidden');
+      return;
+    }
+    sec.classList.remove('hidden');
+    var tbody = document.querySelector('#materialliste-table tbody');
+    if (!tbody) return;
+    var html = '';
+    Object.keys(ml.bauteile).forEach(function (bauteil) {
+      html += '<tr class="bauteil-head"><td colspan="6">' + esc(bauteil) + '</td></tr>';
+      ml.bauteile[bauteil].forEach(function (p) {
+        var konf = Math.round((p.konfidenz || 0) * 100);
+        var konfClass = konf >= 70 ? 'hoch' : (konf >= 50 ? 'mittel' : 'niedrig');
+        html += '<tr>' +
+          '<td></td>' +
+          '<td>' + esc(p.material || '') + '</td>' +
+          '<td class="num">' + fmtNum(p.menge) + '</td>' +
+          '<td>' + esc(p.einheit || '') + '</td>' +
+          '<td class="num"><span class="materialliste-konf-badge ' + konfClass + '">' + konf + '%</span></td>' +
+          '<td class="formel">' + esc(p.formel || '') + '</td>' +
+          '</tr>';
+      });
+    });
+    tbody.innerHTML = html;
   }
 
   function fmtNum(n) {

@@ -7,7 +7,7 @@
       "config": {
         "maxLambdaSize": "50mb",
         "maxDuration": 300,
-        "includeFiles": "api/massen_logic.py"
+        "includeFiles": "api/{massen_logic,materialliste}.py"
       }
     },
     { "src": "public/**", "use": "@vercel/static" }

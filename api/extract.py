@@ -17,6 +17,14 @@ except Exception as _e:  # pragma: no cover
     print(f"[massen_logic] Import fehlgeschlagen: {_e}")
     _MASSEN_OK = False
 
+# Rohbau-Materialliste (Phase 1, Faustformel-basiert)
+try:
+    from materialliste import build_materialliste as _build_materialliste
+    _MATERIAL_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[materialliste] Import fehlgeschlagen: {_e}")
+    _MATERIAL_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -1580,6 +1588,10 @@ class ProjektMassenRequest(BaseModel):
     gewerke_filter: list[str] | None = None
     plan_ids: list[str] | None = None
     baudaten_override: dict | None = None
+    # Override für die Materialliste-Faustformeln (Bodenplatten-Aufschlag,
+    # HLZ-Verteilung, Frostschürze-Tiefe, etc.). Schlüssel siehe
+    # materialliste.DEFAULTS.
+    materialliste_override: dict | None = None
 
 
 @app.post("/api/projekt-massen")
@@ -1740,6 +1752,19 @@ async def projekt_massen(body: ProjektMassenRequest):
     except Exception as e:
         raise HTTPException(500, f"berechne_gewerke: {e}")
 
+    # 7b) Rohbau-Materialliste (Phase 1, Faustformel-basiert).
+    # Standalone, weil andere Einheiten als ÖNORM-LV (Paletten/Kanister/Stk).
+    # Wird immer berechnet, aber UI kann sie ausblenden.
+    materialliste_result = None
+    if _MATERIAL_OK:
+        try:
+            materialliste_result = _build_materialliste(
+                merged_rooms, alle_fenster, best_baudaten,
+                override=body.materialliste_override, geschoss=geschoss,
+            )
+        except Exception as e:
+            materialliste_result = {"error": f"{type(e).__name__}: {e}"}
+
     # 8) Übersicht der Merge-Wirkung + Plan-Manifest für die UI
     enrichments = sum(len(r.get("_merged_from", [])) for r in merged_rooms)
     plaene_manifest = [{
@@ -1769,5 +1794,6 @@ async def projekt_massen(body: ProjektMassenRequest):
         "geschoss": geschoss,
         "raeume": merged_rooms,
         "fenster": alle_fenster,
+        "materialliste": materialliste_result,
         **gewerke_result,
     }

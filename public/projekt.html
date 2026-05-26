@@ -101,6 +101,69 @@
       </details>
     </div>
 
+    <!-- Rohbau-Materialliste (Phase 1, Faustformel-basiert) -->
+    <div class="section hidden" id="materialliste-section">
+      <h3 class="section-title">
+        &#129683; Rohbau-Materialliste
+        <span class="materialliste-phase-badge">Phase 1 &middot; Sch&auml;tzung</span>
+      </h3>
+      <div style="font-size:0.82rem;color:#555;margin-bottom:0.7rem">
+        Materialmengen pro Bauteil (HLZ-Paletten, Beton m&sup3;, EKV, XPS). Aus
+        Σ Raumfl&auml;chen + Faustformeln gesch&auml;tzt. Phase 2 (Außenkontur
+        aus Vektor-Geometrie) wird die Sch&auml;tzungen ersetzen.
+      </div>
+
+      <!-- Faustformel-Override (collapsable) -->
+      <details class="materialliste-annahmen">
+        <summary>&#9881;&#65039; Annahmen anpassen (HLZ-Verteilung, Frostsch&uuml;rze, Außenumfang...)</summary>
+        <div class="materialliste-annahmen-grid" id="materialliste-annahmen-grid">
+          <div class="ml-annahme-group">
+            <div class="ml-annahme-head">Geometrie-Sch&auml;tzung</div>
+            <label>Bodenplatte-Aufschlag <input type="number" step="0.05" min="1" max="2" data-ml="bodenplatte_aufschlag" placeholder="1.15"></label>
+            <label>Decke-Aufschlag <input type="number" step="0.05" min="1" max="2" data-ml="decke_aufschlag" placeholder="1.10"></label>
+            <label>Außenumfang-Aufschlag <input type="number" step="0.05" min="0.8" max="2" data-ml="aussenumfang_aufschlag" placeholder="1.55"></label>
+          </div>
+          <div class="ml-annahme-group">
+            <div class="ml-annahme-head">Frostsch&uuml;rze</div>
+            <label>Tiefe (m) <input type="number" step="0.05" min="0.3" max="2" data-ml="frostschuerze_tiefe_m" placeholder="0.80"></label>
+            <label>Breite (m) <input type="number" step="0.05" min="0.2" max="0.8" data-ml="frostschuerze_breite_m" placeholder="0.30"></label>
+          </div>
+          <div class="ml-annahme-group">
+            <div class="ml-annahme-head">Außenwand-Verteilung (%)</div>
+            <label>50cm-Anteil <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_50cm" placeholder="85"></label>
+            <label>38cm-Anteil <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_38cm" placeholder="10"></label>
+            <label>25cm-Außen <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_25cm_aussen" placeholder="5"></label>
+          </div>
+          <div class="ml-annahme-group">
+            <div class="ml-annahme-head">Innenwand-Verteilung (%)</div>
+            <label>25cm-Innen <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_25cm_innen" placeholder="25"></label>
+            <label>20cm-Anteil <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_20cm" placeholder="30"></label>
+            <label>12cm-Anteil <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_12cm" placeholder="45"></label>
+          </div>
+          <div style="grid-column:1/-1;display:flex;gap:0.5rem">
+            <button class="btn btn-sm btn-primary" id="materialliste-apply">Anwenden</button>
+            <button class="btn btn-sm btn-outline" id="materialliste-reset">Defaults</button>
+          </div>
+        </div>
+      </details>
+
+      <div class="materialliste-table-wrap">
+        <table class="materialliste-table" id="materialliste-table">
+          <thead>
+            <tr>
+              <th>Bauteil</th>
+              <th>Material</th>
+              <th class="num">Menge</th>
+              <th>Einheit</th>
+              <th class="num">Konfidenz</th>
+              <th>Formel</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Plans List -->
     <div class="section" id="plans-section">
       <h3 class="section-title">&#128209; Hochgeladene Pl&auml;ne</h3>

@@ -1,0 +1,376 @@
+"""Rohbau-Materialliste (Phase 1) — Faustformel-basierte Mengen-Schätzung.
+
+Im Gegensatz zur ÖNORM-Putz/Estrich/Maler-LV (massen_logic.py) listet
+dieses Modul Material-Mengen nach Bauteil-Bereichen auf:
+  - Frostschürze
+  - Bodenplatte
+  - Mauerwerk EG (HLZ-Paletten pro Wandstärke)
+  - Decke über EG
+  - Attika
+  - Säulen
+  - Öffnungen (Ziegelüberlagen, Rolladenkästen)
+
+WICHTIG — Phase 1 = grobe Schätzung:
+  • Außenkontur wird aus Σ Raumfläche × Aufschlag geschätzt
+    (echter Polygon-Build kommt in Phase 2 mit Vektor-Geometrie)
+  • Wandstärken-Verteilung kann der User parametrisieren
+  • Alle Faustformeln sind als Konstanten unten dokumentiert
+"""
+from __future__ import annotations
+import math
+
+# ────────────────────────────────────────────────────────────────────
+# FAUSTFORMEL-KONSTANTEN (alle als optionaler Override im Request)
+# ────────────────────────────────────────────────────────────────────
+DEFAULTS = {
+    # Bodenplatte / Decke aus Σ Raumfläche
+    # Decke ist meist GRÖßER als Σ Innenraum_warm, weil überdachte Außen-
+    # bereiche (Terrasse, Parkplatz) ebenfalls unter der EG-Decke liegen.
+    # → bei der Decke ALLE Räume zählen (inkl. Loggia/Parkplatz/Terrasse),
+    # bei der Bodenplatte nur Innen + Vorräume + überdachte Bereiche.
+    # Bodenplatte = Footprint des Hauses (OHNE überdachte Außenbereiche,
+    #   die meist eigenständige Fundamente haben).
+    # Decke EG = inkl. überdachte Außenbereiche (sie liegen UNTER der Decke).
+    "bodenplatte_aufschlag": 1.15,     # Σ F_innen × Faktor (Aufschlag für Außenwand-Bereich)
+    "decke_aufschlag": 1.10,           # Σ F_innen+loggia × Faktor
+    "include_loggia_decke": 1,          # 1 = Terrasse/Parkplatz für Decke mitzählen
+    "include_loggia_bodenplatte": 0,    # 0 = Terrasse/Parkplatz NICHT für Bodenplatte
+    "sauberkeitsschicht_cm": 5.0,      # C16/20 Untergrund unter Bodenplatte
+    "frostschuerze_tiefe_m": 0.80,     # Tiefe ab OK Erdreich
+    "frostschuerze_breite_m": 0.30,    # Breite der Frostschürze
+    "aussenumfang_aufschlag": 1.55,     # Faktor für Vor-/Rücksprünge (rechteckiger
+                                       # Bau ≈1.0, EFH mit Vor-/Auskragung 1.3-1.7,
+                                       # L-Form/Versatz 1.5-1.7)
+    # Mauerwerk-Wandstärken-Verteilung (Summe sollte 100 sein) — Außenwände
+    "wand_anteil_50cm": 85.0,          # % der Außenwand-m² in 50cm Stärke (Haupt-Tragwand)
+    "wand_anteil_38cm": 10.0,          # Stiegenhaus/Brandwand-Bereich
+    "wand_anteil_25cm_aussen": 5.0,    # kleine Außenwand-Anteile (Garage etc.)
+    # Innenwand-Verteilung (Anteile vom Innenwand-m²)
+    "wand_anteil_25cm_innen": 25.0,    # tragend
+    "wand_anteil_20cm": 30.0,
+    "wand_anteil_12cm": 45.0,
+    # Decken-Aufbau
+    "iso_korb_anteil": 0.20,           # 20% des Außenumfangs als ISO-Korb-lfm
+    "attika_anteil_aussen": 0.0,       # m² Attika-Aufbau, default 0 (User setzt)
+    # HLZ-Paletten pro m² Wand (richtwert Wienerberger/Bramac, je nach Geometrie)
+    "hlz_50cm_m2_pro_palette": 3.0,    # 1 Palette = ~3 m² Wand 50cm
+    "hlz_38cm_m2_pro_palette": 4.5,
+    "hlz_25cm_m2_pro_palette": 6.5,
+    "hlz_20cm_m2_pro_palette": 8.0,
+    "hlz_12cm_m2_pro_palette": 12.0,
+    # Mörtel / Voranstrich
+    # Üblich: bei Plansteinen reicht 1 Palette pro ~150-200 m² Wand
+    "mauermoertel_paletten_pro_100m2": 0.6,
+    "voranstrich_kanister_pro_100m2": 1.0,
+    # Bewehrung
+    "torstahl_stk_pro_m_randabschluss": 0.25,
+    "steckeisen_stk_pro_m_frostschuerze": 1.7,
+    # EKV-Bahnen
+    "ekv_aufschlag": 1.0,              # m² Bahn = m² Bauteil × Faktor
+    "ekv_mauerwerk_h_anteil": 0.95,    # m² Außenwand × Faktor = Mauerwerk-Bahn
+                                       # (Materialliste: m² ≈ Außenfläche fast voll)
+}
+
+
+def f(name, override):
+    """Override-Resolver."""
+    if override and name in override:
+        try:
+            return float(override[name])
+        except (TypeError, ValueError):
+            pass
+    return DEFAULTS[name]
+
+
+# ────────────────────────────────────────────────────────────────────
+# Geometrie-Schätzungen (Phase-1-Heuristik)
+# ────────────────────────────────────────────────────────────────────
+def aussenumfang_schaetzung(bodenplatte_m2: float, aufschlag: float = 1.40) -> float:
+    """Außenumfang aus Bodenplatten-Fläche.
+    Annahme: ein Rechteck mit Seitenverhältnis 1:1.3 (typisches Haus),
+    plus Aufschlag für Vor-/Rücksprünge (typisch 1.3-1.5 für EFH).
+    """
+    if bodenplatte_m2 <= 0:
+        return 0.0
+    b = math.sqrt(bodenplatte_m2 / 1.3)
+    a = b * 1.3
+    rechteck_umfang = 2 * (a + b)
+    return round(rechteck_umfang * aufschlag, 2)
+
+
+# ────────────────────────────────────────────────────────────────────
+# Material-Position (Buchform mit Material-Einheit)
+# ────────────────────────────────────────────────────────────────────
+class MaterialPos:
+    def __init__(self, bauteil: str, material: str, einheit: str,
+                 menge: float, formel: str = "", konfidenz: float = 0.6):
+        self.bauteil = bauteil
+        self.material = material
+        self.einheit = einheit
+        self.menge = round(float(menge or 0), 2)
+        self.formel = formel
+        self.konfidenz = konfidenz
+
+    def to_dict(self):
+        return {
+            "bauteil": self.bauteil,
+            "material": self.material,
+            "menge": self.menge,
+            "einheit": self.einheit,
+            "formel": self.formel,
+            "konfidenz": self.konfidenz,
+        }
+
+
+# ────────────────────────────────────────────────────────────────────
+# BAUTEIL-BERECHNUNGEN
+# ────────────────────────────────────────────────────────────────────
+def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG"):
+    """Erzeugt eine flache Liste von MaterialPos über alle Bauteile."""
+    from massen_logic import kategorie_of
+
+    def _kat(r):
+        return kategorie_of(r.get("name") or r.get("bezeichnung") or "")
+
+    innen = [r for r in rooms if _kat(r) == "Innenraum_warm"]
+    loggia = [r for r in rooms if _kat(r) == "Loggia"]  # Terrasse, Balkon, Parkplatz
+
+    f_sum_innen = sum(r.get("flaeche_m2") or 0 for r in innen)
+    f_sum_loggia = sum(r.get("flaeche_m2") or 0 for r in loggia)
+    u_sum_innen = sum(r.get("umfang_m") or 0 for r in innen)
+    h_room = sum((r.get("hoehe_m") or 0) for r in innen if r.get("hoehe_m")) / max(
+        1, sum(1 for r in innen if r.get("hoehe_m")))
+    h = h_room if h_room > 0 else baudaten.get("geschosshoehe_m", 2.70)
+    aw_cm = baudaten.get("aussenwand_cm", 50)
+    iw_cm = baudaten.get("innenwand_tragend_cm", 25)
+    decke_cm = baudaten.get("decke_cm", 22)
+    bopl_cm = baudaten.get("bodenplatte_cm", 25)
+
+    # Bodenplatte / Decke — überdachte Außenbereiche optional mitzählen
+    bp_inkl_loggia = bool(f("include_loggia_bodenplatte", override))
+    dk_inkl_loggia = bool(f("include_loggia_decke", override))
+    f_bp_base = f_sum_innen + (f_sum_loggia if bp_inkl_loggia else 0)
+    f_dk_base = f_sum_innen + (f_sum_loggia if dk_inkl_loggia else 0)
+    bp_faktor = f("bodenplatte_aufschlag", override)
+    dk_faktor = f("decke_aufschlag", override)
+    bodenplatte_m2 = round(f_bp_base * bp_faktor, 2)
+    decke_m2 = round(f_dk_base * dk_faktor, 2)
+
+    # Außenumfang: aus Bodenplatte (Bodenplatte = Footprint des Gebäudes)
+    aussenumfang_m = aussenumfang_schaetzung(
+        bodenplatte_m2, aufschlag=f("aussenumfang_aufschlag", override))
+
+    aw_m2_aussen = round(aussenumfang_m * h, 2)
+    iw_m2_innen_rohbau = max(0, round(u_sum_innen * h - aw_m2_aussen, 2))
+
+    out = []
+
+    # ═══ Frostschürze ═══
+    fs_tiefe = f("frostschuerze_tiefe_m", override)
+    fs_breite = f("frostschuerze_breite_m", override)
+    fs_m3 = aussenumfang_m * fs_tiefe * fs_breite
+    out.append(MaterialPos(
+        "Frostschürze", "Lieferbeton C25/30, XC1, F52, GK 22", "m³",
+        fs_m3, f"Außenumfang {aussenumfang_m}m × {fs_tiefe}m × {fs_breite}m",
+        konfidenz=0.55))
+    out.append(MaterialPos(
+        "Frostschürze", "XPS-SF G30 140mm", "m²",
+        aussenumfang_m * fs_tiefe,
+        f"Außenumfang {aussenumfang_m}m × Tiefe {fs_tiefe}m",
+        konfidenz=0.55))
+    out.append(MaterialPos(
+        "Frostschürze", "2k Bitumen Spachtelmasse (5mm)", "m²",
+        aussenumfang_m * fs_tiefe,
+        "Außenkante Frostschürze als Sockelabdichtung",
+        konfidenz=0.5))
+    out.append(MaterialPos(
+        "Frostschürze", "Noppenfolie 1m", "lfm",
+        aussenumfang_m, f"Außenumfang {aussenumfang_m}m", konfidenz=0.6))
+    out.append(MaterialPos(
+        "Frostschürze", "Steckeisen 10mm a 1m gekröpft", "Stk",
+        aussenumfang_m * f("steckeisen_stk_pro_m_frostschuerze", override),
+        "Außenumfang × Stk-Dichte", konfidenz=0.5))
+
+    # ═══ Bodenplatte ═══
+    bp_m3 = bodenplatte_m2 * (bopl_cm / 100.0)
+    out.append(MaterialPos(
+        "Bodenplatte", "Lieferbeton C25/30, B2, GK 22, F52", "m³",
+        bp_m3, f"{bodenplatte_m2}m² × {bopl_cm}cm Dicke",
+        konfidenz=0.7))
+    sauber_cm = f("sauberkeitsschicht_cm", override)
+    out.append(MaterialPos(
+        "Bodenplatte", "Lieferbeton C16/20 (Sauberkeitsschicht)", "m³",
+        bodenplatte_m2 * (sauber_cm / 100.0),
+        f"{bodenplatte_m2}m² × {sauber_cm}cm",
+        konfidenz=0.5))
+    ekv_f = f("ekv_aufschlag", override)
+    out.append(MaterialPos(
+        "Bodenplatte", "EKV-5 Bitumendichtbahn", "m²",
+        bodenplatte_m2 * ekv_f, f"{bodenplatte_m2}m² × {ekv_f}",
+        konfidenz=0.65))
+    out.append(MaterialPos(
+        "Bodenplatte", "XPS-SF G30 120mm", "m²",
+        bodenplatte_m2, f"{bodenplatte_m2}m²", konfidenz=0.7))
+    out.append(MaterialPos(
+        "Bodenplatte", "Randabschlusskorb 16cm", "lfm",
+        aussenumfang_m, f"Außenumfang {aussenumfang_m}m", konfidenz=0.65))
+    out.append(MaterialPos(
+        "Bodenplatte", "Torstahl (Bewehrung)", "Stk",
+        aussenumfang_m * f("torstahl_stk_pro_m_randabschluss", override),
+        "Pauschal aus Randabschluss", konfidenz=0.4))
+
+    # ═══ Mauerwerk EG — HLZ-Paletten pro Wandstärke ═══
+    # Außenwand auf 50cm/38cm/25cm-aussen verteilen
+    a50 = aw_m2_aussen * f("wand_anteil_50cm", override) / 100.0
+    a38 = aw_m2_aussen * f("wand_anteil_38cm", override) / 100.0
+    a25a = aw_m2_aussen * f("wand_anteil_25cm_aussen", override) / 100.0
+    # Innenwand auf 25cm-innen/20cm/12cm
+    i25 = iw_m2_innen_rohbau * f("wand_anteil_25cm_innen", override) / 100.0
+    i20 = iw_m2_innen_rohbau * f("wand_anteil_20cm", override) / 100.0
+    i12 = iw_m2_innen_rohbau * f("wand_anteil_12cm", override) / 100.0
+    gesamt_m2_25 = a25a + i25
+
+    def pal(m2, key):
+        m2_pro_pal = f(key, override)
+        return math.ceil(m2 / m2_pro_pal) if m2_pro_pal > 0 else 0
+
+    out.append(MaterialPos(
+        "Mauerwerk EG", "HLZ 50cm H.I. Plan", "Paletten",
+        pal(a50, "hlz_50cm_m2_pro_palette"),
+        f"{a50:.1f}m² Außenwand 50cm ÷ {f('hlz_50cm_m2_pro_palette', override)}m²/Pal", konfidenz=0.5))
+    out.append(MaterialPos(
+        "Mauerwerk EG", "HLZ 38cm H.I. Plan", "Paletten",
+        pal(a38, "hlz_38cm_m2_pro_palette"),
+        f"{a38:.1f}m² Außenwand 38cm", konfidenz=0.5))
+    out.append(MaterialPos(
+        "Mauerwerk EG", "HLZ 25cm Plan", "Paletten",
+        pal(gesamt_m2_25, "hlz_25cm_m2_pro_palette"),
+        f"{gesamt_m2_25:.1f}m² (Außen 25cm + Innen 25cm)", konfidenz=0.5))
+    out.append(MaterialPos(
+        "Mauerwerk EG", "HLZ 20cm Plan", "Paletten",
+        pal(i20, "hlz_20cm_m2_pro_palette"),
+        f"{i20:.1f}m² Innenwand 20cm", konfidenz=0.5))
+    out.append(MaterialPos(
+        "Mauerwerk EG", "HLZ 12cm Plan", "Paletten",
+        pal(i12, "hlz_12cm_m2_pro_palette"),
+        f"{i12:.1f}m² Innenwand 12cm", konfidenz=0.5))
+
+    gesamt_wand_m2 = a50 + a38 + a25a + i25 + i20 + i12
+    out.append(MaterialPos(
+        "Mauerwerk EG", "Mauermörtel", "Paletten",
+        gesamt_wand_m2 / 100 * f("mauermoertel_paletten_pro_100m2", override),
+        f"{gesamt_wand_m2:.0f}m² Wand", konfidenz=0.6))
+    out.append(MaterialPos(
+        "Mauerwerk EG", "bitumin. Voranstrich", "Kanister",
+        math.ceil(aw_m2_aussen / 100 * f("voranstrich_kanister_pro_100m2", override)) or 1,
+        f"{aw_m2_aussen}m² Außenwand × {f('voranstrich_kanister_pro_100m2', override)} Kan/100m²",
+        konfidenz=0.55))
+    ekv_mw_h = f("ekv_mauerwerk_h_anteil", override)
+    out.append(MaterialPos(
+        "Mauerwerk EG", "EKV-5 (Außenwand)", "m²",
+        aw_m2_aussen * ekv_mw_h,
+        f"{aw_m2_aussen}m² Außenwand × {ekv_mw_h}", konfidenz=0.65))
+    out.append(MaterialPos(
+        "Mauerwerk EG", "Mauersperrbahn 25cm", "Rollen",
+        math.ceil(aussenumfang_m / 25) or 1,
+        f"Außenumfang {aussenumfang_m}m ÷ 25m/Rolle", konfidenz=0.65))
+
+    # ═══ Öffnungen — Ziegelüberlagen + Rolladenkästen aus Vision-Fenster ═══
+    fenster_breiten = []
+    for w in (windows or []):
+        bw = w.get("breite_m") or (w.get("breite_cm", 0) / 100.0 if w.get("breite_cm") else None)
+        if bw:
+            fenster_breiten.append(bw)
+
+    rolladen_125 = sum(1 for b in fenster_breiten if 1.0 <= b <= 1.4)
+    rolladen_180 = sum(1 for b in fenster_breiten if 1.4 < b <= 2.0)
+    rolladen_215 = sum(1 for b in fenster_breiten if 2.0 < b <= 2.4)
+
+    if rolladen_125:
+        out.append(MaterialPos(
+            "Öffnungen", "Rolladenkasten (Lavatherm) 124cm", "Stk",
+            rolladen_125, f"{rolladen_125} Fenster mit 1.0–1.4m Breite", konfidenz=0.7))
+    if rolladen_180:
+        out.append(MaterialPos(
+            "Öffnungen", "Rolladenkasten (Lavatherm) 184cm", "Stk",
+            rolladen_180, f"{rolladen_180} Fenster mit 1.4–2.0m Breite", konfidenz=0.7))
+    if rolladen_215:
+        out.append(MaterialPos(
+            "Öffnungen", "Rolladenkasten (Lavatherm) 214cm", "Stk",
+            rolladen_215, f"{rolladen_215} Fenster mit 2.0–2.4m Breite", konfidenz=0.7))
+
+    # Ziegelüberlagen für Türen — Annahme: 1 Innentür pro Raum, +1 Außentür
+    n_tueren = max(0, len(rooms) - 1)
+    n_aussen = 2  # Pauschal
+    out.append(MaterialPos(
+        "Öffnungen", "Ziegelüberlage 12cm 125cm", "Stk",
+        n_tueren, f"{n_tueren} Innentüren (1 pro Raum)", konfidenz=0.45))
+    out.append(MaterialPos(
+        "Öffnungen", "Ziegelüberlage 12cm 200cm", "Stk",
+        n_aussen, "Pauschal 2 Außenöffnungen", konfidenz=0.4))
+
+    # ═══ Decke über EG ═══
+    decke_m3 = decke_m2 * (decke_cm / 100.0)
+    out.append(MaterialPos(
+        "Decke über EG", "Lieferbeton C25/30, XC1, GK 22, F52", "m³",
+        decke_m3, f"{decke_m2}m² × {decke_cm}cm", konfidenz=0.7))
+    out.append(MaterialPos(
+        "Decke über EG", "Schaltafel 200/50", "m²",
+        decke_m2, f"{decke_m2}m² Schalung", konfidenz=0.7))
+    out.append(MaterialPos(
+        "Decke über EG", "ISO-Korb 8/25", "lfm",
+        aussenumfang_m * f("iso_korb_anteil", override),
+        f"Außenumfang × {int(f('iso_korb_anteil', override)*100)}%", konfidenz=0.4))
+    out.append(MaterialPos(
+        "Decke über EG", "EKV-5 Decken-Sockelabdichtung", "m²",
+        decke_m2 * ekv_f, f"{decke_m2}m² × {ekv_f}", konfidenz=0.65))
+    out.append(MaterialPos(
+        "Decke über EG", "Randabschlusskorb 16cm", "lfm",
+        aussenumfang_m, f"Außenumfang {aussenumfang_m}m", konfidenz=0.65))
+    out.append(MaterialPos(
+        "Decke über EG", "bitumin. Voranstrich", "Kanister",
+        math.ceil(decke_m2 / 100 * f("voranstrich_kanister_pro_100m2", override)) or 1,
+        f"{decke_m2}m² Decke", konfidenz=0.55))
+
+    # ═══ Attika ═══
+    attika_anteil = f("attika_anteil_aussen", override)
+    if attika_anteil > 0:
+        attika_m2 = aussenumfang_m * attika_anteil
+        out.append(MaterialPos(
+            "Attika", "XPS 6cm Oberfläche rau", "m²",
+            attika_m2, f"Außenumfang × {attika_anteil}m", konfidenz=0.5))
+        out.append(MaterialPos(
+            "Attika", "Lieferbeton C25/30", "m³",
+            attika_m2 * 0.15,
+            f"{attika_m2}m² × 0.15m Stärke (Annahme)", konfidenz=0.4))
+
+    return out
+
+
+def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG"):
+    """Wrapper: gibt strukturiertes Gewerk-Dict zurück (für berechne_gewerke-Integration)."""
+    positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss)
+    # Gruppiere nach Bauteil
+    by_bauteil = {}
+    for p in positionen:
+        by_bauteil.setdefault(p.bauteil, []).append(p.to_dict())
+
+    return {
+        "label": "Rohbau-Materialliste (Phase 1 — Faustformel-basiert)",
+        "bauteile": by_bauteil,
+        "annahmen": {
+            "bodenplatte_aufschlag": f("bodenplatte_aufschlag", override),
+            "decke_aufschlag": f("decke_aufschlag", override),
+            "wand_verteilung": {
+                "50cm_aussen": f("wand_anteil_50cm", override),
+                "38cm_aussen": f("wand_anteil_38cm", override),
+                "25cm_aussen": f("wand_anteil_25cm_aussen", override),
+                "25cm_innen": f("wand_anteil_25cm_innen", override),
+                "20cm_innen": f("wand_anteil_20cm", override),
+                "12cm_innen": f("wand_anteil_12cm", override),
+            },
+            "hinweis": ("Phase 1: Bauteilmengen aus Σ Raumfläche × Aufschlägen "
+                        "geschätzt. Phase 2 (Vektor-Geometrie) wird Außenkontur "
+                        "präzise lesen statt zu schätzen."),
+        },
+    }
