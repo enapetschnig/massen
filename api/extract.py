@@ -728,7 +728,27 @@ async def analyse_zoom(body: ExtractRequest):
         if m:
             top_labels.append({"name": f"TOP {m.group(2)}", "cx": s["cx"], "cy": s["cy"]})
 
-    def nearest_top(rx, ry, max_dist=500):
+    # Einfamilienhaus-Fallback: kein TOP-Label im Plan → ein virtuelles
+    # "Haus"-Top über alle Räume legen. Sonst hätte jeder Raum wohnung=None
+    # und PASS 4 (Bemaßungs-Vision) sowie die ÖNORM-A-2063-LV-Aggregation
+    # würden komplett übersprungen (typisch für EFH/Einreichpläne).
+    if not top_labels and text_first_rooms:
+        xs = [r["cx"] for r in text_first_rooms if r.get("cx") is not None]
+        ys = [r["cy"] for r in text_first_rooms if r.get("cy") is not None]
+        if xs and ys:
+            top_labels.append({
+                "name": "Haus",
+                "cx": sum(xs) / len(xs),
+                "cy": sum(ys) / len(ys),
+                "_synthetic": True,
+            })
+
+    def nearest_top(rx, ry, max_dist=99999):
+        # Mit nur einem Top (Einfamilienhaus) muss max_dist gross sein,
+        # sonst landen Räume in den Ecken des Plans bei wohnung=None.
+        # Bei mehreren echten Tops bleibt 500pt eine sinnvolle Schwelle.
+        if len(top_labels) > 1:
+            max_dist = 500
         best = None; best_d = float("inf")
         for t in top_labels:
             d = ((t["cx"]-rx)**2 + (t["cy"]-ry)**2) ** 0.5
@@ -1150,6 +1170,22 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
             unique_rooms.append(rec)
 
     doc.close()
+
+    # Einfamilienhaus-Fallback (post-hoc, deckt auch reine Vision-Räume ab):
+    # Wenn nach allem Merge KEIN Raum eine wohnung hat → alle als "Haus"
+    # markieren. Sonst übersprängen PASS 4 (Bemaßung) und LV-Aggregation
+    # alle Räume (require wohnung != None).
+    if unique_rooms and not any(r.get("wohnung") for r in unique_rooms):
+        for r in unique_rooms:
+            r["wohnung"] = "Haus"
+        if not top_labels:
+            xs = [r.get("cx") for r in unique_rooms if r.get("cx") is not None]
+            ys = [r.get("cy") for r in unique_rooms if r.get("cy") is not None]
+            if xs and ys:
+                top_labels.append({
+                    "name": "Haus", "cx": sum(xs)/len(xs), "cy": sum(ys)/len(ys),
+                    "_synthetic": True,
+                })
 
     # Fenster dedup: by bezeichnung, merge dimensions (highest confidence wins)
     fenster_groups = {}
