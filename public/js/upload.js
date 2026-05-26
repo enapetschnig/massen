@@ -61,13 +61,23 @@
       if (plansLoading) plansLoading.style.display = 'none';
       var plans = res.data || [];
       renderPlans(plans);
-      // Projekt-Massen nur laden, wenn mindestens ein Plan fertig analysiert ist.
-      // Bei mehreren Plänen merged der Endpoint serverseitig.
+      // Plans-Count-Badge im Section-Titel
       var fertigCount = plans.filter(function (p) { return p.verarbeitet === true; }).length;
+      var countEl = document.getElementById('plans-count');
+      if (countEl) {
+        if (plans.length === 0) {
+          countEl.textContent = '';
+        } else if (fertigCount === plans.length) {
+          countEl.innerHTML = '<span class="plans-count-badge ok">' + plans.length + ' fertig analysiert</span>';
+        } else {
+          countEl.innerHTML = '<span class="plans-count-badge work">' + fertigCount + ' von ' + plans.length + ' analysiert</span>';
+        }
+      }
+      // Ergebnis-Section nur, wenn mindestens ein Plan fertig analysiert ist.
       if (fertigCount >= 1) {
         loadProjektMassen(fertigCount, plans.length);
       } else {
-        var sec = document.getElementById('projekt-massen-section');
+        var sec = document.getElementById('ergebnis-section');
         if (sec) sec.classList.add('hidden');
       }
     });
@@ -179,7 +189,7 @@
 
   // --- Projekt-weite Massenermittlung (gemerged über alle Pläne) ---
   function loadProjektMassen(fertigCount, totalCount) {
-    var sec = document.getElementById('projekt-massen-section');
+    var sec = document.getElementById('ergebnis-section');
     if (!sec) return;
     var badge = document.getElementById('projekt-massen-badge');
     var info = document.getElementById('projekt-massen-info');
@@ -190,6 +200,7 @@
     sec.classList.remove('hidden');
     _lastFertig = fertigCount; _lastTotal = totalCount;
     bindFilterControls();
+    bindErgebnisTabs();
     if (badge) badge.textContent = 'lädt...';
     if (info) info.textContent = '';
     if (grid) grid.innerHTML = '<div class="loading" style="padding:1rem"><div class="spinner"></div> Räume aller Pläne werden zusammengeführt...</div>';
@@ -321,14 +332,17 @@
   }
 
   function renderMaterialliste(ml) {
-    var sec = document.getElementById('materialliste-section');
-    if (!sec) return;
+    // Materialliste lebt jetzt als Tab innerhalb der ergebnis-section
+    var panel = document.getElementById('ergebnis-panel-material');
+    var tab = document.querySelector('.ergebnis-tab[data-ergtab="material"]');
+    if (!panel || !tab) return;
+    var tbody = document.querySelector('#materialliste-table tbody');
     if (!ml || ml.error || !ml.bauteile) {
-      sec.classList.add('hidden');
+      tab.style.display = 'none';
+      if (tbody) tbody.innerHTML = '';
       return;
     }
-    sec.classList.remove('hidden');
-    var tbody = document.querySelector('#materialliste-table tbody');
+    tab.style.display = '';
     if (!tbody) return;
     var html = '';
     Object.keys(ml.bauteile).forEach(function (bauteil) {
@@ -352,6 +366,22 @@
   function fmtNum(n) {
     if (n == null || isNaN(n)) return '–';
     return Number(n).toLocaleString('de-AT', { maximumFractionDigits: 2 });
+  }
+
+  // ─── Tab-Wechsel innerhalb der Ergebnis-Section ───
+  function bindErgebnisTabs() {
+    var tabs = document.querySelectorAll('.ergebnis-tab');
+    if (!tabs.length || tabs[0].dataset.bound) return;
+    tabs.forEach(function (t) {
+      t.dataset.bound = '1';
+      t.addEventListener('click', function () {
+        var which = t.getAttribute('data-ergtab');
+        document.querySelectorAll('.ergebnis-tab').forEach(function (x) { x.classList.toggle('active', x === t); });
+        document.querySelectorAll('.ergebnis-panel').forEach(function (p) {
+          p.classList.toggle('active', p.id === 'ergebnis-panel-' + which);
+        });
+      });
+    });
   }
 
   function renderPlans(plans) {

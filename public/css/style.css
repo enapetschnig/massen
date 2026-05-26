@@ -2042,6 +2042,52 @@ img {
 .materialliste-konf-badge.hoch { background: #dcfce7; color: #166534; }
 .materialliste-konf-badge.mittel { background: #fef9c3; color: #854d0e; }
 .materialliste-konf-badge.niedrig { background: #fee2e2; color: #991b1b; }
+
+/* Plans-Count-Badge im Section-Titel */
+.plans-count-badge {
+  display: inline-block; margin-left: 0.4rem; padding: 2px 9px;
+  font-size: 0.72rem; font-weight: 600; border-radius: 12px;
+  vertical-align: middle;
+}
+.plans-count-badge.ok { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+.plans-count-badge.work { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+
+/* Ergebnis-Section: Filter-Drawer + Tabs */
+.ergebnis-filter {
+  background: #f8fafc; border: 1px solid #e5e9f0; border-radius: 6px;
+  padding: 0; margin-bottom: 0.9rem;
+}
+.ergebnis-filter > summary {
+  cursor: pointer; padding: 0.6rem 0.9rem;
+  font-size: 0.85rem; font-weight: 600; color: #1a3a5c;
+  list-style: none;
+}
+.ergebnis-filter > summary::before {
+  content: "▸"; display: inline-block; margin-right: 0.4rem;
+  transition: transform 0.15s ease;
+}
+.ergebnis-filter[open] > summary::before { transform: rotate(90deg); }
+.ergebnis-filter-body {
+  display: flex; flex-direction: column; gap: 0.8rem;
+  padding: 0.7rem 0.9rem 0.9rem;
+  border-top: 1px solid #e5e9f0;
+}
+.ergebnis-tabs {
+  display: flex; gap: 0.3rem; margin-bottom: 0.9rem;
+  border-bottom: 2px solid #e5e9f0;
+}
+.ergebnis-tab {
+  background: none; border: none; cursor: pointer;
+  padding: 0.55rem 1.1rem; font-size: 0.92rem; font-weight: 600;
+  color: #6c757d; border-bottom: 3px solid transparent;
+  margin-bottom: -2px; transition: all 0.15s ease;
+}
+.ergebnis-tab:hover { color: #1a3a5c; }
+.ergebnis-tab.active {
+  color: #1a3a5c; border-bottom-color: #f39301;
+}
+.ergebnis-panel { display: none; }
+.ergebnis-panel.active { display: block; }
 .pv-gw-baudaten {
   display: flex; flex-wrap: wrap; gap: 0.4rem;
   padding: 0.5rem 0.75rem; background: #f8fafc; font-size: 0.72rem;
