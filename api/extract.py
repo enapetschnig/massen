@@ -1527,3 +1527,147 @@ im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
         "oenorm_positionen": len(oenorm_lv),
         "gewerke": list((gewerke_result or {}).get("gewerke", {}).keys()),
     }
+
+
+class ProjektMassenRequest(BaseModel):
+    """Eingang: entweder projekt_id ODER plan_id (dann wird projekt_id daraus ermittelt)."""
+    projekt_id: str | None = None
+    plan_id: str | None = None
+
+
+@app.post("/api/projekt-massen")
+async def projekt_massen(body: ProjektMassenRequest):
+    """Projekt-weite Massenermittlung: merged Räume aus ALLEN Plänen
+    eines Projekts und ruft berechne_gewerke neu auf.
+
+    Architekten teilen F/U/H typisch auf mehrere Pläne auf:
+      • Einreichplan:  F, U, Bodenbelag (keine H)
+      • Polierplan:   H (oft kein F/U)
+    Pro-Plan-Berechnung liefert daher 0 m² Wandfläche, weil pro Plan ein
+    Wert fehlt. Dieser Endpoint führt zusammen, was zusammengehört.
+    """
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    if not _MASSEN_OK:
+        raise HTTPException(500, "massen_logic nicht verfügbar")
+
+    # 1) projekt_id auflösen
+    projekt_id = body.projekt_id
+    if not projekt_id and body.plan_id:
+        pl = sb.table("plaene").select("projekt_id").eq("id", body.plan_id).single().execute()
+        if not pl.data:
+            raise HTTPException(404, "Plan nicht gefunden")
+        projekt_id = pl.data["projekt_id"]
+    if not projekt_id:
+        raise HTTPException(400, "projekt_id oder plan_id erforderlich")
+
+    # 2) Alle Pläne des Projekts laden (mit agent_log für Baudaten + Fenster)
+    plaene_res = sb.table("plaene").select(
+        "id, dateiname, agent_log"
+    ).eq("projekt_id", projekt_id).execute()
+    plaene = plaene_res.data or []
+    if not plaene:
+        return {"status": "empty", "raeume_count": 0, "gewerke": {}}
+
+    plan_ids = [p["id"] for p in plaene]
+
+    # 3) Räume und Fenster aus elemente sammeln
+    raeume_res = sb.table("elemente").select(
+        "plan_id, bezeichnung, daten, typ"
+    ).in_("plan_id", plan_ids).eq("typ", "raum").execute()
+    raum_rows = raeume_res.data or []
+
+    fenster_res = sb.table("elemente").select(
+        "plan_id, bezeichnung, daten, typ"
+    ).in_("plan_id", plan_ids).eq("typ", "fenster").execute()
+    fenster_rows = fenster_res.data or []
+
+    # 4) Räume mergen — name-basiert (Einfamilienhaus) bzw. name+wohnung (Mehrwohnungs-Bau).
+    def _nk(s):
+        return re.sub(r"[\s\-_/]+", "", (s or "").lower())
+
+    merged = {}  # key -> raum-dict
+    for row in raum_rows:
+        d = row.get("daten") or {}
+        name = row.get("bezeichnung") or d.get("name") or ""
+        wohnung = d.get("wohnung") or ""
+        key = (_nk(name), _nk(wohnung))
+        if not key[0]:
+            continue
+        ex = merged.get(key)
+        if ex is None:
+            merged[key] = dict(d)
+            merged[key]["name"] = name
+            merged[key]["_quellen_plaene"] = [row["plan_id"]]
+            continue
+        # Lücken füllen — wer einen Wert hat, gewinnt
+        for fld in ("flaeche_m2", "umfang_m", "hoehe_m", "bodenbelag", "cx", "cy"):
+            if ex.get(fld) in (None, "", 0) and d.get(fld) not in (None, "", 0):
+                ex[fld] = d[fld]
+                ex.setdefault("_merged_from", []).append(fld)
+        if row["plan_id"] not in ex["_quellen_plaene"]:
+            ex["_quellen_plaene"].append(row["plan_id"])
+
+    merged_rooms = list(merged.values())
+
+    # 5) Fenster sammeln (dedup nach bezeichnung+raum)
+    seen_f = set()
+    alle_fenster = []
+    for row in fenster_rows:
+        d = row.get("daten") or {}
+        bez = row.get("bezeichnung") or d.get("bezeichnung") or ""
+        raum = d.get("raum") or ""
+        sig = (bez.strip().lower(), raum.strip().lower(),
+               d.get("breite_m") or d.get("breite_cm"),
+               d.get("hoehe_m") or d.get("hoehe_cm"))
+        if sig in seen_f:
+            continue
+        seen_f.add(sig)
+        alle_fenster.append(dict(d, bezeichnung=bez))
+        # Felder normalisieren falls in cm gespeichert
+        if not alle_fenster[-1].get("breite_m") and alle_fenster[-1].get("breite_cm"):
+            alle_fenster[-1]["breite_m"] = alle_fenster[-1]["breite_cm"] / 100.0
+        if not alle_fenster[-1].get("hoehe_m") and alle_fenster[-1].get("hoehe_cm"):
+            alle_fenster[-1]["hoehe_m"] = alle_fenster[-1]["hoehe_cm"] / 100.0
+
+    # 6) Baudaten aus allen Plänen sammeln — höchste Vision-Konfidenz gewinnt
+    best_baudaten = {}
+    best_konf = -1.0
+    geschoss = "EG"
+    for p in plaene:
+        log = p.get("agent_log") or {}
+        gw = log.get("gewerke") or {}
+        bd = gw.get("baudaten") or {}
+        if bd:
+            k = float(bd.get("konfidenz") or 0.0)
+            if k > best_konf:
+                best_konf = k
+                best_baudaten = bd
+        # Geschoss aus dem ersten Plan, der eines hat
+        if not geschoss or geschoss == "EG":
+            g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
+            if g:
+                geschoss = g
+
+    # 7) Gewerk-Berechnung neu mit gemergten Räumen
+    try:
+        gewerke_result = _berechne_gewerke(
+            merged_rooms, alle_fenster, best_baudaten, geschoss, None
+        )
+    except Exception as e:
+        raise HTTPException(500, f"berechne_gewerke: {e}")
+
+    # 8) Übersicht der Merge-Wirkung
+    enrichments = sum(len(r.get("_merged_from", [])) for r in merged_rooms)
+    return {
+        "status": "ok",
+        "projekt_id": projekt_id,
+        "plaene_count": len(plaene),
+        "raeume_count": len(merged_rooms),
+        "fenster_count": len(alle_fenster),
+        "merge_enrichments": enrichments,
+        "geschoss": geschoss,
+        "raeume": merged_rooms,
+        "fenster": alle_fenster,
+        **gewerke_result,
+    }

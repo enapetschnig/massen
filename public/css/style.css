@@ -1892,6 +1892,62 @@ img {
   padding: 0.7rem 0.75rem; font-size: 0.86rem; font-weight: 700;
   color: #1a3a5c; background: #fff4e3; border-bottom: 1px solid #fdba74;
 }
+.pv-gw-merge-badge {
+  display: inline-block; margin-left: 0.4rem; padding: 1px 7px;
+  font-size: 0.68rem; font-weight: 600; color: #166534;
+  background: #dcfce7; border: 1px solid #86efac; border-radius: 10px;
+  white-space: nowrap;
+}
+
+/* Projekt-Massen Übersicht auf projekt.html */
+.projekt-massen-badge {
+  display: inline-block; margin-left: 0.5rem; padding: 2px 8px;
+  font-size: 0.72rem; font-weight: 600; color: #166534;
+  background: #dcfce7; border: 1px solid #86efac; border-radius: 12px;
+  vertical-align: middle;
+}
+.projekt-massen-info {
+  font-size: 0.85rem; color: #555; margin-bottom: 0.7rem;
+}
+.projekt-massen-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem; margin-bottom: 0.9rem;
+}
+.projekt-massen-card {
+  background: #fff; border: 1px solid #e5e9f0; border-left: 4px solid #f39301;
+  border-radius: 6px; padding: 0.7rem 0.85rem;
+}
+.projekt-massen-card-label {
+  font-size: 0.72rem; font-weight: 600; color: #6c757d;
+  text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.3rem;
+}
+.projekt-massen-card-value {
+  font-size: 1.3rem; font-weight: 700; color: #1a3a5c;
+  font-variant-numeric: tabular-nums;
+}
+.projekt-massen-card-unit {
+  font-size: 0.85rem; color: #6c757d; margin-left: 0.25rem;
+}
+.projekt-massen-card-konf {
+  font-size: 0.72rem; color: #166534; margin-top: 0.2rem;
+}
+.projekt-massen-card-konf.warn { color: #92400e; }
+.projekt-massen-detail summary {
+  cursor: pointer; padding: 0.5rem 0; font-size: 0.85rem; color: #1a3a5c;
+  font-weight: 600;
+}
+.projekt-massen-detail table {
+  width: 100%; border-collapse: collapse; font-size: 0.82rem;
+}
+.projekt-massen-detail th, .projekt-massen-detail td {
+  text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #f1f3f5;
+}
+.projekt-massen-detail th {
+  background: #f8fafc; font-weight: 600; color: #6c757d;
+}
+.projekt-massen-detail td.num {
+  text-align: right; font-variant-numeric: tabular-nums;
+}
 .pv-gw-baudaten {
   display: flex; flex-wrap: wrap; gap: 0.4rem;
   padding: 0.5rem 0.75rem; background: #f8fafc; font-size: 0.72rem;

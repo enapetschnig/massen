@@ -59,8 +59,152 @@
     plansEmpty.classList.add('hidden');
     _sb.from('plaene').select('*').eq('projekt_id', projectId).order('hochgeladen_am', { ascending: false }).then(function (res) {
       if (plansLoading) plansLoading.style.display = 'none';
-      renderPlans(res.data || []);
+      var plans = res.data || [];
+      renderPlans(plans);
+      // Projekt-Massen nur laden, wenn mindestens ein Plan fertig analysiert ist.
+      // Bei mehreren Plänen merged der Endpoint serverseitig.
+      var fertigCount = plans.filter(function (p) { return p.verarbeitet === true; }).length;
+      if (fertigCount >= 1) {
+        loadProjektMassen(fertigCount, plans.length);
+      } else {
+        var sec = document.getElementById('projekt-massen-section');
+        if (sec) sec.classList.add('hidden');
+      }
     });
+  }
+
+  // --- Projekt-weite Massenermittlung (gemerged über alle Pläne) ---
+  function loadProjektMassen(fertigCount, totalCount) {
+    var sec = document.getElementById('projekt-massen-section');
+    if (!sec) return;
+    var badge = document.getElementById('projekt-massen-badge');
+    var info = document.getElementById('projekt-massen-info');
+    var grid = document.getElementById('projekt-massen-grid');
+    var detail = document.getElementById('projekt-massen-detail');
+    var detailWrap = document.getElementById('projekt-massen-detail-wrap');
+
+    sec.classList.remove('hidden');
+    if (badge) badge.textContent = 'lädt...';
+    if (info) info.textContent = '';
+    if (grid) grid.innerHTML = '<div class="loading" style="padding:1rem"><div class="spinner"></div> Räume aller Pläne werden zusammengeführt...</div>';
+    if (detail) detail.innerHTML = '';
+    if (detailWrap) detailWrap.style.display = 'none';
+
+    fetch('/api/projekt-massen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projekt_id: projectId })
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || data.status !== 'ok') {
+          if (badge) badge.textContent = '';
+          if (grid) grid.innerHTML = '<p style="color:#92400e">Projekt-Massen konnten nicht berechnet werden — Detail-Ansicht im Plan öffnen.</p>';
+          return;
+        }
+        renderProjektMassen(data, fertigCount, totalCount);
+      })
+      .catch(function () {
+        if (badge) badge.textContent = '';
+        if (grid) grid.innerHTML = '<p style="color:#92400e">Netzwerk-Fehler bei Projekt-Massen.</p>';
+      });
+  }
+
+  function renderProjektMassen(data, fertigCount, totalCount) {
+    var badge = document.getElementById('projekt-massen-badge');
+    var info = document.getElementById('projekt-massen-info');
+    var grid = document.getElementById('projekt-massen-grid');
+    var detail = document.getElementById('projekt-massen-detail');
+    var detailWrap = document.getElementById('projekt-massen-detail-wrap');
+
+    if (badge) {
+      var bt = data.plaene_count + ' Pl' + (data.plaene_count === 1 ? 'an' : 'äne') +
+        ' · ' + data.raeume_count + ' Räume';
+      if (data.merge_enrichments > 0) bt += ' · ' + data.merge_enrichments + ' Lücken gefüllt';
+      badge.textContent = bt;
+    }
+    if (info) {
+      var bd = data.baudaten || {};
+      var bq = bd._quellen || {};
+      function bdItem(label, key, unit) {
+        if (bd[key] == null) return '';
+        var src = bq[key] === 'vision' ? '👁' : '≈';
+        return '<span style="margin-right:0.8rem">' + label + ' <strong>' + bd[key] + unit + '</strong> ' + src + '</span>';
+      }
+      info.innerHTML = 'Bau-Kenndaten: ' +
+        bdItem('Außenwand', 'aussenwand_cm', 'cm') +
+        bdItem('Decke', 'decke_cm', 'cm') +
+        bdItem('Bodenplatte', 'bodenplatte_cm', 'cm') +
+        bdItem('Geschoss-H', 'geschosshoehe_m', 'm') +
+        '<span style="color:#6c757d;font-size:0.78rem;margin-left:0.5rem">👁 = aus Plan gemessen · ≈ = Standard-Annahme</span>';
+    }
+
+    // Kacheln pro Hauptposition jedes Gewerks (1.1)
+    var gw = data.gewerke || {};
+    var cards = [];
+    Object.keys(gw).forEach(function (gk) {
+      var g = gw[gk];
+      var label = (g.label || gk).replace(/\s*\(.*\)/, '');
+      (g.positionen || []).forEach(function (p) {
+        if (p.posnr === '1.1' || p.posnr === '1.2' || p.posnr === '1.3') {
+          var konf = Math.round((p.konfidenz || 0) * 100);
+          var warn = konf < 65;
+          cards.push({
+            gewerk: label,
+            text: p.beschreibung || '',
+            wert: p.endsumme || 0,
+            einheit: p.einheit || '',
+            konf: konf,
+            warn: warn
+          });
+        }
+      });
+    });
+
+    if (grid) {
+      if (!cards.length) {
+        grid.innerHTML = '<p style="color:#92400e">Keine Massen ermittelt — Pläne enthalten noch keine vollständigen Raumdaten.</p>';
+      } else {
+        grid.innerHTML = cards.map(function (c) {
+          return '<div class="projekt-massen-card">' +
+            '<div class="projekt-massen-card-label">' + esc(c.gewerk) + '</div>' +
+            '<div style="font-size:0.78rem;color:#6c757d;margin-bottom:0.3rem">' + esc(c.text) + '</div>' +
+            '<div class="projekt-massen-card-value">' + fmtNum(c.wert) +
+              '<span class="projekt-massen-card-unit">' + esc(c.einheit) + '</span></div>' +
+            '<div class="projekt-massen-card-konf' + (c.warn ? ' warn' : '') + '">Konfidenz ' + c.konf + '%</div>' +
+            '</div>';
+        }).join('');
+      }
+    }
+
+    if (detail && detailWrap) {
+      detailWrap.style.display = '';
+      var html = '<table><thead><tr><th>Gewerk</th><th>Pos</th><th>Beschreibung</th><th class="num">Wert</th><th>Einheit</th><th class="num">Konf</th></tr></thead><tbody>';
+      Object.keys(gw).forEach(function (gk) {
+        var g = gw[gk];
+        var label = (g.label || gk).replace(/\s*\(.*\)/, '');
+        (g.positionen || []).forEach(function (p) {
+          html += '<tr><td>' + esc(label) + '</td><td>' + esc(p.posnr || '') + '</td><td>' + esc(p.beschreibung || '') +
+            '</td><td class="num">' + fmtNum(p.endsumme) + '</td><td>' + esc(p.einheit || '') + '</td><td class="num">' +
+            Math.round((p.konfidenz || 0) * 100) + '%</td></tr>';
+        });
+      });
+      html += '</tbody></table>';
+      detail.innerHTML = html;
+    }
+
+    // Hinweis bei noch nicht analysierten Plänen
+    if (totalCount > fertigCount) {
+      var hint = '<div style="color:#92400e;font-size:0.82rem;margin-top:0.4rem">⏳ ' +
+        (totalCount - fertigCount) + ' Plan' + (totalCount - fertigCount === 1 ? '' : 'e') +
+        ' noch nicht analysiert — Massen aktualisieren sich automatisch nach Abschluss.</div>';
+      if (info) info.innerHTML += hint;
+    }
+  }
+
+  function fmtNum(n) {
+    if (n == null || isNaN(n)) return '–';
+    return Number(n).toLocaleString('de-AT', { maximumFractionDigits: 2 });
   }
 
   function renderPlans(plans) {

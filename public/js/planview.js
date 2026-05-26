@@ -123,6 +123,11 @@
       // Anreicherung aus anderen Plänen desselben Projekts entstehen
       // vollständige Raum-Datensätze. Bei jedem Fehler: Fallback auf
       // Einzelplan-Anzeige (renderSidebar wird IMMER aufgerufen).
+      //
+      // Räume werden client-seitig gemerged (für Anzeige),
+      // Gewerke werden via /api/projekt-massen serverseitig neu gerechnet
+      // (da pro Plan oft 0 m² Wandfläche, weil ein Wert auf dem
+      // anderen Plan steht).
       if (projektId) {
         _sb.from('plaene').select('id').eq('projekt_id', projektId).then(function (pr) {
           var andereIds = (pr.data || []).map(function (p) { return p.id; })
@@ -134,7 +139,12 @@
           _sb.from('elemente').select('*').in('plan_id', andereIds).then(function (er) {
             var andereRaeume = (er.data || []).filter(function (e) { return e.typ === 'raum'; });
             var enriched = mergeMultiPlan(rooms, andereRaeume);
-            renderSidebar(enriched, massen, lv, agentLog);
+            // Projekt-weite Gewerke (serverseitig gemerged) abrufen und
+            // in agent_log.gewerke ersetzen, damit der LV-Block die
+            // vollständigen Massen statt der Einzelplan-Lücken zeigt.
+            recomputeProjektGewerke(planId, agentLog).then(function (newAgentLog) {
+              renderSidebar(enriched, massen, lv, newAgentLog);
+            });
           }, function () {
             renderSidebar(rooms, massen, lv, agentLog);  // Fehler → Einzelplan
           });
@@ -191,6 +201,45 @@
       console.log('Multi-Plan-Merge: ' + enrichedCount + ' Werte aus anderen Plänen ergänzt');
     }
     return currentRooms;
+  }
+
+  // ─── Projekt-weite Gewerk-Berechnung (serverseitig) ──────────────────
+  // Ruft /api/projekt-massen, das die Räume aus ALLEN Plänen des
+  // Projekts merged und berechne_gewerke neu aufruft. Liefert ein
+  // agent_log-Objekt mit ersetztem .gewerke-Block zurück. Bei Fehler
+  // wird der ursprüngliche agent_log unverändert weitergereicht —
+  // die Anzeige fällt dann auf die Einzelplan-Gewerke zurück.
+  function recomputeProjektGewerke(planId, originalAgentLog) {
+    return new Promise(function (resolve) {
+      var timer = setTimeout(function () { resolve(originalAgentLog); }, 12000);
+      fetch('/api/projekt-massen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: planId })
+      }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          clearTimeout(timer);
+          if (!data || data.status !== 'ok' || !data.gewerke) {
+            resolve(originalAgentLog);
+            return;
+          }
+          // Neues agent_log mit ersetzten Gewerken — original unverändert lassen
+          var merged = Object.assign({}, originalAgentLog || {});
+          merged.gewerke = {
+            label: 'Projekt-Gewerke',
+            baudaten: data.baudaten || {},
+            gewerke: data.gewerke,
+          };
+          merged._projekt_merge = {
+            plaene_count: data.plaene_count,
+            raeume_count: data.raeume_count,
+            fenster_count: data.fenster_count,
+            enrichments: data.merge_enrichments,
+          };
+          resolve(merged);
+        })
+        .catch(function () { clearTimeout(timer); resolve(originalAgentLog); });
+    });
   }
 
   // ─── Daten-Merge: elemente-Tabelle + agent_log.geo.raeume vereinen ───
@@ -707,7 +756,15 @@
         alleGewerke.forEach(function (g) { _gewerkAuswahl[g] = true; });
       }
       html += '<div class="pv-gw-section">';
-      html += '<div class="pv-gw-head">🏗 ÖNORM-Massenermittlung nach Gewerk</div>';
+      var mergeInfo = _stateAgentLog && _stateAgentLog._projekt_merge;
+      var headSuffix = '';
+      if (mergeInfo && mergeInfo.plaene_count > 1) {
+        headSuffix = ' <span class="pv-gw-merge-badge" title="Räume aus mehreren Plänen wurden zusammengeführt, damit F/U/H jeweils aus dem Plan kommen, der sie kennt.">' +
+          'gemerged · ' + mergeInfo.plaene_count + ' Pläne · ' + mergeInfo.raeume_count + ' Räume' +
+          (mergeInfo.enrichments ? ' · ' + mergeInfo.enrichments + ' Lücken gefüllt' : '') +
+          '</span>';
+      }
+      html += '<div class="pv-gw-head">🏗 ÖNORM-Massenermittlung nach Gewerk' + headSuffix + '</div>';
 
       // Baudaten-Zeile (Wandstärken etc.)
       var bd = gwData.baudaten || {};
