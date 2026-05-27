@@ -1978,6 +1978,28 @@ async def projekt_massen(body: ProjektMassenRequest):
     halluzinationen = [r for r in merged_rooms if r.get("_hallucination")]
     merged_rooms = cleaned_rooms
 
+    # 4c) Höhen-Inferenz: Architekten beschriften nicht jeden Raum mit RH —
+    # typisch fehlt H bei Wohnräumen (gleicher Standard-Wert) und Außen-
+    # bereichen (Loggia/Terrasse). Wenn andere Räume H haben, übernimm
+    # den Median für Räume ohne H. Damit rechnet die Putz-/Maler-LV
+    # konsistent mit der echten Geschoss-Höhe statt mit Default 2,70m.
+    rooms_with_h = [r for r in merged_rooms if r.get("hoehe_m")]
+    if rooms_with_h:
+        h_values = sorted(float(r["hoehe_m"]) for r in rooms_with_h)
+        h_median = h_values[len(h_values) // 2]
+        h_max = h_values[-1]
+        # Für Räume ohne H: Median nehmen, als "inferred" markieren
+        ergaenzte_h = 0
+        for r in merged_rooms:
+            if not r.get("hoehe_m"):
+                r["hoehe_m"] = h_median
+                r["_h_inferred"] = True
+                ergaenzte_h += 1
+    else:
+        h_median = None
+        h_max = None
+        ergaenzte_h = 0
+
     # 5) Fenster sammeln (dedup nach bezeichnung+raum)
     seen_f = set()
     alle_fenster = []
@@ -2028,6 +2050,16 @@ async def projekt_massen(body: ProjektMassenRequest):
             g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
             if g:
                 geschoss = g
+
+    # 6b) Geschoss-Höhe aus den Raumhöhen ableiten — wichtig wenn Vision
+    # keine Wandstärken liefert (Konfidenz <0.7) und Defaults greifen.
+    # Der Maximalwert der Raumhöhen ist die richtige Annahme für die
+    # Geschoss-Höhe (Lichte zum Putz/Maler-Bereich). Standard 2,70m ist
+    # falsch wenn der Plan tatsächlich 2,95m hohe Räume hat.
+    if h_max is not None and h_max > 0:
+        best_baudaten["geschosshoehe_m"] = h_max
+        best_baudaten.setdefault("_quellen", {})
+        best_baudaten["_quellen"]["geschosshoehe_m"] = "raumhoehen-max"
 
     # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
     if body.baudaten_override:
@@ -2102,6 +2134,8 @@ async def projekt_massen(body: ProjektMassenRequest):
         "raeume_count": len(merged_rooms),
         "fenster_count": len(alle_fenster),
         "merge_enrichments": enrichments,
+        "h_inferred_count": ergaenzte_h,
+        "h_inferred_value": h_median,
         "geschoss": geschoss,
         "raeume": merged_rooms,
         "fenster": alle_fenster,

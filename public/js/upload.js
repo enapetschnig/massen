@@ -265,6 +265,13 @@
           'die Raumhöhen stehen im Polierplan. ' +
           '<strong>Lade auch den Polierplan hoch</strong>, sonst werden alle ' +
           'Wand-, Putz-, Maler-Mengen mit Default-Geschosshöhe (2,70m) gerechnet.</div>');
+      } else if (data.h_inferred_count > 0) {
+        // Polierplan ist dabei aber nicht alle Räume haben H — wir haben
+        // den Median-Wert verwendet
+        hints.push('<div class="status-info">ℹ ' + data.h_inferred_count +
+          ' Räume hatten keine H im Plan → Wert <strong>' +
+          fmtNum(data.h_inferred_value) + ' m</strong> aus Median der anderen Räume ergänzt. ' +
+          'Geschoss-Höhe für Putz/Maler/Estrich übernommen.</div>');
       } else if (raeumeOhneH.length > 0) {
         hints.push('<div class="status-info">ℹ ' + raeumeOhneH.length +
           ' Räume ohne H — Default-Geschosshöhe wird verwendet.</div>');
