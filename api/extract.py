@@ -27,7 +27,7 @@ except Exception as _e:  # pragma: no cover
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from supabase import create_client
 import traceback
@@ -1513,20 +1513,123 @@ im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
                     rr["cy"] = (bb[1] + bb[3]) / 2.0
             rooms_fg.append(rr)
 
-        # Vision-erkannte Fenster (aus Baudaten) ergänzen — wichtig für
-        # Pläne ohne FE_-Codes (Einreichpläne): ohne Fenster keine Laibungen.
-        alle_fenster = list(unique_fenster)
-        for _vf in (baudaten.get("fenster") or []):
+        # ═══════════════════════════════════════════════════════════════
+        # DEDIZIERTER FENSTER-VISION-PASS
+        # Der BAUDATEN-Call findet Fenster nur als Nebenprodukt. Hier
+        # ein eigener Vision-Call NUR für Fenster — höhere DPI, fokussierter
+        # Prompt, findet Fenster ohne FE_/F25_-Codes (z.B. Einreichpläne,
+        # Einfamilienhäuser). Liefert pro Fenster: Raum, Breite × Höhe
+        # in cm, optional Brüstungshöhe.
+        # ═══════════════════════════════════════════════════════════════
+        FENSTER_PROMPT = """Du siehst einen oesterreichischen Grundriss-Plan.
+Finde JEDES einzelne Fenster im Grundriss. Fenster sind im Plan dargestellt als:
+  - Wandunterbrechung mit DUENNEN parallelen Linien (Glasflaeche)
+  - oft mit Bemassung 'XX cm' der Oeffnungsbreite ueber dem Fenster
+  - oft mit Code-Bezeichnung wie 'FE_25', 'F25_1', oder ohne Code
+  - Brüstungshoehe-Codes neben dem Fenster: RB/AL/RPH/FPH gefolgt von Wert
+
+Wichtig:
+- Vergiss KEIN Fenster — auch Bad/WC/Speisekammer-Fenster mitnehmen.
+- Wenn mehrere Fenster in einem Raum sind, jedes EINZELN auflisten.
+- Schiebetueren zu Terrasse/Loggia sind AUCH Fenster (oft 240cm breit).
+- Tueren (Drehfluegel, dicker Bogen) sind KEINE Fenster.
+
+JSON-Antwort, kein Markdown:
+{
+  "fenster": [
+    {"bezeichnung": "F1", "raum": "Wohnraum Küche", "breite_cm": 240, "hoehe_cm": 210, "konfidenz": 0.9},
+    {"bezeichnung": "F2", "raum": "Zimmer 1", "breite_cm": 120, "hoehe_cm": 140, "konfidenz": 0.85}
+  ]
+}
+Werte in cm. Wenn Bemassung nicht lesbar: Wert schätzen aus Wand-Anteil
+(z.B. Wand 4m, Fenster nimmt 1/3 ein → ca. 130cm Breite).
+NIEMALS erfinden, nur was im Plan sichtbar ist."""
+
+        vision_fenster = []
+        try:
+            doc3 = fitz.open(stream=pdf_bytes, filetype="pdf")
+            p3 = doc3[0]
+            # Höhere Standard-DPI für Fenster (250 statt 200) damit dünne
+            # Glas-Linien lesbar sind
+            dpi_f = 250
+            f_img = None
+            while dpi_f >= 100:
+                mat = fitz.Matrix(dpi_f / 72, dpi_f / 72)
+                pix = p3.get_pixmap(matrix=mat)
+                f_img = pix.tobytes("jpeg", jpg_quality=85)
+                if len(f_img) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                    break
+                dpi_f -= 30
+            doc3.close()
+            if f_img:
+                f_b64 = base64.standard_b64encode(f_img).decode("utf-8")
+                resp = client.messages.create(
+                    model="claude-sonnet-4-20250514", max_tokens=2048, temperature=0,
+                    system=FENSTER_PROMPT,
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64",
+                         "media_type": "image/jpeg", "data": f_b64}},
+                        {"type": "text", "text": "Finde jedes Fenster in diesem Plan."}
+                    ]}],
+                )
+                raw = resp.content[0].text if resp.content else "{}"
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    m = re.search(r"\{[\s\S]*\}", raw)
+                    parsed = json.loads(m.group()) if m else {}
+                vision_fenster = parsed.get("fenster") or []
+                print(f"[fenster-vision] {len(vision_fenster)} Fenster aus Vision")
+        except Exception as _exc:
+            print(f"[fenster-vision] fehlgeschlagen: {_exc!r}")
+            vision_fenster = []
+
+        # Vision-erkannte Fenster (aus dediziertem Pass + Baudaten) ergänzen.
+        # Dedup gegen unique_fenster nach (Raum, Breite, Höhe) — Vision findet
+        # oft die selben Fenster, die schon im Text-Layer als FE_/F25_-Codes
+        # stehen. Nur ECHT neue Fenster zu unique_fenster zufügen.
+        def _fkey(f):
+            r = (f.get("raum") or "").strip().lower()
+            bw = round(float(f.get("breite_m") or (f.get("breite_cm") or 0) / 100.0), 2)
+            hh = round(float(f.get("hoehe_m") or (f.get("hoehe_cm") or 0) / 100.0), 2)
+            return (r, bw, hh)
+        existing_keys = {_fkey(f) for f in unique_fenster}
+
+        def _add_vision_fenster(_vf, quelle):
             _bw, _hw = _vf.get("breite_cm"), _vf.get("hoehe_cm")
-            if _bw and _hw:
-                alle_fenster.append({
-                    "code": "F-Vision",
-                    "raum": _vf.get("raum"),
-                    "breite_m": round(_bw / 100.0, 2),
-                    "hoehe_m": round(_hw / 100.0, 2),
-                    "flaeche_m2": round(_bw * _hw / 10000.0, 2),
-                    "quelle": "vision",
-                })
+            if not (_bw and _hw):
+                return
+            entry = {
+                "bezeichnung": _vf.get("bezeichnung") or f"{quelle[:1].upper()}-{_bw}x{_hw}",
+                "raum": _vf.get("raum"),
+                "breite_m": round(_bw / 100.0, 2),
+                "hoehe_m": round(_hw / 100.0, 2),
+                "flaeche_m2": round(_bw * _hw / 10000.0, 2),
+                "konfidenz": float(_vf.get("konfidenz") or 0.75),
+                "quelle": quelle,
+            }
+            k = _fkey(entry)
+            if k in existing_keys:
+                return
+            existing_keys.add(k)
+            unique_fenster.append(entry)
+            # Auch in elemente persistieren, damit Materialliste/Export sie sehen
+            try:
+                sb.table("elemente").insert({
+                    "plan_id": body.plan_id, "typ": "fenster",
+                    "bezeichnung": entry["bezeichnung"],
+                    "daten": entry,
+                    "konfidenz": int(entry["konfidenz"] * 100),
+                }).execute()
+            except Exception as _e:
+                print(f"[fenster persist] {_e}")
+
+        for _vf in vision_fenster:
+            _add_vision_fenster(_vf, quelle="fenster-vision")
+        for _vf in (baudaten.get("fenster") or []):
+            _add_vision_fenster(_vf, quelle="baudaten-vision")
+
+        alle_fenster = list(unique_fenster)
 
         try:
             gewerke_result = _berechne_gewerke(
@@ -1852,3 +1955,150 @@ async def projekt_massen(body: ProjektMassenRequest):
         "materialliste": materialliste_result,
         **gewerke_result,
     }
+
+
+@app.post("/api/projekt-export")
+async def projekt_export(body: ProjektMassenRequest):
+    """Projekt-weiter CSV-Export.
+    Wiederverwendet die /api/projekt-massen-Berechnung — d.h. Räume aus
+    allen Plänen gemergt, Vision-Baudaten, Materialliste — und produziert
+    eine CSV mit BOM (Excel-kompatibel), die ALLE Bereiche enthält:
+      - Räume (gemergt)
+      - Fenster
+      - ÖNORM-Gewerke (Putz/Estrich/Maler/Rohbau)
+      - Rohbau-Materialliste (HLZ-Paletten, Beton m³ etc.)
+    """
+    # Wiederverwendung der Berechnungs-Logik
+    data = await projekt_massen(body)
+    if data.get("status") != "ok":
+        raise HTTPException(400, "Keine Daten zum Exportieren")
+
+    def fmt(v, dec=2):
+        if v is None or v == "":
+            return ""
+        try:
+            return f"{float(v):.{dec}f}".replace(".", ",")
+        except (TypeError, ValueError):
+            return str(v)
+
+    def esc(v):
+        if v is None:
+            return ""
+        s = str(v)
+        if ";" in s or '"' in s or "\n" in s:
+            return '"' + s.replace('"', '""') + '"'
+        return s
+
+    lines = []
+
+    # Plan-Header
+    plaene_namen = ", ".join(p["dateiname"] for p in data.get("plaene", []) if p.get("selected"))
+    lines.append(f"Projekt-Export;{esc(plaene_namen) or '(alle Pläne)'}")
+    lines.append(f"Geschoss;{esc(data.get('geschoss', 'EG'))}")
+    lines.append(f"Pläne im Projekt;{data.get('plaene_count', 0)} von {data.get('plaene_total', 0)}")
+    lines.append(f"Räume nach Merge;{data.get('raeume_count', 0)}")
+    lines.append(f"Lücken durch Merge gefüllt;{data.get('merge_enrichments', 0)}")
+    lines.append(f"Fenster erkannt;{data.get('fenster_count', 0)}")
+    if data.get("halluzinationen"):
+        lines.append("Vision-Halluzinationen gefiltert;" + esc(", ".join(
+            h.get("name", "") for h in data["halluzinationen"])))
+    lines.append("")
+
+    # Räume
+    lines.append("RÄUME (alle Pläne gemergt)")
+    lines.append("Name;Fläche m²;Umfang m;Höhe m;Bodenbelag;Quellen-Pläne;merged_fields")
+    for r in data.get("raeume", []):
+        lines.append(";".join([
+            esc(r.get("name")),
+            fmt(r.get("flaeche_m2")), fmt(r.get("umfang_m")), fmt(r.get("hoehe_m")),
+            esc(r.get("bodenbelag")),
+            str(len(r.get("_quellen_plaene") or [])),
+            esc(",".join(r.get("_merged_from") or [])),
+        ]))
+    lines.append("")
+
+    # Fenster
+    lines.append("FENSTER")
+    lines.append("Bezeichnung;Raum;Breite m;Höhe m;Quelle")
+    for f in data.get("fenster", []):
+        lines.append(";".join([
+            esc(f.get("bezeichnung")),
+            esc(f.get("raum")),
+            fmt(f.get("breite_m")),
+            fmt(f.get("hoehe_m")),
+            esc(f.get("quelle") or f.get("_source") or ""),
+        ]))
+    lines.append("")
+
+    # Baudaten
+    bd = data.get("baudaten") or {}
+    bq = bd.get("_quellen") or {}
+    lines.append("BAU-KENNDATEN")
+    lines.append("Größe;Wert;Quelle")
+    for key, label in [
+        ("aussenwand_cm", "Außenwand cm"),
+        ("innenwand_tragend_cm", "Innenwand tragend cm"),
+        ("innenwand_nichttragend_cm", "Innenwand n.tragend cm"),
+        ("decke_cm", "Decke cm"),
+        ("bodenplatte_cm", "Bodenplatte cm"),
+        ("geschosshoehe_m", "Geschoss-Höhe m"),
+    ]:
+        if bd.get(key) is not None:
+            lines.append(";".join([label, fmt(bd[key]), esc(bq.get(key, "default"))]))
+    lines.append("")
+
+    # ÖNORM-Gewerke
+    lines.append("ÖNORM-MASSEN (Putz/Estrich/Maler/Rohbau)")
+    lines.append("Gewerk;Pos;Beschreibung;Endsumme;Einheit;Konfidenz")
+    for gk, ginfo in (data.get("gewerke") or {}).items():
+        label = (ginfo.get("label") or gk).split("(")[0].strip()
+        for pos in ginfo.get("positionen") or []:
+            lines.append(";".join([
+                esc(label),
+                esc(pos.get("posnr")),
+                esc(pos.get("beschreibung")),
+                fmt(pos.get("endsumme")),
+                esc(pos.get("einheit")),
+                fmt((pos.get("konfidenz") or 0) * 100, 0),
+            ]))
+    lines.append("")
+
+    # ÖNORM-Detail-Zeilen (pro Position)
+    lines.append("ÖNORM-DETAIL-ZEILEN")
+    lines.append("Gewerk;Pos;Zeile;Länge;Höhe;Wert;Quelle")
+    for gk, ginfo in (data.get("gewerke") or {}).items():
+        label = (ginfo.get("label") or gk).split("(")[0].strip()
+        for pos in ginfo.get("positionen") or []:
+            for z in pos.get("zeilen") or []:
+                lines.append(";".join([
+                    esc(label), esc(pos.get("posnr")),
+                    esc(z.get("text")),
+                    fmt(z.get("laenge")), fmt(z.get("hoehe")), fmt(z.get("wert")),
+                    esc(z.get("quelle")),
+                ]))
+    lines.append("")
+
+    # Rohbau-Materialliste
+    ml = data.get("materialliste") or {}
+    if ml.get("bauteile"):
+        lines.append("ROHBAU-MATERIALLISTE (Phase 1 — Faustformel-basiert)")
+        lines.append("Bauteil;Material;Menge;Einheit;Konfidenz;Formel")
+        for bauteil, pps in ml["bauteile"].items():
+            for p in pps:
+                lines.append(";".join([
+                    esc(bauteil),
+                    esc(p.get("material")),
+                    fmt(p.get("menge")),
+                    esc(p.get("einheit")),
+                    fmt((p.get("konfidenz") or 0) * 100, 0),
+                    esc(p.get("formel")),
+                ]))
+        lines.append("")
+
+    csv = "﻿" + "\r\n".join(lines) + "\r\n"
+    filename = f"projekt-massenermittlung-{(data.get('projekt_id') or 'export')[:8]}.csv"
+    return Response(
+        content=csv,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

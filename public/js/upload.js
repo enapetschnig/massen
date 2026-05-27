@@ -201,6 +201,7 @@
     _lastFertig = fertigCount; _lastTotal = totalCount;
     bindFilterControls();
     bindErgebnisTabs();
+    bindProjektExport();
     if (badge) badge.textContent = 'lädt...';
     if (info) info.textContent = '';
     if (grid) grid.innerHTML = '<div class="loading" style="padding:1rem"><div class="spinner"></div> Räume aller Pläne werden zusammengeführt...</div>';
@@ -412,6 +413,39 @@
   function fmtNum(n) {
     if (n == null || isNaN(n)) return '–';
     return Number(n).toLocaleString('de-AT', { maximumFractionDigits: 2 });
+  }
+
+  // ─── Projekt-Export-Button (CSV mit allen Daten + Materialliste) ───
+  function bindProjektExport() {
+    var btn = document.getElementById('projekt-export-btn');
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      var orig = btn.innerHTML;
+      btn.textContent = 'Wird exportiert...';
+      var payload = { projekt_id: projectId };
+      if (_filterState.gewerke) payload.gewerke_filter = _filterState.gewerke;
+      if (_filterState.plan_ids) payload.plan_ids = _filterState.plan_ids;
+      if (_filterState.baudaten_override) payload.baudaten_override = _filterState.baudaten_override;
+      if (_filterState.materialliste_override) payload.materialliste_override = _filterState.materialliste_override;
+      fetch('/api/projekt-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function (r) { if (!r.ok) throw new Error('Export-Status ' + r.status); return r.blob(); })
+        .then(function (blob) {
+          var url = window.URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'projekt-massenermittlung-' + (projectId || 'export').slice(0,8) + '.csv';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        })
+        .catch(function (e) { alert('Export-Fehler: ' + e.message); })
+        .finally(function () { btn.disabled = false; btn.innerHTML = orig; });
+    });
   }
 
   // ─── Tab-Wechsel innerhalb der Ergebnis-Section ───
