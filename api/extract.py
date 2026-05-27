@@ -25,6 +25,14 @@ except Exception as _e:  # pragma: no cover
     print(f"[materialliste] Import fehlgeschlagen: {_e}")
     _MATERIAL_OK = False
 
+# Öffnungs-Extraktion aus STUK/FPH-Codes (Einreichplan-Beschriftung)
+try:
+    from oeffnungen import extract_oeffnungen_from_text as _extract_oeffnungen
+    _OEFFNUNGEN_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[oeffnungen] Import fehlgeschlagen: {_e}")
+    _OEFFNUNGEN_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -769,6 +777,25 @@ async def analyse_zoom(body: ExtractRequest):
         r["konfidenz"] = 1.0 if (r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m")) else 0.7
         r["_text_first"] = True
 
+    # ─── ÖFFNUNGEN AUS TEXT-LAYER (STUK + FPH + D-Codes) ───────────────
+    # Einreichpläne kodieren Türen + Fenster über die STUK/FPH-Konvention
+    # (ÖNORM A 6240-2): Sturz-Unter-Kante und Fenster-Parapet-Höhe als
+    # Anker, Breite als nahegelegene Zahl, AW/IW als Wand-Typ-Marker.
+    # Daraus rekonstruieren wir pro Öffnung Breite × Höhe × Raum.
+    # Diese textbasierten Öffnungen sind viel präziser als Vision —
+    # Vision wird nur noch als Fallback verwendet wenn dieser Pass leer ist.
+    text_oeffnungen = []
+    if _OEFFNUNGEN_OK and text_first_rooms:
+        try:
+            text_oeffnungen = _extract_oeffnungen(spans_all, text_first_rooms)
+        except Exception as _exc:
+            print(f"[oeffnungen text] failed: {_exc!r}")
+            text_oeffnungen = []
+    if text_oeffnungen:
+        print(f"[oeffnungen text] {len(text_oeffnungen)} Öffnungen aus STUK/FPH-Codes "
+              f"({sum(1 for o in text_oeffnungen if o['typ']=='fenster')} Fenster, "
+              f"{sum(1 for o in text_oeffnungen if o['typ']=='tuer')} Türen)")
+
     # Dedup text_first: same physical label can produce two records if the
     # span loop visits the room name twice. Multiple identical rooms in
     # different apartments (e.g. three TOP units with same Wohnküche 26,37 m²)
@@ -1214,6 +1241,44 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
                     if val not in (None, "", 0) and not existing.get(fld):
                         existing[fld] = val
     unique_fenster = list(fenster_groups.values())
+
+    # ─── ÖFFNUNGEN AUS TEXT-LAYER MERGEN ──────────────────────────────
+    # Wenn text_oeffnungen welche enthält (STUK/FPH-Konvention), diese in
+    # unique_fenster / all_tueren einreihen. Dedup gegen vorhandene
+    # Vision-Funde nach (Raum + Maße).
+    def _oeff_key(o):
+        r = (o.get("raum") or "").strip().lower()
+        bw = round(float(o.get("breite_m") or 0), 2)
+        hh = round(float(o.get("hoehe_m") or 0), 2)
+        return (r, bw, hh)
+    existing_f_keys = {_oeff_key(f) for f in unique_fenster}
+    existing_t_keys = {_oeff_key(t) for t in all_tueren}
+    for o in text_oeffnungen:
+        if not (o.get("breite_m") and o.get("hoehe_m")):
+            continue
+        rec = {
+            "bezeichnung": f"{o['typ'][:1].upper()}-{int((o.get('breite_m') or 0)*100)}x{int((o.get('hoehe_m') or 0)*100)}",
+            "raum": o.get("raum"),
+            "breite_m": o["breite_m"],
+            "hoehe_m": o["hoehe_m"],
+            "flaeche_m2": round(o["breite_m"] * o["hoehe_m"], 3),
+            "fph_m": o.get("fph_m"),
+            "stuk_m": o.get("stuk_m"),
+            "wand_typ": o.get("wand_typ"),
+            "konfidenz": o.get("konfidenz", 0.9),
+            "quelle": o.get("quelle", "text-layer-stuk-fph"),
+        }
+        k = _oeff_key(rec)
+        if o["typ"] == "fenster":
+            if k in existing_f_keys:
+                continue
+            existing_f_keys.add(k)
+            unique_fenster.append(rec)
+        else:
+            if k in existing_t_keys:
+                continue
+            existing_t_keys.add(k)
+            all_tueren.append(rec)
 
     # Clean old results
     sb.table("massen").delete().eq("plan_id", body.plan_id).execute()

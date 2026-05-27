@@ -17,7 +17,12 @@ import re
 # ════════════════════════════════════════════════════════════════════════
 # ÖNORM-Konstanten & Standard-Annahmen
 # ════════════════════════════════════════════════════════════════════════
-OEFFNUNG_ABZUG_SCHWELLE_M2 = 2.5  # ÖNORM B 2210: darüber abziehen + Laibung
+OEFFNUNG_ABZUG_SCHWELLE_M2 = 5.0  # Praxis-Regel: bis 5 m² übermessen,
+                                  # darüber abziehen + Laibung. (ÖNORM B 2210
+                                  # nennt 0,5 m² Schwelle, VOB/DIN 18350 2,5 m²
+                                  # — bei Einfamilienhäusern üblich 5 m² für
+                                  # einfachere Kalkulation und weil Innentüren
+                                  # & Standard-Fenster sowieso <5 m² sind.)
 
 DEFAULT_BAUDATEN = {
     "aussenwand_cm": 38,
@@ -114,7 +119,7 @@ class LVPosition:
 # Öffnungs-Logik (ÖNORM B 2210)
 # ════════════════════════════════════════════════════════════════════════
 def oeffnung_abzug(breite_m, hoehe_m):
-    """Öffnung wird abgezogen, wenn Einzelfläche > 2,5 m² (sonst übermessen)."""
+    """Öffnung wird abgezogen, wenn Einzelfläche > 5 m² (sonst übermessen)."""
     return (breite_m * hoehe_m) > OEFFNUNG_ABZUG_SCHWELLE_M2
 
 
