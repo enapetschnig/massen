@@ -72,6 +72,7 @@
         <span class="projekt-massen-badge" id="projekt-massen-badge"></span>
       </h3>
       <div class="projekt-massen-info" id="projekt-massen-info"></div>
+      <div class="ergebnis-status-banner" id="ergebnis-status-banner"></div>
 
       <!-- Filter-Drawer: collapsed by default, gilt für beide Tabs -->
       <details class="ergebnis-filter">
@@ -156,6 +157,10 @@
       <!-- Tab: ÖNORM-Massen -->
       <div class="ergebnis-panel active" id="ergebnis-panel-oenorm">
         <div class="projekt-massen-grid" id="projekt-massen-grid"></div>
+        <details class="projekt-massen-detail" id="projekt-massen-rooms-wrap">
+          <summary>Räume aus den Plänen anzeigen (was die KI gefunden hat)</summary>
+          <div id="projekt-massen-rooms"></div>
+        </details>
         <details class="projekt-massen-detail" id="projekt-massen-detail-wrap">
           <summary>Detail-Positionen anzeigen</summary>
           <div id="projekt-massen-detail"></div>
@@ -164,8 +169,14 @@
 
       <!-- Tab: Rohbau-Materialliste -->
       <div class="ergebnis-panel" id="ergebnis-panel-material">
-        <div style="font-size:0.82rem;color:#555;margin-bottom:0.7rem">
-          Phase-1-Sch&auml;tzung aus Σ Raumfl&auml;chen + Faustformeln. Phase 2 (Außenkontur aus Vektor-Geometrie) ersetzt die Sch&auml;tzungen.
+        <div class="materialliste-konfidenz-hint">
+          <strong>Was die Konfidenz-Spalte bedeutet:</strong>
+          <ul>
+            <li><strong>70-85 %</strong> = Größenordnung sehr verlässlich (z.B. Bodenplatte EKV/XPS — direkt aus Σ Raumfläche)</li>
+            <li><strong>55-65 %</strong> = Faustformel-Schätzung, Phase-1-typisch (z.B. Außenumfang aus Quadrat-Annäherung × Aufschlag)</li>
+            <li><strong>40-50 %</strong> = grobe Pauschale (z.B. Bewehrung, Ziegelüberlagen pro Türöffnung)</li>
+          </ul>
+          <span style="color:#6c757d">→ Phase 2 (Vektor-Geometrie statt Schätzung) hebt alle Konfidenzen auf 80-95 %.</span>
         </div>
         <div class="materialliste-table-wrap">
           <table class="materialliste-table" id="materialliste-table">

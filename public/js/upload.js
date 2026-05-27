@@ -249,6 +249,23 @@
 
     // Plan-Filter-Chips befüllen
     if (data.plaene) renderPlanFilter(data.plaene);
+
+    // Status-Banner: was hat die App erkannt?
+    var statusEl = document.getElementById('ergebnis-status-banner');
+    if (statusEl) {
+      var hints = [];
+      if (data.fenster_count === 0) {
+        hints.push('<div class="status-warn">⚠ <strong>0 Fenster erkannt</strong> — Laibungen, Rolladenkästen und Ziegelüberlagen werden pauschal geschätzt. Vision hat im Grundriss keine Fenster gefunden.</div>');
+      } else {
+        hints.push('<div class="status-ok">✓ ' + data.fenster_count + ' Fenster aus Vision/Plan erkannt</div>');
+      }
+      if (data.halluzinationen && data.halluzinationen.length) {
+        hints.push('<div class="status-info">🧹 ' + data.halluzinationen.length + ' Vision-Halluzination(en) gefiltert: ' +
+          data.halluzinationen.map(function(h){ return esc(h.name); }).join(', ') + '</div>');
+      }
+      hints.push('<div class="status-room-count">📐 ' + data.raeume_count + ' Räume in Berechnung</div>');
+      statusEl.innerHTML = hints.join('');
+    }
     if (info) {
       var bd = data.baudaten || {};
       var bq = bd._quellen || {};
@@ -327,8 +344,37 @@
       if (info) info.innerHTML += hint;
     }
 
+    // Räume-Liste rendern (was die KI gefunden hat)
+    renderRoomsList(data.raeume);
+
     // Materialliste rendern
     renderMaterialliste(data.materialliste);
+  }
+
+  function renderRoomsList(raeume) {
+    var target = document.getElementById('projekt-massen-rooms');
+    if (!target || !raeume) return;
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem">';
+    html += '<thead><tr><th style="text-align:left;padding:0.3rem 0.5rem;background:#f8fafc">Raum</th>' +
+            '<th class="num" style="text-align:right;padding:0.3rem 0.5rem;background:#f8fafc">F (m²)</th>' +
+            '<th class="num" style="text-align:right;padding:0.3rem 0.5rem;background:#f8fafc">U (m)</th>' +
+            '<th class="num" style="text-align:right;padding:0.3rem 0.5rem;background:#f8fafc">H (m)</th>' +
+            '<th style="text-align:left;padding:0.3rem 0.5rem;background:#f8fafc">Boden</th>' +
+            '<th style="text-align:center;padding:0.3rem 0.5rem;background:#f8fafc">Quellen</th></tr></thead><tbody>';
+    raeume.forEach(function(r){
+      var quellen = (r._quellen_plaene || []).length;
+      var merged = (r._merged_from || []).join(',');
+      html += '<tr>' +
+        '<td style="padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + esc(r.name || '?') + '</td>' +
+        '<td class="num" style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + (r.flaeche_m2 ? fmtNum(r.flaeche_m2) : '<span style="color:#dc2626">–</span>') + '</td>' +
+        '<td class="num" style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + (r.umfang_m ? fmtNum(r.umfang_m) : '<span style="color:#dc2626">–</span>') + '</td>' +
+        '<td class="num" style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + (r.hoehe_m ? fmtNum(r.hoehe_m) : '<span style="color:#dc2626">–</span>') + '</td>' +
+        '<td style="padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + esc(r.bodenbelag || '') + '</td>' +
+        '<td style="text-align:center;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5" title="' + esc(merged) + '">' + quellen + ' Plan' + (quellen===1?'':'') + (merged ? ' <small style="color:#16a34a">✓merged</small>' : '') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    target.innerHTML = html;
   }
 
   function renderMaterialliste(ml) {

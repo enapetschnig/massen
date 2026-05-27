@@ -1679,6 +1679,57 @@ async def projekt_massen(body: ProjektMassenRequest):
 
     merged_rooms = list(merged.values())
 
+    # Geschoss früh ermitteln (für die Dedup-Heuristik), wird unten ggf. überschrieben
+    _early_geschoss = "EG"
+    for p in plaene:
+        log = p.get("agent_log") or {}
+        g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
+        if g:
+            _early_geschoss = g
+            break
+
+    # 4b) Aggressivere De-Halluzinations-Dedup gegen Vision-Mehrfachfunde:
+    # Wenn ein Raum-Name eine ECHTE Teilmenge eines anderen (längeren) Raumnamens
+    # ist, ist es meistens dieselbe Räumlichkeit — Vision hat das Label
+    # zweimal gelesen (z.B. "Wohnraum Küche" UND "Küche" aus dem
+    # Beschriftungs-Block). Behalte den vollständigeren Eintrag.
+    # Ebenso: Räume mit Suffix "Obergeschoss" / "OG" in einem EG-Plan
+    # sind oft Halluzinationen aus dem Plan-Titel/Schnitt.
+    def _short_name(n):
+        return re.sub(r"[\s\-_/]+", " ", (n or "").strip().lower())
+    cleaned_rooms = []
+    for r in merged_rooms:
+        sn = _short_name(r.get("name"))
+        if not sn:
+            continue
+        # Halluzination: OG-Raum in EG-Plan
+        if re.search(r"\bobergeschoss\b|\bog\b", sn) and _early_geschoss.upper().startswith("EG"):
+            r["_hallucination"] = "OG-Suffix im EG-Plan"
+            continue
+        # Substring-Dedup: kürzerer Name ist Teilstring eines längeren mit
+        # höherer Datenqualität (mehr F/U/H-Werte) → kürzeren verwerfen.
+        is_subset = False
+        my_completeness = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m") if r.get(k))
+        for other in merged_rooms:
+            if other is r:
+                continue
+            on = _short_name(other.get("name"))
+            if not on or on == sn:
+                continue
+            # echte Teilmenge (mit Wort-Grenze, nicht z.B. "bad" in "badewanne")
+            if (" " + sn + " ") in (" " + on + " ") or sn in on.split():
+                other_completeness = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m") if other.get(k))
+                if other_completeness >= my_completeness:
+                    is_subset = True
+                    break
+        if is_subset:
+            r["_hallucination"] = f"Teilmenge eines längeren Raumnamens"
+            continue
+        cleaned_rooms.append(r)
+
+    halluzinationen = [r for r in merged_rooms if r.get("_hallucination")]
+    merged_rooms = cleaned_rooms
+
     # 5) Fenster sammeln (dedup nach bezeichnung+raum)
     seen_f = set()
     alle_fenster = []
@@ -1794,6 +1845,10 @@ async def projekt_massen(body: ProjektMassenRequest):
         "geschoss": geschoss,
         "raeume": merged_rooms,
         "fenster": alle_fenster,
+        "halluzinationen": [
+            {"name": h.get("name"), "grund": h.get("_hallucination")}
+            for h in halluzinationen
+        ],
         "materialliste": materialliste_result,
         **gewerke_result,
     }
