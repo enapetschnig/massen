@@ -122,24 +122,56 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
         if h_m <= 0 or h_m > 3.5:
             continue  # unplausibel
 
-        # Breite suchen — bevorzugt cm-Zahl (z.B. "80") nahegelegen, sonst m-Format
-        breiten_near = [
-            b for b in breite_spans
-            if math.hypot(b["cx"] - fph["cx"], b["cy"] - fph["cy"]) < max_cluster_pt
+        # Breite suchen — Plausibilitäts-Score statt nur nächstgelegen:
+        #   - Distanz zum FPH-Anker (näher = besser)
+        #   - Aspect Ratio B/H im plausiblen Bereich [0.4, 4.0]
+        #   - Türen (FPH<0,15): Breite typisch 0.60-1.50m → Bonus
+        #   - Quadratfenster (Lüfter): wenn H~60cm, Breite ~60cm bevorzugt
+        breiten_kand = [
+            (math.hypot(b["cx"] - fph["cx"], b["cy"] - fph["cy"]), b)
+            for b in breite_spans
+            if math.hypot(b["cx"] - fph["cx"], b["cy"] - fph["cy"]) < max_cluster_pt * 2
         ]
+        breiten_kand.sort()
+        is_tuer_candidate = fph["value_m"] < 0.15
         breite_m = None
-        if breiten_near:
-            breiten_near.sort(key=lambda b: math.hypot(b["cx"] - fph["cx"], b["cy"] - fph["cy"]))
-            breite_m = breiten_near[0]["value_m"]
-        else:
-            # Erweiterter Radius — Breite kann etwas weiter weg stehen
-            breiten_far = [
-                b for b in breite_spans
-                if math.hypot(b["cx"] - fph["cx"], b["cy"] - fph["cy"]) < max_cluster_pt * 2
-            ]
-            if breiten_far:
-                breiten_far.sort(key=lambda b: math.hypot(b["cx"] - fph["cx"], b["cy"] - fph["cy"]))
-                breite_m = breiten_far[0]["value_m"]
+        best_score = -1.0
+        for dist, b in breiten_kand:
+            bw = b["value_m"]
+            score = 100.0 - dist  # näher = besser, Basis-Score
+            # Distanzgrenze: Spans innerhalb 35pt sind Cluster, außerhalb Penalty
+            if dist > max_cluster_pt:
+                score -= 30
+            # Aspect-Ratio-Filter — Standard-Innentür ist 80×205cm = 0.39,
+            # Standard-Fenster mind. 0.50, also Untergrenze 0.25 (60cm×200cm).
+            ratio = bw / h_m if h_m > 0 else 0
+            if ratio < 0.25 or ratio > 4.0:
+                score -= 60  # unplausibel
+            # Türen-Heuristik: bevorzuge Standard-Innentüren in cm-Schritten
+            #   60, 70, 80, 90, 100 cm — diese werden seriell gefertigt
+            #   und sind die häufigsten Werte im Plan.
+            # 1,03/1,05/1,10 sind ungewöhnliche Tür-Breiten → oft Wand-Maße
+            # die fälschlich als Breite interpretiert werden.
+            if is_tuer_candidate:
+                STANDARD_TUER_CM = {60, 70, 80, 90, 100}
+                bw_cm = round(bw * 100)
+                # Toleranz ±2cm für Rundungs-Mismatch zwischen Plan und Schema
+                is_standard = any(abs(bw_cm - sc) <= 2 for sc in STANDARD_TUER_CM)
+                if is_standard:
+                    score += 35  # starker Bonus für Standard-Tür-Maße
+                elif 0.60 <= bw <= 1.50:
+                    score += 5   # leicht plausibel
+                elif bw > 1.50:
+                    score -= 10  # Schiebetür-Bereich
+            # Lüftungsfenster (H zwischen 0,40 und 0,80): bevorzuge ~quadratisch
+            if 0.40 <= h_m <= 0.80:
+                if abs(bw - h_m) < 0.30:
+                    score += 25  # nahe an Quadrat → Lüftung
+                elif bw > 2 * h_m:
+                    score -= 20  # zu langgestreckt für Lüftungsfenster
+            if score > best_score:
+                best_score = score
+                breite_m = bw
 
         # Wand-Typ (Außen/Innen)
         wand_near = [
@@ -231,25 +263,58 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
                 return False
         return True
 
+    def _same_fph_stuk(a, b, tol_m=0.05):
+        return (abs((a.get("fph_m") or 0) - (b.get("fph_m") or 0)) < tol_m
+                and abs((a.get("stuk_m") or 0) - (b.get("stuk_m") or 0)) < tol_m)
+
     cleaned = []
     used = [False] * len(oeffnungen)
     for i, o in enumerate(oeffnungen):
         if used[i]:
             continue
-        # Sammle alle Duplikate ein
         keep = o
         for j in range(i + 1, len(oeffnungen)):
             if used[j]:
                 continue
             o2 = oeffnungen[j]
             d = math.hypot(o["cx"] - o2["cx"], o["cy"] - o2["cy"])
-            if d < 15 or (d < 40 and _same_size(o, o2)):
-                # Bevorzuge den mit höherer Konfidenz / mehr Daten
+            # Mehrere Dedup-Kriterien:
+            #   - räumlich sehr nah (<15pt) → derselbe Eintrag
+            #   - räumlich nah + identische Maße (<40pt) → selbe Öffnung
+            #   - räumlich mäßig nah + identisches FPH/STUK (<80pt) →
+            #     dieselbe Öffnung von zwei Achsen aus beschriftet
+            same_anchor = _same_fph_stuk(o, o2)
+            same_size = _same_size(o, o2)
+            cur_b = keep.get("breite_m") or 0
+            new_b = o2.get("breite_m") or 0
+            # Konservativer Dedup:
+            #   - d<15pt → IMMER (sehr nah, vermutlich Beschriftungs-Doppel)
+            #   - d<40pt + identische Maße → derselbe Eintrag
+            #   - d<50pt + gleiches FPH/STUK + ähnliche Breite (Δ<0.5m) →
+            #     selbe Tür von zwei Seiten beschriftet
+            # NICHT: gleiches FPH/STUK + verschiedene Maße — könnten zwei
+            # verschiedene Standard-Türen (z.B. 80cm und Schiebe 2.20m) sein.
+            is_dup = (
+                d < 15
+                or (d < 40 and same_size)
+                or (d < 50 and same_anchor and abs(cur_b - new_b) < 0.5)
+            )
+            if not is_dup:
+                continue
+            # Bei Tür-Dedup mit unterschiedlichen Breiten: plausiblere Breite
+            # (0.60-1.20m) wird bevorzugt; Schiebetür-Maße (>1.50m) bleiben
+            # in eigenem Cluster mangels Dedup-Match (s.o.).
+            if same_anchor and (keep.get("fph_m") or 0) < 0.15 and abs(cur_b - new_b) < 0.5:
+                if 0.60 <= new_b <= 1.20 and not (0.60 <= cur_b <= 1.20):
+                    keep = o2
+                elif 0.60 <= new_b <= 1.20 and 0.60 <= cur_b <= 1.20 and new_b < cur_b:
+                    keep = o2
+            else:
                 cur_score = (1 if keep.get("breite_m") else 0) + (keep.get("konfidenz") or 0)
                 new_score = (1 if o2.get("breite_m") else 0) + (o2.get("konfidenz") or 0)
                 if new_score > cur_score:
                     keep = o2
-                used[j] = True
+            used[j] = True
         cleaned.append(keep)
         used[i] = True
 
