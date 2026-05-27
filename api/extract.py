@@ -1916,15 +1916,20 @@ async def projekt_massen(body: ProjektMassenRequest):
             continue
 
         # Cousin-Halluzination: gleicher 4-char-Präfix im ersten Wort, aber
-        # verschiedene Vollnamen — z.B. "Wohnzimmer" vs "Wohnraum Küche".
-        # Wenn der Cousin
-        #   - in mehr Plänen vorkommt, ODER
-        #   - mehr Wörter im Namen hat (zusammengesetzte Namen sind selten
-        #     Vision-Halluzinationen)
-        # → der eigene Raum ist Hallu.
+        # verschiedene Vollnamen — z.B. "Wohnzimmer" vs "Wohnraum Küche",
+        # oder "Wohnen Küche" vs "Wohnraum Küche".
+        #
+        # Drei Wege Hallu zu erkennen:
+        #   1. Cousin hat MEHR Plan-Quellen → eigener Raum ist Hallu
+        #   2. Cousin hat MEHR Wörter im Namen (zusammengesetzte Namen
+        #      sind seltener Vision-Halluzinationen)
+        #   3. Cousin hat ähnlichen Umfang (Δ U < 10%) → derselbe Raum,
+        #      Vision hat den Namen leicht falsch erkannt — der mit mehr
+        #      Daten (F+U+H) bzw. eindeutigem Namen gewinnt.
         is_cousin_hallu = False
         my_first = sn.split()[0] if sn else ""
         my_word_count = len(sn.split())
+        my_u = r.get("umfang_m") or 0
         if len(my_first) >= 4:
             for other in merged_rooms:
                 if other is r:
@@ -1937,14 +1942,34 @@ async def projekt_massen(body: ProjektMassenRequest):
                     continue
                 other_quellen = len(other.get("_quellen_plaene") or [])
                 other_word_count = len(on.split())
-                # Heuristiken: Cousin "gewinnt" wenn mehr Quellen ODER mehr Wörter
+                other_u = other.get("umfang_m") or 0
+                # Test 1+2: mehr Quellen oder mehr Wörter
                 if other_quellen > my_quellen or other_word_count > my_word_count:
                     is_cousin_hallu = True
-                    r["_hallucination"] = (
-                        f"Cousin von '{other.get('name')}' "
-                        f"({other_word_count}w/{other_quellen}q vs "
-                        f"{my_word_count}w/{my_quellen}q)")
+                    reason = f"Cousin '{other.get('name')}' ({other_word_count}w/{other_quellen}q vs {my_word_count}w/{my_quellen}q)"
+                    r["_hallucination"] = reason
                     break
+                # Test 3: ähnlicher Umfang → vermutlich derselbe Raum,
+                # Vision hat zwei Namens-Varianten erkannt
+                if my_u and other_u and abs(my_u - other_u) / max(my_u, other_u) < 0.10:
+                    # Bei Gleichstand: bevorzuge den, der mehr Daten hat
+                    my_data = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m","bodenbelag") if r.get(k))
+                    other_data = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m","bodenbelag") if other.get(k))
+                    if other_data > my_data:
+                        is_cousin_hallu = True
+                        r["_hallucination"] = f"Cousin '{other.get('name')}' (ähnlicher U {my_u}≈{other_u})"
+                        break
+                    # Bei Daten-Gleichstand: bevorzuge den, dessen Name als
+                    # ROOM_NAMES_EXACT plausibler ist (Standard-Bauterminologie)
+                    PREFERRED = {"wohnraumkuche", "wohnraumküche", "wohnkuche", "wohnküche", "wohnen",
+                                 "wohnzimmer", "wohnraum"}
+                    if other_data == my_data:
+                        my_norm = re.sub(r"[\s\-_/]+", "", sn)
+                        other_norm = re.sub(r"[\s\-_/]+", "", on)
+                        if other_norm in PREFERRED and my_norm not in PREFERRED:
+                            is_cousin_hallu = True
+                            r["_hallucination"] = f"Cousin '{other.get('name')}' (Standard-Begriff)"
+                            break
         if is_cousin_hallu:
             continue
 

@@ -255,6 +255,20 @@
     var statusEl = document.getElementById('ergebnis-status-banner');
     if (statusEl) {
       var hints = [];
+      // Räume ohne H prüfen — typisches Symptom für fehlenden Polierplan
+      var raeumeOhneH = (data.raeume || []).filter(function(r){
+        return r && r.flaeche_m2 && !r.hoehe_m;
+      });
+      if (raeumeOhneH.length > 0 && data.plaene_count === 1) {
+        hints.push('<div class="status-warn">⚠ <strong>' + raeumeOhneH.length +
+          ' Räume ohne Höhen-Wert</strong> — der Einreichplan hat nur F+U, ' +
+          'die Raumhöhen stehen im Polierplan. ' +
+          '<strong>Lade auch den Polierplan hoch</strong>, sonst werden alle ' +
+          'Wand-, Putz-, Maler-Mengen mit Default-Geschosshöhe (2,70m) gerechnet.</div>');
+      } else if (raeumeOhneH.length > 0) {
+        hints.push('<div class="status-info">ℹ ' + raeumeOhneH.length +
+          ' Räume ohne H — Default-Geschosshöhe wird verwendet.</div>');
+      }
       if (data.fenster_count === 0) {
         hints.push('<div class="status-warn">⚠ <strong>0 Fenster erkannt</strong> — Laibungen, Rolladenkästen und Ziegelüberlagen werden pauschal geschätzt. Vision hat im Grundriss keine Fenster gefunden.</div>');
       } else {
@@ -264,7 +278,7 @@
         hints.push('<div class="status-info">🧹 ' + data.halluzinationen.length + ' Vision-Halluzination(en) gefiltert: ' +
           data.halluzinationen.map(function(h){ return esc(h.name); }).join(', ') + '</div>');
       }
-      hints.push('<div class="status-room-count">📐 ' + data.raeume_count + ' Räume in Berechnung</div>');
+      hints.push('<div class="status-room-count">📐 ' + data.raeume_count + ' Räume · ' + (data.plaene_count || '?') + ' Plan' + (data.plaene_count===1?'':'e') + '</div>');
       statusEl.innerHTML = hints.join('');
     }
     if (info) {
