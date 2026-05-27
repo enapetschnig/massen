@@ -157,21 +157,12 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
             if math.hypot(t["cx"] - fph["cx"], t["cy"] - fph["cy"]) < max_cluster_pt * 1.5
         ]
 
-        # Klassifikation: bodengleich (FPH<0.1) → Tür-Kandidat.
-        # Heuristiken für Tür ohne expliziten Code:
-        #   - Standard-Innentür: B=0.70-1.00m × H=2.00-2.20m bodengleich
-        #   - Außentür / Terrassentür: B≥1.20m × H=2.00-2.30m bodengleich
-        #   - Terrassen-/Balkontür: meist >180cm Breite an AW
-        is_tuer = False
-        if fph["value_m"] < 0.15:  # bodengleich
-            if tuer_near:
-                is_tuer = True
-            elif breite_m and 0.60 <= breite_m <= 1.20 and 1.90 <= h_m <= 2.25:
-                # Typische Innentür-Maße
-                is_tuer = True
-            elif breite_m and breite_m >= 1.20 and 1.90 <= h_m <= 2.40 and wand_typ == "AW":
-                # Außen- oder Terrassentür
-                is_tuer = True
+        # Klassifikation: bodengleich (FPH < 0,15m) = Tür (alle Türöffnungen
+        # haben FPH 0, egal ob Innentür, Außentür oder Fenstertür-Schiebetür).
+        # Reine Fenster haben immer eine Brüstung > 0 — meist 0,90m
+        # (Wohnraum), 1,60m (Bad/WC-Lüftung) oder 0,30m (Frühstücksecke).
+        # Wenn explizite Tür-Codes (DR, EI, D 1) im Cluster → garantiert Tür.
+        is_tuer = bool(tuer_near) or (fph["value_m"] < 0.15)
 
         typ = "tuer" if is_tuer else "fenster"
 
