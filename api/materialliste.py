@@ -125,8 +125,15 @@ class MaterialPos:
 # ────────────────────────────────────────────────────────────────────
 # BAUTEIL-BERECHNUNGEN
 # ────────────────────────────────────────────────────────────────────
-def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG"):
-    """Erzeugt eine flache Liste von MaterialPos über alle Bauteile."""
+def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG", tueren=None):
+    """Erzeugt eine flache Liste von MaterialPos über alle Bauteile.
+
+    rooms:   gemergte Räume aus /api/projekt-massen
+    windows: erkannte Fenster (mit breite_m × hoehe_m)
+    tueren:  erkannte Türen aus STUK/FPH-Cluster (optional — wenn None,
+             wird mit Pauschal-Annahme "1 Innentür pro Raum" gerechnet)
+    """
+    tueren = tueren or []
     from massen_logic import kategorie_of
 
     def _kat(r):
@@ -299,15 +306,39 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             "Öffnungen", "Rolladenkasten (Lavatherm) 214cm", "Stk",
             rolladen_215, f"{rolladen_215} Fenster mit 2.0–2.4m Breite", konfidenz=0.7))
 
-    # Ziegelüberlagen für Türen — Annahme: 1 Innentür pro Raum, +1 Außentür
-    n_tueren = max(0, len(rooms) - 1)
-    n_aussen = 2  # Pauschal
-    out.append(MaterialPos(
-        "Öffnungen", "Ziegelüberlage 12cm 125cm", "Stk",
-        n_tueren, f"{n_tueren} Innentüren (1 pro Raum)", konfidenz=0.45))
-    out.append(MaterialPos(
-        "Öffnungen", "Ziegelüberlage 12cm 200cm", "Stk",
-        n_aussen, "Pauschal 2 Außenöffnungen", konfidenz=0.4))
+    # Ziegelüberlagen aus den ERKANNTEN Türen (statt Pauschal).
+    # Ziegelüberlage-Standard-Längen: 125cm (für Türöffnungen bis ~100cm),
+    # 200cm (~150-180cm Öffnung), 250cm (~200-230cm Öffnung).
+    if tueren:
+        tuer_breiten = []
+        for t in tueren:
+            bw = t.get("breite_m") or (t.get("breite_cm", 0) / 100.0 if t.get("breite_cm") else None)
+            if bw:
+                tuer_breiten.append(bw)
+        n_125 = sum(1 for b in tuer_breiten if b <= 1.10)        # 60-100cm Türen
+        n_200 = sum(1 for b in tuer_breiten if 1.10 < b <= 1.80)  # 110-180cm
+        n_250 = sum(1 for b in tuer_breiten if b > 1.80)         # Schiebe/Terrasse
+        if n_125:
+            out.append(MaterialPos(
+                "Öffnungen", "Ziegelüberlage 12cm 125cm", "Stk",
+                n_125, f"{n_125} Türen ≤110cm Breite", konfidenz=0.85))
+        if n_200:
+            out.append(MaterialPos(
+                "Öffnungen", "Ziegelüberlage 12cm 200cm", "Stk",
+                n_200, f"{n_200} Türen 110-180cm Breite", konfidenz=0.8))
+        if n_250:
+            out.append(MaterialPos(
+                "Öffnungen", "Ziegelüberlage 12cm 250cm", "Stk",
+                n_250, f"{n_250} Türen/Schiebe-Elemente >180cm", konfidenz=0.8))
+    else:
+        # Fallback: Pauschal-Annahme wenn STUK/FPH-Erkennung leer war
+        n_tueren = max(0, len(rooms) - 1)
+        out.append(MaterialPos(
+            "Öffnungen", "Ziegelüberlage 12cm 125cm", "Stk",
+            n_tueren, f"{n_tueren} Innentüren (Pauschal: 1 pro Raum)", konfidenz=0.45))
+        out.append(MaterialPos(
+            "Öffnungen", "Ziegelüberlage 12cm 200cm", "Stk",
+            2, "Pauschal 2 Außenöffnungen", konfidenz=0.4))
 
     # ═══ Decke über EG ═══
     decke_m3 = decke_m2 * (decke_cm / 100.0)
@@ -347,9 +378,9 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     return out
 
 
-def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG"):
+def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG", tueren=None):
     """Wrapper: gibt strukturiertes Gewerk-Dict zurück (für berechne_gewerke-Integration)."""
-    positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss)
+    positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss, tueren=tueren)
     # Gruppiere nach Bauteil
     by_bauteil = {}
     for p in positionen:

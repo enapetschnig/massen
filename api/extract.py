@@ -1819,6 +1819,13 @@ async def projekt_massen(body: ProjektMassenRequest):
     ).in_("plan_id", plan_ids).eq("typ", "fenster").execute()
     fenster_rows = fenster_res.data or []
 
+    # Türen werden separat geladen — die Pipeline speichert Tür-Erkennungen
+    # aus dem STUK/FPH-Cluster getrennt unter typ="tuer".
+    tueren_res = sb.table("elemente").select(
+        "plan_id, bezeichnung, daten, typ"
+    ).in_("plan_id", plan_ids).eq("typ", "tuer").execute()
+    tueren_rows = tueren_res.data or []
+
     # 4) Räume mergen — name-basiert (Einfamilienhaus) bzw. name+wohnung (Mehrwohnungs-Bau).
     def _nk(s):
         return re.sub(r"[\s\-_/]+", "", (s or "").lower())
@@ -2000,37 +2007,51 @@ async def projekt_massen(body: ProjektMassenRequest):
         h_max = None
         ergaenzte_h = 0
 
-    # 5) Fenster sammeln (dedup nach bezeichnung+raum)
+    # 5) Öffnungen sammeln — Fenster und Türen, beide mit Dimensions-Normalisierung.
+    def _norm_dim(d):
+        """Tile-Vision liefert al_breite_mm/rb_breite_mm, BAUDATEN cm, STUK/FPH bereits m."""
+        if not d.get("breite_m"):
+            if d.get("breite_cm"):
+                d["breite_m"] = d["breite_cm"] / 100.0
+            elif d.get("rb_breite_mm"):
+                d["breite_m"] = d["rb_breite_mm"] / 1000.0
+            elif d.get("al_breite_mm"):
+                d["breite_m"] = d["al_breite_mm"] / 1000.0
+        if not d.get("hoehe_m"):
+            if d.get("hoehe_cm"):
+                d["hoehe_m"] = d["hoehe_cm"] / 100.0
+            elif d.get("rb_hoehe_mm"):
+                d["hoehe_m"] = d["rb_hoehe_mm"] / 1000.0
+            elif d.get("al_hoehe_mm"):
+                d["hoehe_m"] = d["al_hoehe_mm"] / 1000.0
+        return d
+
+    def _sig(d, bez):
+        return (bez.strip().lower(), (d.get("raum") or "").strip().lower(),
+                round(float(d.get("breite_m") or 0), 2),
+                round(float(d.get("hoehe_m") or 0), 2))
+
     seen_f = set()
     alle_fenster = []
     for row in fenster_rows:
-        d = row.get("daten") or {}
+        d = _norm_dim(dict(row.get("daten") or {}))
         bez = row.get("bezeichnung") or d.get("bezeichnung") or ""
-        raum = d.get("raum") or ""
-        sig = (bez.strip().lower(), raum.strip().lower(),
-               d.get("breite_m") or d.get("breite_cm"),
-               d.get("hoehe_m") or d.get("hoehe_cm"))
+        sig = _sig(d, bez)
         if sig in seen_f:
             continue
         seen_f.add(sig)
         alle_fenster.append(dict(d, bezeichnung=bez))
-        f = alle_fenster[-1]
-        # Felder normalisieren — Tile-Vision liefert al_breite_mm / rb_breite_mm
-        # in Millimeter, BAUDATEN-Vision in cm, eigene Fenster bereits in m.
-        if not f.get("breite_m"):
-            if f.get("breite_cm"):
-                f["breite_m"] = f["breite_cm"] / 100.0
-            elif f.get("rb_breite_mm"):
-                f["breite_m"] = f["rb_breite_mm"] / 1000.0
-            elif f.get("al_breite_mm"):
-                f["breite_m"] = f["al_breite_mm"] / 1000.0
-        if not f.get("hoehe_m"):
-            if f.get("hoehe_cm"):
-                f["hoehe_m"] = f["hoehe_cm"] / 100.0
-            elif f.get("rb_hoehe_mm"):
-                f["hoehe_m"] = f["rb_hoehe_mm"] / 1000.0
-            elif f.get("al_hoehe_mm"):
-                f["hoehe_m"] = f["al_hoehe_mm"] / 1000.0
+
+    seen_t = set()
+    alle_tueren = []
+    for row in tueren_rows:
+        d = _norm_dim(dict(row.get("daten") or {}))
+        bez = row.get("bezeichnung") or d.get("bezeichnung") or ""
+        sig = _sig(d, bez)
+        if sig in seen_t:
+            continue
+        seen_t.add(sig)
+        alle_tueren.append(dict(d, bezeichnung=bez))
 
     # 6) Baudaten aus allen Plänen sammeln — höchste Vision-Konfidenz gewinnt
     best_baudaten = {}
@@ -2104,6 +2125,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             materialliste_result = _build_materialliste(
                 merged_rooms, alle_fenster, best_baudaten,
                 override=body.materialliste_override, geschoss=geschoss,
+                tueren=alle_tueren,
             )
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
@@ -2133,12 +2155,14 @@ async def projekt_massen(body: ProjektMassenRequest):
         "plaene": plaene_manifest,
         "raeume_count": len(merged_rooms),
         "fenster_count": len(alle_fenster),
+        "tueren_count": len(alle_tueren),
         "merge_enrichments": enrichments,
         "h_inferred_count": ergaenzte_h,
         "h_inferred_value": h_median,
         "geschoss": geschoss,
         "raeume": merged_rooms,
         "fenster": alle_fenster,
+        "tueren": alle_tueren,
         "halluzinationen": [
             {"name": h.get("name"), "grund": h.get("_hallucination")}
             for h in halluzinationen
@@ -2190,18 +2214,26 @@ async def projekt_export(body: ProjektMassenRequest):
     lines.append(f"Räume nach Merge;{data.get('raeume_count', 0)}")
     lines.append(f"Lücken durch Merge gefüllt;{data.get('merge_enrichments', 0)}")
     lines.append(f"Fenster erkannt;{data.get('fenster_count', 0)}")
+    lines.append(f"Türen erkannt;{data.get('tueren_count', 0)}")
+    if data.get("h_inferred_count", 0) > 0:
+        lines.append(f"Höhen ergänzt (Median);{data['h_inferred_count']} Räume → {fmt(data.get('h_inferred_value'))} m")
     if data.get("halluzinationen"):
         lines.append("Vision-Halluzinationen gefiltert;" + esc(", ".join(
             h.get("name", "") for h in data["halluzinationen"])))
     lines.append("")
 
-    # Räume
+    # Räume — H-Quelle explizit: "Plan" wenn aus PDF, "Median X,XX m" wenn ergänzt
     lines.append("RÄUME (alle Pläne gemergt)")
-    lines.append("Name;Fläche m²;Umfang m;Höhe m;Bodenbelag;Quellen-Pläne;merged_fields")
+    lines.append("Name;Fläche m²;Umfang m;Höhe m;H-Quelle;Bodenbelag;Quellen-Pläne;merged_fields")
+    h_med = data.get("h_inferred_value")
     for r in data.get("raeume", []):
+        h_quelle = ""
+        if r.get("hoehe_m"):
+            h_quelle = "aus Plan" if not r.get("_h_inferred") else f"Median {fmt(h_med)} m"
         lines.append(";".join([
             esc(r.get("name")),
             fmt(r.get("flaeche_m2")), fmt(r.get("umfang_m")), fmt(r.get("hoehe_m")),
+            esc(h_quelle),
             esc(r.get("bodenbelag")),
             str(len(r.get("_quellen_plaene") or [])),
             esc(",".join(r.get("_merged_from") or [])),
@@ -2210,14 +2242,33 @@ async def projekt_export(body: ProjektMassenRequest):
 
     # Fenster
     lines.append("FENSTER")
-    lines.append("Bezeichnung;Raum;Breite m;Höhe m;Quelle")
+    lines.append("Bezeichnung;Raum;Breite m;Höhe m;FPH m;STUK m;Wand-Typ;Quelle")
     for f in data.get("fenster", []):
         lines.append(";".join([
             esc(f.get("bezeichnung")),
             esc(f.get("raum")),
             fmt(f.get("breite_m")),
             fmt(f.get("hoehe_m")),
+            fmt(f.get("fph_m")),
+            fmt(f.get("stuk_m")),
+            esc(f.get("wand_typ")),
             esc(f.get("quelle") or f.get("_source") or ""),
+        ]))
+    lines.append("")
+
+    # Türen
+    lines.append("TÜREN")
+    lines.append("Bezeichnung;Raum;Breite m;Höhe m;FPH m;STUK m;Wand-Typ;Quelle")
+    for t in data.get("tueren", []):
+        lines.append(";".join([
+            esc(t.get("bezeichnung")),
+            esc(t.get("raum")),
+            fmt(t.get("breite_m")),
+            fmt(t.get("hoehe_m")),
+            fmt(t.get("fph_m")),
+            fmt(t.get("stuk_m")),
+            esc(t.get("wand_typ")),
+            esc(t.get("quelle") or t.get("_source") or ""),
         ]))
     lines.append("")
 

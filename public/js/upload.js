@@ -276,10 +276,12 @@
         hints.push('<div class="status-info">ℹ ' + raeumeOhneH.length +
           ' Räume ohne H — Default-Geschosshöhe wird verwendet.</div>');
       }
-      if (data.fenster_count === 0) {
-        hints.push('<div class="status-warn">⚠ <strong>0 Fenster erkannt</strong> — Laibungen, Rolladenkästen und Ziegelüberlagen werden pauschal geschätzt. Vision hat im Grundriss keine Fenster gefunden.</div>');
+      var fen = data.fenster_count || 0;
+      var tur = data.tueren_count || 0;
+      if (fen === 0 && tur === 0) {
+        hints.push('<div class="status-warn">⚠ <strong>0 Öffnungen erkannt</strong> — Laibungen, Rolladenkästen und Ziegelüberlagen werden pauschal geschätzt.</div>');
       } else {
-        hints.push('<div class="status-ok">✓ ' + data.fenster_count + ' Fenster aus Vision/Plan erkannt</div>');
+        hints.push('<div class="status-ok">✓ ' + fen + ' Fenster + ' + tur + ' Türen aus Plan-Text-Layer erkannt (STUK/FPH-Codes)</div>');
       }
       if (data.halluzinationen && data.halluzinationen.length) {
         hints.push('<div class="status-info">🧹 ' + data.halluzinationen.length + ' Vision-Halluzination(en) gefiltert: ' +
