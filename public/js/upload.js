@@ -287,6 +287,29 @@
         hints.push('<div class="status-info">🧹 ' + data.halluzinationen.length + ' Vision-Halluzination(en) gefiltert: ' +
           data.halluzinationen.map(function(h){ return esc(h.name); }).join(', ') + '</div>');
       }
+      // Konsistenz-Engine-Findings
+      var konsistenz = data.konsistenz;
+      if (konsistenz && konsistenz.findings && konsistenz.findings.length) {
+        var sw = (konsistenz.summary || {}).schweren || {};
+        var fehler = sw.fehler || 0;
+        var warnungen = sw.warnung || 0;
+        var infos = sw.info || 0;
+        var cssClass = fehler > 0 ? 'status-warn' : (warnungen > 0 ? 'status-info' : 'status-room-count');
+        var icon = fehler > 0 ? '⛔' : (warnungen > 0 ? '⚠' : 'ℹ');
+        var parts = [];
+        if (fehler) parts.push(fehler + ' Fehler');
+        if (warnungen) parts.push(warnungen + ' Warnungen');
+        if (infos) parts.push(infos + ' Hinweise');
+        hints.push('<div class="' + cssClass + '">' + icon +
+          ' Konsistenz-Engine: ' + parts.join(', ') +
+          ' <details style="display:inline-block;margin-left:0.4rem"><summary style="cursor:pointer">Details</summary>' +
+          '<ul style="margin:0.3rem 0 0 0;padding-left:1.2rem">' +
+          konsistenz.findings.map(function(f){
+            return '<li><strong>' + esc(f.schwere) + '</strong> · ' + esc(f.msg) + '</li>';
+          }).join('') + '</ul></details></div>');
+      } else if (konsistenz && konsistenz.summary && konsistenz.summary.status === 'ok') {
+        hints.push('<div class="status-ok">✓ Alle Konsistenz-Checks bestanden</div>');
+      }
       hints.push('<div class="status-room-count">📐 ' + data.raeume_count + ' Räume · ' + (data.plaene_count || '?') + ' Plan' + (data.plaene_count===1?'':'e') + '</div>');
       statusEl.innerHTML = hints.join('');
     }

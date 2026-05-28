@@ -25,6 +25,15 @@ except Exception as _e:  # pragma: no cover
     print(f"[materialliste] Import fehlgeschlagen: {_e}")
     _MATERIAL_OK = False
 
+# Konsistenz-Engine (Bauphysik-Plausibilitätschecks)
+try:
+    from konsistenz import laufe_alle_checks as _konsistenz_checks
+    from konsistenz import zusammenfassung as _konsistenz_summary
+    _KONSISTENZ_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[konsistenz] Import fehlgeschlagen: {_e}")
+    _KONSISTENZ_OK = False
+
 # Öffnungs-Extraktion aus STUK/FPH-Codes (Einreichplan-Beschriftung)
 try:
     from oeffnungen import extract_oeffnungen_from_text as _extract_oeffnungen
@@ -2130,6 +2139,19 @@ async def projekt_massen(body: ProjektMassenRequest):
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
 
+    # 7c) Konsistenz-Engine: bauphysikalische Plausibilitätschecks
+    konsistenz_findings = []
+    konsistenz_summary = None
+    if _KONSISTENZ_OK:
+        try:
+            from massen_logic import kategorie_of as _kat
+            konsistenz_findings = _konsistenz_checks(
+                merged_rooms, alle_fenster, alle_tueren, _kat
+            )
+            konsistenz_summary = _konsistenz_summary(konsistenz_findings)
+        except Exception as _e:
+            print(f"[konsistenz] failed: {_e!r}")
+
     # 8) Übersicht der Merge-Wirkung + Plan-Manifest für die UI
     enrichments = sum(len(r.get("_merged_from", [])) for r in merged_rooms)
     plaene_manifest = [{
@@ -2167,6 +2189,10 @@ async def projekt_massen(body: ProjektMassenRequest):
             {"name": h.get("name"), "grund": h.get("_hallucination")}
             for h in halluzinationen
         ],
+        "konsistenz": {
+            "summary": konsistenz_summary,
+            "findings": konsistenz_findings,
+        } if _KONSISTENZ_OK else None,
         "materialliste": materialliste_result,
         **gewerke_result,
     }
@@ -2220,7 +2246,28 @@ async def projekt_export(body: ProjektMassenRequest):
     if data.get("halluzinationen"):
         lines.append("Vision-Halluzinationen gefiltert;" + esc(", ".join(
             h.get("name", "") for h in data["halluzinationen"])))
+    konsistenz = data.get("konsistenz") or {}
+    findings = konsistenz.get("findings") or []
+    if findings:
+        sm = konsistenz.get("summary") or {}
+        sw = sm.get("schweren") or {}
+        lines.append(f"Konsistenz-Status;{sm.get('status','ok')} "
+                     f"({sw.get('fehler',0)} Fehler, {sw.get('warnung',0)} Warnungen, "
+                     f"{sw.get('info',0)} Hinweise)")
     lines.append("")
+
+    # Konsistenz-Checks (Bauphysik)
+    if findings:
+        lines.append("KONSISTENZ-CHECKS (Bauphysik-Plausibilität)")
+        lines.append("Check;Schwere;Botschaft;Betroffene Elemente")
+        for f in findings:
+            lines.append(";".join([
+                esc(f.get("check")),
+                esc(f.get("schwere")),
+                esc(f.get("msg")),
+                esc(", ".join(f.get("betroffen") or [])),
+            ]))
+        lines.append("")
 
     # Räume — H-Quelle explizit: "Plan" wenn aus PDF, "Median X,XX m" wenn ergänzt
     lines.append("RÄUME (alle Pläne gemergt)")
