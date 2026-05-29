@@ -1719,18 +1719,22 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
         # für ~25% Abweichung bei HLZ-Paletten und EKV-Bahnen sorgt.
         # ═══════════════════════════════════════════════════════════════
         AUSSENKONTUR_PROMPT = """Du siehst einen oesterreichischen EFH-Grundriss.
-Bestimme die AUSSENKONTUR der gesamten gemauerten Gebaeudehuelle —
-die ABSOLUT AEUSSERSTE Linie, die alle Innenraeume und ueberdachten
-Aussenbereiche umschliesst. NICHT nur die warmen Wohnraeume — auch
-Garage, ueberdachte Terrasse, Carport gehoeren MIT in die Aussenkontur,
-sofern sie mit dem Hauptbau eine durchgehende Aussenwand bilden.
+Bestimme die AUSSENKONTUR der GEMAUERTEN HAUPTBAU-Huelle — also
+die Aussenwand-Linie um die geheizten Innenraeume + Geraete-/
+Abstellraum + Stiegenhaus. NICHT die Terrasse, NICHT den Parkplatz,
+NICHT ueberdachte Carports — auch wenn sie ueberdacht sind, gehoeren
+sie NICHT in die Bodenplatten-Aussenkontur, weil sie kein durchgehendes
+Fundament/Mauerwerk haben.
+
+Einfache Regel: wenn ein Bereich Aussen-Bodenbelag (Pflaster/Terrasse)
+hat ohne 4 gemauerte Aussenwaende, gehoert er NICHT in die Kontur.
 
 EFH haben fast IMMER eine L-/U-/T-Form mit Vor- und Ruecksprungeen.
 Ein einfaches Rechteck ist die seltene Ausnahme.
 
 Liefere zwei Sachen:
-1) Polygon der Aussenkontur — JEDE Ecke einzeln auflisten. Bei einer
-   L-Form sind das 6 Ecken, bei U-Form 8 Ecken. Nicht vereinfachen!
+1) Polygon der Aussenkontur des Hauptbaus — JEDE Ecke einzeln auflisten.
+   Bei einer L-Form sind das 6 Ecken, bei U-Form 8 Ecken. Nicht vereinfachen!
    Koordinaten in NORMIERTEN 0-1 relativ zur sichtbaren Plan-Flaeche.
 2) Die Aussenmasse in METERN je Wand-Segment, abgelesen aus der
    Hauptbemassungskette am Plan-Rand. Pro Himmelsrichtung KANN es
@@ -1748,9 +1752,10 @@ Wichtig:
 - Polygon im Uhrzeigersinn beginnend oben-links.
 - Bei jedem Versatz/Vorsprung: alle Ecken auflisten.
 - "umfang_m" = Summe ALLER seiten_m-Werte (auch _b/_c-Suffix-Segmente).
-- "flaeche_m2" = Polygon-Flaeche (Shoelace-Formel).
-- Sehr wichtig: bei EFH ist Umfang typisch 50-80m, NICHT 30-40m.
-  Wenn dein Ergebnis < 45m: pruefe ob du Vor-/Ruecksprungeen uebersehen hast."""
+- "flaeche_m2" = Polygon-Flaeche (Shoelace-Formel) des Hauptbaus.
+- Plausi: EFH-Bodenplatte typisch 80-180 m², EFH-Umfang 50-80m.
+- Wenn Bodenplatten-Flaeche > 200 m² oder Umfang > 90m: pruefe ob du
+  Terrasse/Parkplatz mitgenommen hast — die gehoeren NICHT rein."""
 
         aussenkontur_vision = {}
         try:
@@ -2015,15 +2020,19 @@ async def projekt_massen(body: ProjektMassenRequest):
     def _cousin_key(name):
         sn = _short_name(name)
         if not sn:
-            return None
-        words = sn.split()
-        first = words[0] if words else ""
-        last = words[-1] if words else ""
-        # Stabiler Schlüssel: 4-char-first-prefix + last-word (≥4 char)
-        # Zwei Räume gehören zur selben Familie wenn beide Schlüssel-Komponenten
-        # übereinstimmen ODER nur last (für Komposita).
+            return None, set()
+        # "Küche + WZ" → ["küche", "+", "wz"] — Sonderzeichen filtern
+        words = [w for w in sn.split() if len(w) >= 2 and re.match(r"^[a-zäöüß]", w)]
+        if not words:
+            return None, set()
+        first = words[0]
+        last = words[-1]
+        # Set aller "Bedeutungs-Wörter" (≥4 Buchstaben), für unscharfe
+        # Cousin-Verbindung. "Küche + WZ" hat {küche}; "Wohnraum Küche"
+        # hat {wohnraum, küche} → Schnittmenge {küche} → Cousin.
+        bedeutungs_woerter = {w for w in words if len(w) >= 4}
         return (first[:4] if len(first) >= 4 else first,
-                last if len(last) >= 4 else "")
+                last if len(last) >= 4 else ""), bedeutungs_woerter
     def _score(r):
         sn = _short_name(r.get("name"))
         norm = _norm_for_pref(r.get("name"))
@@ -2066,11 +2075,11 @@ async def projekt_massen(body: ProjektMassenRequest):
 
     keys = [_cousin_key(r.get("name")) for r in merged_rooms]
     for i in range(len(merged_rooms)):
-        ki = keys[i]
+        ki, wi = keys[i]
         if not ki:
             continue
         for j in range(i + 1, len(merged_rooms)):
-            kj = keys[j]
+            kj, wj = keys[j]
             if not kj:
                 continue
             # Last-word nur als Cousin-Trigger wenn nicht generisch
@@ -2078,6 +2087,8 @@ async def projekt_massen(body: ProjektMassenRequest):
             j_last = kj[1] if kj[1] not in GENERIC_LAST_WORDS else ""
             same_first = ki[0] and ki[0] == kj[0]
             same_last = i_last and i_last == j_last
+            # Bedeutungs-Wörter-Schnittmenge (ohne generische):
+            common_words = (wi & wj) - GENERIC_LAST_WORDS
             # Nur in selbe Gruppe wenn Größen ähnlich (sonst sind es zwei
             # verschiedene reale Räume mit ähnlichem Namen).
             if not _similar_size(merged_rooms[i], merged_rooms[j]):
@@ -2088,7 +2099,11 @@ async def projekt_massen(body: ProjektMassenRequest):
                 _union(i, j)
             elif same_first and ki[0] and ki[0] not in {"zimm","bad","wc"}:
                 # Gleicher Präfix (≥4 Buchstaben) — z.B. "Wohnen Küche" + "Wohnraum"
-                # NICHT bei Standard-Wohnraumtypen die mehrere echte Instanzen haben
+                _union(i, j)
+            elif common_words and any(w in {"küche","kueche","wohnen","wohnraum",
+                                              "wohnzimmer","wohnkueche","wohnküche"} for w in common_words):
+                # "Küche + WZ" und "Wohnraum Küche" teilen das Wort "küche" →
+                # gleicher Hauptraum, nur unterschiedlich beschriftet
                 _union(i, j)
     groups = {}
     for i, r in enumerate(merged_rooms):
@@ -2321,15 +2336,31 @@ async def projekt_massen(body: ProjektMassenRequest):
     # Konsolidieren: Vision-Polygon ist primäre Quelle (es zeichnet die
     # ganze Kontur nach), PASS-4-Bemaßung dient als Cross-Check (liest
     # nur die Haupt-Außen-Achse, untersieht L-Form-Versätze).
+    # PLAUSI-CHECK: Vision-Polygon-Fläche darf nicht >1.6× Σ F_innen sein,
+    # sonst hat Vision überdachte Außenbereiche (Terrasse/Parkplatz) mit-
+    # erfasst — die gehören nicht in die Bodenplatte.
+    from massen_logic import kategorie_of as _kat_check
+    f_innen_check = sum(r.get("flaeche_m2") or 0 for r in merged_rooms
+                         if _kat_check(r.get("name") or "") == "Innenraum_warm")
     gemessen = None
     if aussenpolygon_kandidaten:
         ap = aussenpolygon_kandidaten[0]
+        bp_flaeche = ap["flaeche_m2"]
+        # Plausi: Bodenplatte sollte ~1.10-1.30 × Σ F_innen sein (Wand-Aufschlag)
+        if f_innen_check > 0 and bp_flaeche > f_innen_check * 1.60:
+            # Polygon zu groß — hat vermutlich Loggia/Terrasse mit drin
+            bp_flaeche = round(f_innen_check * 1.15, 2)
+            polygon_zu_gross = True
+        else:
+            polygon_zu_gross = False
         gemessen = {
             "aussenumfang_m": ap["umfang_m"],
-            "bodenplatte_flaeche_m2": ap["flaeche_m2"],
-            "quelle": "vision-aussenkontur",
-            "konfidenz": 0.80,
+            "bodenplatte_flaeche_m2": bp_flaeche,
+            "quelle": "vision-aussenkontur" + ("-bp-korrigiert" if polygon_zu_gross else ""),
+            "konfidenz": 0.70 if polygon_zu_gross else 0.80,
         }
+        if polygon_zu_gross:
+            gemessen["polygon_original_m2"] = ap["flaeche_m2"]
         # Cross-Check mit PASS-4 — wenn Polygon-Wert deutlich kleiner als
         # PASS-4-Summe, ist Polygon evtl unterschätzt
         if aussenmasse_kandidaten:
