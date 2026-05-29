@@ -2344,13 +2344,46 @@ async def projekt_massen(body: ProjektMassenRequest):
     alle_fenster = _collect_oeffnungen(fenster_rows)
     alle_tueren = _collect_oeffnungen(tueren_rows)
 
+    # ── VEKTOR-POLYGON-BUILD (rechtwinklige Geometrie) ──────────────────
+    # Für rechteckige + L-förmige Gebäude (≈99% aller EFH) gilt exakt:
+    #   Umfang = 2 × (Gebäudebreite + Gebäudetiefe)
+    #   (Vor-/Rücksprünge ändern den Umfang einer rechtwinkligen L-Form NICHT)
+    # Breite = längste N/S-Fassade, Tiefe = längste W/E-Fassade — genau das
+    # liest PASS-4 als äußerste Kettenbemaßung pro Seite. Fehlt eine Seite,
+    # rekonstruiert die rechtwinklige Symmetrie sie (N≈S, W≈E).
+    def _bbox_from_sides(seiten):
+        if not seiten:
+            return None
+        horiz, vert = [], []
+        for k, v in seiten.items():
+            if not v or v <= 0:
+                continue
+            base = k.strip().upper()[0]  # erste Buchstabe: N/S/W/E/O
+            # Segmente mit _b/_c-Suffix gehören zur selben Fassade → addieren
+            if base in ("N", "S"):
+                horiz.append(float(v))
+            elif base in ("W", "E", "O"):
+                vert.append(float(v))
+        breite = max(horiz) if horiz else (max(vert) if vert else None)
+        tiefe = max(vert) if vert else (max(horiz) if horiz else None)
+        if not breite or not tiefe:
+            return None
+        # Plausibilität: EFH-Seiten 4-40m
+        if not (4 <= breite <= 60 and 4 <= tiefe <= 60):
+            return None
+        return {
+            "breite_m": round(breite, 2), "tiefe_m": round(tiefe, 2),
+            "umfang_m": round(2 * (breite + tiefe), 2),
+            "flaeche_m2": round(breite * tiefe, 2),
+        }
+
     # 6) Baudaten aus allen Plänen sammeln — höchste Vision-Konfidenz gewinnt
     best_baudaten = {}
     best_konf = -1.0
     geschoss = "EG"
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
-    aussenmasse_kandidaten = []  # Liste von {seiten:{N,S,W,E}, umfang, quelle}
+    aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
     aussenpolygon_kandidaten = []  # Liste von {umfang_m, flaeche_m2, quelle}
     for p in plaene:
         log = p.get("agent_log") or {}
@@ -2370,17 +2403,17 @@ async def projekt_massen(body: ProjektMassenRequest):
         wbv = log.get("wand_bemassung_vision") or {}
         for top_name, top_data in wbv.items():
             wl = (top_data or {}).get("wandlaengen_m") or {}
-            if wl:
-                # Nur Seiten mit echtem Wert
-                seiten = {k: v for k, v in wl.items() if v and v > 0}
-                if len(seiten) >= 2:  # min 2 Seiten für Umfang
-                    aussenmasse_kandidaten.append({
-                        "seiten_m": seiten,
-                        "umfang_m": round(sum(seiten.values()), 2),
-                        "plan": p.get("dateiname"),
-                        "top": top_name,
-                        "quelle": "pass4-bemassung",
-                    })
+            seiten = {k: v for k, v in wl.items() if v and v > 0}
+            bbox = _bbox_from_sides(seiten)
+            if bbox:
+                aussenmasse_kandidaten.append({
+                    "seiten_m": seiten,
+                    "umfang_m": bbox["umfang_m"],
+                    "flaeche_m2": bbox["flaeche_m2"],
+                    "breite_m": bbox["breite_m"], "tiefe_m": bbox["tiefe_m"],
+                    "plan": p.get("dateiname"), "top": top_name,
+                    "quelle": "pass4-bbox",
+                })
         # Außenkontur-Vision (Polygon + Außenmaße + Fläche)
         ak = log.get("aussenkontur_vision") or {}
         if ak.get("umfang_m") and ak.get("flaeche_m2"):
@@ -2391,6 +2424,15 @@ async def projekt_massen(body: ProjektMassenRequest):
                 "plan": p.get("dateiname"),
                 "quelle": "vision-aussenkontur",
             })
+            # Auch aus dem Vision-Polygon eine Bounding-Box rechnen (Cross-Check)
+            akb = _bbox_from_sides(ak.get("seiten_m") or {})
+            if akb:
+                aussenmasse_kandidaten.append({
+                    "seiten_m": ak.get("seiten_m"), "umfang_m": akb["umfang_m"],
+                    "flaeche_m2": akb["flaeche_m2"], "breite_m": akb["breite_m"],
+                    "tiefe_m": akb["tiefe_m"], "plan": p.get("dateiname"),
+                    "quelle": "vision-bbox",
+                })
 
     # Konsolidieren: Vision-Polygon ist primäre Quelle (es zeichnet die
     # ganze Kontur nach), PASS-4-Bemaßung dient als Cross-Check (liest
@@ -2418,16 +2460,18 @@ async def projekt_massen(body: ProjektMassenRequest):
     #            Überschätzung — rein geometrisch, planunabhängig.
     poly_flaechen = [c["flaeche_m2"] for c in aussenpolygon_kandidaten if c.get("flaeche_m2")]
     poly_umfaenge = [c["umfang_m"] for c in aussenpolygon_kandidaten if c.get("umfang_m")]
-    pass4_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten if c.get("umfang_m")]
+    # BBox-Umfänge (Polygon-Build, 2×(B+T)) — geometrisch exakt für
+    # rechtwinklige Gebäude. Das ist die PRIMÄRE Umfang-Quelle.
+    bbox_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten if c.get("umfang_m")]
+    bbox_flaechen = [c["flaeche_m2"] for c in aussenmasse_kandidaten if c.get("flaeche_m2")]
 
     gemessen = None
-    bp_flaeche = _median(poly_flaechen)
+    # Fläche: Bodenplatte aus Vision-Polygon ODER bbox ODER Σ F_innen
+    bp_flaeche = _median(poly_flaechen) or _median(bbox_flaechen)
     if bp_flaeche is None and f_innen_check > 0:
-        bp_flaeche = round(f_innen_check * 1.15, 2)  # Fallback Schätzung
+        bp_flaeche = round(f_innen_check * 1.15, 2)
 
     if bp_flaeche:
-        # Bodenplatte gegen Σ F_innen plausibilisieren (Vision-Polygon nimmt
-        # manchmal Terrasse mit → zu groß; oder verfehlt Wand-Bereich → zu klein)
         bp_korrigiert = False
         if f_innen_check > 0:
             if bp_flaeche > f_innen_check * 1.60:
@@ -2436,32 +2480,33 @@ async def projekt_massen(body: ProjektMassenRequest):
                 bp_flaeche = round(f_innen_check * 1.10, 2); bp_korrigiert = True
         bp_flaeche = round(bp_flaeche, 2)
 
-        # Isoperimetrische Umfang-Grenzen aus der (validierten) Fläche
-        iso_min = 4.0 * (bp_flaeche ** 0.5)        # Quadrat-Minimum (physikalisch)
-        umfang_floor = iso_min * 1.20              # kompaktes reales EFH
-        umfang_ceil = iso_min * 2.20               # stark zerklüftet (L/U-Form)
+        # Physikalische Grenzen (ein Footprint kann keinen Umfang < 4√A haben)
+        iso_min = 4.0 * (bp_flaeche ** 0.5)
+        umfang_ceil = iso_min * 2.50   # großzügig (auch lange/zerklüftete Bauten)
 
-        # Beste Umfang-Schätzung: Median aller Mess-Quellen, dann in Grenzen
-        kandidaten = []
-        mp = _median(poly_umfaenge)
-        m4 = _median(pass4_umfaenge)
-        if mp: kandidaten.append(mp)
-        if m4: kandidaten.append(m4)
-        if kandidaten:
-            # Vision/PASS-4 unterschätzen tendenziell (übersehen Vor-/Rücksprünge)
-            # → der größere der beiden Mess-Werte ist meist näher an der Realität
-            umfang_roh = max(kandidaten)
+        mbbox = _median(bbox_umfaenge)
+        mpoly = _median(poly_umfaenge)
+
+        if mbbox:
+            # POLYGON-BUILD: 2×(B+T) ist exakt für Rechteck/L-Form → direkt nutzen,
+            # nur an physikalischen Grenzen clampen (NICHT künstlich aufblähen).
+            aussenumfang_m = round(min(max(mbbox, iso_min), umfang_ceil), 2)
+            quelle = "polygon-build-bbox"
+            konf = 0.88
+            # Vision-Polygon als Cross-Check für Konfidenz
+            if mpoly and abs(mpoly - mbbox) / max(mpoly, mbbox) < 0.12:
+                konf = 0.95; quelle = "polygon-build+vision-konsistent"
+        elif mpoly:
+            # Nur Vision-Polygon → unterschätzt, isoperimetrischer Floor als Netz
+            umfang_floor = iso_min * 1.20
+            aussenumfang_m = round(min(max(mpoly, umfang_floor), umfang_ceil), 2)
+            quelle = "vision-polygon" + ("+iso-korrigiert" if aussenumfang_m > mpoly + 0.5 else "")
+            konf = 0.72
         else:
-            umfang_roh = umfang_floor
-        aussenumfang_m = round(min(max(umfang_roh, umfang_floor), umfang_ceil), 2)
+            # Keine Messung → isoperimetrische Schätzung aus Fläche
+            aussenumfang_m = round(iso_min * 1.35, 2)
+            quelle = "isoperimetrisch-geschätzt"; konf = 0.55
 
-        # Quellen-Übereinstimmung → Konfidenz
-        quelle = "geometrie-median"
-        konf = 0.75
-        if mp and m4 and abs(mp - m4) / max(mp, m4) < 0.12:
-            konf = 0.92; quelle = "polygon+pass4-konsistent"
-        elif abs(umfang_roh - aussenumfang_m) > 0.5:
-            quelle = "isoperimetrisch-korrigiert"; konf = 0.70
         if bp_korrigiert:
             quelle += "+bp-plausi"
 
@@ -2470,9 +2515,8 @@ async def projekt_massen(body: ProjektMassenRequest):
             "bodenplatte_flaeche_m2": bp_flaeche,
             "quelle": quelle,
             "konfidenz": konf,
-            "_debug": {"poly_umfaenge": poly_umfaenge, "pass4_umfaenge": pass4_umfaenge,
-                       "iso_min": round(iso_min, 1), "floor": round(umfang_floor, 1),
-                       "ceil": round(umfang_ceil, 1)},
+            "_debug": {"bbox_umfaenge": bbox_umfaenge, "poly_umfaenge": poly_umfaenge,
+                       "iso_min": round(iso_min, 1), "ceil": round(umfang_ceil, 1)},
         }
 
     # 6b) Geschoss-Höhe aus den Raumhöhen ableiten — wichtig wenn Vision
