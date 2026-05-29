@@ -23,18 +23,20 @@ Liefert:
 from __future__ import annotations
 import re
 
-# Tragende/strukturelle Wand-Materialien (deren Dicke = Rohbau-Wandstärke)
+# Tragende/strukturelle Wand-Materialien (deren Dicke = Rohbau-Wandstärke).
+# Breit gefasst für verschiedene Architekten/Hersteller (AT-Markt).
 STRUKTUR_MATERIAL = re.compile(
-    r"(hochlochziegel|hlz|ziegel|stahlbeton|stb|beton|porenbeton|ytong|"
-    r"kalksandstein|ks|vollziegel|leichtbeton)", re.I)
-# Eine Schicht-Zeile: "<Material> ... <Wert> cm"
+    r"(hochlochziegel|hlz|ziegel|porotherm|poroton|planziegel|porenbeton|"
+    r"stahlbeton|stb\b|beton|ytong|kalksandstein|\bks\b|vollziegel|"
+    r"leichtbeton|liapor|liapor|mauerwerk)", re.I)
+# Eine Schicht-Zeile: "<Material> ... <Wert> cm" (auch mm-Toleranz)
 SCHICHT_RX = re.compile(r"([A-Za-zÄÖÜäöüß\-]+).*?(\d+(?:[,.]\d+)?)\s*cm", re.I)
-# Bauteil-Codes
-WAND_CODE_RX = re.compile(r"^(AW|IW|TW|AW|BW)\s*(\d+)\b", re.I)   # Außen/Innen/Trenn-Wand
-DECKE_CODE_RX = re.compile(r"^D\s*(\d+)\b", re.I)
-BODEN_CODE_RX = re.compile(r"^B\s*(\d+)\b", re.I)
-# Wand-Code-Vorkommen im Plan (an den Wänden, nicht in der Legende)
-WAND_REF_RX = re.compile(r"^(AW|IW|TW|BW)\s*(\d+)\b", re.I)
+# Bauteil-Codes — ÖNORM-Standard (Außen/Innen/Trenn/Brand-Wand), toleranter
+# Separator (AW1 / AW 1 / AW-1). Bare "W" bewusst NICHT (zu viele Fehltreffer).
+WAND_CODE_RX = re.compile(r"^(AW|IW|TW|BW)\s*[-_.]?\s*(\d+)\b", re.I)
+DECKE_CODE_RX = re.compile(r"^D\s*[-_.]?\s*(\d+)\b", re.I)
+BODEN_CODE_RX = re.compile(r"^B\s*[-_.]?\s*(\d+)\b", re.I)
+WAND_REF_RX = re.compile(r"^(AW|IW|TW|BW)\s*[-_.]?\s*(\d+)\b", re.I)
 
 
 def _num(s):
