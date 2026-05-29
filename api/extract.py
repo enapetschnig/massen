@@ -42,6 +42,16 @@ except Exception as _e:  # pragma: no cover
     print(f"[oeffnungen] Import fehlgeschlagen: {_e}")
     _OEFFNUNGEN_OK = False
 
+# Legende-Parser — liest Bauteil-Aufbau byte-exakt (Wandstärken, Decke, etc.)
+try:
+    from legende import (parse_legende as _parse_legende,
+                         baudaten_aus_legende as _baudaten_aus_legende,
+                         wand_verteilung_aus_counts as _wand_verteilung)
+    _LEGENDE_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[legende] Import fehlgeschlagen: {_e}")
+    _LEGENDE_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -1838,6 +1848,13 @@ Wichtig:
             log["aussenkontur_vision"] = aussenkontur_vision
         except NameError:
             pass
+    # Bauteil-Legende byte-exakt aus dem Text-Layer lesen (wie ein Mensch):
+    # Wandstärken pro Code, Decke, Bodenplatte, Sauberkeit, Estrich.
+    if _LEGENDE_OK:
+        try:
+            log["legende"] = _parse_legende(spans_all)
+        except Exception as _exc:
+            print(f"[legende] parse fehlgeschlagen: {_exc!r}")
     log["oenorm_lv"] = oenorm_lv
     if gewerke_result:
         log["gewerke"] = gewerke_result
@@ -2381,6 +2398,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_baudaten = {}
     best_konf = -1.0
     geschoss = "EG"
+    best_legende = None  # Legende mit höchster Konfidenz (byte-exakt > Vision)
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
@@ -2394,6 +2412,11 @@ async def projekt_massen(body: ProjektMassenRequest):
             if k > best_konf:
                 best_konf = k
                 best_baudaten = bd
+        # Bauteil-Legende (byte-exakt) — beste über alle Pläne
+        leg = log.get("legende") or {}
+        if leg.get("wand_typen") and (best_legende is None or
+                (leg.get("konfidenz") or 0) > (best_legende.get("konfidenz") or 0)):
+            best_legende = leg
         # Geschoss aus dem ersten Plan, der eines hat
         if not geschoss or geschoss == "EG":
             g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
@@ -2529,6 +2552,25 @@ async def projekt_massen(body: ProjektMassenRequest):
         best_baudaten.setdefault("_quellen", {})
         best_baudaten["_quellen"]["geschosshoehe_m"] = "raumhoehen-max"
 
+    # 6c) LEGENDE schlägt Vision + Defaults (byte-exakt aus dem Plan gelesen,
+    # wie ein Bautechniker). Wandstärken, Decke, Bodenplatte, Sauberkeit.
+    wand_verteilung = None
+    if _LEGENDE_OK and best_legende:
+        leg_bd = _baudaten_aus_legende(best_legende)
+        best_baudaten.setdefault("_quellen", {})
+        for k, v in leg_bd.items():
+            if k in ("konfidenz", "_quelle"):
+                continue
+            best_baudaten[k] = v
+            best_baudaten["_quellen"][k] = "legende"
+        if best_legende.get("sauberkeitsschicht_cm"):
+            best_baudaten["sauberkeitsschicht_cm"] = best_legende["sauberkeitsschicht_cm"]
+            best_baudaten["_quellen"]["sauberkeitsschicht_cm"] = "legende"
+        if leg_bd:
+            best_baudaten["konfidenz"] = max(float(best_baudaten.get("konfidenz") or 0),
+                                             leg_bd.get("konfidenz", 0.9))
+        wand_verteilung = _wand_verteilung(best_legende)
+
     # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
     if body.baudaten_override:
         ov = body.baudaten_override
@@ -2573,6 +2615,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                 merged_rooms, alle_fenster, best_baudaten,
                 override=body.materialliste_override, geschoss=geschoss,
                 tueren=alle_tueren, gemessen=gemessen,
+                wand_verteilung=wand_verteilung,
             )
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
@@ -2632,6 +2675,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             "findings": konsistenz_findings,
         } if _KONSISTENZ_OK else None,
         "gemessen": gemessen,
+        "legende": best_legende,
         "materialliste": materialliste_result,
         **gewerke_result,
     }
@@ -2774,6 +2818,21 @@ async def projekt_export(body: ProjektMassenRequest):
         if bd.get(key) is not None:
             lines.append(";".join([label, fmt(bd[key]), esc(bq.get(key, "default"))]))
     lines.append("")
+
+    # Bauteil-Legende (byte-exakt aus dem Plan gelesen)
+    leg = data.get("legende") or {}
+    if leg.get("wand_typen"):
+        lines.append("BAUTEIL-LEGENDE (aus Plan gelesen)")
+        lines.append("Code;Dicke cm;Material;Art;Vorkommen im Plan")
+        counts = leg.get("wand_counts") or {}
+        for code, w in leg["wand_typen"].items():
+            lines.append(";".join([code, fmt(w.get("dicke_cm")), esc(w.get("material")),
+                                   esc(w.get("art")), str(counts.get(code, 0))]))
+        if leg.get("sauberkeitsschicht_cm"):
+            lines.append(f"Sauberkeitsschicht;{fmt(leg['sauberkeitsschicht_cm'])};;;")
+        if leg.get("estrich_cm"):
+            lines.append(f"Estrich;{fmt(leg['estrich_cm'])};;;")
+        lines.append("")
 
     # ÖNORM-Gewerke
     lines.append("ÖNORM-MASSEN (Putz/Estrich/Maler/Rohbau)")

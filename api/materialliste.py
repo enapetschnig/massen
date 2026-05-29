@@ -146,7 +146,7 @@ class MaterialPos:
 # BAUTEIL-BERECHNUNGEN
 # ────────────────────────────────────────────────────────────────────
 def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG",
-                            tueren=None, gemessen=None):
+                            tueren=None, gemessen=None, wand_verteilung=None):
     """Erzeugt eine flache Liste von MaterialPos über alle Bauteile.
 
     rooms:    gemergte Räume aus /api/projekt-massen
@@ -217,7 +217,13 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         umfang_konfidenz = 0.55
 
     aw_m2_aussen = round(aussenumfang_m * h, 2)
-    iw_m2_innen_rohbau = max(0, round(u_sum_innen * h - aw_m2_aussen, 2))
+    # Innenwand-Fläche OHNE Doppelzählung: Σ Raum-Umfang zählt jede Innenwand
+    # von BEIDEN angrenzenden Räumen (2×), die Außenwand-Innenseite 1×. Also:
+    #   Σ U_innen = Außenumfang + 2 × Innenwand-Länge
+    #   → Innenwand-Länge = (Σ U_innen − Außenumfang) / 2
+    # (ein Bautechniker sieht jede Wand genau einmal — kein Doppelzählen).
+    iw_laenge = max(0.0, (u_sum_innen - aussenumfang_m) / 2.0)
+    iw_m2_innen_rohbau = round(iw_laenge * h, 2)
 
     out = []
 
@@ -257,7 +263,8 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         "Bodenplatte", "Lieferbeton C25/30, B2, GK 22, F52", "m³",
         bp_m3, f"{bodenplatte_m2}m² × {bopl_cm}cm Dicke",
         konfidenz=0.7))
-    sauber_cm = f("sauberkeitsschicht_cm", override)
+    # Sauberkeitsschicht: Legende (byte-exakt in baudaten) > Override > Default
+    sauber_cm = baudaten.get("sauberkeitsschicht_cm") or f("sauberkeitsschicht_cm", override)
     out.append(MaterialPos(
         "Bodenplatte", "Lieferbeton C16/20 (Sauberkeitsschicht)", "m³",
         bodenplatte_m2 * (sauber_cm / 100.0),
@@ -290,42 +297,65 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         "Außenumfang × Stk-Dichte", konfidenz=0.4))
 
     # ═══ Mauerwerk EG — HLZ-Paletten pro Wandstärke ═══
-    # Außenwand auf 50cm/38cm/25cm-aussen verteilen
-    a50 = aw_m2_aussen * f("wand_anteil_50cm", override) / 100.0
-    a38 = aw_m2_aussen * f("wand_anteil_38cm", override) / 100.0
-    a25a = aw_m2_aussen * f("wand_anteil_25cm_aussen", override) / 100.0
-    # Innenwand auf 25cm-innen/20cm/12cm
-    i25 = iw_m2_innen_rohbau * f("wand_anteil_25cm_innen", override) / 100.0
-    i20 = iw_m2_innen_rohbau * f("wand_anteil_20cm", override) / 100.0
-    i12 = iw_m2_innen_rohbau * f("wand_anteil_12cm", override) / 100.0
-    gesamt_m2_25 = a25a + i25
+    # Paletten-Deckung pro m² Wand: bekannte Stärke aus DEFAULTS, sonst
+    # generische Formel 150/Dicke_cm (50→3.0, 25→6.0, 12→12.5 — passt zur Tabelle).
+    def _coverage(dicke_cm):
+        key = f"hlz_{int(round(dicke_cm))}cm_m2_pro_palette"
+        if key in DEFAULTS or (override and key in override):
+            return f(key, override)
+        return round(150.0 / dicke_cm, 2) if dicke_cm > 0 else 6.0
 
-    def pal(m2, key):
-        m2_pro_pal = f(key, override)
-        return math.ceil(m2 / m2_pro_pal) if m2_pro_pal > 0 else 0
+    def _hlz_positionen(verteilung_aussen, verteilung_innen, konf):
+        """verteilung_*: {dicke_cm: anteil_pct}. Erzeugt HLZ-Positionen."""
+        # Außen + Innen je Dicke zusammenfassen (gleiche Dicke = gleiche Palette)
+        m2_pro_dicke = {}
+        formel_teile = {}
+        for d, pct in (verteilung_aussen or {}).items():
+            dd = float(d)
+            m2 = aw_m2_aussen * pct / 100.0
+            m2_pro_dicke[dd] = m2_pro_dicke.get(dd, 0) + m2
+            formel_teile.setdefault(dd, []).append(f"AW {m2:.1f}m²")
+        for d, pct in (verteilung_innen or {}).items():
+            dd = float(d)
+            m2 = iw_m2_innen_rohbau * pct / 100.0
+            m2_pro_dicke[dd] = m2_pro_dicke.get(dd, 0) + m2
+            formel_teile.setdefault(dd, []).append(f"IW {m2:.1f}m²")
+        pos = []
+        gesamt = 0.0
+        for dd in sorted(m2_pro_dicke.keys(), reverse=True):
+            m2 = m2_pro_dicke[dd]
+            gesamt += m2
+            cov = _coverage(dd)
+            pos.append(MaterialPos(
+                "Mauerwerk EG", f"HLZ {int(round(dd))}cm Plan", "Paletten",
+                math.ceil(m2 / cov) if cov > 0 else 0,
+                f"{' + '.join(formel_teile[dd])} ÷ {cov}m²/Pal", konfidenz=konf))
+        return pos, gesamt
 
-    out.append(MaterialPos(
-        "Mauerwerk EG", "HLZ 50cm H.I. Plan", "Paletten",
-        pal(a50, "hlz_50cm_m2_pro_palette"),
-        f"{a50:.1f}m² Außenwand 50cm ÷ {f('hlz_50cm_m2_pro_palette', override)}m²/Pal", konfidenz=0.5))
-    out.append(MaterialPos(
-        "Mauerwerk EG", "HLZ 38cm H.I. Plan", "Paletten",
-        pal(a38, "hlz_38cm_m2_pro_palette"),
-        f"{a38:.1f}m² Außenwand 38cm", konfidenz=0.5))
-    out.append(MaterialPos(
-        "Mauerwerk EG", "HLZ 25cm Plan", "Paletten",
-        pal(gesamt_m2_25, "hlz_25cm_m2_pro_palette"),
-        f"{gesamt_m2_25:.1f}m² (Außen 25cm + Innen 25cm)", konfidenz=0.5))
-    out.append(MaterialPos(
-        "Mauerwerk EG", "HLZ 20cm Plan", "Paletten",
-        pal(i20, "hlz_20cm_m2_pro_palette"),
-        f"{i20:.1f}m² Innenwand 20cm", konfidenz=0.5))
-    out.append(MaterialPos(
-        "Mauerwerk EG", "HLZ 12cm Plan", "Paletten",
-        pal(i12, "hlz_12cm_m2_pro_palette"),
-        f"{i12:.1f}m² Innenwand 12cm", konfidenz=0.5))
-
-    gesamt_wand_m2 = a50 + a38 + a25a + i25 + i20 + i12
+    if wand_verteilung and (wand_verteilung.get("aussen") or wand_verteilung.get("innen")):
+        # LEGENDE-basiert: echte Wandstärken + Verteilung aus dem Plan gelesen
+        hlz_pos, gesamt_wand_m2 = _hlz_positionen(
+            wand_verteilung.get("aussen"), wand_verteilung.get("innen"), konf=0.75)
+        out.extend(hlz_pos)
+    else:
+        # Fallback: hartcodierte Standard-Verteilung (kein Legende-Fund)
+        a50 = aw_m2_aussen * f("wand_anteil_50cm", override) / 100.0
+        a38 = aw_m2_aussen * f("wand_anteil_38cm", override) / 100.0
+        a25a = aw_m2_aussen * f("wand_anteil_25cm_aussen", override) / 100.0
+        i25 = iw_m2_innen_rohbau * f("wand_anteil_25cm_innen", override) / 100.0
+        i20 = iw_m2_innen_rohbau * f("wand_anteil_20cm", override) / 100.0
+        i12 = iw_m2_innen_rohbau * f("wand_anteil_12cm", override) / 100.0
+        out.append(MaterialPos("Mauerwerk EG", "HLZ 50cm H.I. Plan", "Paletten",
+            math.ceil(a50 / _coverage(50)), f"{a50:.1f}m² AW 50cm (Annahme)", konfidenz=0.5))
+        out.append(MaterialPos("Mauerwerk EG", "HLZ 38cm H.I. Plan", "Paletten",
+            math.ceil(a38 / _coverage(38)), f"{a38:.1f}m² AW 38cm (Annahme)", konfidenz=0.5))
+        out.append(MaterialPos("Mauerwerk EG", "HLZ 25cm Plan", "Paletten",
+            math.ceil((a25a + i25) / _coverage(25)), f"{a25a+i25:.1f}m² 25cm (Annahme)", konfidenz=0.5))
+        out.append(MaterialPos("Mauerwerk EG", "HLZ 20cm Plan", "Paletten",
+            math.ceil(i20 / _coverage(20)), f"{i20:.1f}m² IW 20cm (Annahme)", konfidenz=0.5))
+        out.append(MaterialPos("Mauerwerk EG", "HLZ 12cm Plan", "Paletten",
+            math.ceil(i12 / _coverage(12)), f"{i12:.1f}m² IW 12cm (Annahme)", konfidenz=0.5))
+        gesamt_wand_m2 = a50 + a38 + a25a + i25 + i20 + i12
     out.append(MaterialPos(
         "Mauerwerk EG", "Mauermörtel", "Paletten",
         gesamt_wand_m2 / 100 * f("mauermoertel_paletten_pro_100m2", override),
@@ -483,7 +513,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
 
 
 def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
-                         tueren=None, gemessen=None):
+                         tueren=None, gemessen=None, wand_verteilung=None):
     """Wrapper: gibt strukturiertes Gewerk-Dict zurück.
 
     gemessen: optional dict mit gemessenen Werten aus PASS-4-Bemaßung +
@@ -493,7 +523,8 @@ def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
               aussenumfang × 1.55) durch die gemessenen Werte ersetzt.
     """
     positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss,
-                                         tueren=tueren, gemessen=gemessen)
+                                         tueren=tueren, gemessen=gemessen,
+                                         wand_verteilung=wand_verteilung)
     # Gruppiere nach Bauteil
     by_bauteil = {}
     for p in positionen:
