@@ -2250,6 +2250,33 @@ async def projekt_massen(body: ProjektMassenRequest):
     halluzinationen = [r for r in merged_rooms if r.get("_hallucination")]
     merged_rooms = cleaned_rooms
 
+    # 4b2) GESCHOSS/EINHEIT-TRENNUNG für die Rohbau-Mengen:
+    # Die Bodenplatte/Decke/Mauerwerk ist EIN EG-Grundriss. Wenn der Plan
+    # zusätzlich Räume einer ANDEREN Einheit/Geschoss enthält (eigene
+    # Wohnungs-Bezeichnung wie "W02", andere Raumhöhe), gehören die NICHT in
+    # dieselbe Bodenplatte. Ein Mensch erkennt "W02" als separate Einheit.
+    # → Für die Bauteil-Mengen nur die DOMINANTE Wohnungs-Gruppe (das EG).
+    #   Bei echtem MFH (>2 Wohnungen, nicht is_efh) wird NICHT gefiltert.
+    def _wg(r):
+        return _nk(r.get("wohnung") or "")
+    _groups = {}
+    for r in merged_rooms:
+        _groups.setdefault(_wg(r), []).append(r)
+    rohbau_rooms = merged_rooms
+    ausgeschlossene_einheiten = []
+    if is_efh and len(_groups) > 1:
+        def _gscore(rs):
+            return len(rs) + sum(len(r.get("_quellen_plaene") or []) for r in rs)
+        dom_key = max(_groups, key=lambda k: _gscore(_groups[k]))
+        dom = _groups[dom_key]
+        if len(dom) >= 0.5 * len(merged_rooms):
+            rohbau_rooms = dom
+            for k, rs in _groups.items():
+                if k != dom_key:
+                    ausgeschlossene_einheiten.append({
+                        "einheit": k or "(ohne)", "raeume": [r.get("name") for r in rs],
+                    })
+
     # 4c) Höhen-Inferenz: Architekten beschriften nicht jeden Raum mit RH —
     # typisch fehlt H bei Wohnräumen (gleicher Standard-Wert) und Außen-
     # bereichen (Loggia/Terrasse). Wenn andere Räume H haben, übernimm
@@ -2476,7 +2503,9 @@ async def projekt_massen(body: ProjektMassenRequest):
     # sonst hat Vision überdachte Außenbereiche (Terrasse/Parkplatz) mit-
     # erfasst — die gehören nicht in die Bodenplatte.
     from massen_logic import kategorie_of as _kat_check
-    f_innen_check = sum(r.get("flaeche_m2") or 0 for r in merged_rooms
+    # Footprint-Anker = NUR die dominante EG-Einheit (rohbau_rooms), nicht
+    # zusätzliche Einheiten/Geschosse (W02 etc.) — sonst zu große Bodenplatte.
+    f_innen_check = sum(r.get("flaeche_m2") or 0 for r in rohbau_rooms
                          if _kat_check(r.get("name") or "") == "Innenraum_warm")
 
     def _median(xs):
@@ -2642,7 +2671,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     if _MATERIAL_OK:
         try:
             materialliste_result = _build_materialliste(
-                merged_rooms, alle_fenster, best_baudaten,
+                rohbau_rooms, alle_fenster, best_baudaten,
                 override=body.materialliste_override, geschoss=geschoss,
                 tueren=alle_tueren, gemessen=gemessen,
                 wand_verteilung=wand_verteilung, legende=best_legende,
@@ -2706,6 +2735,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         } if _KONSISTENZ_OK else None,
         "gemessen": gemessen,
         "legende": best_legende,
+        "ausgeschlossene_einheiten": ausgeschlossene_einheiten,
         "materialliste": materialliste_result,
         **gewerke_result,
     }

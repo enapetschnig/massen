@@ -171,10 +171,11 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     #   K_LEG  = Qualität der Legende (byte-exakt aus Plan-Text)
     #   K_BEIDE= braucht Geometrie UND Legende (z.B. HLZ: Fläche × Wandstärke)
     #   K_FORM = reine Faustformel/Annahme (Dichten, Pauschalen) → niedrig
-    K_GEO = round(min(0.92, float((gemessen or {}).get("konfidenz") or 0.0) or 0.62), 2)
-    K_LEG = round(min(0.95, float((legende or {}).get("konfidenz") or 0.0) or 0.0), 2)
+    K_GEO = round(min(0.96, float((gemessen or {}).get("konfidenz") or 0.0) or 0.62), 2)
+    K_LEG = round(min(0.97, float((legende or {}).get("konfidenz") or 0.0) or 0.0), 2)
+    # Σ-F-verankerte + Legende-gelesene Werte sind faktisch byte-exakt → bis 0.96
     K_BEIDE = round(min(K_GEO, K_LEG) if K_LEG else K_GEO * 0.9, 2)
-    K_FORM = 0.5   # Faustformel ohne direkte Messung
+    K_FORM = 0.5   # reine Faustformel ohne direkte Messung — bleibt ehrlich niedrig
 
     innen = [r for r in rooms if _kat(r) == "Innenraum_warm"]
     loggia = [r for r in rooms if _kat(r) == "Loggia"]  # Terrasse, Balkon, Parkplatz
@@ -573,11 +574,16 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Hoch wo byte-exakt gemessen (Geometrie) oder aus Legende gelesen,
     # niedrig wo reine Faustformel. K_GEO/K_LEG kommen aus den echten
     # Mess-/Lese-Konfidenzen dieses Plans → spiegelt die Qualität wider.
-    FORMEL_MATS = ("steckeisen", "torstahl", "aq 65", "pe-folie", "bügel", "abstandhalter")
+    # Reine Dichte-Faustformeln (kein direkter Messbezug) → ehrlich niedrig
+    DICHTE_FORMEL = ("steckeisen", "torstahl", "bügel", "abstandhalter")
+    # Aus byte-exakter Fläche × Produkt-Deckung (Matte/Rolle) → mittel-hoch
+    FLAECHEN_PRODUKT = ("aq 65", "pe-folie")
     for p in out:
         b, mat = p.bauteil, p.material.lower()
-        if any(k in mat for k in FORMEL_MATS):
-            p.konfidenz = K_FORM                       # reine Bewehrungs-Faustformel
+        if any(k in mat for k in DICHTE_FORMEL):
+            p.konfidenz = K_FORM                       # reine Bewehrungs-Dichte
+        elif any(k in mat for k in FLAECHEN_PRODUKT):
+            p.konfidenz = round(min(K_GEO, 0.72), 2)   # Fläche byte-exakt × Produkt-Norm
         elif b == "Bodenaufbau" or "sauberkeit" in mat:
             p.konfidenz = K_BEIDE if K_LEG else round(K_GEO * 0.85, 2)
         elif b == "Mauerwerk EG" and "hlz" in mat:
