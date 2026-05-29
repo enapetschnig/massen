@@ -2507,12 +2507,23 @@ async def projekt_massen(body: ProjektMassenRequest):
         bp_flaeche = round(f_innen_check * 1.15, 2)
 
     if bp_flaeche:
+        # ANKER = Σ F_innen (byte-exakt, kein Vision-Rauschen). Die Brutto-
+        # Bodenplatte eines EFH ist physikalisch ~1.10–1.30× die Netto-Raum-
+        # fläche (nur das Wand-Band kommt dazu — bei 50cm-Außenwand ~1.15).
+        # Vision-Polygon schwankt von Lauf zu Lauf → nur INNERHALB dieses
+        # engen, physikalisch begründeten Bandes vertrauen, sonst klemmen.
+        # Mit bekannter Außenwandstärke (Legende) das Ziel-Band schärfen.
         bp_korrigiert = False
         if f_innen_check > 0:
-            if bp_flaeche > f_innen_check * 1.60:
-                bp_flaeche = round(f_innen_check * 1.15, 2); bp_korrigiert = True
-            elif bp_flaeche < f_innen_check * 1.02:
-                bp_flaeche = round(f_innen_check * 1.10, 2); bp_korrigiert = True
+            aw_cm = float((best_baudaten or {}).get("aussenwand_cm") or 38)
+            # Empirischer Netto-Brutto-Faktor Wohnbau ~1.15 (Wände ~13%),
+            # leicht höher bei dicker Außenwand.
+            ziel = 1.13 + min(0.05, (aw_cm - 30) / 400.0)   # 38cm→1.15, 50cm→1.18
+            untergrenze = f_innen_check * 1.04
+            obergrenze = f_innen_check * 1.30
+            if not (untergrenze <= bp_flaeche <= obergrenze):
+                bp_flaeche = round(f_innen_check * ziel, 2)
+                bp_korrigiert = True
         bp_flaeche = round(bp_flaeche, 2)
 
         # Physikalische Grenzen (ein Footprint kann keinen Umfang < 4√A haben)
