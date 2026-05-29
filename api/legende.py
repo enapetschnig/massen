@@ -57,6 +57,10 @@ def parse_legende(spans: list) -> dict:
         "wand_typen": {}, "wand_counts": {},
         "decke_cm": None, "bodenplatte_cm": None,
         "sauberkeitsschicht_cm": None, "estrich_cm": None,
+        # Boden-Aufbau-Schichten (byte-exakt aus Legende, wie ein Mensch liest)
+        "belag_cm": None, "schuettung_cm": None, "trittschall_cm": None,
+        # Infrastruktur-Objekte aus dem Plan-Text gezählt (Position-dedupliziert)
+        "kamin_anzahl": 0, "sickerschacht_anzahl": 0,
         "dach_typ": None, "dach_indizien": [],
         "quelle": "text-legende", "konfidenz": 0.0,
     }
@@ -166,6 +170,33 @@ def parse_legende(spans: list) -> dict:
             result["sauberkeitsschicht_cm"] = d
         elif "estrich" in low and result["estrich_cm"] is None and 3 <= d <= 12:
             result["estrich_cm"] = d
+        elif ("belag" in low or "steinzeug" in low or "parkett" in low or "fliesen" in low) \
+                and result["belag_cm"] is None and 0.5 <= d <= 5:
+            result["belag_cm"] = d
+        elif ("schüttung" in low or "schuettung" in low) and result["schuettung_cm"] is None and 2 <= d <= 20:
+            result["schuettung_cm"] = d
+        elif "trittschall" in low and result["trittschall_cm"] is None and 1 <= d <= 8:
+            result["trittschall_cm"] = d
+
+    # 3c) Infrastruktur-Objekte zählen (Position-dedupliziert — dasselbe Objekt
+    # wird oft mehrfach beschriftet). Wie ein Mensch: zählt Kamine/Schächte.
+    # Annotations-Wörter die KEIN echtes Objekt markieren (Abstands-/Schutz-Hinweise)
+    ANNO = re.compile(r"radius|abstand|schutz|mindest|brand|\d+\s*m\b", re.I)
+    def _zaehle_objekt(keyword, dedup_pt=120):
+        positionen = []
+        for s in spans:
+            tl = s["text"].lower()
+            if keyword not in tl or ANNO.search(s["text"]):
+                continue
+            if not any(abs(s["cx"]-px) < dedup_pt and abs(s["cy"]-py) < dedup_pt for px, py in positionen):
+                positionen.append((s["cx"], s["cy"]))
+        return len(positionen)
+    # Kamin: EFH hat i.d.R. genau einen — Erwähnung (auch als Abstands-
+    # Annotation "10m Radius Kamin") beweist Vorhandensein → mind. 1.
+    kamin_gefiltert = _zaehle_objekt("kamin")
+    kamin_erwaehnt = any("kamin" in s["text"].lower() for s in spans)
+    result["kamin_anzahl"] = kamin_gefiltert or (1 if kamin_erwaehnt else 0)
+    result["sickerschacht_anzahl"] = _zaehle_objekt("sickerschacht")
 
     # 4) Wand-Code-VORKOMMEN im Grundriss zählen (Verteilung statt Annahme)
     for s in spans:

@@ -146,7 +146,7 @@ class MaterialPos:
 # BAUTEIL-BERECHNUNGEN
 # ────────────────────────────────────────────────────────────────────
 def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG",
-                            tueren=None, gemessen=None, wand_verteilung=None):
+                            tueren=None, gemessen=None, wand_verteilung=None, legende=None):
     """Erzeugt eine flache Liste von MaterialPos über alle Bauteile.
 
     rooms:    gemergte Räume aus /api/projekt-massen
@@ -159,6 +159,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     """
     tueren = tueren or []
     gemessen = gemessen or {}
+    legende = legende or {}
     from massen_logic import kategorie_of
 
     def _kat(r):
@@ -502,18 +503,66 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             "Säulen", "Torstahl 14mm a 7m", "Stk",
             n_saeulen * 2, f"{n_saeulen} Säulen × 2 Stäbe", konfidenz=0.4))
 
-    # ═══ Kamin (nur wenn anzahl_kamine gesetzt) ═══
-    n_kamine = int(f("anzahl_kamine", override))
+    # ═══ Kamin — Anzahl aus Legende-Textzählung ODER Override ═══
+    n_kamine = int(f("anzahl_kamine", override)) or int(legende.get("kamin_anzahl") or 0)
     if n_kamine > 0:
+        kq = "Plan-Text gezählt" if legende.get("kamin_anzahl") and not (override or {}).get("anzahl_kamine") else "Annahme"
         out.append(MaterialPos(
             "Kamin", "Kamin DN16 mit Fertigfuß und Haube (Schiedel)", "Stk",
-            n_kamine, f"{n_kamine} Kamin(e)", konfidenz=0.6))
+            n_kamine, f"{n_kamine} Kamin(e) ({kq})", konfidenz=0.6))
+
+    # ═══ Infrastruktur — Sickerschacht aus Legende-Textzählung ═══
+    n_sicker = int(legende.get("sickerschacht_anzahl") or 0)
+    if n_sicker > 0:
+        out.append(MaterialPos(
+            "Infrastruktur", "Sickerschacht DN 2500 mit Konus + Betondeckel", "Stk",
+            n_sicker, f"{n_sicker}× im Plan-Text gezählt", konfidenz=0.6))
+
+    # ═══ Bodenaufbau pro Raum — byte-exakte Schichtdicken aus Legende ═══
+    # (wie ein Mensch: liest Estrich/Schüttung/Belag-Dicke aus B-Code-Aufbau
+    #  und multipliziert mit der Raumfläche). Eigene Sektion, stört die
+    #  Rohbau-Mengen nicht.
+    estrich_cm = legende.get("estrich_cm")
+    schuettung_cm = legende.get("schuettung_cm")
+    belag_cm = legende.get("belag_cm")
+    trittschall_cm = legende.get("trittschall_cm")
+    if f_sum_innen > 0 and (estrich_cm or schuettung_cm or belag_cm):
+        if estrich_cm:
+            out.append(MaterialPos(
+                "Bodenaufbau", "Estrich (Volumen)", "m³",
+                round(f_sum_innen * estrich_cm / 100.0, 2),
+                f"Σ Innenfläche {f_sum_innen:.1f}m² × {estrich_cm}cm (Legende)", konfidenz=0.8))
+        out.append(MaterialPos(
+            "Bodenaufbau", "Estrich-Fläche", "m²",
+            round(f_sum_innen, 2), f"Σ Innenfläche {f_sum_innen:.1f}m²", konfidenz=0.9))
+        if schuettung_cm:
+            out.append(MaterialPos(
+                "Bodenaufbau", "Schüttung (Volumen)", "m³",
+                round(f_sum_innen * schuettung_cm / 100.0, 2),
+                f"Σ Innenfläche × {schuettung_cm}cm (Legende)", konfidenz=0.75))
+        if trittschall_cm:
+            out.append(MaterialPos(
+                "Bodenaufbau", "Trittschalldämmung", "m²",
+                round(f_sum_innen, 2), f"Σ Innenfläche × {trittschall_cm}cm (Legende)", konfidenz=0.75))
+        out.append(MaterialPos(
+            "Bodenaufbau", "Randdämmstreifen", "lfm",
+            round(u_sum_innen, 2), f"Σ Innenraum-Umfang {u_sum_innen:.1f}m", konfidenz=0.8))
+        # Bodenbelag pro Material (aus Raum-bodenbelag aggregiert)
+        belag_map = {}
+        for r in innen:
+            bel = (r.get("bodenbelag") or "").strip()
+            if bel and bel.lower() not in ("nicht erkennbar", "?", ""):
+                belag_map[bel] = belag_map.get(bel, 0) + (r.get("flaeche_m2") or 0)
+        for bel, m2 in sorted(belag_map.items()):
+            out.append(MaterialPos(
+                "Bodenaufbau", f"Bodenbelag {bel}", "m²",
+                round(m2, 2), f"Σ Räume mit {bel}", konfidenz=0.85))
 
     return out
 
 
 def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
-                         tueren=None, gemessen=None, wand_verteilung=None):
+                         tueren=None, gemessen=None, wand_verteilung=None, legende=None):
     """Wrapper: gibt strukturiertes Gewerk-Dict zurück.
 
     gemessen: optional dict mit gemessenen Werten aus PASS-4-Bemaßung +
@@ -524,7 +573,7 @@ def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
     """
     positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss,
                                          tueren=tueren, gemessen=gemessen,
-                                         wand_verteilung=wand_verteilung)
+                                         wand_verteilung=wand_verteilung, legende=legende)
     # Gruppiere nach Bauteil
     by_bauteil = {}
     for p in positionen:

@@ -2622,7 +2622,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                 merged_rooms, alle_fenster, best_baudaten,
                 override=body.materialliste_override, geschoss=geschoss,
                 tueren=alle_tueren, gemessen=gemessen,
-                wand_verteilung=wand_verteilung,
+                wand_verteilung=wand_verteilung, legende=best_legende,
             )
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
