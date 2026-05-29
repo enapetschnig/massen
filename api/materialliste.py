@@ -165,6 +165,17 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     def _kat(r):
         return kategorie_of(r.get("name") or r.get("bezeichnung") or "")
 
+    # ── Konfidenz aus der DATENQUELLE ableiten (statt Phase-1-Pauschale) ──
+    # Ein Wert ist so verlässlich wie seine Eingangsdaten:
+    #   K_GEO  = Qualität der gemessenen Geometrie (Polygon-Build/Vision)
+    #   K_LEG  = Qualität der Legende (byte-exakt aus Plan-Text)
+    #   K_BEIDE= braucht Geometrie UND Legende (z.B. HLZ: Fläche × Wandstärke)
+    #   K_FORM = reine Faustformel/Annahme (Dichten, Pauschalen) → niedrig
+    K_GEO = round(min(0.92, float((gemessen or {}).get("konfidenz") or 0.0) or 0.62), 2)
+    K_LEG = round(min(0.95, float((legende or {}).get("konfidenz") or 0.0) or 0.0), 2)
+    K_BEIDE = round(min(K_GEO, K_LEG) if K_LEG else K_GEO * 0.9, 2)
+    K_FORM = 0.5   # Faustformel ohne direkte Messung
+
     innen = [r for r in rooms if _kat(r) == "Innenraum_warm"]
     loggia = [r for r in rooms if _kat(r) == "Loggia"]  # Terrasse, Balkon, Parkplatz
 
@@ -557,6 +568,30 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             out.append(MaterialPos(
                 "Bodenaufbau", f"Bodenbelag {bel}", "m²",
                 round(m2, 2), f"Σ Räume mit {bel}", konfidenz=0.85))
+
+    # ── Konfidenz zentral aus der Datenquelle setzen (ehrlich) ──
+    # Hoch wo byte-exakt gemessen (Geometrie) oder aus Legende gelesen,
+    # niedrig wo reine Faustformel. K_GEO/K_LEG kommen aus den echten
+    # Mess-/Lese-Konfidenzen dieses Plans → spiegelt die Qualität wider.
+    FORMEL_MATS = ("steckeisen", "torstahl", "aq 65", "pe-folie", "bügel", "abstandhalter")
+    for p in out:
+        b, mat = p.bauteil, p.material.lower()
+        if any(k in mat for k in FORMEL_MATS):
+            p.konfidenz = K_FORM                       # reine Bewehrungs-Faustformel
+        elif b == "Bodenaufbau" or "sauberkeit" in mat:
+            p.konfidenz = K_BEIDE if K_LEG else round(K_GEO * 0.85, 2)
+        elif b == "Mauerwerk EG" and "hlz" in mat:
+            p.konfidenz = K_BEIDE                       # Fläche × Legende-Wandstärke
+        elif b in ("Attika", "Säulen"):
+            p.konfidenz = round(K_GEO * 0.6, 2)         # parametrische Schätzung
+        elif b in ("Kamin", "Infrastruktur"):
+            p.konfidenz = 0.7                           # Text-Zählung
+        elif b == "Frostschürze":
+            p.konfidenz = K_GEO if "noppenfolie" in mat else round(K_GEO * 0.82, 2)
+        elif b in ("Bodenplatte", "Decke über EG"):
+            p.konfidenz = round(K_GEO * 0.85, 2) if ("iso-korb" in mat or "voranstrich" in mat) else K_GEO
+        elif b == "Mauerwerk EG":
+            p.konfidenz = round(K_GEO * 0.88, 2)
 
     return out
 

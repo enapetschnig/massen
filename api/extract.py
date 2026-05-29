@@ -2038,6 +2038,14 @@ async def projekt_massen(body: ProjektMassenRequest):
         sn = _short_name(name)
         if not sn:
             return None, set()
+        # Nummerierte Räume (Zimmer 1/2/3, Top 04) sind EIGENSTÄNDIG — nie
+        # untereinander Cousins. Eindeutiger Key inkl. Nummer, damit das
+        # last-word nicht auf den Stamm kollabiert (sonst würden Zimmer 1/3
+        # fälschlich gruppiert und der echte Raum verworfen).
+        m_num = re.match(r"^([a-zäöüß]+)\s*(\d+)$", sn)
+        if m_num:
+            stamm, nr = m_num.group(1), m_num.group(2)
+            return (stamm[:4], f"{stamm}{nr}"), {stamm}
         # "Küche + WZ" → ["küche", "+", "wz"] — Sonderzeichen filtern
         words = [w for w in sn.split() if len(w) >= 2 and re.match(r"^[a-zäöüß]", w)]
         if not words:
@@ -2172,9 +2180,13 @@ async def projekt_massen(body: ProjektMassenRequest):
             r["_hallucination"] = "OG-Suffix im EG-Plan"
             continue
         # Nummerierte Räume (Zimmer 1/2/3 ...) — wenn Nummer > Max andere
-        # gleichnamiger Räume mit MEHR Quellen-Plänen → Halluzination
+        # gleichnamiger Räume mit MEHR Quellen-Plänen → Halluzination.
+        # ABER NUR wenn die Daten UNVOLLSTÄNDIG sind: ein voll bemaßter Raum
+        # (F+U+H) ist real, egal welche Nummer — ein Bautechniker verwirft
+        # keinen vollständig vermaßten Raum (sonst Untererfassung).
+        _vollstaendig = bool(r.get("flaeche_m2") and r.get("umfang_m") and r.get("hoehe_m"))
         m_zif = re.match(r"^([a-zäöü]+)\s*(\d+)$", sn)
-        if m_zif and my_quellen < len(plaene):
+        if m_zif and my_quellen < len(plaene) and not _vollstaendig:
             stamm, ziffer = m_zif.group(1), int(m_zif.group(2))
             max_andere = 0
             for other in merged_rooms:

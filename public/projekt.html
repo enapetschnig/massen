@@ -176,13 +176,13 @@
       <!-- Tab: Rohbau-Materialliste (Default-Anzeige) -->
       <div class="ergebnis-panel active" id="ergebnis-panel-material">
         <div class="materialliste-konfidenz-hint">
-          <strong>Was die Konfidenz-Spalte bedeutet:</strong>
+          <strong>Was die Konfidenz-Spalte bedeutet</strong> — sie spiegelt die <em>Datenquelle</em> wider:
           <ul>
-            <li><strong>70-85 %</strong> = Größenordnung sehr verlässlich (z.B. Bodenplatte EKV/XPS — direkt aus Σ Raumfläche)</li>
-            <li><strong>55-65 %</strong> = Faustformel-Schätzung, Phase-1-typisch (z.B. Außenumfang aus Quadrat-Annäherung × Aufschlag)</li>
-            <li><strong>40-50 %</strong> = grobe Pauschale (z.B. Bewehrung, Ziegelüberlagen pro Türöffnung)</li>
+            <li><strong>85-95 %</strong> = byte-exakt aus dem Plan gelesen (Wandstärken aus der Bauteil-Legende, Flächen aus gemessener Geometrie) — wie ein Bautechniker</li>
+            <li><strong>70-80 %</strong> = gemessene Geometrie + bauphysikalische Standard-Annahme (z.B. Frostschürze-Tiefe, Decken-Auskragung)</li>
+            <li><strong>40-55 %</strong> = Faustformel/Pauschale (Bewehrungs-Dichte, Ziegelüberlagen pro Tür) — bewusst konservativ</li>
           </ul>
-          <span style="color:#6c757d">→ Phase 2 (Vektor-Geometrie statt Schätzung) hebt alle Konfidenzen auf 80-95 %.</span>
+          <span style="color:#6c757d">Lädt du Plan + Legende mit klaren Bauteil-Codes hoch, steigt die Konfidenz automatisch — die App rät nicht, sie liest.</span>
         </div>
         <div class="materialliste-table-wrap">
           <table class="materialliste-table" id="materialliste-table">
