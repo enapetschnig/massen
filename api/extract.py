@@ -2174,12 +2174,35 @@ async def projekt_massen(body: ProjektMassenRequest):
                 f"(Score {_score(r2)} < {winner_score})")
             cousin_losers.add(i)
 
+    # Text-Layer-Räume sind byte-exakt (Ground Truth). Wenn der Plan einen
+    # starken Text-Layer hat (≥5 Text-Räume), sind Vision-ERFUNDENE Räume mit
+    # Namen, die NIRGENDS im Text vorkommen, Halluzinationen. Genau so erklärt
+    # sich "Zimmer 3/4 / W02": die stehen in KEINEM Plan-Text, Vision hat sie
+    # erfunden. Ein Mensch verlässt sich auf die gedruckten Raumlabel.
+    def _is_text_room(r):
+        return r.get("_source") == "text" or r.get("_text_first")
+    text_namen = {_short_name(r.get("name")) for r in merged_rooms if _is_text_room(r)}
+    starker_textlayer = len(text_namen) >= 5
+
+    # VORAB-PASS: Vision-Halluzinationen markieren, BEVOR die anderen Filter
+    # laufen. Sonst kann ein erfundener Vision-Raum ("Zimmer 7") einen echten
+    # Text-Raum ("Zimmer") in der Substring-/Cousin-Dedup verdrängen — eine
+    # Halluzination darf NIE einen Ground-Truth-Raum schlagen. Reihenfolge-Bug.
+    if starker_textlayer:
+        for r in merged_rooms:
+            sn = _short_name(r.get("name"))
+            if sn and not _is_text_room(r) and sn not in text_namen:
+                r["_hallucination"] = "Vision-Raum ohne Text-Layer-Beleg (erfunden)"
+
     cleaned_rooms = []
     for idx, r in enumerate(merged_rooms):
         sn = _short_name(r.get("name"))
         if not sn:
             continue
         if idx in cousin_losers:
+            continue
+        # Im Vorab-Pass bereits als Vision-Halluzination markiert → verwerfen.
+        if r.get("_hallucination"):
             continue
         my_quellen = len(r.get("_quellen_plaene") or [])
         # Halluzination: OG-Raum in EG-Plan — auch "obergeschoß" (ß) erkennen
@@ -2200,6 +2223,8 @@ async def projekt_massen(body: ProjektMassenRequest):
             for other in merged_rooms:
                 if other is r:
                     continue
+                if other.get("_hallucination"):  # Halluzination darf nicht "gewinnen"
+                    continue
                 on = _short_name(other.get("name"))
                 m2 = re.match(r"^([a-zäöü]+)\s*(\d+)$", on)
                 if m2 and m2.group(1) == stamm:
@@ -2217,6 +2242,8 @@ async def projekt_massen(body: ProjektMassenRequest):
         my_completeness = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m") if r.get(k))
         for other in merged_rooms:
             if other is r:
+                continue
+            if other.get("_hallucination"):  # Halluzination darf nicht "gewinnen"
                 continue
             on = _short_name(other.get("name"))
             if not on or on == sn:

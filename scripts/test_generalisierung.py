@@ -117,6 +117,18 @@ res = _run(rooms, {"E": EG_LOG, "A": {"geo": {"geschoss": "EG"}}})
 check("Einliegerwohnung (gleiche Höhe, 2 Pläne) NICHT ausgeschlossen", not (res.get("ausgeschlossene_einheiten") or []),
       f"got {res.get('ausgeschlossene_einheiten')}")
 
+print("\nSZENARIO 7: Vision-erfundene Räume (kein Text-Beleg) werden verworfen")
+# 6 echte Text-Räume + 2 Vision-Halluzinationen ohne Text-Beleg (wie Zimmer3/4)
+rooms = [("E", {"name": n, "flaeche_m2": f, "umfang_m": u, "hoehe_m": 2.7, "bodenbelag": "Fliesen", "_source": "text", "wohnung": "Haus"})
+         for n, f, u in [("Wohnen", 30, 24), ("Bad", 8, 11), ("Zimmer", 14, 15), ("Flur", 10, 13), ("WC", 2, 6), ("Speis", 4, 8)]]
+rooms += [("A", {"name": n, "flaeche_m2": f, "umfang_m": u, "hoehe_m": 2.55, "_source": "vision", "wohnung": "W05"})
+          for n, f, u in [("Zimmer 7", 11, 14), ("Zimmer 8", 12, 15)]]
+res = _run(rooms, {"E": EG_LOG, "A": {"geo": {"geschoss": "EG"}}})
+hallu_namen = [h["name"] for h in res.get("halluzinationen") or []]
+check("Vision-Räume ohne Text-Beleg verworfen", "Zimmer 7" in hallu_namen and "Zimmer 8" in hallu_namen,
+      f"hallu: {hallu_namen}")
+check("nur die 6 echten Text-Räume in Berechnung", res["raeume_count"] == 6, f"got {res['raeume_count']}")
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Generalisierungs-Test(s) gescheitert: {fails}")
