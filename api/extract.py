@@ -1719,31 +1719,38 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
         # für ~25% Abweichung bei HLZ-Paletten und EKV-Bahnen sorgt.
         # ═══════════════════════════════════════════════════════════════
         AUSSENKONTUR_PROMPT = """Du siehst einen oesterreichischen EFH-Grundriss.
-Bestimme die AUSSENKONTUR des Gebaeudes — die aeusserste durchgehende
-Wand-Linie um alle Innenraeume herum. Loggia/Terrasse/Parkplatz NICHT
-mitnehmen, nur die geschlossene gemauerte Aussenhuelle.
+Bestimme die AUSSENKONTUR der gesamten gemauerten Gebaeudehuelle —
+die ABSOLUT AEUSSERSTE Linie, die alle Innenraeume und ueberdachten
+Aussenbereiche umschliesst. NICHT nur die warmen Wohnraeume — auch
+Garage, ueberdachte Terrasse, Carport gehoeren MIT in die Aussenkontur,
+sofern sie mit dem Hauptbau eine durchgehende Aussenwand bilden.
+
+EFH haben fast IMMER eine L-/U-/T-Form mit Vor- und Ruecksprungeen.
+Ein einfaches Rechteck ist die seltene Ausnahme.
 
 Liefere zwei Sachen:
-1) Polygon der Aussenkontur in NORMIERTEN 0-1 Koordinaten relativ
-   zur sichtbaren Plan-Flaeche (NICHT zu Pixel, sondern Anteil 0=links/oben
-   bis 1=rechts/unten der Plan-Begrenzungsbox).
-2) Die Aussenmasse in METERN je Himmelsrichtung, abgelesen aus der
-   Bemassung am Plan-Rand (Hauptbemassungskette).
+1) Polygon der Aussenkontur — JEDE Ecke einzeln auflisten. Bei einer
+   L-Form sind das 6 Ecken, bei U-Form 8 Ecken. Nicht vereinfachen!
+   Koordinaten in NORMIERTEN 0-1 relativ zur sichtbaren Plan-Flaeche.
+2) Die Aussenmasse in METERN je Wand-Segment, abgelesen aus der
+   Hauptbemassungskette am Plan-Rand. Pro Himmelsrichtung KANN es
+   MEHRERE Werte geben (L-Form: Nordfassade hat z.B. 8m + 4m = 12m).
 
 JSON-Antwort, kein Markdown:
 {
-  "polygon_norm": [[0.12,0.10],[0.85,0.10],[0.85,0.62],[0.12,0.62]],
-  "seiten_m": {"N": 10.20, "S": 10.20, "W": 7.80, "E": 7.80},
-  "umfang_m": 36.00,
+  "polygon_norm": [[0.12,0.10],[0.85,0.10],[0.85,0.45],[0.62,0.45],[0.62,0.62],[0.12,0.62]],
+  "seiten_m": {"N": 12.40, "S": 7.20, "S_b": 5.20, "W": 8.00, "E": 4.50, "E_b": 3.50},
+  "umfang_m": 40.80,
   "flaeche_m2": 79.56,
   "konfidenz": 0.85
 }
 Wichtig:
 - Polygon im Uhrzeigersinn beginnend oben-links.
-- Bei L-/U-Form: alle Ecken des Polygons auflisten.
-- "umfang_m" = Summe(seiten_m).
+- Bei jedem Versatz/Vorsprung: alle Ecken auflisten.
+- "umfang_m" = Summe ALLER seiten_m-Werte (auch _b/_c-Suffix-Segmente).
 - "flaeche_m2" = Polygon-Flaeche (Shoelace-Formel).
-- "konfidenz" zwischen 0 und 1, niedriger wenn Bemassung unleserlich."""
+- Sehr wichtig: bei EFH ist Umfang typisch 50-80m, NICHT 30-40m.
+  Wenn dein Ergebnis < 45m: pruefe ob du Vor-/Ruecksprungeen uebersehen hast."""
 
         aussenkontur_vision = {}
         try:
@@ -1996,10 +2003,120 @@ async def projekt_massen(body: ProjektMassenRequest):
         if not sn:
             return ""
         return sn.split()[-1]
+    # Cousin-Gruppen vorab bilden (statt pairwise-Filter): alle Räume mit
+    # gleichem 4-char-first-word-Präfix ODER gleichem last_word kommen in
+    # die selbe Gruppe. Pro Gruppe wird der BESTE behalten — sonst riskiert
+    # pairwise-Logik dass ALLE Cousins als Hallu markiert werden und kein
+    # einziger echter Raum übrig bleibt.
+    PREFERRED_NORMS = {"wohnraumkuche","wohnraumküche","wohnraum","wohnen",
+                       "wohnzimmer","kuche","küche","wohnkuche","wohnküche"}
+    def _norm_for_pref(n):
+        return re.sub(r"[\s\-_/]+", "", _short_name(n))
+    def _cousin_key(name):
+        sn = _short_name(name)
+        if not sn:
+            return None
+        words = sn.split()
+        first = words[0] if words else ""
+        last = words[-1] if words else ""
+        # Stabiler Schlüssel: 4-char-first-prefix + last-word (≥4 char)
+        # Zwei Räume gehören zur selben Familie wenn beide Schlüssel-Komponenten
+        # übereinstimmen ODER nur last (für Komposita).
+        return (first[:4] if len(first) >= 4 else first,
+                last if len(last) >= 4 else "")
+    def _score(r):
+        sn = _short_name(r.get("name"))
+        norm = _norm_for_pref(r.get("name"))
+        score = 0
+        score += len(r.get("_quellen_plaene") or []) * 100  # mehr Quellen
+        score += sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m","bodenbelag") if r.get(k)) * 10  # mehr Daten
+        if norm in PREFERRED_NORMS:
+            score += 50  # Standard-Bauterminologie
+        score += len(sn.split()) * 3  # mehr Wörter = präziser Name
+        return score
+
+    # Gruppen-Index aufbauen — flexibel: Räume die in ZWEI Achsen verbunden sind
+    # (zB. erste 4 Chars passen, last_word passt) gehören zur selben Familie.
+    # Dafür Union-Find.
+    parent = list(range(len(merged_rooms)))
+    def _find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    def _union(i, j):
+        ri, rj = _find(i), _find(j)
+        if ri != rj:
+            parent[ri] = rj
+    # Generische Adjektive die KEIN Cousin-Trigger sein dürfen — z.B.
+    # "überdacht" verbindet sonst Parkplatz + Terrasse fälschlich.
+    GENERIC_LAST_WORDS = {"überdacht","ueberdacht","unten","oben","links","rechts",
+                          "vorne","hinten","gross","groß","klein","mitte",
+                          "links","rechts","sued","nord","ost","west","süd",
+                          "süden","norden","osten","westen"}
+    def _similar_size(a, b, tol=0.30):
+        """F und U müssen innerhalb tol für Cousin-Mergen."""
+        for k in ("flaeche_m2", "umfang_m"):
+            va, vb = a.get(k), b.get(k)
+            if not va or not vb:
+                continue
+            if abs(va - vb) / max(va, vb) > tol:
+                return False
+        return True
+
+    keys = [_cousin_key(r.get("name")) for r in merged_rooms]
+    for i in range(len(merged_rooms)):
+        ki = keys[i]
+        if not ki:
+            continue
+        for j in range(i + 1, len(merged_rooms)):
+            kj = keys[j]
+            if not kj:
+                continue
+            # Last-word nur als Cousin-Trigger wenn nicht generisch
+            i_last = ki[1] if ki[1] not in GENERIC_LAST_WORDS else ""
+            j_last = kj[1] if kj[1] not in GENERIC_LAST_WORDS else ""
+            same_first = ki[0] and ki[0] == kj[0]
+            same_last = i_last and i_last == j_last
+            # Nur in selbe Gruppe wenn Größen ähnlich (sonst sind es zwei
+            # verschiedene reale Räume mit ähnlichem Namen).
+            if not _similar_size(merged_rooms[i], merged_rooms[j]):
+                continue
+            if same_first and same_last:
+                _union(i, j)
+            elif same_last and i_last:  # Komposita gleicher Endung
+                _union(i, j)
+            elif same_first and ki[0] and ki[0] not in {"zimm","bad","wc"}:
+                # Gleicher Präfix (≥4 Buchstaben) — z.B. "Wohnen Küche" + "Wohnraum"
+                # NICHT bei Standard-Wohnraumtypen die mehrere echte Instanzen haben
+                _union(i, j)
+    groups = {}
+    for i, r in enumerate(merged_rooms):
+        groups.setdefault(_find(i), []).append(i)
+
+    # Pro Gruppe: behalte den BESTEN. Alle anderen als "Cousin-Hallu" markieren.
+    cousin_losers = set()
+    for grp in groups.values():
+        if len(grp) <= 1:
+            continue
+        # Sortiere absteigend nach Score
+        grp_sorted = sorted(grp, key=lambda i: _score(merged_rooms[i]), reverse=True)
+        winner = grp_sorted[0]
+        winner_name = merged_rooms[winner].get("name")
+        winner_score = _score(merged_rooms[winner])
+        for i in grp_sorted[1:]:
+            r2 = merged_rooms[i]
+            r2["_hallucination"] = (
+                f"Cousin-Gruppe von '{winner_name}' "
+                f"(Score {_score(r2)} < {winner_score})")
+            cousin_losers.add(i)
+
     cleaned_rooms = []
-    for r in merged_rooms:
+    for idx, r in enumerate(merged_rooms):
         sn = _short_name(r.get("name"))
         if not sn:
+            continue
+        if idx in cousin_losers:
             continue
         my_quellen = len(r.get("_quellen_plaene") or [])
         # Halluzination: OG-Raum in EG-Plan — auch "obergeschoß" (ß) erkennen
@@ -2067,60 +2184,8 @@ async def projekt_massen(body: ProjektMassenRequest):
         #   3. Cousin hat ähnlichen Umfang (Δ U < 10%) → derselbe Raum,
         #      Vision hat den Namen leicht falsch erkannt — der mit mehr
         #      Daten (F+U+H) bzw. eindeutigem Namen gewinnt.
-        is_cousin_hallu = False
-        my_first = sn.split()[0] if sn else ""
-        my_last = _last_word(r.get("name"))
-        my_word_count = len(sn.split())
-        my_u = r.get("umfang_m") or 0
-        # Cousin-Vergleich auf BEIDEN Achsen: first_word UND last_word.
-        # "Abstellraum" (first=last=abstellraum) findet "Geräte-Abstellraum"
-        # (first=geräte, last=abstellraum) über das last_word.
-        if len(my_first) >= 4 or len(my_last) >= 4:
-            for other in merged_rooms:
-                if other is r:
-                    continue
-                on = _short_name(other.get("name"))
-                on_first = on.split()[0] if on else ""
-                on_last = _last_word(other.get("name"))
-                same_first = (my_first and on_first and my_first != on_first
-                              and my_first[:4] == on_first[:4])
-                same_last = (my_last and on_last and my_last == on_last
-                             and len(my_last) >= 4)
-                if not (same_first or same_last):
-                    continue
-                other_quellen = len(other.get("_quellen_plaene") or [])
-                other_word_count = len(on.split())
-                other_u = other.get("umfang_m") or 0
-                # Test 1+2: mehr Quellen oder mehr Wörter
-                if other_quellen > my_quellen or other_word_count > my_word_count:
-                    is_cousin_hallu = True
-                    reason = f"Cousin '{other.get('name')}' ({other_word_count}w/{other_quellen}q vs {my_word_count}w/{my_quellen}q)"
-                    r["_hallucination"] = reason
-                    break
-                # Test 3: ähnlicher Umfang → vermutlich derselbe Raum,
-                # Vision hat zwei Namens-Varianten erkannt
-                if my_u and other_u and abs(my_u - other_u) / max(my_u, other_u) < 0.10:
-                    # Bei Gleichstand: bevorzuge den, der mehr Daten hat
-                    my_data = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m","bodenbelag") if r.get(k))
-                    other_data = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m","bodenbelag") if other.get(k))
-                    if other_data > my_data:
-                        is_cousin_hallu = True
-                        r["_hallucination"] = f"Cousin '{other.get('name')}' (ähnlicher U {my_u}≈{other_u})"
-                        break
-                    # Bei Daten-Gleichstand: bevorzuge den, dessen Name als
-                    # ROOM_NAMES_EXACT plausibler ist (Standard-Bauterminologie)
-                    PREFERRED = {"wohnraumkuche", "wohnraumküche", "wohnkuche", "wohnküche", "wohnen",
-                                 "wohnzimmer", "wohnraum"}
-                    if other_data == my_data:
-                        my_norm = re.sub(r"[\s\-_/]+", "", sn)
-                        other_norm = re.sub(r"[\s\-_/]+", "", on)
-                        if other_norm in PREFERRED and my_norm not in PREFERRED:
-                            is_cousin_hallu = True
-                            r["_hallucination"] = f"Cousin '{other.get('name')}' (Standard-Begriff)"
-                            break
-        if is_cousin_hallu:
-            continue
-
+        # Cousin-Filter läuft jetzt vor der Schleife in Gruppen — siehe oben.
+        # Hier nur noch in cleaned_rooms aufnehmen.
         cleaned_rooms.append(r)
 
     halluzinationen = [r for r in merged_rooms if r.get("_hallucination")]
