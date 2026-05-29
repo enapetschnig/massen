@@ -38,6 +38,8 @@ DEFAULTS = {
     "sauberkeitsschicht_cm": 5.0,      # C16/20 Untergrund unter Bodenplatte
     "frostschuerze_tiefe_m": 0.80,     # Tiefe ab OK Erdreich
     "frostschuerze_breite_m": 0.30,    # Breite der Frostschürze
+    "frostgraben_aufschlag": 1.15,     # Frostschürze/Sockel läuft ~15% weiter als
+                                       # die Bodenplatten-Außenkante (Graben außen herum)
     "aussenumfang_aufschlag": 1.55,     # Faktor für Vor-/Rücksprünge (rechteckiger
                                        # Bau ≈1.0, EFH mit Vor-/Auskragung 1.3-1.7,
                                        # L-Form/Versatz 1.5-1.7)
@@ -220,31 +222,34 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     out = []
 
     # ═══ Frostschürze ═══
+    # Die Frostschürze läuft als Graben AUSSEN um die Bodenplatte → etwas
+    # größerer Umfang als die Gebäude-Außenkante (frostgraben_aufschlag).
+    fg_umfang = round(aussenumfang_m * f("frostgraben_aufschlag", override), 2)
     fs_tiefe = f("frostschuerze_tiefe_m", override)
     fs_breite = f("frostschuerze_breite_m", override)
-    fs_m3 = aussenumfang_m * fs_tiefe * fs_breite
+    fs_m3 = fg_umfang * fs_tiefe * fs_breite
     out.append(MaterialPos(
         "Frostschürze", "Lieferbeton C25/30, XC1, F52, GK 22", "m³",
-        fs_m3, f"Außenumfang {aussenumfang_m}m × {fs_tiefe}m × {fs_breite}m",
+        fs_m3, f"Frostgraben-Umfang {fg_umfang}m × {fs_tiefe}m × {fs_breite}m",
         konfidenz=0.55))
     xps_tiefe = f("xps_frostschuerze_tiefe_m", override)
     out.append(MaterialPos(
         "Frostschürze", "XPS-SF G30 140mm", "m²",
-        aussenumfang_m * xps_tiefe,
-        f"Außenumfang {aussenumfang_m}m × Sockeldämm-Höhe {xps_tiefe}m",
+        fg_umfang * xps_tiefe,
+        f"Frostgraben-Umfang {fg_umfang}m × Sockeldämm-Höhe {xps_tiefe}m",
         konfidenz=0.55))
     out.append(MaterialPos(
         "Frostschürze", "2k Bitumen Spachtelmasse (5mm)", "m²",
-        aussenumfang_m * xps_tiefe,
+        fg_umfang * xps_tiefe,
         "Außenkante Frostschürze als Sockelabdichtung",
         konfidenz=0.5))
     out.append(MaterialPos(
         "Frostschürze", "Noppenfolie 1m", "lfm",
-        aussenumfang_m, f"Außenumfang {aussenumfang_m}m", konfidenz=0.6))
+        fg_umfang, f"Frostgraben-Umfang {fg_umfang}m", konfidenz=0.6))
     out.append(MaterialPos(
         "Frostschürze", "Steckeisen 10mm a 1m gekröpft", "Stk",
-        aussenumfang_m * f("steckeisen_stk_pro_m_frostschuerze", override),
-        "Außenumfang × Stk-Dichte", konfidenz=0.5))
+        round(fg_umfang * f("steckeisen_stk_pro_m_frostschuerze", override)),
+        "Frostgraben-Umfang × Stk-Dichte", konfidenz=0.5))
 
     # ═══ Bodenplatte ═══
     bp_m3 = bodenplatte_m2 * (bopl_cm / 100.0)

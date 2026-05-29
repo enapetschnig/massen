@@ -2383,49 +2383,78 @@ async def projekt_massen(body: ProjektMassenRequest):
     from massen_logic import kategorie_of as _kat_check
     f_innen_check = sum(r.get("flaeche_m2") or 0 for r in merged_rooms
                          if _kat_check(r.get("name") or "") == "Innenraum_warm")
+
+    def _median(xs):
+        s = sorted(x for x in xs if x and x > 0)
+        if not s:
+            return None
+        n = len(s)
+        return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+    # ── Robuste Geometrie-Konsolidierung (generalisiert, keine Plan-Hardcodes) ──
+    # Prinzip 1: MEDIAN über alle Plan-Mess-Werte statt eines verrauschten
+    #            Einzelwerts → stabil gegen Vision-Schwankung (46/55/62/68m).
+    # Prinzip 2: ISOPERIMETRISCHE Grenzen — ein Footprint der Fläche A kann
+    #            keinen Umfang < 4·√A haben (Quadrat-Minimum). Reale EFH liegen
+    #            bei 1.2–2.2× davon. Korrigiert Vision-Unterschätzung + kappt
+    #            Überschätzung — rein geometrisch, planunabhängig.
+    poly_flaechen = [c["flaeche_m2"] for c in aussenpolygon_kandidaten if c.get("flaeche_m2")]
+    poly_umfaenge = [c["umfang_m"] for c in aussenpolygon_kandidaten if c.get("umfang_m")]
+    pass4_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten if c.get("umfang_m")]
+
     gemessen = None
-    if aussenpolygon_kandidaten:
-        ap = aussenpolygon_kandidaten[0]
-        bp_flaeche = ap["flaeche_m2"]
-        # Plausi: Bodenplatte sollte ~1.10-1.30 × Σ F_innen sein (Wand-Aufschlag)
-        if f_innen_check > 0 and bp_flaeche > f_innen_check * 1.60:
-            # Polygon zu groß — hat vermutlich Loggia/Terrasse mit drin
-            bp_flaeche = round(f_innen_check * 1.15, 2)
-            polygon_zu_gross = True
+    bp_flaeche = _median(poly_flaechen)
+    if bp_flaeche is None and f_innen_check > 0:
+        bp_flaeche = round(f_innen_check * 1.15, 2)  # Fallback Schätzung
+
+    if bp_flaeche:
+        # Bodenplatte gegen Σ F_innen plausibilisieren (Vision-Polygon nimmt
+        # manchmal Terrasse mit → zu groß; oder verfehlt Wand-Bereich → zu klein)
+        bp_korrigiert = False
+        if f_innen_check > 0:
+            if bp_flaeche > f_innen_check * 1.60:
+                bp_flaeche = round(f_innen_check * 1.15, 2); bp_korrigiert = True
+            elif bp_flaeche < f_innen_check * 1.02:
+                bp_flaeche = round(f_innen_check * 1.10, 2); bp_korrigiert = True
+        bp_flaeche = round(bp_flaeche, 2)
+
+        # Isoperimetrische Umfang-Grenzen aus der (validierten) Fläche
+        iso_min = 4.0 * (bp_flaeche ** 0.5)        # Quadrat-Minimum (physikalisch)
+        umfang_floor = iso_min * 1.20              # kompaktes reales EFH
+        umfang_ceil = iso_min * 2.20               # stark zerklüftet (L/U-Form)
+
+        # Beste Umfang-Schätzung: Median aller Mess-Quellen, dann in Grenzen
+        kandidaten = []
+        mp = _median(poly_umfaenge)
+        m4 = _median(pass4_umfaenge)
+        if mp: kandidaten.append(mp)
+        if m4: kandidaten.append(m4)
+        if kandidaten:
+            # Vision/PASS-4 unterschätzen tendenziell (übersehen Vor-/Rücksprünge)
+            # → der größere der beiden Mess-Werte ist meist näher an der Realität
+            umfang_roh = max(kandidaten)
         else:
-            polygon_zu_gross = False
+            umfang_roh = umfang_floor
+        aussenumfang_m = round(min(max(umfang_roh, umfang_floor), umfang_ceil), 2)
+
+        # Quellen-Übereinstimmung → Konfidenz
+        quelle = "geometrie-median"
+        konf = 0.75
+        if mp and m4 and abs(mp - m4) / max(mp, m4) < 0.12:
+            konf = 0.92; quelle = "polygon+pass4-konsistent"
+        elif abs(umfang_roh - aussenumfang_m) > 0.5:
+            quelle = "isoperimetrisch-korrigiert"; konf = 0.70
+        if bp_korrigiert:
+            quelle += "+bp-plausi"
+
         gemessen = {
-            "aussenumfang_m": ap["umfang_m"],
+            "aussenumfang_m": aussenumfang_m,
             "bodenplatte_flaeche_m2": bp_flaeche,
-            "quelle": "vision-aussenkontur" + ("-bp-korrigiert" if polygon_zu_gross else ""),
-            "konfidenz": 0.70 if polygon_zu_gross else 0.80,
-        }
-        if polygon_zu_gross:
-            gemessen["polygon_original_m2"] = ap["flaeche_m2"]
-        # Cross-Check mit PASS-4 — wenn Polygon-Wert deutlich kleiner als
-        # PASS-4-Summe, ist Polygon evtl unterschätzt
-        if aussenmasse_kandidaten:
-            pass4_max = max(c["umfang_m"] for c in aussenmasse_kandidaten)
-            if pass4_max > ap["umfang_m"] * 1.15:
-                # PASS-4 ist deutlich größer → Polygon korrigieren
-                gemessen["aussenumfang_m"] = round(pass4_max, 2)
-                gemessen["quelle"] = "polygon+pass4-korrigiert"
-                gemessen["konfidenz"] = 0.85
-            else:
-                diff_pct = abs(pass4_max - ap["umfang_m"]) / max(ap["umfang_m"], 1)
-                if diff_pct < 0.10:
-                    # Beide nah beieinander → höchste Konfidenz
-                    gemessen["konfidenz"] = 0.95
-                    gemessen["quelle"] = "polygon+pass4-konsistent"
-                gemessen["pass4_umfang_m"] = round(pass4_max, 2)
-    elif aussenmasse_kandidaten:
-        # Nur PASS-4 vorhanden — Max-Wert nehmen (umfasst eher die ganze Kontur)
-        umfang_max = max(c["umfang_m"] for c in aussenmasse_kandidaten)
-        gemessen = {
-            "aussenumfang_m": umfang_max,
-            "quelle": "pass4-bemassung",
-            "konfidenz": 0.75,
-            "details": aussenmasse_kandidaten,
+            "quelle": quelle,
+            "konfidenz": konf,
+            "_debug": {"poly_umfaenge": poly_umfaenge, "pass4_umfaenge": pass4_umfaenge,
+                       "iso_min": round(iso_min, 1), "floor": round(umfang_floor, 1),
+                       "ceil": round(umfang_ceil, 1)},
         }
 
     # 6b) Geschoss-Höhe aus den Raumhöhen ableiten — wichtig wenn Vision
