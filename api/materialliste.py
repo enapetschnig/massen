@@ -125,15 +125,20 @@ class MaterialPos:
 # ────────────────────────────────────────────────────────────────────
 # BAUTEIL-BERECHNUNGEN
 # ────────────────────────────────────────────────────────────────────
-def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG", tueren=None):
+def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG",
+                            tueren=None, gemessen=None):
     """Erzeugt eine flache Liste von MaterialPos über alle Bauteile.
 
-    rooms:   gemergte Räume aus /api/projekt-massen
-    windows: erkannte Fenster (mit breite_m × hoehe_m)
-    tueren:  erkannte Türen aus STUK/FPH-Cluster (optional — wenn None,
-             wird mit Pauschal-Annahme "1 Innentür pro Raum" gerechnet)
+    rooms:    gemergte Räume aus /api/projekt-massen
+    windows:  erkannte Fenster (mit breite_m × hoehe_m)
+    tueren:   erkannte Türen aus STUK/FPH-Cluster
+    gemessen: optional {aussenumfang_m, bodenplatte_flaeche_m2, konfidenz, quelle}
+              aus PASS-4-Bemaßung + Vision-Außenkontur. Wenn vorhanden,
+              ersetzen diese Werte die Schätzformeln (sqrt × 1.55 etc).
+              Konfidenz steigt entsprechend von 55-65% auf 85-95%.
     """
     tueren = tueren or []
+    gemessen = gemessen or {}
     from massen_logic import kategorie_of
 
     def _kat(r):
@@ -160,12 +165,32 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     f_dk_base = f_sum_innen + (f_sum_loggia if dk_inkl_loggia else 0)
     bp_faktor = f("bodenplatte_aufschlag", override)
     dk_faktor = f("decke_aufschlag", override)
-    bodenplatte_m2 = round(f_bp_base * bp_faktor, 2)
-    decke_m2 = round(f_dk_base * dk_faktor, 2)
 
-    # Außenumfang: aus Bodenplatte (Bodenplatte = Footprint des Gebäudes)
-    aussenumfang_m = aussenumfang_schaetzung(
-        bodenplatte_m2, aufschlag=f("aussenumfang_aufschlag", override))
+    # GEMESSEN ÜBERSTEUERT GESCHÄTZT:
+    # Wenn PASS-4-Bemaßung oder Vision-Polygon eine echte Bodenplatten-
+    # Fläche / einen echten Außenumfang liefert → nutzen statt Schätzung.
+    # Die Quelle wird transparent im "geometrie_quelle" hinterlegt.
+    if gemessen.get("bodenplatte_flaeche_m2"):
+        bodenplatte_m2 = round(float(gemessen["bodenplatte_flaeche_m2"]), 2)
+        # Decke = Bodenplatte + 5-10% für Auskragung
+        decke_m2 = round(bodenplatte_m2 * 1.05, 2)
+        geometrie_quelle = gemessen.get("quelle", "gemessen")
+        geometrie_konfidenz = float(gemessen.get("konfidenz") or 0.85)
+    else:
+        bodenplatte_m2 = round(f_bp_base * bp_faktor, 2)
+        decke_m2 = round(f_dk_base * dk_faktor, 2)
+        geometrie_quelle = f"Σ Raum-F × {bp_faktor:.2f}-Aufschlag"
+        geometrie_konfidenz = 0.65
+
+    if gemessen.get("aussenumfang_m"):
+        aussenumfang_m = round(float(gemessen["aussenumfang_m"]), 2)
+        umfang_quelle = gemessen.get("quelle", "gemessen")
+        umfang_konfidenz = float(gemessen.get("konfidenz") or 0.85)
+    else:
+        aussenumfang_m = aussenumfang_schaetzung(
+            bodenplatte_m2, aufschlag=f("aussenumfang_aufschlag", override))
+        umfang_quelle = f"sqrt(BP)·4·{f('aussenumfang_aufschlag', override):.2f}-Aufschlag"
+        umfang_konfidenz = 0.55
 
     aw_m2_aussen = round(aussenumfang_m * h, 2)
     iw_m2_innen_rohbau = max(0, round(u_sum_innen * h - aw_m2_aussen, 2))
@@ -378,9 +403,18 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     return out
 
 
-def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG", tueren=None):
-    """Wrapper: gibt strukturiertes Gewerk-Dict zurück (für berechne_gewerke-Integration)."""
-    positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss, tueren=tueren)
+def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
+                         tueren=None, gemessen=None):
+    """Wrapper: gibt strukturiertes Gewerk-Dict zurück.
+
+    gemessen: optional dict mit gemessenen Werten aus PASS-4-Bemaßung +
+              Vision-Außenkontur:
+                {aussenumfang_m, bodenplatte_flaeche_m2, konfidenz, quelle}
+              Wenn vorhanden, werden die Schätzformeln (sqrt-Bodenplatte,
+              aussenumfang × 1.55) durch die gemessenen Werte ersetzt.
+    """
+    positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss,
+                                         tueren=tueren, gemessen=gemessen)
     # Gruppiere nach Bauteil
     by_bauteil = {}
     for p in positionen:

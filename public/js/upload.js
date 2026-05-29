@@ -394,8 +394,8 @@
     // Räume-Liste rendern (was die KI gefunden hat)
     renderRoomsList(data.raeume);
 
-    // Materialliste rendern
-    renderMaterialliste(data.materialliste);
+    // Materialliste rendern (mit gemessenen Geometrie-Daten falls vorhanden)
+    renderMaterialliste(data.materialliste, data.gemessen);
   }
 
   function renderRoomsList(raeume) {
@@ -424,7 +424,7 @@
     target.innerHTML = html;
   }
 
-  function renderMaterialliste(ml) {
+  function renderMaterialliste(ml, gemessen) {
     // Materialliste lebt jetzt als Tab innerhalb der ergebnis-section
     var panel = document.getElementById('ergebnis-panel-material');
     var tab = document.querySelector('.ergebnis-tab[data-ergtab="material"]');
@@ -436,6 +436,31 @@
       return;
     }
     tab.style.display = '';
+    // Geometrie-Status oben im Materialliste-Tab anzeigen
+    var hint = document.querySelector('.materialliste-konfidenz-hint');
+    if (hint && gemessen) {
+      var status;
+      if (gemessen.aussenumfang_m && gemessen.bodenplatte_flaeche_m2) {
+        var konf = Math.round((gemessen.konfidenz || 0.85) * 100);
+        status = '<div style="background:#dcfce7;border:1px solid #86efac;padding:0.5rem 0.7rem;border-radius:6px;margin-bottom:0.5rem;color:#166534;font-size:0.82rem">' +
+          '✓ <strong>Gemessene Geometrie</strong> aus Vision: Außenumfang ' +
+          fmtNum(gemessen.aussenumfang_m) + ' m, Bodenplatte ' +
+          fmtNum(gemessen.bodenplatte_flaeche_m2) + ' m² (Quelle: ' + esc(gemessen.quelle || '') +
+          ', Konfidenz ' + konf + '%)</div>';
+      } else {
+        status = '<div style="background:#fef3c7;border:1px solid #fcd34d;padding:0.5rem 0.7rem;border-radius:6px;margin-bottom:0.5rem;color:#92400e;font-size:0.82rem">' +
+          '⚠ <strong>Geschätzte Geometrie</strong> — Außenumfang aus sqrt(F)·4·1,55. ' +
+          'Für genauere Werte: Vektor-Geometrie-Pass läuft noch nicht oder Vision lieferte nichts.</div>';
+      }
+      if (!hint.querySelector('.geometrie-status')) {
+        var div = document.createElement('div');
+        div.className = 'geometrie-status';
+        div.innerHTML = status;
+        hint.insertBefore(div, hint.firstChild);
+      } else {
+        hint.querySelector('.geometrie-status').innerHTML = status;
+      }
+    }
     if (!tbody) return;
     var html = '';
     Object.keys(ml.bauteile).forEach(function (bauteil) {

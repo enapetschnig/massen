@@ -144,18 +144,18 @@
         </div>
       </details>
 
-      <!-- Tab-Bar -->
+      <!-- Tab-Bar — Rohbau-Materialliste ist primärer Tab für Baubetriebe -->
       <div class="ergebnis-tabs" id="ergebnis-tabs">
-        <button class="ergebnis-tab active" data-ergtab="oenorm">
-          &#127959; ÖNORM-Massen <span style="font-size:0.7rem;color:#6c757d">(Putz/Estrich/Maler)</span>
+        <button class="ergebnis-tab active" data-ergtab="material">
+          &#129683; Rohbau-Materialliste
         </button>
-        <button class="ergebnis-tab" data-ergtab="material">
-          &#129683; Rohbau-Materialliste <span style="font-size:0.7rem;color:#9a3412">(Phase 1)</span>
+        <button class="ergebnis-tab" data-ergtab="oenorm">
+          &#127959; ÖNORM (Putz/Estrich/Maler) <span style="font-size:0.7rem;color:#6c757d">— optional</span>
         </button>
       </div>
 
-      <!-- Tab: ÖNORM-Massen -->
-      <div class="ergebnis-panel active" id="ergebnis-panel-oenorm">
+      <!-- Tab: ÖNORM-Massen (jetzt sekundär) -->
+      <div class="ergebnis-panel" id="ergebnis-panel-oenorm">
         <div class="projekt-massen-grid" id="projekt-massen-grid"></div>
         <details class="projekt-massen-detail" id="projekt-massen-rooms-wrap">
           <summary>Räume aus den Plänen anzeigen (was die KI gefunden hat)</summary>
@@ -167,8 +167,8 @@
         </details>
       </div>
 
-      <!-- Tab: Rohbau-Materialliste -->
-      <div class="ergebnis-panel" id="ergebnis-panel-material">
+      <!-- Tab: Rohbau-Materialliste (Default-Anzeige) -->
+      <div class="ergebnis-panel active" id="ergebnis-panel-material">
         <div class="materialliste-konfidenz-hint">
           <strong>Was die Konfidenz-Spalte bedeutet:</strong>
           <ul>

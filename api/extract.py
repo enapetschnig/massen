@@ -1708,6 +1708,92 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
 
         alle_fenster = list(unique_fenster)
 
+        # ═══════════════════════════════════════════════════════════════
+        # AUSSENKONTUR-VISION-PASS
+        # Vision sieht den gesamten Grundriss und liefert:
+        #   - Außenkontur-Polygon in normalisierten 0-1-Koordinaten
+        #   - Außenmaße pro Himmelsrichtung in Metern (N/S/W/O)
+        #   - Außenumfang in Metern (Summe)
+        #   - Bodenplatten-Fläche in m² (Polygon-Fläche)
+        # Das ist DIE Größe die heute geschätzt wird (sqrt × 1.55) und
+        # für ~25% Abweichung bei HLZ-Paletten und EKV-Bahnen sorgt.
+        # ═══════════════════════════════════════════════════════════════
+        AUSSENKONTUR_PROMPT = """Du siehst einen oesterreichischen EFH-Grundriss.
+Bestimme die AUSSENKONTUR des Gebaeudes — die aeusserste durchgehende
+Wand-Linie um alle Innenraeume herum. Loggia/Terrasse/Parkplatz NICHT
+mitnehmen, nur die geschlossene gemauerte Aussenhuelle.
+
+Liefere zwei Sachen:
+1) Polygon der Aussenkontur in NORMIERTEN 0-1 Koordinaten relativ
+   zur sichtbaren Plan-Flaeche (NICHT zu Pixel, sondern Anteil 0=links/oben
+   bis 1=rechts/unten der Plan-Begrenzungsbox).
+2) Die Aussenmasse in METERN je Himmelsrichtung, abgelesen aus der
+   Bemassung am Plan-Rand (Hauptbemassungskette).
+
+JSON-Antwort, kein Markdown:
+{
+  "polygon_norm": [[0.12,0.10],[0.85,0.10],[0.85,0.62],[0.12,0.62]],
+  "seiten_m": {"N": 10.20, "S": 10.20, "W": 7.80, "E": 7.80},
+  "umfang_m": 36.00,
+  "flaeche_m2": 79.56,
+  "konfidenz": 0.85
+}
+Wichtig:
+- Polygon im Uhrzeigersinn beginnend oben-links.
+- Bei L-/U-Form: alle Ecken des Polygons auflisten.
+- "umfang_m" = Summe(seiten_m).
+- "flaeche_m2" = Polygon-Flaeche (Shoelace-Formel).
+- "konfidenz" zwischen 0 und 1, niedriger wenn Bemassung unleserlich."""
+
+        aussenkontur_vision = {}
+        try:
+            doc4 = fitz.open(stream=pdf_bytes, filetype="pdf")
+            p4 = doc4[0]
+            dpi_ak = 200
+            ak_img = None
+            while dpi_ak >= 100:
+                mat = fitz.Matrix(dpi_ak / 72, dpi_ak / 72)
+                pix = p4.get_pixmap(matrix=mat)
+                ak_img = pix.tobytes("jpeg", jpg_quality=85)
+                if len(ak_img) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                    break
+                dpi_ak -= 30
+            doc4.close()
+            if ak_img:
+                ak_b64 = base64.standard_b64encode(ak_img).decode("utf-8")
+                resp = client.messages.create(
+                    model="claude-sonnet-4-20250514", max_tokens=1024, temperature=0,
+                    system=AUSSENKONTUR_PROMPT,
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64",
+                         "media_type": "image/jpeg", "data": ak_b64}},
+                        {"type": "text", "text": "Bestimme die Außenkontur und Außenmaße."}
+                    ]}],
+                )
+                raw = resp.content[0].text if resp.content else "{}"
+                try:
+                    aussenkontur_vision = json.loads(raw)
+                except Exception:
+                    mjs = re.search(r"\{[\s\S]*\}", raw)
+                    aussenkontur_vision = json.loads(mjs.group()) if mjs else {}
+                # Konsistenz: Summe seiten_m sollte ≈ umfang_m sein
+                seiten = aussenkontur_vision.get("seiten_m") or {}
+                if seiten:
+                    summe = sum(float(v or 0) for v in seiten.values())
+                    if aussenkontur_vision.get("umfang_m"):
+                        diff = abs(summe - float(aussenkontur_vision["umfang_m"]))
+                        if diff > 2.0:  # >2m Abweichung → Umfang aus Summe korrigieren
+                            aussenkontur_vision["umfang_m"] = round(summe, 2)
+                            aussenkontur_vision["_umfang_korrigiert"] = True
+                    else:
+                        aussenkontur_vision["umfang_m"] = round(summe, 2)
+                print(f"[aussenkontur] umfang={aussenkontur_vision.get('umfang_m')} m, "
+                      f"flaeche={aussenkontur_vision.get('flaeche_m2')} m², "
+                      f"konf={aussenkontur_vision.get('konfidenz')}")
+        except Exception as _exc:
+            print(f"[aussenkontur] failed: {_exc!r}")
+            aussenkontur_vision = {}
+
         try:
             gewerke_result = _berechne_gewerke(
                 rooms_fg, alle_fenster, baudaten, geschoss or "EG", None)
@@ -1734,6 +1820,12 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
         "geschoss": geschoss,
     }
     log["wand_bemassung_vision"] = wall_dims_per_top
+    # Außenkontur-Vision (Polygon + Außenmaße) für projekt-massen-Konsum
+    if _MASSEN_OK:  # nur in dem Pfad existiert die Variable
+        try:
+            log["aussenkontur_vision"] = aussenkontur_vision
+        except NameError:
+            pass
     log["oenorm_lv"] = oenorm_lv
     if gewerke_result:
         log["gewerke"] = gewerke_result
@@ -2117,6 +2209,10 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_baudaten = {}
     best_konf = -1.0
     geschoss = "EG"
+    # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
+    # (für gemessene Geometrie statt sqrt-Schätzung)
+    aussenmasse_kandidaten = []  # Liste von {seiten:{N,S,W,E}, umfang, quelle}
+    aussenpolygon_kandidaten = []  # Liste von {umfang_m, flaeche_m2, quelle}
     for p in plaene:
         log = p.get("agent_log") or {}
         gw = log.get("gewerke") or {}
@@ -2131,6 +2227,69 @@ async def projekt_massen(body: ProjektMassenRequest):
             g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
             if g:
                 geschoss = g
+        # PASS 4 — Bemaßungs-Vision: wandlaengen_m pro Seite
+        wbv = log.get("wand_bemassung_vision") or {}
+        for top_name, top_data in wbv.items():
+            wl = (top_data or {}).get("wandlaengen_m") or {}
+            if wl:
+                # Nur Seiten mit echtem Wert
+                seiten = {k: v for k, v in wl.items() if v and v > 0}
+                if len(seiten) >= 2:  # min 2 Seiten für Umfang
+                    aussenmasse_kandidaten.append({
+                        "seiten_m": seiten,
+                        "umfang_m": round(sum(seiten.values()), 2),
+                        "plan": p.get("dateiname"),
+                        "top": top_name,
+                        "quelle": "pass4-bemassung",
+                    })
+        # Außenkontur-Vision (Polygon + Außenmaße + Fläche)
+        ak = log.get("aussenkontur_vision") or {}
+        if ak.get("umfang_m") and ak.get("flaeche_m2"):
+            aussenpolygon_kandidaten.append({
+                "umfang_m": float(ak["umfang_m"]),
+                "flaeche_m2": float(ak["flaeche_m2"]),
+                "seiten_m": ak.get("seiten_m") or {},
+                "plan": p.get("dateiname"),
+                "quelle": "vision-aussenkontur",
+            })
+
+    # Konsolidieren: Vision-Polygon ist primäre Quelle (es zeichnet die
+    # ganze Kontur nach), PASS-4-Bemaßung dient als Cross-Check (liest
+    # nur die Haupt-Außen-Achse, untersieht L-Form-Versätze).
+    gemessen = None
+    if aussenpolygon_kandidaten:
+        ap = aussenpolygon_kandidaten[0]
+        gemessen = {
+            "aussenumfang_m": ap["umfang_m"],
+            "bodenplatte_flaeche_m2": ap["flaeche_m2"],
+            "quelle": "vision-aussenkontur",
+            "konfidenz": 0.80,
+        }
+        # Cross-Check mit PASS-4 — wenn Polygon-Wert deutlich kleiner als
+        # PASS-4-Summe, ist Polygon evtl unterschätzt
+        if aussenmasse_kandidaten:
+            pass4_max = max(c["umfang_m"] for c in aussenmasse_kandidaten)
+            if pass4_max > ap["umfang_m"] * 1.15:
+                # PASS-4 ist deutlich größer → Polygon korrigieren
+                gemessen["aussenumfang_m"] = round(pass4_max, 2)
+                gemessen["quelle"] = "polygon+pass4-korrigiert"
+                gemessen["konfidenz"] = 0.85
+            else:
+                diff_pct = abs(pass4_max - ap["umfang_m"]) / max(ap["umfang_m"], 1)
+                if diff_pct < 0.10:
+                    # Beide nah beieinander → höchste Konfidenz
+                    gemessen["konfidenz"] = 0.95
+                    gemessen["quelle"] = "polygon+pass4-konsistent"
+                gemessen["pass4_umfang_m"] = round(pass4_max, 2)
+    elif aussenmasse_kandidaten:
+        # Nur PASS-4 vorhanden — Max-Wert nehmen (umfasst eher die ganze Kontur)
+        umfang_max = max(c["umfang_m"] for c in aussenmasse_kandidaten)
+        gemessen = {
+            "aussenumfang_m": umfang_max,
+            "quelle": "pass4-bemassung",
+            "konfidenz": 0.75,
+            "details": aussenmasse_kandidaten,
+        }
 
     # 6b) Geschoss-Höhe aus den Raumhöhen ableiten — wichtig wenn Vision
     # keine Wandstärken liefert (Konfidenz <0.7) und Defaults greifen.
@@ -2185,7 +2344,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             materialliste_result = _build_materialliste(
                 merged_rooms, alle_fenster, best_baudaten,
                 override=body.materialliste_override, geschoss=geschoss,
-                tueren=alle_tueren,
+                tueren=alle_tueren, gemessen=gemessen,
             )
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
@@ -2244,6 +2403,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             "summary": konsistenz_summary,
             "findings": konsistenz_findings,
         } if _KONSISTENZ_OK else None,
+        "gemessen": gemessen,
         "materialliste": materialliste_result,
         **gewerke_result,
     }
