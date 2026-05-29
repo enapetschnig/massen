@@ -1569,9 +1569,12 @@ im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
             print(f"[baudaten] Vision-Messung fehlgeschlagen: {_exc!r}")
             baudaten = {}
 
-        # Konfidenz-Schwelle: bei unsicherer Vision (<0.7) die Wandstärken
-        # leeren → massen_logic greift auf dokumentierte Defaults zurück.
-        if (baudaten.get("konfidenz") or 0) < 0.7:
+        # Konfidenz-Schwelle: bei sehr unsicherer Vision (<0.5) Wandstärken
+        # leeren → massen_logic greift auf Defaults zurück. 0.5 statt 0.7
+        # weil Vision-Schätzungen aus Grundriss meist ~0.5-0.7 Konfidenz
+        # liefern (Wandtypen sind aus oben schwer ablesbar) und der Default
+        # 38cm Außenwand oft schlechter ist als die Vision-Schätzung 50cm.
+        if (baudaten.get("konfidenz") or 0) < 0.5:
             for _k in ("aussenwand_cm", "innenwand_tragend_cm",
                        "innenwand_nichttragend_cm", "decke_cm", "bodenplatte_cm"):
                 baudaten.pop(_k, None)
@@ -1892,20 +1895,50 @@ async def projekt_massen(body: ProjektMassenRequest):
     # sind oft Halluzinationen aus dem Plan-Titel/Schnitt.
     def _short_name(n):
         return re.sub(r"[\s\-_/]+", " ", (n or "").strip().lower())
+    # Für Cousin-Heuristik: das LETZTE Wort (nicht das erste) — bei Komposita
+    # wie "Geräte-Abstellraum" ist "abstellraum" das semantisch relevante Wort,
+    # nicht "geräte". Sonst rutscht "Abstellraum" (3,70m²) durch den Filter,
+    # weil sein first_word "abstellraum" nicht zu "geräte" passt.
+    def _last_word(n):
+        sn = _short_name(n)
+        if not sn:
+            return ""
+        return sn.split()[-1]
     cleaned_rooms = []
     for r in merged_rooms:
         sn = _short_name(r.get("name"))
         if not sn:
             continue
-        # Halluzination: OG-Raum in EG-Plan
-        if re.search(r"\bobergeschoss\b|\bog\b", sn) and _early_geschoss.upper().startswith("EG"):
+        my_quellen = len(r.get("_quellen_plaene") or [])
+        # Halluzination: OG-Raum in EG-Plan — auch "obergeschoß" (ß) erkennen
+        if re.search(r"\bobergeschoss\b|\bobergescho[ßs]+\b|\bog\b|\b[0-9]\.?\s?og\b", sn) \
+                and _early_geschoss.upper().startswith("EG"):
             r["_hallucination"] = "OG-Suffix im EG-Plan"
             continue
+        # Nummerierte Räume (Zimmer 1/2/3 ...) — wenn Nummer > Max andere
+        # gleichnamiger Räume mit MEHR Quellen-Plänen → Halluzination
+        m_zif = re.match(r"^([a-zäöü]+)\s*(\d+)$", sn)
+        if m_zif and my_quellen < len(plaene):
+            stamm, ziffer = m_zif.group(1), int(m_zif.group(2))
+            max_andere = 0
+            for other in merged_rooms:
+                if other is r:
+                    continue
+                on = _short_name(other.get("name"))
+                m2 = re.match(r"^([a-zäöü]+)\s*(\d+)$", on)
+                if m2 and m2.group(1) == stamm:
+                    other_q = len(other.get("_quellen_plaene") or [])
+                    if other_q >= my_quellen + 1:
+                        max_andere = max(max_andere, int(m2.group(2)))
+            if max_andere > 0 and ziffer > max_andere:
+                r["_hallucination"] = (
+                    f"Höhere {stamm}-Nummer ({ziffer}) als alle {stamm} in mehr Plänen "
+                    f"(max {max_andere})")
+                continue
         # Substring-Dedup: kürzerer Name ist Teilstring eines längeren mit
         # höherer Datenqualität (mehr F/U/H-Werte) → kürzeren verwerfen.
         is_subset = False
         my_completeness = sum(1 for k in ("flaeche_m2","umfang_m","hoehe_m") if r.get(k))
-        my_quellen = len(r.get("_quellen_plaene") or [])
         for other in merged_rooms:
             if other is r:
                 continue
@@ -1944,17 +1977,24 @@ async def projekt_massen(body: ProjektMassenRequest):
         #      Daten (F+U+H) bzw. eindeutigem Namen gewinnt.
         is_cousin_hallu = False
         my_first = sn.split()[0] if sn else ""
+        my_last = _last_word(r.get("name"))
         my_word_count = len(sn.split())
         my_u = r.get("umfang_m") or 0
-        if len(my_first) >= 4:
+        # Cousin-Vergleich auf BEIDEN Achsen: first_word UND last_word.
+        # "Abstellraum" (first=last=abstellraum) findet "Geräte-Abstellraum"
+        # (first=geräte, last=abstellraum) über das last_word.
+        if len(my_first) >= 4 or len(my_last) >= 4:
             for other in merged_rooms:
                 if other is r:
                     continue
                 on = _short_name(other.get("name"))
                 on_first = on.split()[0] if on else ""
-                if not on_first or on_first == my_first:
-                    continue
-                if my_first[:4] != on_first[:4]:
+                on_last = _last_word(other.get("name"))
+                same_first = (my_first and on_first and my_first != on_first
+                              and my_first[:4] == on_first[:4])
+                same_last = (my_last and on_last and my_last == on_last
+                             and len(my_last) >= 4)
+                if not (same_first or same_last):
                     continue
                 other_quellen = len(other.get("_quellen_plaene") or [])
                 other_word_count = len(on.split())
@@ -2040,27 +2080,38 @@ async def projekt_massen(body: ProjektMassenRequest):
                 round(float(d.get("breite_m") or 0), 2),
                 round(float(d.get("hoehe_m") or 0), 2))
 
-    seen_f = set()
-    alle_fenster = []
-    for row in fenster_rows:
-        d = _norm_dim(dict(row.get("daten") or {}))
-        bez = row.get("bezeichnung") or d.get("bezeichnung") or ""
-        sig = _sig(d, bez)
-        if sig in seen_f:
-            continue
-        seen_f.add(sig)
-        alle_fenster.append(dict(d, bezeichnung=bez))
+    def _collect_oeffnungen(rows):
+        # Erst alle einsammeln, dann leere Einträge raus wenn der Raum
+        # bereits einen Eintrag MIT Maßen hat.
+        items = []
+        seen = set()
+        for row in rows:
+            d = _norm_dim(dict(row.get("daten") or {}))
+            bez = row.get("bezeichnung") or d.get("bezeichnung") or ""
+            sig = _sig(d, bez)
+            if sig in seen:
+                continue
+            seen.add(sig)
+            items.append(dict(d, bezeichnung=bez))
+        # Räume mit mind. einem Maß-Eintrag identifizieren
+        raeume_mit_massen = {
+            (i.get("raum") or "").strip().lower()
+            for i in items
+            if i.get("breite_m") and i.get("hoehe_m")
+        }
+        raeume_mit_massen.discard("")
+        cleaned = []
+        for i in items:
+            raum = (i.get("raum") or "").strip().lower()
+            has_dims = bool(i.get("breite_m") and i.get("hoehe_m"))
+            # Leeren Eintrag wegwerfen, wenn der Raum schon einen mit Maßen hat
+            if not has_dims and raum in raeume_mit_massen:
+                continue
+            cleaned.append(i)
+        return cleaned
 
-    seen_t = set()
-    alle_tueren = []
-    for row in tueren_rows:
-        d = _norm_dim(dict(row.get("daten") or {}))
-        bez = row.get("bezeichnung") or d.get("bezeichnung") or ""
-        sig = _sig(d, bez)
-        if sig in seen_t:
-            continue
-        seen_t.add(sig)
-        alle_tueren.append(dict(d, bezeichnung=bez))
+    alle_fenster = _collect_oeffnungen(fenster_rows)
+    alle_tueren = _collect_oeffnungen(tueren_rows)
 
     # 6) Baudaten aus allen Plänen sammeln — höchste Vision-Konfidenz gewinnt
     best_baudaten = {}
