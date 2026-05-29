@@ -2570,6 +2570,13 @@ async def projekt_massen(body: ProjektMassenRequest):
             best_baudaten["konfidenz"] = max(float(best_baudaten.get("konfidenz") or 0),
                                              leg_bd.get("konfidenz", 0.9))
         wand_verteilung = _wand_verteilung(best_legende)
+        # Flachdach aus Legende erkannt → Attika automatisch aktivieren
+        # (wie ein Polier: Sarnafil/Abdichtung im Dachaufbau ⇒ Attika).
+        # User-Override via materialliste_override hat Vorrang.
+        if best_legende.get("dach_typ") == "flach":
+            ov = body.materialliste_override or {}
+            if "attika_aktiv" not in ov:
+                body.materialliste_override = dict(ov, attika_aktiv=1)
 
     # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
     if body.baudaten_override:

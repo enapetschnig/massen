@@ -57,10 +57,28 @@ def parse_legende(spans: list) -> dict:
         "wand_typen": {}, "wand_counts": {},
         "decke_cm": None, "bodenplatte_cm": None,
         "sauberkeitsschicht_cm": None, "estrich_cm": None,
+        "dach_typ": None, "dach_indizien": [],
         "quelle": "text-legende", "konfidenz": 0.0,
     }
     if not spans:
         return result
+
+    # Dachtyp aus dem Decken-/Dach-Aufbau ableiten (wie ein Mensch: sieht
+    # "Sarnafil/Abdichtung 2lagig/Bitumen-Dachbahn" → Flachdach → Attika;
+    # "Ziegel/Lattung/Sparren/Konterlattung" → Steildach → keine Attika).
+    FLACH = re.compile(r"sarnafil|abdichtung|bitumen|dachbahn|kiesschüttung|gefälled|fpo|epdm|flachdach|attika", re.I)
+    STEIL = re.compile(r"\b(dachziegel|biberschwanz|sparren|lattung|konterlattung|first|steildach|dachstuhl)\b", re.I)
+    flach_score = steil_score = 0
+    for s in spans:
+        t = s["text"]
+        if FLACH.search(t):
+            flach_score += 1; result["dach_indizien"].append(t.strip()[:40])
+        if STEIL.search(t):
+            steil_score += 1
+    if flach_score and flach_score >= steil_score:
+        result["dach_typ"] = "flach"
+    elif steil_score:
+        result["dach_typ"] = "steil"
 
     def _norm_code(pfx, nr):
         return f"{pfx.upper()}{nr}"
