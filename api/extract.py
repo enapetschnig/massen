@@ -2111,6 +2111,13 @@ async def projekt_massen(body: ProjektMassenRequest):
             kj, wj = keys[j]
             if not kj:
                 continue
+            # ZUERST: nie über verschiedene Wohnungen/TOPs mergen (MFH!) —
+            # "Wohnküche" in TOP1 und TOP2 sind echte eigene Räume, auch wenn
+            # der Name identisch ist. Gilt für ALLE Merge-Pfade (auch Typo).
+            wi_w = _nk(merged_rooms[i].get("wohnung") or "")
+            wj_w = _nk(merged_rooms[j].get("wohnung") or "")
+            if wi_w and wj_w and wi_w != wj_w:
+                continue
             snj = _short_name(merged_rooms[j].get("name"))
             # ── TYPO-MERGE (vor Größen-Guard): fast identische Namen sind
             # OCR/Vision-Tippfehler desselben Raums ("Terasse"/"Terrasse").
@@ -2129,6 +2136,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             same_last = i_last and i_last == j_last
             # Bedeutungs-Wörter-Schnittmenge (ohne generische):
             common_words = (wi & wj) - GENERIC_LAST_WORDS
+            # (Wohnungs-Guard steht oben in der Schleife — gilt für alle Pfade.)
             # Nur in selbe Gruppe wenn Größen ähnlich (sonst sind es zwei
             # verschiedene reale Räume mit ähnlichem Namen).
             if not _similar_size(merged_rooms[i], merged_rooms[j]):
@@ -2259,6 +2267,9 @@ async def projekt_massen(body: ProjektMassenRequest):
     #   Bei echtem MFH (>2 Wohnungen, nicht is_efh) wird NICHT gefiltert.
     def _wg(r):
         return _nk(r.get("wohnung") or "")
+    def _median_h(rs):
+        hs = sorted(r["hoehe_m"] for r in rs if r.get("hoehe_m"))
+        return hs[len(hs) // 2] if hs else None
     _groups = {}
     for r in merged_rooms:
         _groups.setdefault(_wg(r), []).append(r)
@@ -2269,13 +2280,30 @@ async def projekt_massen(body: ProjektMassenRequest):
             return len(rs) + sum(len(r.get("_quellen_plaene") or []) for r in rs)
         dom_key = max(_groups, key=lambda k: _gscore(_groups[k]))
         dom = _groups[dom_key]
-        if len(dom) >= 0.5 * len(merged_rooms):
-            rohbau_rooms = dom
-            for k, rs in _groups.items():
-                if k != dom_key:
-                    ausgeschlossene_einheiten.append({
-                        "einheit": k or "(ohne)", "raeume": [r.get("name") for r in rs],
-                    })
+        dom_h = _median_h(dom)
+        # Eine Nebengruppe wird NUR ausgeschlossen, wenn MEHRERE Indizien für
+        # "andere Einheit/Geschoss" zusammenkommen — sonst Gefahr, einen echten
+        # zweiten EG-Bereich zu verwerfen. Generalisiert über Pläne:
+        #   (a) eigener Wohnungs-/Geschoss-Code (W02, TOP 3, OG, 1.OG …)
+        #   (b) NUR aus einem Plan (nicht cross-validiert)
+        #   (c) abweichende Raumhöhe (> 0.15m vom EG-Median = anderes Geschoss)
+        # Mindestens 2 davon müssen zutreffen.
+        rohbau_rooms = list(dom)
+        for k, rs in _groups.items():
+            if k == dom_key:
+                continue
+            hat_code = bool(re.search(r"(w\d|top\d|og|kg|ug|dg|\dog)", k))
+            nur_ein_plan = all(len(r.get("_quellen_plaene") or []) <= 1 for r in rs)
+            gh = _median_h(rs)
+            hoehe_abweichend = bool(dom_h and gh and abs(gh - dom_h) > 0.15)
+            indizien = sum([hat_code, nur_ein_plan, hoehe_abweichend])
+            if indizien >= 2:
+                ausgeschlossene_einheiten.append({
+                    "einheit": k or "(ohne)", "raeume": [r.get("name") for r in rs],
+                    "indizien": {"code": hat_code, "ein_plan": nur_ein_plan, "hoehe": hoehe_abweichend},
+                })
+            else:
+                rohbau_rooms.extend(rs)   # gehört doch zum EG → behalten
 
     # 4c) Höhen-Inferenz: Architekten beschriften nicht jeden Raum mit RH —
     # typisch fehlt H bei Wohnräumen (gleicher Standard-Wert) und Außen-

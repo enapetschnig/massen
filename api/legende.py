@@ -31,6 +31,8 @@ STRUKTUR_MATERIAL = re.compile(
     r"leichtbeton|liapor|liapor|mauerwerk)", re.I)
 # Eine Schicht-Zeile: "<Material> ... <Wert> cm" (auch mm-Toleranz)
 SCHICHT_RX = re.compile(r"([A-Za-zÄÖÜäöüß\-]+).*?(\d+(?:[,.]\d+)?)\s*cm", re.I)
+# Reine Dicken-Angabe ohne Material ("38,0 cm" / "38 cm") — getrennte Layouts
+THICK_RX = re.compile(r"(\d+(?:[,.]\d+)?)\s*cm\b", re.I)
 # Bauteil-Codes — ÖNORM-Standard (Außen/Innen/Trenn/Brand-Wand), toleranter
 # Separator (AW1 / AW 1 / AW-1). Bare "W" bewusst NICHT (zu viele Fehltreffer).
 WAND_CODE_RX = re.compile(r"^(AW|IW|TW|BW)\s*[-_.]?\s*(\d+)\b", re.I)
@@ -51,6 +53,44 @@ def _near(spans, anchor, dx=210, dy=58):
     ax, ay = anchor["cx"], anchor["cy"]
     return [s for s in spans
             if s is not anchor and abs(s["cx"] - ax) <= dx and abs(s["cy"] - ay) <= dy]
+
+
+def _dist(o, anchor):
+    return ((o["cx"] - anchor["cx"]) ** 2 + ((o["cy"] - anchor["cy"]) * 1.6) ** 2) ** 0.5
+
+
+def _struktur_dicke_near(spans, anchor, material_rx, lo, hi):
+    """Findet die Schicht-Dicke eines Struktur-Materials nahe einem Code-Anchor —
+    robust gegen BEIDE Legende-Layouts: Material+Dicke im selben Span
+    ("Hochlochziegel 50,0 cm") ODER getrennt ("Porotherm" | "38,0 cm").
+    Liefert (dicke_cm, material) oder (None, None)."""
+    cluster = _near(spans, anchor, dx=240, dy=40)
+    best_d, best_mat, best_dist = None, None, 1e9
+    # (A) kombiniert
+    for o in cluster:
+        if not material_rx.search(o["text"]):
+            continue
+        sm = SCHICHT_RX.search(o["text"])
+        if sm:
+            d = _num(sm.group(2))
+            if d and lo <= d <= hi and _dist(o, anchor) < best_dist:
+                best_dist, best_d, best_mat = _dist(o, anchor), d, sm.group(1)
+    if best_d is not None:
+        return best_d, best_mat
+    # (B) getrennt: Material-Span vorhanden, Dicke in separatem Span
+    mat_span = next((o for o in cluster if material_rx.search(o["text"])), None)
+    if mat_span:
+        for o in cluster:
+            if material_rx.search(o["text"]):
+                continue
+            tm = THICK_RX.search(o["text"])
+            if tm:
+                d = _num(tm.group(1))
+                if d and lo <= d <= hi and _dist(o, anchor) < best_dist:
+                    best_dist, best_d = _dist(o, anchor), d
+        if best_d is not None:
+            return best_d, mat_span["text"].strip()
+    return None, None
 
 
 def parse_legende(spans: list) -> dict:
@@ -105,58 +145,32 @@ def parse_legende(spans: list) -> dict:
         code = _norm_code(m.group(1), m.group(2))
         if code in result["wand_typen"]:
             continue
-        # NÄCHSTGELEGENE Struktur-Schicht = Wandstärke dieses Codes (die
-        # Legende-Blöcke stehen dicht gestapelt → max() würde in den Nachbar-
-        # Block greifen, daher Distanz-nächste statt dickste Schicht).
-        best_dicke, best_mat, best_dist = None, None, 1e9
-        for o in _near(spans, s, dx=240, dy=40):
-            ot = o["text"]
-            sm = SCHICHT_RX.search(ot)
-            if not sm or not STRUKTUR_MATERIAL.search(ot):
-                continue
-            d = _num(sm.group(2))
-            if not (d and 5 <= d <= 60):
-                continue
-            dist = ((o["cx"] - s["cx"]) ** 2 + ((o["cy"] - s["cy"]) * 1.6) ** 2) ** 0.5
-            if dist < best_dist:
-                best_dist, best_dicke, best_mat = dist, d, sm.group(1)
+        # Struktur-Dicke (>=5cm schließt Putz/Dämmung aus), kombiniert ODER getrennt
+        best_dicke, best_mat = _struktur_dicke_near(spans, s, STRUKTUR_MATERIAL, 5, 60)
         if best_dicke:
             art = "aussen" if m.group(1).upper().startswith("AW") else "innen"
             result["wand_typen"][code] = {
                 "dicke_cm": best_dicke, "material": best_mat, "art": art,
             }
 
-    # 2) Decke (D-Code) → nächste Stahlbeton-Dicke
+    STB_RX = re.compile(r"stahlbeton|stb\b", re.I)
+
+    # 2) Decke (D-Code) → Stahlbeton-Dicke (kombiniert ODER getrennt)
     for s in spans:
         if not DECKE_CODE_RX.match(s["text"].strip()):
             continue
-        for o in _near(spans, s):
-            if re.search(r"stahlbeton|stb\b", o["text"], re.I):
-                sm = SCHICHT_RX.search(o["text"])
-                if sm:
-                    d = _num(sm.group(2))
-                    if d and 12 <= d <= 40:
-                        result["decke_cm"] = d
-                        break
-        if result["decke_cm"]:
+        d, _mat = _struktur_dicke_near(spans, s, STB_RX, 12, 40)
+        if d:
+            result["decke_cm"] = d
             break
 
-    # 3a) Bodenplatte aus dem B-Code-Block (Stahlbeton-Schicht daneben)
+    # 3a) Bodenplatte aus dem B-Code-Block (Stahlbeton, kombiniert ODER getrennt)
     for s in spans:
         if not BODEN_CODE_RX.match(s["text"].strip()):
             continue
-        best_d, best_dist = None, 1e9
-        for o in _near(spans, s, dx=240, dy=40):
-            if re.search(r"stahlbeton|stb\b", o["text"], re.I):
-                sm = SCHICHT_RX.search(o["text"])
-                if sm:
-                    d = _num(sm.group(2))
-                    if d and 15 <= d <= 40:
-                        dist = ((o["cx"]-s["cx"])**2 + ((o["cy"]-s["cy"])*1.6)**2)**0.5
-                        if dist < best_dist:
-                            best_dist, best_d = dist, d
-        if best_d:
-            result["bodenplatte_cm"] = best_d
+        d, _mat = _struktur_dicke_near(spans, s, STB_RX, 15, 40)
+        if d:
+            result["bodenplatte_cm"] = d
             break
 
     # 3b) Sauberkeitsschicht / Estrich — global aus Legende (eindeutige Begriffe)
