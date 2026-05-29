@@ -2294,32 +2294,50 @@ async def projekt_massen(body: ProjektMassenRequest):
                 round(float(d.get("hoehe_m") or 0), 2))
 
     def _collect_oeffnungen(rows):
-        # Erst alle einsammeln, dann leere Einträge raus wenn der Raum
-        # bereits einen Eintrag MIT Maßen hat.
+        # Dieselbe Öffnung wird oft DOPPELT erkannt: einmal als Vision-Fund
+        # (FE_30, oft grob/ohne Maß) und einmal als präziser STUK/FPH-Text-
+        # Fund (F-130x128). Über zwei Pläne (Einreich+Polier) verschärft sich
+        # das. Dedup daher nach (Raum, Breiten-Bucket) statt nach Bezeichnung,
+        # und Vision-Funde die zu einem STUK/FPH-Fund passen werden verworfen.
         items = []
-        seen = set()
         for row in rows:
             d = _norm_dim(dict(row.get("daten") or {}))
-            bez = row.get("bezeichnung") or d.get("bezeichnung") or ""
-            sig = _sig(d, bez)
-            if sig in seen:
-                continue
-            seen.add(sig)
-            items.append(dict(d, bezeichnung=bez))
-        # Räume mit mind. einem Maß-Eintrag identifizieren
-        raeume_mit_massen = {
-            (i.get("raum") or "").strip().lower()
-            for i in items
-            if i.get("breite_m") and i.get("hoehe_m")
-        }
+            d["bezeichnung"] = row.get("bezeichnung") or d.get("bezeichnung") or ""
+            items.append(d)
+
+        def _rn(i):
+            return (i.get("raum") or "").strip().lower()
+        def _is_stuk(i):
+            return "stuk" in (i.get("quelle") or "").lower()
+        def _wbucket(i):
+            return round((i.get("breite_m") or 0) * 10)  # 10cm-Raster
+
+        # Präzise STUK/FPH-Öffnungen pro (Raum, Breiten-Bucket) indizieren
+        stuk_keys = {(_rn(i), _wbucket(i)) for i in items
+                     if _is_stuk(i) and i.get("breite_m")}
+        # Räume mit mind. einer bemaßten Öffnung
+        raeume_mit_massen = {_rn(i) for i in items if i.get("breite_m") and i.get("hoehe_m")}
         raeume_mit_massen.discard("")
+
         cleaned = []
+        seen = set()      # (raum, w-bucket, h-bucket) — exakte Duplikate
         for i in items:
-            raum = (i.get("raum") or "").strip().lower()
+            raum = _rn(i)
             has_dims = bool(i.get("breite_m") and i.get("hoehe_m"))
-            # Leeren Eintrag wegwerfen, wenn der Raum schon einen mit Maßen hat
+            is_stuk = _is_stuk(i)
+            # 1) Vision-Fund (kein STUK) der zu einer präzisen STUK-Öffnung im
+            #    selben Raum + Breiten-Bucket passt → dieselbe Öffnung, verwerfen.
+            if has_dims and not is_stuk and (raum, _wbucket(i)) in stuk_keys:
+                continue
+            # 2) Maßloser Fund in einem Raum der schon bemaßte Öffnungen hat → weg.
             if not has_dims and raum in raeume_mit_massen:
                 continue
+            # 3) Exaktes Duplikat (gleicher Raum + B + H-Bucket) → nur einmal.
+            if has_dims:
+                k = (raum, _wbucket(i), round((i.get("hoehe_m") or 0) * 10))
+                if k in seen:
+                    continue
+                seen.add(k)
             cleaned.append(i)
         return cleaned
 
