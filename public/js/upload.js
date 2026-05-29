@@ -183,6 +183,7 @@
 
   // Letzte Werte für Refresh (ohne Plans-Liste neu zu laden)
   var _lastFertig = 0, _lastTotal = 0;
+  var _lastML = null, _lastGemessen = null;  // für Rechenweg-Toggle-Rerender
   function refreshProjektMassen() {
     if (_lastFertig > 0) loadProjektMassen(_lastFertig, _lastTotal);
   }
@@ -192,19 +193,18 @@
     var sec = document.getElementById('ergebnis-section');
     if (!sec) return;
     var badge = document.getElementById('projekt-massen-badge');
-    var info = document.getElementById('projekt-massen-info');
     var grid = document.getElementById('projekt-massen-grid');
     var detail = document.getElementById('projekt-massen-detail');
     var detailWrap = document.getElementById('projekt-massen-detail-wrap');
+    var board = document.getElementById('ml-board');
 
     sec.classList.remove('hidden');
     _lastFertig = fertigCount; _lastTotal = totalCount;
     bindFilterControls();
     bindErgebnisTabs();
     bindProjektExport();
-    if (badge) badge.textContent = 'lädt...';
-    if (info) info.textContent = '';
-    if (grid) grid.innerHTML = '<div class="loading" style="padding:1rem"><div class="spinner"></div> Räume aller Pläne werden zusammengeführt...</div>';
+    if (badge) badge.textContent = 'Pläne werden zusammengeführt …';
+    if (board) board.innerHTML = '<div class="loading" style="padding:1.5rem"><div class="spinner"></div> Räume aller Pläne werden zusammengeführt und Mengen berechnet …</div>';
     if (detail) detail.innerHTML = '';
     if (detailWrap) detailWrap.style.display = 'none';
 
@@ -223,113 +223,131 @@
       .then(function (data) {
         if (!data || data.status !== 'ok') {
           if (badge) badge.textContent = '';
-          if (grid) grid.innerHTML = '<p style="color:#92400e">Projekt-Massen konnten nicht berechnet werden — Detail-Ansicht im Plan öffnen.</p>';
+          if (board) board.innerHTML = '<div class="ml-empty">Projekt-Massen konnten nicht berechnet werden — bitte Detail-Ansicht im Plan öffnen.</div>';
           return;
         }
         renderProjektMassen(data, fertigCount, totalCount);
       })
       .catch(function () {
         if (badge) badge.textContent = '';
-        if (grid) grid.innerHTML = '<p style="color:#92400e">Netzwerk-Fehler bei Projekt-Massen.</p>';
+        if (board) board.innerHTML = '<div class="ml-empty">Netzwerk-Fehler bei der Mengenberechnung.</div>';
       });
   }
 
-  function renderProjektMassen(data, fertigCount, totalCount) {
-    var badge = document.getElementById('projekt-massen-badge');
-    var info = document.getElementById('projekt-massen-info');
-    var grid = document.getElementById('projekt-massen-grid');
-    var detail = document.getElementById('projekt-massen-detail');
-    var detailWrap = document.getElementById('projekt-massen-detail-wrap');
+  // Bauteil → Symbol für die Material-Gruppen (scanbar wie eine Bestell-Liste)
+  var BAUTEIL_ICONS = {
+    'Frostschürze': '🧊', 'Bodenplatte': '🟫', 'Mauerwerk EG': '🧱',
+    'Mauerwerk': '🧱', 'Öffnungen': '🪟', 'Decke über EG': '▦', 'Decke': '▦',
+    'Attika': '🔲', 'Kamin': '🔥', 'Infrastruktur': '🚰', 'Bodenaufbau': '🪵'
+  };
+  function bauteilIcon(name) {
+    if (BAUTEIL_ICONS[name]) return BAUTEIL_ICONS[name];
+    var hit = Object.keys(BAUTEIL_ICONS).filter(function (k) { return name.indexOf(k) === 0; })[0];
+    return hit ? BAUTEIL_ICONS[hit] : '📦';
+  }
+  // Konfidenz (0..1) → ehrliche Vertrauens-Stufe
+  function konfTier(konf) {
+    if (konf >= 0.7) return { cls: 'hoch', title: 'Byte-exakt aus Plan + Bauteil-Legende oder gemessener Geometrie' };
+    if (konf >= 0.5) return { cls: 'mittel', title: 'Gemessene Geometrie + bauphysikalische Standard-Annahme' };
+    return { cls: 'niedrig', title: 'Faustformel / Pauschale — am Bau gegenprüfen' };
+  }
 
-    if (badge) {
-      var bt = data.plaene_count + ' Pl' + (data.plaene_count === 1 ? 'an' : 'äne') +
-        ' · ' + data.raeume_count + ' Räume';
-      if (data.merge_enrichments > 0) bt += ' · ' + data.merge_enrichments + ' Lücken gefüllt';
-      badge.textContent = bt;
+  // FACT-STRIP: zeigt knapp, was die App byte-exakt aus dem Plan gelesen hat
+  function renderFactStrip(data) {
+    var el = document.getElementById('fact-strip');
+    if (!el) return;
+    var bd = data.baudaten || {}, bq = bd._quellen || {}, g = data.gemessen || {};
+    var facts = [];
+    function srcTag(key) {
+      var q = (bq[key] || '') + '';
+      if (q.indexOf('legende') >= 0) return '<span class="fact-src read" title="byte-exakt aus Bauteil-Legende gelesen">gelesen</span>';
+      if (/vision|raumhoehen|gemessen|bbox|polygon|kette/i.test(q)) return '<span class="fact-src measured" title="aus dem Plan gemessen">gemessen</span>';
+      if (!q) return '';
+      return '<span class="fact-src assumed" title="Standard-Annahme — kein Plan-Beleg">Standard</span>';
     }
+    function bdFact(icon, label, key, unit) {
+      if (bd[key] == null) return;
+      facts.push('<div class="fact"><span class="fact-ico">' + icon + '</span><span class="fact-k">' + label +
+        '</span><span class="fact-v">' + bd[key] + unit + '</span>' + srcTag(key) + '</div>');
+    }
+    bdFact('🧱', 'Außenwand', 'aussenwand_cm', ' cm');
+    bdFact('▦', 'Decke', 'decke_cm', ' cm');
+    bdFact('🟫', 'Bodenplatte', 'bodenplatte_cm', ' cm');
+    bdFact('📏', 'Geschoss-H', 'geschosshoehe_m', ' m');
+    if (g.aussenumfang_m) facts.push('<div class="fact"><span class="fact-ico">📐</span><span class="fact-k">Außenumfang</span><span class="fact-v">' +
+      fmtNum(g.aussenumfang_m) + ' m</span><span class="fact-src measured">gemessen</span></div>');
+    if (g.bodenplatte_flaeche_m2) facts.push('<div class="fact"><span class="fact-ico">⬛</span><span class="fact-k">Grundfläche</span><span class="fact-v">' +
+      fmtNum(g.bodenplatte_flaeche_m2) + ' m²</span><span class="fact-src measured">gemessen</span></div>');
+    var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
+    if (fen || tur) facts.push('<div class="fact"><span class="fact-ico">🪟</span><span class="fact-k">Öffnungen</span><span class="fact-v">' +
+      fen + ' F · ' + tur + ' T</span><span class="fact-src read">aus Text</span></div>');
+    el.innerHTML = facts.join('');
+  }
 
-    // Plan-Filter-Chips befüllen
-    if (data.plaene) renderPlanFilter(data.plaene);
-
-    // Status-Banner: was hat die App erkannt?
+  // STATUS-BANNER: nur Hinweise, bei denen der Nutzer etwas tun kann/sollte
+  function renderStatusBanner(data) {
     var statusEl = document.getElementById('ergebnis-status-banner');
-    if (statusEl) {
-      var hints = [];
-      // Räume ohne H prüfen — typisches Symptom für fehlenden Polierplan
-      var raeumeOhneH = (data.raeume || []).filter(function(r){
-        return r && r.flaeche_m2 && !r.hoehe_m;
-      });
-      if (raeumeOhneH.length > 0 && data.plaene_count === 1) {
-        hints.push('<div class="status-warn">⚠ <strong>' + raeumeOhneH.length +
-          ' Räume ohne Höhen-Wert</strong> — der Einreichplan hat nur F+U, ' +
-          'die Raumhöhen stehen im Polierplan. ' +
-          '<strong>Lade auch den Polierplan hoch</strong>, sonst werden alle ' +
-          'Wand-, Putz-, Maler-Mengen mit Default-Geschosshöhe (2,70m) gerechnet.</div>');
-      } else if (data.h_inferred_count > 0) {
-        // Polierplan ist dabei aber nicht alle Räume haben H — wir haben
-        // den Median-Wert verwendet
-        hints.push('<div class="status-info">ℹ ' + data.h_inferred_count +
-          ' Räume hatten keine H im Plan → Wert <strong>' +
-          fmtNum(data.h_inferred_value) + ' m</strong> aus Median der anderen Räume ergänzt. ' +
-          'Geschoss-Höhe für Putz/Maler/Estrich übernommen.</div>');
-      } else if (raeumeOhneH.length > 0) {
-        hints.push('<div class="status-info">ℹ ' + raeumeOhneH.length +
-          ' Räume ohne H — Default-Geschosshöhe wird verwendet.</div>');
-      }
-      var fen = data.fenster_count || 0;
-      var tur = data.tueren_count || 0;
-      if (fen === 0 && tur === 0) {
-        hints.push('<div class="status-warn">⚠ <strong>0 Öffnungen erkannt</strong> — Laibungen, Rolladenkästen und Ziegelüberlagen werden pauschal geschätzt.</div>');
-      } else {
-        hints.push('<div class="status-ok">✓ ' + fen + ' Fenster + ' + tur + ' Türen aus Plan-Text-Layer erkannt (STUK/FPH-Codes)</div>');
-      }
-      if (data.halluzinationen && data.halluzinationen.length) {
-        hints.push('<div class="status-info">🧹 ' + data.halluzinationen.length + ' Vision-Halluzination(en) gefiltert: ' +
-          data.halluzinationen.map(function(h){ return esc(h.name); }).join(', ') + '</div>');
-      }
-      // Konsistenz-Engine-Findings
-      var konsistenz = data.konsistenz;
-      if (konsistenz && konsistenz.findings && konsistenz.findings.length) {
-        var sw = (konsistenz.summary || {}).schweren || {};
-        var fehler = sw.fehler || 0;
-        var warnungen = sw.warnung || 0;
-        var infos = sw.info || 0;
-        var cssClass = fehler > 0 ? 'status-warn' : (warnungen > 0 ? 'status-info' : 'status-room-count');
-        var icon = fehler > 0 ? '⛔' : (warnungen > 0 ? '⚠' : 'ℹ');
+    if (!statusEl) return;
+    var hints = [];
+    var raeumeOhneH = (data.raeume || []).filter(function (r) { return r && r.flaeche_m2 && !r.hoehe_m; });
+    if (raeumeOhneH.length > 0 && data.plaene_count === 1) {
+      hints.push('<div class="status-warn">⚠ <strong>' + raeumeOhneH.length +
+        ' Räume ohne Höhe</strong> — der Einreichplan hat nur Fläche + Umfang. ' +
+        '<strong>Lade auch den Polierplan hoch</strong>, sonst rechnen alle Wand-/Putz-/Maler-Mengen mit Default-Höhe.</div>');
+    } else if (data.h_inferred_count > 0) {
+      hints.push('<div class="status-info">ℹ ' + data.h_inferred_count +
+        ' Räume ohne Höhe im Plan → <strong>' + fmtNum(data.h_inferred_value) + ' m</strong> aus Median ergänzt.</div>');
+    }
+    var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
+    if (fen === 0 && tur === 0) {
+      hints.push('<div class="status-warn">⚠ <strong>0 Öffnungen erkannt</strong> — Laibungen, Rolladenkästen und Überlagen werden pauschal geschätzt.</div>');
+    }
+    if (data.halluzinationen && data.halluzinationen.length) {
+      hints.push('<div class="status-info">🧹 ' + data.halluzinationen.length + ' Vision-Halluzination(en) automatisch gefiltert: ' +
+        data.halluzinationen.map(function (h) { return esc(h.name); }).join(', ') + '</div>');
+    }
+    var konsistenz = data.konsistenz;
+    if (konsistenz && konsistenz.findings && konsistenz.findings.length) {
+      var sw = (konsistenz.summary || {}).schweren || {};
+      var fehler = sw.fehler || 0, warnungen = sw.warnung || 0, infos = sw.info || 0;
+      // nur zeigen, wenn es echte Fehler/Warnungen gibt — reine Infos nicht aufdrängen
+      if (fehler > 0 || warnungen > 0) {
+        var cssClass = fehler > 0 ? 'status-warn' : 'status-info';
+        var icon = fehler > 0 ? '⛔' : '⚠';
         var parts = [];
         if (fehler) parts.push(fehler + ' Fehler');
         if (warnungen) parts.push(warnungen + ' Warnungen');
         if (infos) parts.push(infos + ' Hinweise');
-        hints.push('<div class="' + cssClass + '">' + icon +
-          ' Konsistenz-Engine: ' + parts.join(', ') +
+        hints.push('<div class="' + cssClass + '">' + icon + ' Konsistenz-Check: ' + parts.join(', ') +
           ' <details style="display:inline-block;margin-left:0.4rem"><summary style="cursor:pointer">Details</summary>' +
           '<ul style="margin:0.3rem 0 0 0;padding-left:1.2rem">' +
-          konsistenz.findings.map(function(f){
-            return '<li><strong>' + esc(f.schwere) + '</strong> · ' + esc(f.msg) + '</li>';
-          }).join('') + '</ul></details></div>');
-      } else if (konsistenz && konsistenz.summary && konsistenz.summary.status === 'ok') {
-        hints.push('<div class="status-ok">✓ Alle Konsistenz-Checks bestanden</div>');
+          konsistenz.findings.map(function (f) { return '<li><strong>' + esc(f.schwere) + '</strong> · ' + esc(f.msg) + '</li>'; }).join('') +
+          '</ul></details></div>');
       }
-      hints.push('<div class="status-room-count">📐 ' + data.raeume_count + ' Räume · ' + (data.plaene_count || '?') + ' Plan' + (data.plaene_count===1?'':'e') + '</div>');
-      statusEl.innerHTML = hints.join('');
     }
-    if (info) {
-      var bd = data.baudaten || {};
-      var bq = bd._quellen || {};
-      function bdItem(label, key, unit) {
-        if (bd[key] == null) return '';
-        var src = bq[key] === 'vision' ? '👁' : '≈';
-        return '<span style="margin-right:0.8rem">' + label + ' <strong>' + bd[key] + unit + '</strong> ' + src + '</span>';
-      }
-      info.innerHTML = 'Bau-Kenndaten: ' +
-        bdItem('Außenwand', 'aussenwand_cm', 'cm') +
-        bdItem('Decke', 'decke_cm', 'cm') +
-        bdItem('Bodenplatte', 'bodenplatte_cm', 'cm') +
-        bdItem('Geschoss-H', 'geschosshoehe_m', 'm') +
-        '<span style="color:#6c757d;font-size:0.78rem;margin-left:0.5rem">👁 = aus Plan gemessen · ≈ = Standard-Annahme</span>';
+    statusEl.innerHTML = hints.join('');
+  }
+
+  function renderProjektMassen(data, fertigCount, totalCount) {
+    var badge = document.getElementById('projekt-massen-badge');
+    var grid = document.getElementById('projekt-massen-grid');
+    var detail = document.getElementById('projekt-massen-detail');
+    var detailWrap = document.getElementById('projekt-massen-detail-wrap');
+
+    // Hero-Untertitel: kompakte Projekt-Fakten
+    if (badge) {
+      var bt = data.plaene_count + ' Plan' + (data.plaene_count === 1 ? '' : 'e') +
+        ' · ' + data.raeume_count + ' Räume gelesen';
+      if (data.merge_enrichments > 0) bt += ' · ' + data.merge_enrichments + ' Lücken durch Merge gefüllt';
+      if (totalCount > fertigCount) bt += ' · ⏳ ' + (totalCount - fertigCount) + ' Plan(e) noch in Analyse';
+      badge.textContent = bt;
     }
 
-    // Kacheln pro Hauptposition jedes Gewerks (1.1)
+    if (data.plaene) renderPlanFilter(data.plaene);
+    renderFactStrip(data);
+    renderStatusBanner(data);
+
+    // ÖNORM-Gewerke-Kacheln (im Erweitert-Drawer)
     var gw = data.gewerke || {};
     var cards = [];
     Object.keys(gw).forEach(function (gk) {
@@ -338,35 +356,21 @@
       (g.positionen || []).forEach(function (p) {
         if (p.posnr === '1.1' || p.posnr === '1.2' || p.posnr === '1.3') {
           var konf = Math.round((p.konfidenz || 0) * 100);
-          var warn = konf < 65;
-          cards.push({
-            gewerk: label,
-            text: p.beschreibung || '',
-            wert: p.endsumme || 0,
-            einheit: p.einheit || '',
-            konf: konf,
-            warn: warn
-          });
+          cards.push({ gewerk: label, text: p.beschreibung || '', wert: p.endsumme || 0, einheit: p.einheit || '', konf: konf, warn: konf < 65 });
         }
       });
     });
-
     if (grid) {
-      if (!cards.length) {
-        grid.innerHTML = '<p style="color:#92400e">Keine Massen ermittelt — Pläne enthalten noch keine vollständigen Raumdaten.</p>';
-      } else {
-        grid.innerHTML = cards.map(function (c) {
-          return '<div class="projekt-massen-card">' +
-            '<div class="projekt-massen-card-label">' + esc(c.gewerk) + '</div>' +
-            '<div style="font-size:0.78rem;color:#6c757d;margin-bottom:0.3rem">' + esc(c.text) + '</div>' +
-            '<div class="projekt-massen-card-value">' + fmtNum(c.wert) +
-              '<span class="projekt-massen-card-unit">' + esc(c.einheit) + '</span></div>' +
-            '<div class="projekt-massen-card-konf' + (c.warn ? ' warn' : '') + '">Konfidenz ' + c.konf + '%</div>' +
-            '</div>';
-        }).join('');
-      }
+      grid.innerHTML = cards.length ? cards.map(function (c) {
+        return '<div class="projekt-massen-card">' +
+          '<div class="projekt-massen-card-label">' + esc(c.gewerk) + '</div>' +
+          '<div style="font-size:0.78rem;color:#6c757d;margin-bottom:0.3rem">' + esc(c.text) + '</div>' +
+          '<div class="projekt-massen-card-value">' + fmtNum(c.wert) +
+            '<span class="projekt-massen-card-unit">' + esc(c.einheit) + '</span></div>' +
+          '<div class="projekt-massen-card-konf' + (c.warn ? ' warn' : '') + '">Konfidenz ' + c.konf + '%</div>' +
+          '</div>';
+      }).join('') : '<p style="color:#92400e">Keine ÖNORM-Massen ermittelt.</p>';
     }
-
     if (detail && detailWrap) {
       detailWrap.style.display = '';
       var html = '<table><thead><tr><th>Gewerk</th><th>Pos</th><th>Beschreibung</th><th class="num">Wert</th><th>Einheit</th><th class="num">Konf</th></tr></thead><tbody>';
@@ -383,18 +387,7 @@
       detail.innerHTML = html;
     }
 
-    // Hinweis bei noch nicht analysierten Plänen
-    if (totalCount > fertigCount) {
-      var hint = '<div style="color:#92400e;font-size:0.82rem;margin-top:0.4rem">⏳ ' +
-        (totalCount - fertigCount) + ' Plan' + (totalCount - fertigCount === 1 ? '' : 'e') +
-        ' noch nicht analysiert — Massen aktualisieren sich automatisch nach Abschluss.</div>';
-      if (info) info.innerHTML += hint;
-    }
-
-    // Räume-Liste rendern (was die KI gefunden hat)
     renderRoomsList(data.raeume);
-
-    // Materialliste rendern (mit gemessenen Geometrie-Daten falls vorhanden)
     renderMaterialliste(data.materialliste, data.gemessen);
   }
 
@@ -425,60 +418,62 @@
   }
 
   function renderMaterialliste(ml, gemessen) {
-    // Materialliste lebt jetzt als Tab innerhalb der ergebnis-section
-    var panel = document.getElementById('ergebnis-panel-material');
-    var tab = document.querySelector('.ergebnis-tab[data-ergtab="material"]');
-    if (!panel || !tab) return;
-    var tbody = document.querySelector('#materialliste-table tbody');
+    _lastML = ml; _lastGemessen = gemessen;
+    var board = document.getElementById('ml-board');
+    var ring = document.getElementById('trust-ring');
+    var ringNum = document.getElementById('trust-ring-num');
+    if (!board) return;
+
+    // Rechenweg-Toggle einmalig binden → bei Änderung neu rendern
+    var tog = document.getElementById('ml-formel-toggle');
+    if (tog && !tog.dataset.bound) {
+      tog.dataset.bound = '1';
+      tog.addEventListener('change', function () { renderMaterialliste(_lastML, _lastGemessen); });
+    }
+
     if (!ml || ml.error || !ml.bauteile) {
-      tab.style.display = 'none';
-      if (tbody) tbody.innerHTML = '';
+      board.innerHTML = '<div class="ml-empty">Noch keine Materialliste — die Pläne enthalten noch keine vollständigen Raumdaten.</div>';
+      if (ringNum) ringNum.textContent = '–';
       return;
     }
-    tab.style.display = '';
-    // Geometrie-Status oben im Materialliste-Tab anzeigen
-    var hint = document.querySelector('.materialliste-konfidenz-hint');
-    if (hint && gemessen) {
-      var status;
-      if (gemessen.aussenumfang_m && gemessen.bodenplatte_flaeche_m2) {
-        var konf = Math.round((gemessen.konfidenz || 0.85) * 100);
-        status = '<div style="background:#dcfce7;border:1px solid #86efac;padding:0.5rem 0.7rem;border-radius:6px;margin-bottom:0.5rem;color:#166534;font-size:0.82rem">' +
-          '✓ <strong>Gemessene Geometrie</strong> aus Vision: Außenumfang ' +
-          fmtNum(gemessen.aussenumfang_m) + ' m, Bodenplatte ' +
-          fmtNum(gemessen.bodenplatte_flaeche_m2) + ' m² (Quelle: ' + esc(gemessen.quelle || '') +
-          ', Konfidenz ' + konf + '%)</div>';
-      } else {
-        status = '<div style="background:#fef3c7;border:1px solid #fcd34d;padding:0.5rem 0.7rem;border-radius:6px;margin-bottom:0.5rem;color:#92400e;font-size:0.82rem">' +
-          '⚠ <strong>Geschätzte Geometrie</strong> — Außenumfang aus sqrt(F)·4·1,55. ' +
-          'Für genauere Werte: Vektor-Geometrie-Pass läuft noch nicht oder Vision lieferte nichts.</div>';
-      }
-      if (!hint.querySelector('.geometrie-status')) {
-        var div = document.createElement('div');
-        div.className = 'geometrie-status';
-        div.innerHTML = status;
-        hint.insertBefore(div, hint.firstChild);
-      } else {
-        hint.querySelector('.geometrie-status').innerHTML = status;
-      }
-    }
-    if (!tbody) return;
+
+    var showFormel = !!(tog && tog.checked);
+    var totalPos = 0, sicherPos = 0;
     var html = '';
     Object.keys(ml.bauteile).forEach(function (bauteil) {
-      html += '<tr class="bauteil-head"><td colspan="6">' + esc(bauteil) + '</td></tr>';
-      ml.bauteile[bauteil].forEach(function (p) {
-        var konf = Math.round((p.konfidenz || 0) * 100);
-        var konfClass = konf >= 70 ? 'hoch' : (konf >= 50 ? 'mittel' : 'niedrig');
-        html += '<tr>' +
-          '<td></td>' +
-          '<td>' + esc(p.material || '') + '</td>' +
-          '<td class="num">' + fmtNum(p.menge) + '</td>' +
-          '<td>' + esc(p.einheit || '') + '</td>' +
-          '<td class="num"><span class="materialliste-konf-badge ' + konfClass + '">' + konf + '%</span></td>' +
-          '<td class="formel">' + esc(p.formel || '') + '</td>' +
-          '</tr>';
+      var rows = ml.bauteile[bauteil] || [];
+      if (!rows.length) return;
+      html += '<section class="ml-group">';
+      html += '<header class="ml-group-head"><span class="ml-group-ico">' + bauteilIcon(bauteil) + '</span>' +
+        '<span class="ml-group-name">' + esc(bauteil) + '</span>' +
+        '<span class="ml-group-meta">' + rows.length + ' Position' + (rows.length === 1 ? '' : 'en') + '</span></header>';
+      html += '<div class="ml-rows">';
+      rows.forEach(function (p) {
+        totalPos++;
+        var konf = p.konfidenz || 0;
+        if (konf >= 0.7) sicherPos++;
+        var tier = konfTier(konf);
+        html += '<div class="ml-row">' +
+          '<span class="ml-dot ' + tier.cls + '" title="' + tier.title + ' (' + Math.round(konf * 100) + '%)"></span>' +
+          '<span class="ml-mat">' + esc(p.material || '') +
+            (showFormel && p.formel ? '<span class="ml-formel">' + esc(p.formel) + '</span>' : '') +
+          '</span>' +
+          '<span class="ml-qty">' + fmtNum(p.menge) + ' <em>' + esc(p.einheit || '') + '</em></span>' +
+          '</div>';
       });
+      html += '</div></section>';
     });
-    tbody.innerHTML = html;
+    board.innerHTML = html;
+
+    // Trust-Ring: Anteil verlässlicher (byte-exakt/gemessener) Positionen
+    var pct = totalPos ? Math.round(sicherPos / totalPos * 100) : 0;
+    if (ringNum) ringNum.textContent = pct + '%';
+    if (ring) {
+      ring.style.setProperty('--ring-pct', pct);
+      ring.classList.remove('low', 'mid', 'high');
+      ring.classList.add(pct >= 75 ? 'high' : (pct >= 50 ? 'mid' : 'low'));
+      ring.title = sicherPos + ' von ' + totalPos + ' Positionen byte-exakt aus Plan/Legende oder gemessener Geometrie (≥ 70% Konfidenz)';
+    }
   }
 
   function fmtNum(n) {

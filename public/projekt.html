@@ -65,141 +65,132 @@
       </div>
     </div>
 
-    <!-- ERGEBNISSE: ÖNORM-Massen + Rohbau-Materialliste in einer Section mit Tabs -->
-    <div class="section hidden" id="ergebnis-section">
-      <h3 class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
-        <span>&#128202; Ergebnisse <span class="projekt-massen-badge" id="projekt-massen-badge"></span></span>
-        <button class="btn btn-sm btn-accent" id="projekt-export-btn" title="Exportiert Räume + Fenster + ÖNORM-Massen + Materialliste über alle Pläne gemergt">&#128229; Projekt-Export (CSV)</button>
-      </h3>
-      <div class="projekt-massen-info" id="projekt-massen-info"></div>
+    <!-- ERGEBNISSE: Rohbau-Materialliste als übersichtliches Herzstück -->
+    <div class="section hidden ergebnis-v2" id="ergebnis-section">
+
+      <!-- HERO: ein Blick, ein Vertrauenswert, ein Export-Knopf -->
+      <div class="result-hero">
+        <div class="result-hero-text">
+          <div class="result-hero-kicker">&#129683; Rohbau-Materialliste</div>
+          <h2 class="result-hero-title">Material bereit zur Bestellung</h2>
+          <div class="result-hero-sub"><span id="projekt-massen-badge"></span></div>
+        </div>
+        <div class="result-hero-side">
+          <div class="trust-ring" id="trust-ring" title="Anteil der Positionen, die byte-exakt aus Plan + Bauteil-Legende oder gemessener Geometrie stammen">
+            <span class="trust-ring-num" id="trust-ring-num">&ndash;</span>
+            <span class="trust-ring-cap">verl&auml;sslich</span>
+          </div>
+          <button class="btn btn-accent btn-export" id="projekt-export-btn" title="Räume + Fenster + Türen + Materialliste als CSV">&#128229; Export CSV</button>
+        </div>
+      </div>
+
+      <!-- FACTS: was die App byte-exakt aus dem Plan gelesen hat -->
+      <div class="fact-strip" id="fact-strip"></div>
+
+      <!-- nur wenn relevant: Warn-/Hinweis-Banner -->
       <div class="ergebnis-status-banner" id="ergebnis-status-banner"></div>
 
-      <!-- Filter-Drawer: collapsed by default, gilt für beide Tabs -->
-      <details class="ergebnis-filter">
-        <summary>&#9881;&#65039; Filter &amp; Annahmen anpassen</summary>
-        <div class="ergebnis-filter-body">
-          <div class="projekt-filter-group">
-            <label class="projekt-filter-label">Gewerke</label>
-            <div class="projekt-filter-chips" id="filter-gewerke">
-              <label class="projekt-chip"><input type="checkbox" data-gw="putz" checked> Putz</label>
-              <label class="projekt-chip"><input type="checkbox" data-gw="rohbau" checked> Rohbau</label>
-              <label class="projekt-chip"><input type="checkbox" data-gw="estrich" checked> Estrich</label>
-              <label class="projekt-chip"><input type="checkbox" data-gw="maler" checked> Maler</label>
+      <!-- HERZSTÜCK: Materialliste nach Bauteil gruppiert -->
+      <div class="ml-board-toolbar">
+        <span class="ml-board-title">Material nach Bauteil</span>
+        <label class="ml-formel-toggle"><input type="checkbox" id="ml-formel-toggle"> &#129518; Rechenwege einblenden</label>
+      </div>
+      <div class="ml-board" id="ml-board"></div>
+
+      <!-- ERWEITERT: alles Optionale in EINEM Drawer, standardmäßig zu -->
+      <details class="advanced-drawer">
+        <summary>&#9881;&#65039; Erweitert &mdash; Annahmen anpassen &middot; ÖNORM-Gewerke &middot; gelesene Räume</summary>
+        <div class="advanced-body">
+
+          <!-- Block 1: Annahmen & Filter -->
+          <div class="advanced-block">
+            <h4 class="advanced-h">Annahmen &amp; Pl&auml;ne</h4>
+            <div class="projekt-filter-group">
+              <label class="projekt-filter-label">Gewerke</label>
+              <div class="projekt-filter-chips" id="filter-gewerke">
+                <label class="projekt-chip"><input type="checkbox" data-gw="putz" checked> Putz</label>
+                <label class="projekt-chip"><input type="checkbox" data-gw="rohbau" checked> Rohbau</label>
+                <label class="projekt-chip"><input type="checkbox" data-gw="estrich" checked> Estrich</label>
+                <label class="projekt-chip"><input type="checkbox" data-gw="maler" checked> Maler</label>
+              </div>
+            </div>
+            <div class="projekt-filter-group">
+              <label class="projekt-filter-label">Pl&auml;ne einbeziehen</label>
+              <div class="projekt-filter-chips" id="filter-plaene">
+                <span style="color:#6c757d;font-size:0.78rem">wird gef&uuml;llt sobald Pl&auml;ne analysiert sind</span>
+              </div>
+            </div>
+            <div class="projekt-filter-group" style="flex-basis:100%">
+              <label class="projekt-filter-label">Bau-Kenndaten überschreiben <span style="font-weight:400;color:#6c757d;font-size:0.72rem">(leer = aus Plan gelesen)</span></label>
+              <div class="projekt-filter-baudaten" id="filter-baudaten">
+                <label>Au&szlig;enwand <input type="number" data-bd="aussenwand_cm" placeholder="cm" min="10" max="100"></label>
+                <label>Innenwand tragend <input type="number" data-bd="innenwand_tragend_cm" placeholder="cm" min="6" max="50"></label>
+                <label>Innenwand n.tr. <input type="number" data-bd="innenwand_nichttragend_cm" placeholder="cm" min="6" max="30"></label>
+                <label>Decke <input type="number" data-bd="decke_cm" placeholder="cm" min="10" max="60"></label>
+                <label>Bodenplatte <input type="number" data-bd="bodenplatte_cm" placeholder="cm" min="10" max="80"></label>
+                <label>Geschoss-H <input type="number" data-bd="geschosshoehe_m" placeholder="m" min="2" max="6" step="0.05"></label>
+                <button class="btn btn-sm btn-primary" id="filter-baudaten-apply">Anwenden</button>
+                <button class="btn btn-sm btn-outline" id="filter-baudaten-reset">Zur&uuml;cksetzen</button>
+              </div>
+            </div>
+            <div class="projekt-filter-group" style="flex-basis:100%">
+              <label class="projekt-filter-label">Materialliste-Annahmen</label>
+              <div class="materialliste-annahmen-grid" id="materialliste-annahmen-grid">
+                <div class="ml-annahme-group">
+                  <div class="ml-annahme-head">Geometrie</div>
+                  <label>Bodenplatte-Aufschlag <input type="number" step="0.05" min="1" max="2" data-ml="bodenplatte_aufschlag" placeholder="1.15"></label>
+                  <label>Decke-Aufschlag <input type="number" step="0.05" min="1" max="2" data-ml="decke_aufschlag" placeholder="1.10"></label>
+                  <label>Außenumfang-Aufschlag <input type="number" step="0.05" min="0.8" max="2" data-ml="aussenumfang_aufschlag" placeholder="1.55"></label>
+                </div>
+                <div class="ml-annahme-group">
+                  <div class="ml-annahme-head">Frostsch&uuml;rze</div>
+                  <label>Tiefe (m) <input type="number" step="0.05" min="0.3" max="2" data-ml="frostschuerze_tiefe_m" placeholder="0.80"></label>
+                  <label>Breite (m) <input type="number" step="0.05" min="0.2" max="0.8" data-ml="frostschuerze_breite_m" placeholder="0.30"></label>
+                </div>
+                <div class="ml-annahme-group">
+                  <div class="ml-annahme-head">Außenwand-Verteilung (%)</div>
+                  <label>50cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_50cm" placeholder="85"></label>
+                  <label>38cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_38cm" placeholder="10"></label>
+                  <label>25cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_25cm_aussen" placeholder="5"></label>
+                </div>
+                <div class="ml-annahme-group">
+                  <div class="ml-annahme-head">Innenwand-Verteilung (%)</div>
+                  <label>25cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_25cm_innen" placeholder="25"></label>
+                  <label>20cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_20cm" placeholder="30"></label>
+                  <label>12cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_12cm" placeholder="45"></label>
+                </div>
+                <div class="ml-annahme-group">
+                  <div class="ml-annahme-head">Dach &amp; Sonderbauteile</div>
+                  <label>Attika (Flachdach) <input type="number" step="1" min="0" max="1" data-ml="attika_aktiv" placeholder="0"></label>
+                  <label>Anzahl S&auml;ulen <input type="number" step="1" min="0" max="20" data-ml="anzahl_saeulen" placeholder="0"></label>
+                  <label>Anzahl Kamine <input type="number" step="1" min="0" max="5" data-ml="anzahl_kamine" placeholder="0"></label>
+                </div>
+                <div style="grid-column:1/-1;display:flex;gap:0.5rem">
+                  <button class="btn btn-sm btn-primary" id="materialliste-apply">Materialliste anwenden</button>
+                  <button class="btn btn-sm btn-outline" id="materialliste-reset">Defaults</button>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="projekt-filter-group">
-            <label class="projekt-filter-label">Pl&auml;ne einbeziehen</label>
-            <div class="projekt-filter-chips" id="filter-plaene">
-              <span style="color:#6c757d;font-size:0.78rem">wird gef&uuml;llt sobald Pl&auml;ne analysiert sind</span>
-            </div>
+          <!-- Block 2: ÖNORM-Gewerke (sekundär) -->
+          <div class="advanced-block">
+            <h4 class="advanced-h">ÖNORM-Gewerke (Putz / Estrich / Maler)</h4>
+            <div class="projekt-massen-grid" id="projekt-massen-grid"></div>
+            <details class="projekt-massen-detail" id="projekt-massen-detail-wrap">
+              <summary>Detail-Positionen anzeigen</summary>
+              <div id="projekt-massen-detail"></div>
+            </details>
           </div>
 
-          <div class="projekt-filter-group" style="flex-basis:100%">
-            <label class="projekt-filter-label">Bau-Kenndaten überschreiben <span style="font-weight:400;color:#6c757d;font-size:0.72rem">(leer = Vision/Default)</span></label>
-            <div class="projekt-filter-baudaten" id="filter-baudaten">
-              <label>Au&szlig;enwand <input type="number" data-bd="aussenwand_cm" placeholder="cm" min="10" max="100"></label>
-              <label>Innenwand tragend <input type="number" data-bd="innenwand_tragend_cm" placeholder="cm" min="6" max="50"></label>
-              <label>Innenwand n.tr. <input type="number" data-bd="innenwand_nichttragend_cm" placeholder="cm" min="6" max="30"></label>
-              <label>Decke <input type="number" data-bd="decke_cm" placeholder="cm" min="10" max="60"></label>
-              <label>Bodenplatte <input type="number" data-bd="bodenplatte_cm" placeholder="cm" min="10" max="80"></label>
-              <label>Geschoss-H <input type="number" data-bd="geschosshoehe_m" placeholder="m" min="2" max="6" step="0.05"></label>
-              <button class="btn btn-sm btn-primary" id="filter-baudaten-apply">Anwenden</button>
-              <button class="btn btn-sm btn-outline" id="filter-baudaten-reset">Zur&uuml;cksetzen</button>
-            </div>
+          <!-- Block 3: gelesene Räume (Ground Truth) -->
+          <div class="advanced-block">
+            <h4 class="advanced-h">Gelesene R&auml;ume (Ground Truth aus dem Plan-Text)</h4>
+            <div id="projekt-massen-rooms"></div>
           </div>
 
-          <div class="projekt-filter-group" style="flex-basis:100%">
-            <label class="projekt-filter-label">Materialliste-Annahmen</label>
-            <div class="materialliste-annahmen-grid" id="materialliste-annahmen-grid">
-              <div class="ml-annahme-group">
-                <div class="ml-annahme-head">Geometrie</div>
-                <label>Bodenplatte-Aufschlag <input type="number" step="0.05" min="1" max="2" data-ml="bodenplatte_aufschlag" placeholder="1.15"></label>
-                <label>Decke-Aufschlag <input type="number" step="0.05" min="1" max="2" data-ml="decke_aufschlag" placeholder="1.10"></label>
-                <label>Außenumfang-Aufschlag <input type="number" step="0.05" min="0.8" max="2" data-ml="aussenumfang_aufschlag" placeholder="1.55"></label>
-              </div>
-              <div class="ml-annahme-group">
-                <div class="ml-annahme-head">Frostsch&uuml;rze</div>
-                <label>Tiefe (m) <input type="number" step="0.05" min="0.3" max="2" data-ml="frostschuerze_tiefe_m" placeholder="0.80"></label>
-                <label>Breite (m) <input type="number" step="0.05" min="0.2" max="0.8" data-ml="frostschuerze_breite_m" placeholder="0.30"></label>
-              </div>
-              <div class="ml-annahme-group">
-                <div class="ml-annahme-head">Außenwand-Verteilung (%)</div>
-                <label>50cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_50cm" placeholder="85"></label>
-                <label>38cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_38cm" placeholder="10"></label>
-                <label>25cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_25cm_aussen" placeholder="5"></label>
-              </div>
-              <div class="ml-annahme-group">
-                <div class="ml-annahme-head">Innenwand-Verteilung (%)</div>
-                <label>25cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_25cm_innen" placeholder="25"></label>
-                <label>20cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_20cm" placeholder="30"></label>
-                <label>12cm <input type="number" step="5" min="0" max="100" data-ml="wand_anteil_12cm" placeholder="45"></label>
-              </div>
-              <div class="ml-annahme-group">
-                <div class="ml-annahme-head">Dach &amp; Sonderbauteile</div>
-                <label>Attika (Flachdach) <input type="number" step="1" min="0" max="1" data-ml="attika_aktiv" placeholder="0"></label>
-                <label>Anzahl S&auml;ulen <input type="number" step="1" min="0" max="20" data-ml="anzahl_saeulen" placeholder="0"></label>
-                <label>Anzahl Kamine <input type="number" step="1" min="0" max="5" data-ml="anzahl_kamine" placeholder="0"></label>
-              </div>
-              <div style="grid-column:1/-1;display:flex;gap:0.5rem">
-                <button class="btn btn-sm btn-primary" id="materialliste-apply">Materialliste anwenden</button>
-                <button class="btn btn-sm btn-outline" id="materialliste-reset">Defaults</button>
-              </div>
-            </div>
-          </div>
         </div>
       </details>
-
-      <!-- Tab-Bar — Rohbau-Materialliste ist primärer Tab für Baubetriebe -->
-      <div class="ergebnis-tabs" id="ergebnis-tabs">
-        <button class="ergebnis-tab active" data-ergtab="material">
-          &#129683; Rohbau-Materialliste
-        </button>
-        <button class="ergebnis-tab" data-ergtab="oenorm">
-          &#127959; ÖNORM (Putz/Estrich/Maler) <span style="font-size:0.7rem;color:#6c757d">— optional</span>
-        </button>
-      </div>
-
-      <!-- Tab: ÖNORM-Massen (jetzt sekundär) -->
-      <div class="ergebnis-panel" id="ergebnis-panel-oenorm">
-        <div class="projekt-massen-grid" id="projekt-massen-grid"></div>
-        <details class="projekt-massen-detail" id="projekt-massen-rooms-wrap">
-          <summary>Räume aus den Plänen anzeigen (was die KI gefunden hat)</summary>
-          <div id="projekt-massen-rooms"></div>
-        </details>
-        <details class="projekt-massen-detail" id="projekt-massen-detail-wrap">
-          <summary>Detail-Positionen anzeigen</summary>
-          <div id="projekt-massen-detail"></div>
-        </details>
-      </div>
-
-      <!-- Tab: Rohbau-Materialliste (Default-Anzeige) -->
-      <div class="ergebnis-panel active" id="ergebnis-panel-material">
-        <div class="materialliste-konfidenz-hint">
-          <strong>Was die Konfidenz-Spalte bedeutet</strong> — sie spiegelt die <em>Datenquelle</em> wider:
-          <ul>
-            <li><strong>85-95 %</strong> = byte-exakt aus dem Plan gelesen (Wandstärken aus der Bauteil-Legende, Flächen aus gemessener Geometrie) — wie ein Bautechniker</li>
-            <li><strong>70-80 %</strong> = gemessene Geometrie + bauphysikalische Standard-Annahme (z.B. Frostschürze-Tiefe, Decken-Auskragung)</li>
-            <li><strong>40-55 %</strong> = Faustformel/Pauschale (Bewehrungs-Dichte, Ziegelüberlagen pro Tür) — bewusst konservativ</li>
-          </ul>
-          <span style="color:#6c757d">Lädt du Plan + Legende mit klaren Bauteil-Codes hoch, steigt die Konfidenz automatisch — die App rät nicht, sie liest.</span>
-        </div>
-        <div class="materialliste-table-wrap">
-          <table class="materialliste-table" id="materialliste-table">
-            <thead>
-              <tr>
-                <th>Bauteil</th>
-                <th>Material</th>
-                <th class="num">Menge</th>
-                <th>Einheit</th>
-                <th class="num">Konfidenz</th>
-                <th>Formel</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
     </div>
 
     <!-- Progress Section (hidden, shown during analysis) -->
