@@ -50,8 +50,26 @@ DEFAULTS = {
     "wand_anteil_20cm": 30.0,
     "wand_anteil_12cm": 45.0,
     # Decken-Aufbau
-    "iso_korb_anteil": 0.20,           # 20% des Außenumfangs als ISO-Korb-lfm
+    "decke_auskragung": 1.05,          # (Bodenplatte+Loggia) × Faktor = Schalungs-Fläche
+    "ekv_decke_aufschlag": 1.35,       # Dachabdichtung läuft über ALLES inkl Terrassen-
+                                       # dach + Aufkantungen → größer als Schalung
+    "iso_korb_anteil": 0.80,           # ISO-Korb (Thermo-Trennung) läuft entlang der
+                                       # auskragenden Decken-/Balkonanschlüsse — typisch
+                                       # ~80% des Außenumfangs (nicht ganz, nicht nur Balkon)
     "attika_anteil_aussen": 0.0,       # m² Attika-Aufbau, default 0 (User setzt)
+    # Attika (Flachdach-Abschluss) — default aktiv via Außenumfang
+    "attika_hoehe_m": 0.50,            # Aufkantungs-Höhe für XPS/Beton-Menge
+    "attika_aktiv": 0,                 # 0 = aus (Satteldach), 1 = Flachdach mit Attika
+    # Säulen / Stützen
+    "anzahl_saeulen": 0,               # default 0 — User/Vision setzt
+    "saeule_beton_m3_pro_stk": 0.5,    # inkl Fundament
+    # Kamin
+    "anzahl_kamine": 0,                # default 0
+    # Bewehrungs-Matten (Baustahlgitter)
+    "aq65_m2_pro_matte": 5.0,          # AQ65 effektiv ~5 m²/Matte (Doppellage oben+unten
+                                       # + Überlappung) — kalibriert gg. Polier-Praxis
+    "pe_folie_m2_pro_rolle": 50.0,     # 1 Rolle PE-Folie ~50 m²
+    "xps_frostschuerze_tiefe_m": 1.05, # XPS-Sockeldämmung läuft höher als Beton-Schürze (0.8m)
     # HLZ-Paletten pro m² Wand (richtwert Wienerberger/Bramac, je nach Geometrie)
     "hlz_50cm_m2_pro_palette": 3.0,    # 1 Palette = ~3 m² Wand 50cm
     "hlz_38cm_m2_pro_palette": 4.5,
@@ -172,13 +190,17 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Die Quelle wird transparent im "geometrie_quelle" hinterlegt.
     if gemessen.get("bodenplatte_flaeche_m2"):
         bodenplatte_m2 = round(float(gemessen["bodenplatte_flaeche_m2"]), 2)
-        # Decke = Bodenplatte + 5-10% für Auskragung
-        decke_m2 = round(bodenplatte_m2 * 1.05, 2)
+        # Decke liegt ÜBER Innenräumen + überdachten Außenbereichen (Terrasse,
+        # Parkplatz, Loggia). Diese sind im Bodenplatten-Footprint NICHT
+        # enthalten (eigene Fundamente), aber die EG-Decke kragt darüber.
+        # Decke = Bodenplatte + überdachte Loggia + Auskragungs-Aufschlag.
+        decke_m2 = round((bodenplatte_m2 + f_sum_loggia) * f("decke_auskragung", override), 2)
         geometrie_quelle = gemessen.get("quelle", "gemessen")
         geometrie_konfidenz = float(gemessen.get("konfidenz") or 0.85)
     else:
         bodenplatte_m2 = round(f_bp_base * bp_faktor, 2)
-        decke_m2 = round(f_dk_base * dk_faktor, 2)
+        # Auch im Schätz-Fall die Loggia für die Decke mitzählen
+        decke_m2 = round((f_sum_innen + f_sum_loggia) * dk_faktor, 2)
         geometrie_quelle = f"Σ Raum-F × {bp_faktor:.2f}-Aufschlag"
         geometrie_konfidenz = 0.65
 
@@ -205,14 +227,15 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         "Frostschürze", "Lieferbeton C25/30, XC1, F52, GK 22", "m³",
         fs_m3, f"Außenumfang {aussenumfang_m}m × {fs_tiefe}m × {fs_breite}m",
         konfidenz=0.55))
+    xps_tiefe = f("xps_frostschuerze_tiefe_m", override)
     out.append(MaterialPos(
         "Frostschürze", "XPS-SF G30 140mm", "m²",
-        aussenumfang_m * fs_tiefe,
-        f"Außenumfang {aussenumfang_m}m × Tiefe {fs_tiefe}m",
+        aussenumfang_m * xps_tiefe,
+        f"Außenumfang {aussenumfang_m}m × Sockeldämm-Höhe {xps_tiefe}m",
         konfidenz=0.55))
     out.append(MaterialPos(
         "Frostschürze", "2k Bitumen Spachtelmasse (5mm)", "m²",
-        aussenumfang_m * fs_tiefe,
+        aussenumfang_m * xps_tiefe,
         "Außenkante Frostschürze als Sockelabdichtung",
         konfidenz=0.5))
     out.append(MaterialPos(
@@ -246,10 +269,20 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     out.append(MaterialPos(
         "Bodenplatte", "Randabschlusskorb 16cm", "lfm",
         aussenumfang_m, f"Außenumfang {aussenumfang_m}m", konfidenz=0.65))
+    aq65_bp = f("aq65_m2_pro_matte", override)
     out.append(MaterialPos(
-        "Bodenplatte", "Torstahl (Bewehrung)", "Stk",
-        aussenumfang_m * f("torstahl_stk_pro_m_randabschluss", override),
-        "Pauschal aus Randabschluss", konfidenz=0.4))
+        "Bodenplatte", "Baustahlgitter AQ 65", "Stk",
+        math.ceil(bodenplatte_m2 / aq65_bp) if aq65_bp > 0 else 0,
+        f"{bodenplatte_m2}m² ÷ {aq65_bp}m²/Matte", konfidenz=0.6))
+    pe_roll = f("pe_folie_m2_pro_rolle", override)
+    out.append(MaterialPos(
+        "Bodenplatte", "PE-Folie", "Rollen",
+        math.ceil(bodenplatte_m2 / pe_roll) if pe_roll > 0 else 0,
+        f"{bodenplatte_m2}m² ÷ {pe_roll}m²/Rolle", konfidenz=0.6))
+    out.append(MaterialPos(
+        "Bodenplatte", "Torstahl 12mm (Schürzen-Bewehrung)", "Stk",
+        round(aussenumfang_m * f("torstahl_stk_pro_m_randabschluss", override)),
+        "Außenumfang × Stk-Dichte", konfidenz=0.4))
 
     # ═══ Mauerwerk EG — HLZ-Paletten pro Wandstärke ═══
     # Außenwand auf 50cm/38cm/25cm-aussen verteilen
@@ -373,32 +406,65 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     out.append(MaterialPos(
         "Decke über EG", "Schaltafel 200/50", "m²",
         decke_m2, f"{decke_m2}m² Schalung", konfidenz=0.7))
+    iso_korb_m = aussenumfang_m * f("iso_korb_anteil", override)
     out.append(MaterialPos(
         "Decke über EG", "ISO-Korb 8/25", "lfm",
-        aussenumfang_m * f("iso_korb_anteil", override),
-        f"Außenumfang × {int(f('iso_korb_anteil', override)*100)}%", konfidenz=0.4))
+        iso_korb_m, f"Außenumfang {aussenumfang_m}m × {f('iso_korb_anteil', override)}",
+        konfidenz=0.5))
+    # EKV-Decke = Dachabdichtung, läuft über ALLES inkl Terrassendach + Auf-
+    # kantungen → größer als die Schalungsfläche (eigener Aufschlag).
+    ekv_dk = f("ekv_decke_aufschlag", override)
     out.append(MaterialPos(
-        "Decke über EG", "EKV-5 Decken-Sockelabdichtung", "m²",
-        decke_m2 * ekv_f, f"{decke_m2}m² × {ekv_f}", konfidenz=0.65))
+        "Decke über EG", "EKV-5 Dachabdichtung", "m²",
+        decke_m2 * ekv_dk, f"{decke_m2}m² × {ekv_dk} (inkl Aufkantung/Terrassendach)",
+        konfidenz=0.6))
     out.append(MaterialPos(
         "Decke über EG", "Randabschlusskorb 16cm", "lfm",
         aussenumfang_m, f"Außenumfang {aussenumfang_m}m", konfidenz=0.65))
+    aq65_dk = f("aq65_m2_pro_matte", override)
+    out.append(MaterialPos(
+        "Decke über EG", "Baustahlgitter AQ 65", "Stk",
+        math.ceil(decke_m2 / aq65_dk) if aq65_dk > 0 else 0,
+        f"{decke_m2}m² ÷ {aq65_dk}m²/Matte", konfidenz=0.55))
     out.append(MaterialPos(
         "Decke über EG", "bitumin. Voranstrich", "Kanister",
         math.ceil(decke_m2 / 100 * f("voranstrich_kanister_pro_100m2", override)) or 1,
         f"{decke_m2}m² Decke", konfidenz=0.55))
 
-    # ═══ Attika ═══
-    attika_anteil = f("attika_anteil_aussen", override)
-    if attika_anteil > 0:
-        attika_m2 = aussenumfang_m * attika_anteil
+    # ═══ Attika (nur bei Flachdach) ═══
+    if f("attika_aktiv", override) or f("attika_anteil_aussen", override) > 0:
+        att_h = f("attika_hoehe_m", override)
+        attika_m2 = aussenumfang_m * att_h
         out.append(MaterialPos(
             "Attika", "XPS 6cm Oberfläche rau", "m²",
-            attika_m2, f"Außenumfang × {attika_anteil}m", konfidenz=0.5))
+            attika_m2, f"Außenumfang {aussenumfang_m}m × {att_h}m Höhe", konfidenz=0.45))
         out.append(MaterialPos(
             "Attika", "Lieferbeton C25/30", "m³",
-            attika_m2 * 0.15,
-            f"{attika_m2}m² × 0.15m Stärke (Annahme)", konfidenz=0.4))
+            attika_m2 * 0.15, f"{round(attika_m2,1)}m² × 0.15m Stärke", konfidenz=0.4))
+        out.append(MaterialPos(
+            "Attika", "Steckeisen 10mm a 1m gekröpft", "Stk",
+            round(aussenumfang_m * 3), f"Außenumfang × 3 Stk/m", konfidenz=0.4))
+
+    # ═══ Säulen / Stützen (nur wenn anzahl_saeulen gesetzt) ═══
+    n_saeulen = int(f("anzahl_saeulen", override))
+    if n_saeulen > 0:
+        beton_pro = f("saeule_beton_m3_pro_stk", override)
+        out.append(MaterialPos(
+            "Säulen", "Lieferbeton C25/30 (Fundamente + Säulen)", "m³",
+            n_saeulen * beton_pro, f"{n_saeulen} Säulen × {beton_pro}m³", konfidenz=0.45))
+        out.append(MaterialPos(
+            "Säulen", "Bügel geschlossen 18/18 12mm", "Stk",
+            n_saeulen * 15, f"{n_saeulen} Säulen × 15 Bügel", konfidenz=0.4))
+        out.append(MaterialPos(
+            "Säulen", "Torstahl 14mm a 7m", "Stk",
+            n_saeulen * 2, f"{n_saeulen} Säulen × 2 Stäbe", konfidenz=0.4))
+
+    # ═══ Kamin (nur wenn anzahl_kamine gesetzt) ═══
+    n_kamine = int(f("anzahl_kamine", override))
+    if n_kamine > 0:
+        out.append(MaterialPos(
+            "Kamin", "Kamin DN16 mit Fertigfuß und Haube (Schiedel)", "Stk",
+            n_kamine, f"{n_kamine} Kamin(e)", konfidenz=0.6))
 
     return out
 

@@ -896,7 +896,7 @@ Antworte NUR mit validem JSON (keine Markdown-Fences, kein Prefix):
     {"name": "Wohnkueche", "wohnung": "TOP 25", "flaeche_m2": 24.13, "umfang_m": 20.66, "hoehe_m": 2.42, "bodenbelag": "Parkett", "konfidenz": 0.98}
   ],
   "fenster": [
-    {"bezeichnung": "FE_30", "raum": "Zimmer", "wohnung": "TOP 25", "al_breite_mm": 120, "al_hoehe_mm": 147, "rb_breite_mm": 130, "rb_hoehe_mm": 147, "rph_mm": 84, "fph_mm": 87, "konfidenz": 0.95}
+    {"bezeichnung": "FE_30", "raum": "Zimmer", "wohnung": "TOP 25", "breite_cm": 120, "hoehe_cm": 147, "rph_cm": 84, "fph_cm": 87, "konfidenz": 0.95}
   ],
   "tueren": [],
   "massstab": "1:100",
@@ -2078,10 +2078,25 @@ async def projekt_massen(body: ProjektMassenRequest):
         ki, wi = keys[i]
         if not ki:
             continue
+        import difflib
+        sni = _short_name(merged_rooms[i].get("name"))
+        # stamm+ziffer-Pattern (Zimmer 1/2/3) — diese NICHT als Typo mergen
+        zi = re.match(r"^([a-zäöüß]+)\s*(\d+)$", sni)
         for j in range(i + 1, len(merged_rooms)):
             kj, wj = keys[j]
             if not kj:
                 continue
+            snj = _short_name(merged_rooms[j].get("name"))
+            # ── TYPO-MERGE (vor Größen-Guard): fast identische Namen sind
+            # OCR/Vision-Tippfehler desselben Raums ("Terasse"/"Terrasse").
+            # Generalisiert auf beliebige Tippfehler ohne feste Liste.
+            zj = re.match(r"^([a-zäöüß]+)\s*(\d+)$", snj)
+            both_numbered = zi and zj and zi.group(1) == zj.group(1)
+            if not both_numbered and sni and snj:
+                ratio = difflib.SequenceMatcher(None, sni, snj).ratio()
+                if ratio >= 0.88:
+                    _union(i, j)
+                    continue
             # Last-word nur als Cousin-Trigger wenn nicht generisch
             i_last = ki[1] if ki[1] not in GENERIC_LAST_WORDS else ""
             j_last = kj[1] if kj[1] not in GENERIC_LAST_WORDS else ""
@@ -2229,22 +2244,48 @@ async def projekt_massen(body: ProjektMassenRequest):
         ergaenzte_h = 0
 
     # 5) Öffnungen sammeln — Fenster und Türen, beide mit Dimensions-Normalisierung.
+    def _to_meter(roh):
+        """Magnitude-Heuristik statt fixer Einheit — robust gegen Architekt-
+        Konventionen: Vision liefert das *_mm-Feld oft in cm (ArchiCAD-Stempel
+        '120/147' = 120cm×147cm) oder mm (1200/1470). Statt blind /1000:
+          < 4     → schon Meter (1.30)
+          4-350   → Zentimeter (130cm → 1.30m); Fenster/Türen sind 0.5-3.5m breit
+          >= 350  → Millimeter (1300mm → 1.30m)
+        Damit funktioniert es egal ob der Plan cm oder mm beschriftet."""
+        try:
+            v = float(roh)
+        except (TypeError, ValueError):
+            return None
+        if v <= 0:
+            return None
+        if v < 4:
+            return round(v, 3)            # bereits Meter
+        if v < 350:
+            return round(v / 100.0, 3)    # Zentimeter
+        return round(v / 1000.0, 3)       # Millimeter
+
     def _norm_dim(d):
-        """Tile-Vision liefert al_breite_mm/rb_breite_mm, BAUDATEN cm, STUK/FPH bereits m."""
+        """Vereinheitlicht Breite/Höhe auf Meter aus beliebigem Quellfeld."""
         if not d.get("breite_m"):
-            if d.get("breite_cm"):
-                d["breite_m"] = d["breite_cm"] / 100.0
-            elif d.get("rb_breite_mm"):
-                d["breite_m"] = d["rb_breite_mm"] / 1000.0
-            elif d.get("al_breite_mm"):
-                d["breite_m"] = d["al_breite_mm"] / 1000.0
+            for src in ("breite_cm", "rb_breite_mm", "al_breite_mm", "breite_mm"):
+                if d.get(src):
+                    # breite_cm bleibt cm-semantisch, der Rest via Magnitude
+                    m = (d[src] / 100.0) if src == "breite_cm" else _to_meter(d[src])
+                    if m:
+                        d["breite_m"] = m
+                        break
         if not d.get("hoehe_m"):
-            if d.get("hoehe_cm"):
-                d["hoehe_m"] = d["hoehe_cm"] / 100.0
-            elif d.get("rb_hoehe_mm"):
-                d["hoehe_m"] = d["rb_hoehe_mm"] / 1000.0
-            elif d.get("al_hoehe_mm"):
-                d["hoehe_m"] = d["al_hoehe_mm"] / 1000.0
+            for src in ("hoehe_cm", "rb_hoehe_mm", "al_hoehe_mm", "hoehe_mm"):
+                if d.get(src):
+                    m = (d[src] / 100.0) if src == "hoehe_cm" else _to_meter(d[src])
+                    if m:
+                        d["hoehe_m"] = m
+                        break
+        # Sanity-Guard: Öffnungen < 30cm gibt es nicht (OCR/Vision-Artefakt)
+        if d.get("breite_m") and d["breite_m"] < 0.30:
+            d["breite_m"] = None
+        if d.get("hoehe_m") and d["hoehe_m"] < 0.30:
+            d["hoehe_m"] = None
         return d
 
     def _sig(d, bez):

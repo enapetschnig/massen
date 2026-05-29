@@ -633,9 +633,23 @@
 
     if (!agentLog) return;
 
+    // Der alte Kritik-Block (Orchestrator Step 4) lief VOR der neuen
+    // Projekt-Massen-Pipeline und meldet auf unvollständigen Pro-Plan-Daten
+    // fälschlich "Keine Massenermittlung vorhanden". Wenn die neue Pipeline
+    // Daten geliefert hat (gewerke / oenorm_lv / geo.raeume), ist der alte
+    // Bericht obsolet — die Konsistenz-Engine ist jetzt die Qualitäts-Quelle.
+    var neuePipelineDaten = !!(agentLog.gewerke || agentLog.oenorm_lv ||
+        (agentLog.geo && agentLog.geo.raeume && agentLog.geo.raeume.length));
+    if (neuePipelineDaten) return;
+
     // Kritik-Daten finden (kann unter verschiedenen Keys liegen)
     var kritik = agentLog.kritik || agentLog.step4_kritik || null;
     if (!kritik) return;
+
+    // Zusätzlicher Stale-Guard: die generischen "Keine ..."-Warnungen aus der
+    // alten Analyse nie zeigen (sie widersprechen vorhandenen Daten).
+    var warnPreview = JSON.stringify(kritik.warnungen || kritik.pruefungen || []);
+    if (/Keine Massenermittlung|Keine Raum|Keine Wandl|Keine Fenster|nur Gebäudestruktur|nur Projektmetadaten/i.test(warnPreview)) return;
 
     var score = kritik.qualitaets_score || kritik.score || null;
     var status = kritik.status || '';

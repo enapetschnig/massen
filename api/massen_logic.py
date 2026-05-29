@@ -69,6 +69,18 @@ def kategorie_of(name: str):
         for c in candidates:
             if c in names:
                 return kat
+    # Fuzzy-Fallback: Tippfehler/Schreibvarianten (z.B. "Terasse"→"Terrasse",
+    # "Wohnküche"→"Wohnkueche") tolerieren. Generalisiert auf OCR-Varianten
+    # ohne jeden Tippfehler einzeln pflegen zu müssen.
+    import difflib
+    for kat, names in KATEGORIE.items():
+        for c in candidates:
+            cl = c.lower()
+            if len(cl) < 4:
+                continue
+            for n in names:
+                if difflib.SequenceMatcher(None, cl, n.lower()).ratio() >= 0.86:
+                    return kat
     return None
 
 
