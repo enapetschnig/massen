@@ -1341,28 +1341,30 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
     # ═══════════════════════════════════════════════════════════════════
     wall_dims_per_top = {}
     BEMASSUNG_PROMPT = """Du siehst einen schmalen Bemaßungs-Streifen aus einem
-oesterreichischen Bauplan (Maßstab 1:50). Bemaßungen sind als
-KETTENBEMASSUNG dargestellt: Eine horizontale Linie mit kurzen vertikalen
-Markern, zwischen denen die jeweiligen Wand-Längen in CENTIMETERN stehen
-(z.B. "152", "300", "580").
+oesterreichischen Bauplan (Maßstab 1:50). Bemaßungen sind als KETTENBEMASSUNG
+dargestellt: eine Linie mit kurzen Markern, dazwischen die Wand-/Achs-Längen in
+CENTIMETERN (z.B. "152", "300", "580"). Am ENDE oder über einer Kette steht oft
+das GESAMTMASS — die große Zahl, die die GANZE Kette überspannt (= Summe aller
+Segmente, z.B. "1389"). Dieses Gesamtmaß ist die eingebaute Selbst-Prüfung.
 
-Lies ALLE Maßzahlen in dieser Bemaßung der Reihe nach von links nach rechts
-(bzw. von oben nach unten) ab. Maße aus mehreren parallelen Ketten gibst
-du als separate Listen zurück.
+Lies pro Kette ZWEI Dinge:
+1) ALLE Einzel-Segmente der Reihe nach (segmente_cm).
+2) Das GESAMTMASS der Kette falls sichtbar (gesamt_cm), sonst null.
 
 JSON-Antwort (kein Markdown, keine Erklärung):
 {
   "ketten": [
-    [48, 152, 143, 543, 120, 231],
-    [2, 44, 2, 301, 8, 576]
+    {"segmente_cm": [48, 152, 143, 543, 120, 231], "gesamt_cm": 1237},
+    {"segmente_cm": [2, 44, 2, 301, 8, 576], "gesamt_cm": null}
   ],
-  "summe_cm_je_kette": [1237, 933],
   "konfidenz": 0.95
 }
 
 Wichtig:
-- Werte sind cm-Zahlen (1-4-stellig). Niemals erfinden — nur was du klar liest.
-- Wenn nur eine Kette: liefere ein einziges Array.
+- Werte sind cm-Zahlen (1-4-stellig). NIEMALS erfinden — nur was du klar liest.
+- gesamt_cm ist die GESAMT-Länge der ganzen Kette (zur Prüfung Summe=Gesamt),
+  NICHT ein einzelnes Segment. Wenn keins sichtbar: null.
+- Mehrere parallele Ketten = mehrere Eintraege.
 - Maßstabs-Code (z.B. "1:50") oder Achs-Buchstaben (O, P, Q) ignorieren."""
 
     try:
@@ -1451,14 +1453,44 @@ Wichtig:
                     print(f"[vision wall-dims] {top_name}/{side} failed: {_exc!r}")
                     continue
 
-            # Aggregiere Wandlängen je Seite — Summe je Kette = Außenkante in cm
+            # Aggregiere Wandlängen je Seite mit SELBST-PRÜFUNG (Σ Segmente =
+            # Gesamtmaß → byte-exakt). Validierte Kette schlägt jede unvalidierte;
+            # unter mehreren validierten/unvalidierten gewinnt die größte (Außenkante).
+            wd["validiert"] = {}
             for side, payload in wd["ketten_per_side"].items():
-                summen = payload.get("summe_cm_je_kette") or []
-                if not summen and payload.get("ketten"):
-                    summen = [sum(k) for k in payload["ketten"]]
-                if summen:
-                    # Größte Summe ist üblicherweise die Außenkante
-                    wd["wandlaengen_m"][side] = round(max(summen) / 100.0, 2)
+                ketten = payload.get("ketten") or []
+                # Rückwärtskompatibel: alte Form war Liste von Zahlen-Arrays
+                norm = []
+                for k in ketten:
+                    if isinstance(k, dict):
+                        segs = [float(x) for x in (k.get("segmente_cm") or []) if x]
+                        gesamt = k.get("gesamt_cm")
+                    elif isinstance(k, list):
+                        segs = [float(x) for x in k if x]
+                        gesamt = None
+                    else:
+                        continue
+                    if not segs:
+                        continue
+                    s = sum(segs)
+                    # validiert, wenn das gedruckte Gesamtmaß zur Segment-Summe passt
+                    validated = False
+                    laenge = s
+                    if gesamt:
+                        try:
+                            g = float(gesamt)
+                            if abs(s - g) <= max(3.0, 0.015 * g):
+                                validated = True
+                                laenge = g
+                        except (TypeError, ValueError):
+                            pass
+                    norm.append((laenge, validated))
+                if not norm:
+                    continue
+                # validierte zuerst, dann größte Länge
+                norm.sort(key=lambda t: (1 if t[1] else 0, t[0]), reverse=True)
+                wd["wandlaengen_m"][side] = round(norm[0][0] / 100.0, 2)
+                wd["validiert"][side] = norm[0][1]
             wall_dims_per_top[top_name] = wd
             tops_done += 1
     except Exception as _exc:
@@ -2913,15 +2945,20 @@ async def projekt_massen(body: ProjektMassenRequest):
         for top_name, top_data in wbv.items():
             wl = (top_data or {}).get("wandlaengen_m") or {}
             seiten = {k: v for k, v in wl.items() if v and v > 0}
+            valid = (top_data or {}).get("validiert") or {}
             bbox = _bbox_from_sides(seiten)
             if bbox:
+                # Eine BBox aus per Gesamtmaß VALIDIERTEN Ketten ist byte-exakt —
+                # die beiden maßgeblichen Seiten (Breite/Tiefe) müssen validiert sein.
+                bt_validiert = bool(valid) and sum(1 for s in valid.values() if s) >= 2
                 aussenmasse_kandidaten.append({
                     "seiten_m": seiten,
                     "umfang_m": bbox["umfang_m"],
                     "flaeche_m2": bbox["flaeche_m2"],
                     "breite_m": bbox["breite_m"], "tiefe_m": bbox["tiefe_m"],
                     "plan": p.get("dateiname"), "top": top_name,
-                    "quelle": "pass4-bbox",
+                    "quelle": "pass4-bbox-validiert" if bt_validiert else "pass4-bbox",
+                    "validiert": bt_validiert,
                 })
         # Außenkontur-Vision (Polygon + Außenmaße + Fläche)
         ak = log.get("aussenkontur_vision") or {}
