@@ -3207,6 +3207,12 @@ async def projekt_massen(body: ProjektMassenRequest):
         else:
             fundament_umfang_m = aussenumfang_m
             fundament_quelle = "= Hauptbau (keine angebaute überdachte Fläche)"
+        # EHRLICHKEIT: gibt es überdachte Außenflächen (Terrasse/Parkplatz/Loggia),
+        # läuft die Bodenplatte mglw. darunter weiter → Slab-Kante > Hülle. WIE WEIT
+        # steht NICHT im Grundriss (nur im Fundament-/Polierplan). Konnte Vision die
+        # Erweiterung nicht klar lesen → Fundamentkante UNSICHER → flaggen + setzen lassen.
+        n_ueberdacht = sum(1 for r in merged_rooms if _kat_check(r.get("name") or "") == "Loggia")
+        fundament_unsicher = (n_ueberdacht > 0) and (not linie_b_erkannt)
 
         # Schritt 5: strukturierter Geometrie-Qualitäts-Report (für Dashboard)
         poly_vs_bbox = None
@@ -3229,6 +3235,8 @@ async def projekt_massen(body: ProjektMassenRequest):
                 "poly_vs_bbox_diff_pct": poly_vs_bbox,
                 "cross_check_warnung": cross_check_warnung,
                 "linie_b_erkannt": linie_b_erkannt,
+                "fundament_unsicher": fundament_unsicher,
+                "ueberdachte_flaechen": n_ueberdacht,
                 "kandidaten_n": len(bbox_umfaenge) + len(poly_umfaenge),
                 "verworfen": bbox_verworfen,
                 "physikalisch_plausibel": bool(iso_min <= aussenumfang_m <= umfang_ceil),

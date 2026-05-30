@@ -319,19 +319,23 @@
     var t = [];
     if (g.aussenumfang_m) {
       var cls, mark, note;
-      if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'Kettenbemaßung bestätigt (Σ = Gesamtmaß)'; }
+      if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'gemauerte Hülle — Kettenbemaßung bestätigt (Σ = Gesamtmaß)'; }
       else if (gq.umfang_verdacht_niedrig) { cls = 'warn'; mark = '⚠'; note = 'wirkt zu niedrig für die Grundfläche — am Plan prüfen / Umfang setzen'; }
       else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'Quellen uneinig — am Plan prüfen'; }
-      else { cls = 'ok'; mark = '✓'; note = 'aus gemessener Geometrie'; }
+      else { cls = 'ok'; mark = '✓'; note = 'gemauerte Hülle (für Mauerwerk)'; }
       t.push(tile('📐', 'Außenumfang', fmtNum(g.aussenumfang_m) + ' m', cls, mark, note));
     }
     if (g.bodenplatte_flaeche_m2) t.push(tile('⬛', 'Grundfläche', fmtNum(g.bodenplatte_flaeche_m2) + ' m²',
       'ok2', '✓✓', gq.flaeche_anker || 'byte-exakt aus Raumflächen'));
     if (g.fundament_umfang_m) {
-      var lb = gq.linie_b_erkannt;
-      t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m',
-        lb ? 'ok' : 'grey', lb ? '✓' : '=',
-        lb ? 'inkl. angebauter überdachter Fläche' : '= Außenkante (kein Überstand)'));
+      if (gq.fundament_unsicher) {
+        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'warn', '⚠',
+          (gq.ueberdachte_flaechen || '') + ' überdachte Fläche(n) — Platte läuft mglw. weiter, im Polierplan prüfen / Umfang setzen'));
+      } else if (gq.linie_b_erkannt) {
+        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'ok', '✓', 'inkl. angebauter überdachter Fläche'));
+      } else {
+        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'grey', '=', '= Außenkante (kein Überstand)'));
+      }
     }
     if (bd.geschosshoehe_m) t.push(tile('📏', 'Geschoss-Höhe', fmtNum(bd.geschosshoehe_m) + ' m',
       ghOk ? 'ok2' : 'ok', ghOk ? '✓✓' : '✓',
@@ -392,6 +396,11 @@
       hints.push('<div class="status-warn">⚠ <strong>Außenumfang unsicher</strong> — die Mess-Quellen sind sich uneinig' +
         (gq.poly_vs_bbox_diff_pct ? ' (' + gq.poly_vs_bbox_diff_pct + '% Abweichung)' : '') +
         '. Frostschürze/Randabschluss/Mauerwerk am Plan gegenprüfen oder im Erweitert-Drawer den Umfang setzen.</div>');
+    }
+    if (gq.fundament_unsicher) {
+      hints.push('<div class="status-warn">⚠ <strong>Fundamentkante prüfen</strong> — ' + (gq.ueberdachte_flaechen || '') +
+        ' überdachte Fläche(n) (Terrasse/Carport) am Haus. Die Bodenplatte läuft mglw. darunter weiter — <strong>wie weit, steht nur im Polierplan</strong>. ' +
+        'Frostschürze/Randabschluss daher mit Vorsicht; bei Bedarf den echten Umfang im Erweitert-Drawer setzen.</div>');
     }
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {
