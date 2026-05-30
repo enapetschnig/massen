@@ -401,10 +401,13 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         "Mauerwerk EG", "EKV-5 (Außenwand)", "m²",
         aw_m2_aussen * ekv_mw_h,
         f"{aw_m2_aussen}m² Außenwand × {ekv_mw_h}", konfidenz=0.65))
+    # Mauersperrbahn (Horizontalsperre) läuft unter ALLEN Außenwänden inkl. der
+    # Wände an angebauten überdachten Bereichen → Fundament-/Gebäudekante, nicht
+    # nur die beheizte Hülle.
     out.append(MaterialPos(
         "Mauerwerk EG", "Mauersperrbahn 25cm", "Rollen",
-        math.ceil(aussenumfang_m / 25) or 1,
-        f"Außenumfang {aussenumfang_m}m ÷ 25m/Rolle", konfidenz=0.65))
+        math.ceil(fundament_umfang_m / 25) or 1,
+        f"Gebäude-Außenkante {fundament_umfang_m}m ÷ 25m/Rolle", konfidenz=0.65))
 
     # ═══ Öffnungen — Ziegelüberlagen + Rolladenkästen aus Vision-Fenster ═══
     fenster_breiten = []
@@ -481,10 +484,12 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         decke_umfang = round(_rand_basis * (decke_m2 / bodenplatte_m2) ** 0.5, 2)
     else:
         decke_umfang = _rand_basis
-    iso_korb_m = aussenumfang_m * f("iso_korb_anteil", override)
+    # ISO-Korb (Thermo-Trennung) sitzt an der Decken-Auskragung zu überdachter
+    # Terrasse/Balkon → folgt der Gebäude-/Fundamentkante, nicht der Hülle.
+    iso_korb_m = round(fundament_umfang_m * f("iso_korb_anteil", override), 2)
     out.append(MaterialPos(
         "Decke über EG", "ISO-Korb 8/25", "lfm",
-        iso_korb_m, f"Außenumfang {aussenumfang_m}m × {f('iso_korb_anteil', override)}",
+        iso_korb_m, f"Gebäude-Außenkante {fundament_umfang_m}m × {f('iso_korb_anteil', override)}",
         konfidenz=0.5))
     # EKV-Decke = Dachabdichtung, läuft über ALLES inkl Terrassendach + Auf-
     # kantungen → größer als die Schalungsfläche (eigener Aufschlag).

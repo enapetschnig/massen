@@ -59,11 +59,12 @@ hlz_b = _menge(ml_b, "Mauerwerk EG", "HLZ 50")
 check("Mauerwerk HLZ50 folgt NICHT der Fundamentkante (unverändert)",
       hlz_a is not None and hlz_a == hlz_b, f"a={hlz_a} b={hlz_b}")
 
-# 4) Mauersperrbahn (unter den Wänden) bleibt auf der Hülle
+# 4) Mauersperrbahn (Horizontalsperre unter ALLEN Außenwänden inkl. überdachter
+#    Anbauten) folgt der Gebäude-/Fundamentkante → wächst mit Linie B mit.
 msb_a = _menge(ml_a, "Mauerwerk EG", "Mauersperrbahn")
 msb_b = _menge(ml_b, "Mauerwerk EG", "Mauersperrbahn")
-check("Mauersperrbahn unverändert (folgt Wänden, nicht Platte)",
-      msb_a is not None and msb_a == msb_b, f"a={msb_a} b={msb_b}")
+check("Mauersperrbahn folgt der Gebäude-Außenkante (Linie B)",
+      msb_a is not None and msb_b is not None and msb_b >= msb_a, f"a={msb_a} b={msb_b}")
 
 # 5) Bodenplatten-FLÄCHE-Material (XPS unter Platte) unverändert — nur Kante wächst
 xps_a = _menge(ml_a, "Bodenplatte", "XPS-SF G30 120")

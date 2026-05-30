@@ -212,7 +212,10 @@ def parse_legende(spans: list) -> dict:
     kamin_gefiltert = _zaehle_objekt("kamin")
     kamin_erwaehnt = any("kamin" in s["text"].lower() for s in spans)
     result["kamin_anzahl"] = kamin_gefiltert or (1 if kamin_erwaehnt else 0)
-    result["sickerschacht_anzahl"] = _zaehle_objekt("sickerschacht")
+    # Sickerschacht: oft DOPPELT beschriftet (Lageplan-Symbol + Bezugs-Note zum
+    # selben Schacht, ~300pt auseinander) → größerer Dedup-Radius. Echte zweite
+    # Schächte liegen an entfernten Grundstücks-Ecken (>400pt) und bleiben getrennt.
+    result["sickerschacht_anzahl"] = _zaehle_objekt("sickerschacht", dedup_pt=400)
 
     # 4) Wand-Code-VORKOMMEN im Grundriss zählen (Verteilung statt Annahme)
     for s in spans:
