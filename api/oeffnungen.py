@@ -114,11 +114,12 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
     for fph in fph_spans:
         # STUK im Cluster (mit FPH)
         stuk_near = [s for s in stuk_spans if math.hypot(s["cx"] - fph["cx"], s["cy"] - fph["cy"]) < max_cluster_pt]
-        # Fallback: bei versetzter Beschriftung (FPH/STUK weiter auseinander
-        # platziert) bis 2× Radius suchen — nur wenn im engen Radius nichts ist.
-        # Die Höhen-Plausi (0 < h ≤ 3.5m unten) verwirft falsche Paarungen.
+        # Fallback: bei versetzter Beschriftung (FPH/STUK weiter auseinander)
+        # bis 1.5× Radius suchen — nur wenn im engen Radius nichts ist.
+        # Konservativ gehalten (1.5× statt 2×) gegen Fehl-Paarung; die Höhen-
+        # Plausi (0 < h ≤ 3.5m unten) verwirft den Rest.
         if not stuk_near:
-            stuk_near = [s for s in stuk_spans if math.hypot(s["cx"] - fph["cx"], s["cy"] - fph["cy"]) < max_cluster_pt * 2]
+            stuk_near = [s for s in stuk_spans if math.hypot(s["cx"] - fph["cx"], s["cy"] - fph["cy"]) < max_cluster_pt * 1.5]
         if not stuk_near:
             continue  # ohne STUK keine Höhe ableitbar
         # Nächste STUK nehmen

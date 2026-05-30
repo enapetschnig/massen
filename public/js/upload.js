@@ -261,6 +261,7 @@
     function srcTag(key) {
       var q = (bq[key] || '') + '';
       if (q.indexOf('legende') >= 0) return '<span class="fact-src read" title="byte-exakt aus Bauteil-Legende gelesen">gelesen</span>';
+      if (q === 'schnitt') return '<span class="fact-src measured" title="aus dem Schnitt/der Ansicht gelesen">aus Schnitt</span>';
       if (/vision|raumhoehen|gemessen|bbox|polygon|kette/i.test(q)) return '<span class="fact-src measured" title="aus dem Plan gemessen">gemessen</span>';
       if (!q) return '';
       return '<span class="fact-src assumed" title="Standard-Annahme — kein Plan-Beleg">Standard</span>';
@@ -287,6 +288,12 @@
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen || tur) facts.push('<div class="fact"><span class="fact-ico">🪟</span><span class="fact-k">Öffnungen</span><span class="fact-v">' +
       fen + ' F · ' + tur + ' T</span><span class="fact-src read">aus Text</span></div>');
+    // Schnitt-/Ansichts-Lesung: Säulen + Dachtyp
+    var sv = data.schnitt || {};
+    if (data.saeulen_erkannt) facts.push('<div class="fact" title="aus Schnitt/Ansicht erkannt — in der Materialliste berücksichtigt"><span class="fact-ico">🏛️</span><span class="fact-k">Säulen</span><span class="fact-v">' +
+      data.saeulen_erkannt + '</span><span class="fact-src measured">aus Schnitt</span></div>');
+    if (sv.dachtyp) facts.push('<div class="fact"><span class="fact-ico">🏠</span><span class="fact-k">Dach</span><span class="fact-v">' +
+      esc(sv.dachtyp) + (sv.attika_hoehe_m ? ' · Attika ' + fmtNum(sv.attika_hoehe_m) + 'm' : '') + '</span><span class="fact-src measured">aus Schnitt</span></div>');
     el.innerHTML = facts.join('');
   }
 

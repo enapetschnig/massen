@@ -1852,6 +1852,94 @@ Wichtig:
             print(f"[aussenkontur] failed: {_exc!r}")
             aussenkontur_vision = {}
 
+        # ═══════════════════════════════════════════════════════════════
+        # SCHNITT-/ANSICHTS-VISION-PASS
+        # Der Einreichplan zeigt NEBEN dem Grundriss auch Schnitte (A-A, B-B)
+        # und Ansichten (Nord/Süd/...). Dort stehen Dinge, die im Grundriss
+        # FEHLEN: Säulen/Stützen, echte Geschoss-Höhe, Dachtyp + Attika-Höhe,
+        # Schichtdicken. Genau die Lücken aus dem Angerer-Abgleich.
+        # ═══════════════════════════════════════════════════════════════
+        SCHNITT_PROMPT = """Du siehst ein oesterreichisches Einreichplan-Blatt.
+Darauf sind NEBEN dem Grundriss auch SCHNITTE (Querschnitte, z.B. "Schnitt A-A")
+und ANSICHTEN (Nord/Sued/Ost/West) abgebildet. Lies Werte AUS DEN SCHNITTEN UND
+ANSICHTEN (NICHT aus dem Grundriss):
+
+1) Geschoss-Hoehe: lichte Raumhoehe (FBOK bis Decken-Unterkante) UND Rohbau-
+   Geschosshoehe (Fussboden bis Rohdecke), in Metern.
+2) Gebaeude-Hoehe gesamt (First bzw. Attika ueber Gelaende/EG-Fussboden), in Metern.
+3) Dachtyp: "flach" | "pult" | "sattel" | "walm" | "zelt". Bei Flachdach: Attika-Hoehe in m.
+4) Anzahl freistehender STUETZEN/SAEULEN (eigene tragende Stuetzen, sichtbar als
+   schmale senkrechte Elemente in Schnitt/Ansicht oder ausgefuellte Punkte im
+   Grundriss — NICHT Wandstuecke). 0 wenn keine.
+5) Kamin sichtbar? Hoehe ueber Dach in m falls beschriftet.
+6) Schicht-Dicken falls in einem Schnitt-Detail beschriftet: Bodenplatte, Decke,
+   Estrich, Daemmung (in cm).
+
+Antworte NUR mit JSON, kein Markdown:
+{
+  "geschosshoehe_licht_m": 2.62,
+  "geschosshoehe_rohbau_m": 2.95,
+  "gebaeudehoehe_m": 4.8,
+  "dachtyp": "flach",
+  "attika_hoehe_m": 0.5,
+  "saeulen_anzahl": 2,
+  "kamin_sichtbar": true,
+  "schichten_cm": {"bodenplatte": 25, "decke": 20, "estrich": 7},
+  "konfidenz": 0.7,
+  "quelle": "Schnitt A-A + Suedansicht"
+}
+Regeln:
+- Nur lesen was WIRKLICH beschriftet/sichtbar ist; unbekannte Felder = null.
+- saeulen_anzahl konservativ: nur ZAEHLEN was eindeutig eine freistehende Stuetze ist.
+- Wenn KEIN Schnitt/keine Ansicht auf dem Blatt ist: {"kein_schnitt": true}."""
+        schnitt_vision = {}
+        try:
+            docs = fitz.open(stream=pdf_bytes, filetype="pdf")
+            ps = docs[0]
+            dpi_s = 230
+            s_img = None
+            while dpi_s >= 110:
+                mat = fitz.Matrix(dpi_s / 72, dpi_s / 72)
+                pix = ps.get_pixmap(matrix=mat)
+                s_img = pix.tobytes("jpeg", jpg_quality=85)
+                if len(s_img) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                    break
+                dpi_s -= 30
+            docs.close()
+            if s_img:
+                s_b64 = base64.standard_b64encode(s_img).decode("utf-8")
+                resp = client.messages.create(
+                    model="claude-sonnet-4-20250514", max_tokens=700, temperature=0,
+                    system=SCHNITT_PROMPT,
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64",
+                         "media_type": "image/jpeg", "data": s_b64}},
+                        {"type": "text", "text": "Lies Geschoss-Höhe, Dachtyp/Attika, Säulen-Anzahl und Schichtdicken aus den Schnitten/Ansichten."}
+                    ]}],
+                )
+                raw = resp.content[0].text if resp.content else "{}"
+                try:
+                    schnitt_vision = json.loads(raw)
+                except Exception:
+                    mjs = re.search(r"\{[\s\S]*\}", raw)
+                    schnitt_vision = json.loads(mjs.group()) if mjs else {}
+                # Plausi-Klemmung: Geschoss-Höhe 2.2–4.5m, Attika 0.2–1.5m, Säulen 0–40
+                gh = schnitt_vision.get("geschosshoehe_rohbau_m")
+                if gh and not (2.2 <= float(gh) <= 4.5):
+                    schnitt_vision["geschosshoehe_rohbau_m"] = None
+                sa = schnitt_vision.get("saeulen_anzahl")
+                if sa is not None:
+                    try:
+                        schnitt_vision["saeulen_anzahl"] = max(0, min(40, int(sa)))
+                    except (TypeError, ValueError):
+                        schnitt_vision["saeulen_anzahl"] = None
+                print(f"[schnitt] geschoss_rohbau={schnitt_vision.get('geschosshoehe_rohbau_m')} m, "
+                      f"dachtyp={schnitt_vision.get('dachtyp')}, attika={schnitt_vision.get('attika_hoehe_m')} m, "
+                      f"saeulen={schnitt_vision.get('saeulen_anzahl')}, konf={schnitt_vision.get('konfidenz')}")
+        except Exception as _exc:
+            print(f"[schnitt] failed: {_exc!r}")
+            schnitt_vision = {}
+
         try:
             gewerke_result = _berechne_gewerke(
                 rooms_fg, alle_fenster, baudaten, geschoss or "EG", None)
@@ -1882,6 +1970,11 @@ Wichtig:
     if _MASSEN_OK:  # nur in dem Pfad existiert die Variable
         try:
             log["aussenkontur_vision"] = aussenkontur_vision
+        except NameError:
+            pass
+        # Schnitt-/Ansichts-Lesung (Säulen, Geschoss-Höhe, Dachtyp, Attika)
+        try:
+            log["schnitt_vision"] = schnitt_vision
         except NameError:
             pass
     # Bauteil-Legende byte-exakt aus dem Text-Layer lesen (wie ein Mensch):
@@ -2506,11 +2599,11 @@ async def projekt_massen(body: ProjektMassenRequest):
                         d["hoehe_m"] = m
                         break
         # Sanity-Guard: echte OCR/Vision-Artefakte verwerfen, aber legale
-        # Lüftungs-/Oberlicht-Fenster (z.B. 0.40×0.25m) behalten. Höhen-Schwelle
-        # von 0.30 auf 0.20 gesenkt — 0.30 killte schmale Oberlichter.
+        # Lüftungs-/Oberlicht-Fenster behalten. Höhen-Schwelle 0.25 (Kompromiss:
+        # schmale Oberlichter ab 25cm bleiben, kleinere Artefakte raus).
         if d.get("breite_m") and d["breite_m"] < 0.30:
             d["breite_m"] = None
-        if d.get("hoehe_m") and d["hoehe_m"] < 0.20:
+        if d.get("hoehe_m") and d["hoehe_m"] < 0.25:
             d["hoehe_m"] = None
         return d
 
@@ -2624,6 +2717,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_konf = -1.0
     geschoss = "EG"
     best_legende = None  # Legende mit höchster Konfidenz (byte-exakt > Vision)
+    best_schnitt = None   # Schnitt-/Ansichts-Lesung (Säulen, Geschoss-H, Dach)
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
@@ -2643,6 +2737,11 @@ async def projekt_massen(body: ProjektMassenRequest):
         if leg.get("wand_typen") and (best_legende is None or
                 (leg.get("konfidenz") or 0) > (best_legende.get("konfidenz") or 0)):
             best_legende = leg
+        # Schnitt-/Ansichts-Lesung — beste über alle Pläne (Einreichplan trägt sie)
+        sv = log.get("schnitt_vision") or {}
+        if sv and not sv.get("kein_schnitt") and (best_schnitt is None or
+                (sv.get("konfidenz") or 0) > (best_schnitt.get("konfidenz") or 0)):
+            best_schnitt = sv
         # Geschoss aus dem ersten Plan, der eines hat
         if not geschoss or geschoss == "EG":
             g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
@@ -2849,6 +2948,38 @@ async def projekt_massen(body: ProjektMassenRequest):
             if "attika_aktiv" not in ov:
                 body.materialliste_override = dict(ov, attika_aktiv=1)
 
+    # 6c2) SCHNITT-/ANSICHTS-LESUNG: Säulen, Geschoss-Höhe, Dachtyp aus den
+    # Schnitten/Ansichten des Einreichplans — füllt Lücken, die der Grundriss
+    # nicht hergibt (Polier liest genau dort Stützen/Höhen/Dach ab).
+    saeulen_erkannt = None
+    if best_schnitt:
+        gh_s = best_schnitt.get("geschosshoehe_rohbau_m")
+        if gh_s:
+            try:
+                gh_s = float(gh_s)
+            except (TypeError, ValueError):
+                gh_s = None
+        if gh_s and 2.2 <= gh_s <= 4.5:
+            best_baudaten["geschosshoehe_m"] = round(gh_s, 2)
+            best_baudaten.setdefault("_quellen", {})["geschosshoehe_m"] = "schnitt"
+        # Flachdach aus Schnitt → Attika (falls Legende es nicht schon tat)
+        if best_schnitt.get("dachtyp") == "flach":
+            ov = body.materialliste_override or {}
+            if "attika_aktiv" not in ov:
+                body.materialliste_override = dict(ov, attika_aktiv=1)
+        # Säulen aus Schnitt/Ansicht erkannt → in die Materialliste übernehmen
+        # (User-Override hat Vorrang). Macht den Säulen-Block sichtbar statt 0.
+        sa = best_schnitt.get("saeulen_anzahl")
+        try:
+            sa = int(sa) if sa is not None else 0
+        except (TypeError, ValueError):
+            sa = 0
+        if sa > 0:
+            saeulen_erkannt = sa
+            ov = body.materialliste_override or {}
+            if "anzahl_saeulen" not in ov:
+                body.materialliste_override = dict(ov, anzahl_saeulen=sa)
+
     # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
     if body.baudaten_override:
         ov = body.baudaten_override
@@ -2941,6 +3072,8 @@ async def projekt_massen(body: ProjektMassenRequest):
         "h_inferred_count": ergaenzte_h,
         "h_inferred_value": h_median,
         "aussen_ohne_h_count": aussen_ohne_h,
+        "schnitt": best_schnitt,
+        "saeulen_erkannt": saeulen_erkannt,
         "geschoss": geschoss,
         "raeume": merged_rooms,
         "fenster": alle_fenster,
