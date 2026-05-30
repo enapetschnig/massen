@@ -295,14 +295,22 @@
     var statusEl = document.getElementById('ergebnis-status-banner');
     if (!statusEl) return;
     var hints = [];
-    var raeumeOhneH = (data.raeume || []).filter(function (r) { return r && r.flaeche_m2 && !r.hoehe_m; });
-    if (raeumeOhneH.length > 0 && data.plaene_count === 1) {
-      hints.push('<div class="status-warn">⚠ <strong>' + raeumeOhneH.length +
-        ' Räume ohne Höhe</strong> — der Einreichplan hat nur Fläche + Umfang. ' +
+    // Nur INNENRÄUME ohne Höhe sind ein Problem — überdachte Außenflächen
+    // (Terrasse/Parkplatz/Loggia) haben korrekt keine Raumhöhe.
+    var innenOhneH = (data.raeume || []).filter(function (r) {
+      return r && r.flaeche_m2 && !r.hoehe_m && !r._h_not_applicable;
+    });
+    if (innenOhneH.length > 0 && data.plaene_count === 1) {
+      hints.push('<div class="status-warn">⚠ <strong>' + innenOhneH.length +
+        ' Innenräume ohne Höhe</strong> — der Einreichplan hat nur Fläche + Umfang. ' +
         '<strong>Lade auch den Polierplan hoch</strong>, sonst rechnen alle Wand-/Putz-/Maler-Mengen mit Default-Höhe.</div>');
     } else if (data.h_inferred_count > 0) {
       hints.push('<div class="status-info">ℹ ' + data.h_inferred_count +
-        ' Räume ohne Höhe im Plan → <strong>' + fmtNum(data.h_inferred_value) + ' m</strong> aus Median ergänzt.</div>');
+        ' Innenräume ohne Höhe im Plan → <strong>' + fmtNum(data.h_inferred_value) + ' m</strong> Geschoss-Höhe übernommen.</div>');
+    }
+    if (data.aussen_ohne_h_count > 0) {
+      hints.push('<div class="status-ok">✓ ' + data.aussen_ohne_h_count +
+        ' überdachte Außenfläche(n) ohne Raumhöhe — korrekt, fließen nur über die Fläche in Decke/Bodenaufbau.</div>');
     }
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {
@@ -335,6 +343,10 @@
   }
 
   function renderProjektMassen(data, fertigCount, totalCount) {
+    // Single Source of Truth: die gemergte+deduplizierte Projekt-Antwort
+    // global ablegen, damit ALLE Ansichten (auch die Legacy-Detail-Tabellen
+    // in tabelle.js) dieselben Zahlen zeigen statt Roh-Pro-Plan-Daten.
+    window.projektMassenData = data;
     var badge = document.getElementById('projekt-massen-badge');
     var grid = document.getElementById('projekt-massen-grid');
     var detail = document.getElementById('projekt-massen-detail');
@@ -393,33 +405,68 @@
       detail.innerHTML = html;
     }
 
-    renderRoomsList(data.raeume);
+    renderReadData(data);
     renderMaterialliste(data.materialliste, data.gemessen);
   }
 
-  function renderRoomsList(raeume) {
+  // EINE Datenquelle für alle gelesenen Elemente: Räume + Fenster + Türen aus
+  // der gemergten Projekt-Antwort (gleiche Zahlen wie der Fact-Strip-Kopf).
+  function renderReadData(data) {
     var target = document.getElementById('projekt-massen-rooms');
-    if (!target || !raeume) return;
-    var html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem">';
-    html += '<thead><tr><th style="text-align:left;padding:0.3rem 0.5rem;background:#f8fafc">Raum</th>' +
-            '<th class="num" style="text-align:right;padding:0.3rem 0.5rem;background:#f8fafc">F (m²)</th>' +
-            '<th class="num" style="text-align:right;padding:0.3rem 0.5rem;background:#f8fafc">U (m)</th>' +
-            '<th class="num" style="text-align:right;padding:0.3rem 0.5rem;background:#f8fafc">H (m)</th>' +
-            '<th style="text-align:left;padding:0.3rem 0.5rem;background:#f8fafc">Boden</th>' +
-            '<th style="text-align:center;padding:0.3rem 0.5rem;background:#f8fafc">Quellen</th></tr></thead><tbody>';
-    raeume.forEach(function(r){
+    if (!target) return;
+    var raeume = data.raeume || [], fenster = data.fenster || [], tueren = data.tueren || [];
+    var TH = 'text-align:left;padding:0.3rem 0.5rem;background:#f8fafc';
+    var THn = 'text-align:right;padding:0.3rem 0.5rem;background:#f8fafc';
+    var TD = 'padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5';
+    var TDn = 'text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5';
+    function dash(v) { return v ? fmtNum(v) : '<span style="color:#dc2626">–</span>'; }
+
+    // ── Räume ──
+    var html = '<div class="read-sub">Räume (' + raeume.length + ')</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem">';
+    html += '<thead><tr><th style="' + TH + '">Raum</th><th style="' + THn + '">F (m²)</th>' +
+            '<th style="' + THn + '">U (m)</th><th style="' + THn + '">H (m)</th>' +
+            '<th style="' + TH + '">Boden</th><th style="text-align:center;padding:0.3rem 0.5rem;background:#f8fafc">Quellen</th></tr></thead><tbody>';
+    raeume.forEach(function (r) {
       var quellen = (r._quellen_plaene || []).length;
       var merged = (r._merged_from || []).join(',');
-      html += '<tr>' +
-        '<td style="padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + esc(r.name || '?') + '</td>' +
-        '<td class="num" style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + (r.flaeche_m2 ? fmtNum(r.flaeche_m2) : '<span style="color:#dc2626">–</span>') + '</td>' +
-        '<td class="num" style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + (r.umfang_m ? fmtNum(r.umfang_m) : '<span style="color:#dc2626">–</span>') + '</td>' +
-        '<td class="num" style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + (r.hoehe_m ? fmtNum(r.hoehe_m) : '<span style="color:#dc2626">–</span>') + '</td>' +
-        '<td style="padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5">' + esc(r.bodenbelag || '') + '</td>' +
-        '<td style="text-align:center;padding:0.3rem 0.5rem;border-bottom:1px solid #f1f3f5" title="' + esc(merged) + '">' + quellen + ' Plan' + (quellen===1?'':'') + (merged ? ' <small style="color:#16a34a">✓merged</small>' : '') + '</td>' +
-        '</tr>';
+      // Höhe: abgeleitet markieren, Außenflächen klar als n.a.
+      var hCell;
+      if (r._h_not_applicable) hCell = '<span title="überdachte Außenfläche — keine Raumhöhe" style="color:#94a3b8">n.a.</span>';
+      else if (r.hoehe_m) hCell = fmtNum(r.hoehe_m) + (r._h_inferred ? '<sup title="Geschoss-Höhe übernommen" style="color:#f39301">≈</sup>' : '');
+      else hCell = '<span style="color:#dc2626">–</span>';
+      html += '<tr><td style="' + TD + '">' + esc(r.name || '?') + '</td>' +
+        '<td style="' + TDn + '">' + dash(r.flaeche_m2) + '</td>' +
+        '<td style="' + TDn + '">' + dash(r.umfang_m) + '</td>' +
+        '<td style="' + TDn + '">' + hCell + '</td>' +
+        '<td style="' + TD + '">' + esc(r.bodenbelag || '') + '</td>' +
+        '<td style="text-align:center;' + TD + '" title="' + esc(merged) + '">' + quellen + (merged ? ' <small style="color:#16a34a">✓merged</small>' : '') + '</td></tr>';
     });
     html += '</tbody></table>';
+
+    // ── Öffnungen (Fenster + Türen) — gleiche deduplizierte Liste wie der Kopf ──
+    function oeffTable(titel, arr) {
+      if (!arr.length) return '<div class="read-sub">' + titel + ' (0)</div>';
+      var h = '<div class="read-sub">' + titel + ' (' + arr.length + ')</div>';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem">';
+      h += '<thead><tr><th style="' + TH + '">Bez.</th><th style="' + TH + '">Raum</th>' +
+           '<th style="' + THn + '">B (m)</th><th style="' + THn + '">H (m)</th>' +
+           '<th style="' + THn + '">FPH</th><th style="' + THn + '">STUK</th><th style="' + TH + '">Quelle</th></tr></thead><tbody>';
+      arr.forEach(function (o) {
+        var q = (o.quelle || '').indexOf('stuk') >= 0 ? '<span style="color:#0f766e">Text/STUK</span>' :
+                ((o.quelle || '').indexOf('vision') >= 0 ? '<span style="color:#1e40af">Vision</span>' : esc(o.quelle || ''));
+        h += '<tr><td style="' + TD + '">' + esc(o.bezeichnung || '') + '</td>' +
+          '<td style="' + TD + '">' + esc(o.raum || '') + '</td>' +
+          '<td style="' + TDn + '">' + dash(o.breite_m) + '</td>' +
+          '<td style="' + TDn + '">' + dash(o.hoehe_m) + '</td>' +
+          '<td style="' + TDn + '">' + (o.fph_m ? fmtNum(o.fph_m) : '') + '</td>' +
+          '<td style="' + TDn + '">' + (o.stuk_m ? fmtNum(o.stuk_m) : '') + '</td>' +
+          '<td style="' + TD + '">' + q + '</td></tr>';
+      });
+      return h + '</tbody></table>';
+    }
+    html += oeffTable('Fenster', fenster);
+    html += oeffTable('Türen', tueren);
     target.innerHTML = html;
   }
 

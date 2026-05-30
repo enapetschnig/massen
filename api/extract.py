@@ -597,8 +597,12 @@ async def analyse_zoom(body: ExtractRequest):
         # Bei Code-Räumen (EG301) liegen F/U/H oft 100-150pt entfernt; bei
         # ArchiCAD-Beschriftungsblöcken stehen sie kompakt direkt unter dem Namen.
         is_code = bool(ROOM_CODE_RX_INNER.match(rs["text"].strip()))
-        rad_x = 150 if is_code else 60
-        rad_y_pos = 150 if is_code else 60
+        # Fenster etwas weiter (85pt statt 60) für 2-spaltige / 3-zeilige
+        # ArchiCAD-Stempel, in denen F/U/H unter ODER neben dem Namen stehen.
+        # rad_y_neg klein halten (-5): Werte deutlich ÜBER dem Namen gehören
+        # meist zum darüberliegenden Raum (kein Cross-Talk).
+        rad_x = 150 if is_code else 85
+        rad_y_pos = 150 if is_code else 85
         rad_y_neg = -150 if is_code else -5
         candidates = []
         for s in spans_all:
@@ -606,7 +610,9 @@ async def analyse_zoom(body: ExtractRequest):
             dx = s["cx"] - rx; dy = s["cy"] - ry
             if abs(dx) <= rad_x and rad_y_neg <= dy <= rad_y_pos:
                 candidates.append((dy, dx, s))
-        candidates.sort()
+        # Nächster Wert (vertikal, dann horizontal) zuerst → der eigene
+        # Stempel-Wert gewinnt vor weiter entfernten Nachbar-Werten.
+        candidates.sort(key=lambda c: (abs(c[0]), abs(c[1])))
         f_val = u_val = h_val = None
         bodenbelag = None
         for dy, dx, s in candidates:
@@ -2006,6 +2012,44 @@ async def projekt_massen(body: ProjektMassenRequest):
         wohnungen_im_projekt.add(w or "_default_")
     is_efh = len(wohnungen_im_projekt) <= 2
 
+    def _tokens(s):
+        return [t for t in re.findall(r"[a-zäöüß0-9]+", (s or "").lower()) if t]
+    def _trailing_int(s):
+        m = re.search(r"(\d+)\s*$", (s or "").strip())
+        return m.group(1) if m else None
+
+    def _fuzzy_merge_key(name, wohnung, mergedmap, efh):
+        # Findet einen bestehenden Schlüssel, der DENSELBEN Raum bezeichnet,
+        # auch wenn die Pläne ihn unterschiedlich benennen ("Wohnraum Küche"
+        # im Einreichplan, "Küche" im Polierplan). Sonst landet die Höhe im
+        # einen, Fläche/Umfang im anderen Eintrag und der Cousin-Filter
+        # verwirft den kürzeren BEVOR die Werte zusammenfinden.
+        # Sicher gehalten: Token-Teilmenge MIT gleichem Kopf-Nomen (letztes
+        # Wort), gleiche trailing-Nummer (Zimmer 1 ≠ Zimmer 2) und — bei MFH —
+        # gleiche Wohnung.
+        toks_new = _tokens(name)
+        if not toks_new:
+            return None
+        ti_new = _trailing_int(name)
+        nkw = _nk(wohnung)
+        for k, ex in mergedmap.items():
+            if not efh and len(k) > 1 and k[1] != nkw:
+                continue
+            ex_name = ex.get("name") or ""
+            toks_ex = _tokens(ex_name)
+            if not toks_ex:
+                continue
+            if _trailing_int(ex_name) != ti_new:
+                continue
+            # gleiches Kopf-Nomen (letztes Wort) — "küche" == "küche"
+            if toks_new[-1] != toks_ex[-1]:
+                continue
+            # eine Token-Menge ist Teilmenge der anderen (Qualifizierer-Präfix)
+            sn, se = set(toks_new), set(toks_ex)
+            if sn <= se or se <= sn:
+                return k
+        return None
+
     merged = {}  # key -> raum-dict
     for row in raum_rows:
         d = row.get("daten") or {}
@@ -2015,6 +2059,13 @@ async def projekt_massen(body: ProjektMassenRequest):
         if not key[0]:
             continue
         ex = merged.get(key)
+        if ex is None:
+            fk = _fuzzy_merge_key(name, wohnung, merged, is_efh)
+            if fk is not None:
+                ex = merged[fk]
+                # längeren, spezifischeren Namen behalten
+                if len(_tokens(name)) > len(_tokens(ex.get("name") or "")):
+                    ex["name"] = name
         if ex is None:
             merged[key] = dict(d)
             merged[key]["name"] = name
@@ -2364,27 +2415,48 @@ async def projekt_massen(body: ProjektMassenRequest):
             else:
                 rohbau_rooms.extend(rs)   # gehört doch zum EG → behalten
 
-    # 4c) Höhen-Inferenz: Architekten beschriften nicht jeden Raum mit RH —
-    # typisch fehlt H bei Wohnräumen (gleicher Standard-Wert) und Außen-
-    # bereichen (Loggia/Terrasse). Wenn andere Räume H haben, übernimm
-    # den Median für Räume ohne H. Damit rechnet die Putz-/Maler-LV
-    # konsistent mit der echten Geschoss-Höhe statt mit Default 2,70m.
-    rooms_with_h = [r for r in merged_rooms if r.get("hoehe_m")]
-    if rooms_with_h:
-        h_values = sorted(float(r["hoehe_m"]) for r in rooms_with_h)
-        h_median = h_values[len(h_values) // 2]
-        h_max = h_values[-1]
-        # Für Räume ohne H: Median nehmen, als "inferred" markieren
-        ergaenzte_h = 0
+    # 4c) Höhen-Inferenz mit QUELLEN-HIERARCHIE (Höhe geht linear in Σ(U×H)
+    # aller Wand-/Putz-/Maler-Mengen → teuerste Größe, darf nicht geraten
+    # werden). Prinzip:
+    #   1) echte Raum-H aus dem Plan (bleibt)
+    #   2) fehlt sie bei einem INNENRAUM → Geschoss-Höhe (Median der erkannten
+    #      Innenraum-Höhen) übernehmen, als _h_inferred markieren
+    #   3) ÜBERDACHTE AUSSENFLÄCHEN (Terrasse/Parkplatz/Loggia/Balkon/Carport)
+    #      bekommen GRUNDSÄTZLICH keine beheizte Raumhöhe — _h_not_applicable.
+    #      Ihre Höhe ist für keine Mengenberechnung definiert (sie fließen nur
+    #      über die Fläche in Decke/Bodenaufbau). Vorher bekamen sie blind den
+    #      Median → latente Fehlerquelle.
+    try:
+        from massen_logic import kategorie_of as _kat_h
+    except Exception:
+        _kat_h = lambda n: None
+    def _ist_aussenflaeche(r):
+        return _kat_h(r.get("name") or "") == "Loggia"
+
+    inner_h = sorted(float(r["hoehe_m"]) for r in merged_rooms
+                     if r.get("hoehe_m") and not _ist_aussenflaeche(r))
+    ergaenzte_h = 0
+    aussen_ohne_h = 0
+    if inner_h:
+        h_median = inner_h[len(inner_h) // 2]   # Geschoss-Höhe (robust, kein Outlier)
+        h_max = inner_h[-1]
         for r in merged_rooms:
-            if not r.get("hoehe_m"):
-                r["hoehe_m"] = h_median
-                r["_h_inferred"] = True
-                ergaenzte_h += 1
+            if r.get("hoehe_m"):
+                continue
+            if _ist_aussenflaeche(r):
+                r["_h_not_applicable"] = True
+                aussen_ohne_h += 1
+                continue
+            r["hoehe_m"] = h_median
+            r["_h_inferred"] = True
+            ergaenzte_h += 1
     else:
         h_median = None
         h_max = None
-        ergaenzte_h = 0
+        for r in merged_rooms:
+            if not r.get("hoehe_m") and _ist_aussenflaeche(r):
+                r["_h_not_applicable"] = True
+                aussen_ohne_h += 1
 
     # 5) Öffnungen sammeln — Fenster und Türen, beide mit Dimensions-Normalisierung.
     def _to_meter(roh):
@@ -2424,24 +2496,24 @@ async def projekt_massen(body: ProjektMassenRequest):
                     if m:
                         d["hoehe_m"] = m
                         break
-        # Sanity-Guard: Öffnungen < 30cm gibt es nicht (OCR/Vision-Artefakt)
+        # Sanity-Guard: echte OCR/Vision-Artefakte verwerfen, aber legale
+        # Lüftungs-/Oberlicht-Fenster (z.B. 0.40×0.25m) behalten. Höhen-Schwelle
+        # von 0.30 auf 0.20 gesenkt — 0.30 killte schmale Oberlichter.
         if d.get("breite_m") and d["breite_m"] < 0.30:
             d["breite_m"] = None
-        if d.get("hoehe_m") and d["hoehe_m"] < 0.30:
+        if d.get("hoehe_m") and d["hoehe_m"] < 0.20:
             d["hoehe_m"] = None
         return d
 
-    def _sig(d, bez):
-        return (bez.strip().lower(), (d.get("raum") or "").strip().lower(),
-                round(float(d.get("breite_m") or 0), 2),
-                round(float(d.get("hoehe_m") or 0), 2))
-
     def _collect_oeffnungen(rows):
-        # Dieselbe Öffnung wird oft DOPPELT erkannt: einmal als Vision-Fund
-        # (FE_30, oft grob/ohne Maß) und einmal als präziser STUK/FPH-Text-
-        # Fund (F-130x128). Über zwei Pläne (Einreich+Polier) verschärft sich
-        # das. Dedup daher nach (Raum, Breiten-Bucket) statt nach Bezeichnung,
-        # und Vision-Funde die zu einem STUK/FPH-Fund passen werden verworfen.
+        # Dieselbe Öffnung wird mehrfach erkannt: als grober Vision-Fund
+        # (FE_30, oft maßlos) UND als präziser STUK/FPH-Text-Fund (F-130x128),
+        # und über zwei Pläne (Einreich+Polier) DESSELBEN Gebäudes doppelt.
+        # → Toleranz-basiertes Clustering pro Raum (8cm auf Breite UND Höhe)
+        # statt fragiler 10cm-Hartbuckets: 1.24m und 1.26m sprangen über die
+        # Bucketgrenze (12 vs 13) → Doppelzählung. STUK gewinnt vor Vision,
+        # fehlende Maße werden aus dem Partner gefüllt (analog Raum-Merge).
+        TOL = 0.08  # 8cm: mergt Mess-Rauschen, trennt echte Nachbarn (60↔70cm)
         items = []
         for row in rows:
             d = _norm_dim(dict(row.get("daten") or {}))
@@ -2452,37 +2524,55 @@ async def projekt_massen(body: ProjektMassenRequest):
             return (i.get("raum") or "").strip().lower()
         def _is_stuk(i):
             return "stuk" in (i.get("quelle") or "").lower()
-        def _wbucket(i):
-            return round((i.get("breite_m") or 0) * 10)  # 10cm-Raster
+        def _konf(i):
+            try:
+                return float(i.get("konfidenz") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        def _bez(i):
+            return (i.get("bezeichnung") or "").strip().lower()
 
-        # Präzise STUK/FPH-Öffnungen pro (Raum, Breiten-Bucket) indizieren
-        stuk_keys = {(_rn(i), _wbucket(i)) for i in items
-                     if _is_stuk(i) and i.get("breite_m")}
-        # Räume mit mind. einer bemaßten Öffnung
+        # Räume mit mind. einer bemaßten Öffnung (für Maßlos-Verwerfung)
         raeume_mit_massen = {_rn(i) for i in items if i.get("breite_m") and i.get("hoehe_m")}
         raeume_mit_massen.discard("")
 
-        cleaned = []
-        seen = set()      # (raum, w-bucket, h-bucket) — exakte Duplikate
-        for i in items:
+        # Reihenfolge: bemaßte zuerst (Cluster-Seed), STUK vor Vision, höhere Konf zuerst
+        def _sortkey(i):
+            return (0 if (i.get("breite_m") and i.get("hoehe_m")) else 1,
+                    0 if _is_stuk(i) else 1,
+                    -_konf(i))
+
+        clusters = []  # {"raum","breite_m","hoehe_m","rep"}
+        for i in sorted(items, key=_sortkey):
             raum = _rn(i)
-            has_dims = bool(i.get("breite_m") and i.get("hoehe_m"))
-            is_stuk = _is_stuk(i)
-            # 1) Vision-Fund (kein STUK) der zu einer präzisen STUK-Öffnung im
-            #    selben Raum + Breiten-Bucket passt → dieselbe Öffnung, verwerfen.
-            if has_dims and not is_stuk and (raum, _wbucket(i)) in stuk_keys:
-                continue
-            # 2) Maßloser Fund in einem Raum der schon bemaßte Öffnungen hat → weg.
+            b, h = i.get("breite_m"), i.get("hoehe_m")
+            has_dims = bool(b and h)
+            # maßloser Fund in einem Raum mit bereits bemaßten Öffnungen → redundant
             if not has_dims and raum in raeume_mit_massen:
                 continue
-            # 3) Exaktes Duplikat (gleicher Raum + B + H-Bucket) → nur einmal.
-            if has_dims:
-                k = (raum, _wbucket(i), round((i.get("hoehe_m") or 0) * 10))
-                if k in seen:
+            match = None
+            for c in clusters:
+                if c["raum"] != raum:
                     continue
-                seen.add(k)
-            cleaned.append(i)
-        return cleaned
+                if has_dims and c["breite_m"] and c["hoehe_m"]:
+                    if abs(b - c["breite_m"]) <= TOL and abs(h - c["hoehe_m"]) <= TOL:
+                        match = c
+                        break
+                elif not has_dims and not (c["breite_m"] and c["hoehe_m"]):
+                    # zwei maßlose im selben Raum mit gleicher Bezeichnung → dieselbe
+                    if _bez(i) and _bez(i) == _bez(c["rep"]):
+                        match = c
+                        break
+            if match is not None:
+                rep = match["rep"]
+                for fld in ("breite_m", "hoehe_m", "fph_m", "stuk_m", "wand_typ", "raum"):
+                    if not rep.get(fld) and i.get(fld):
+                        rep[fld] = i[fld]
+                if has_dims and not (match["breite_m"] and match["hoehe_m"]):
+                    match["breite_m"], match["hoehe_m"] = b, h
+                continue
+            clusters.append({"raum": raum, "breite_m": b, "hoehe_m": h, "rep": i})
+        return [c["rep"] for c in clusters]
 
     alle_fenster = _collect_oeffnungen(fenster_rows)
     alle_tueren = _collect_oeffnungen(tueren_rows)
@@ -2841,6 +2931,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "merge_enrichments": enrichments,
         "h_inferred_count": ergaenzte_h,
         "h_inferred_value": h_median,
+        "aussen_ohne_h_count": aussen_ohne_h,
         "geschoss": geschoss,
         "raeume": merged_rooms,
         "fenster": alle_fenster,

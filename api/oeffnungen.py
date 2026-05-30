@@ -21,10 +21,12 @@ import math
 from typing import Optional
 
 
-# Anker-Patterns (Wortgrenzen damit "FPHX" nicht als FPH matcht)
-FPH_RX = re.compile(r"^FPH\s*[:+]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
-STUK_RX = re.compile(r"^STUK\s*[:+]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
-RPH_RX = re.compile(r"^RPH\s*[:+]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
+# Anker-Patterns. Trenner :/+/. optional, damit "FPH 0,90", "FPH:0.90" und
+# "FPH0,90" gleichermaßen matchen. FBH = Fenster-Brüstungs-Höhe (Synonym zur
+# Parapethöhe FPH — vom Nutzer als reales Plan-Code bestätigt) → wie FPH behandelt.
+FPH_RX = re.compile(r"^F(?:PH|BH)\s*[:+.]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
+STUK_RX = re.compile(r"^STUK\s*[:+.]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
+RPH_RX = re.compile(r"^RPH\s*[:+.]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
 # Allein stehende cm- oder m-Zahl, plausibel als Öffnungs-Breite
 BREITE_CM_RX = re.compile(r"^([0-9]{2,3})$")  # "60", "80", "120"
 BREITE_M_RX = re.compile(r"^([0-9])[,.]([0-9]{1,2})$")  # "0,80", "1,30", "2,40"
@@ -112,6 +114,11 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
     for fph in fph_spans:
         # STUK im Cluster (mit FPH)
         stuk_near = [s for s in stuk_spans if math.hypot(s["cx"] - fph["cx"], s["cy"] - fph["cy"]) < max_cluster_pt]
+        # Fallback: bei versetzter Beschriftung (FPH/STUK weiter auseinander
+        # platziert) bis 2× Radius suchen — nur wenn im engen Radius nichts ist.
+        # Die Höhen-Plausi (0 < h ≤ 3.5m unten) verwirft falsche Paarungen.
+        if not stuk_near:
+            stuk_near = [s for s in stuk_spans if math.hypot(s["cx"] - fph["cx"], s["cy"] - fph["cy"]) < max_cluster_pt * 2]
         if not stuk_near:
             continue  # ohne STUK keine Höhe ableitbar
         # Nächste STUK nehmen

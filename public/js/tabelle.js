@@ -763,10 +763,35 @@
       var masses = massenRes.data || [];
       var agentLog = (planRes.data && planRes.data.agent_log) ? planRes.data.agent_log : null;
 
-      // Nach Typ filtern
+      // Nach Typ filtern (Roh-Pro-Plan-Daten — Fallback)
       var rooms = elemente.filter(function (e) { return e.typ === 'raum'; });
       var windows = elemente.filter(function (e) { return e.typ === 'fenster'; });
       var doors = elemente.filter(function (e) { return e.typ === 'tuer'; });
+
+      // SINGLE SOURCE OF TRUTH: liegt die gemergte Projekt-Antwort vor
+      // (window.projektMassenData aus upload.js), zeige DIESE statt der
+      // Roh-Pro-Plan-elemente — sonst widerspricht die Detail-Tabelle dem
+      // Kopf (z.B. 4 vs 11 Fenster). Mappt die gemergten Dicts auf die
+      // elemente-Form, die renderRaeume/renderFenster/renderTueren erwarten.
+      var pm = window.projektMassenData;
+      if (pm && (pm.raeume || pm.fenster || pm.tueren)) {
+        var _mm = function (m) { return m ? Math.round(m * 1000) : null; };
+        rooms = (pm.raeume || []).map(function (r) {
+          return { typ: 'raum', konfidenz: r.konfidenz, bezeichnung: r.name, daten: r };
+        });
+        windows = (pm.fenster || []).map(function (w) {
+          return { typ: 'fenster', konfidenz: w.konfidenz, bezeichnung: w.bezeichnung, daten: {
+            bezeichnung: w.bezeichnung, raum: w.raum,
+            al_breite_mm: _mm(w.breite_m), al_hoehe_mm: _mm(w.hoehe_m), fph_mm: _mm(w.fph_m),
+            flaeche_m2: (w.breite_m && w.hoehe_m) ? +(w.breite_m * w.hoehe_m).toFixed(2) : null,
+            _source: (w.quelle || '').indexOf('stuk') >= 0 ? 'text' : 'vision' } };
+        });
+        doors = (pm.tueren || []).map(function (t) {
+          return { typ: 'tuer', konfidenz: t.konfidenz, bezeichnung: t.bezeichnung, daten: {
+            bezeichnung: t.bezeichnung, raum: t.raum, breite_mm: _mm(t.breite_m), hoehe_mm: _mm(t.hoehe_m),
+            typ: t.wand_typ || '', _source: (t.quelle || '').indexOf('stuk') >= 0 ? 'text' : 'vision' } };
+        });
+      }
 
       // Cache fuer Export
       cachedData = { rooms: rooms, windows: windows, doors: doors, masses: masses };

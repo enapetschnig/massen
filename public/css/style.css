@@ -2512,3 +2512,10 @@ img {
   .result-hero-title { font-size: 1.25rem; }
   .ml-board { grid-template-columns: 1fr; }
 }
+
+/* Gelesene Elemente — Untertitel je Tabelle (Räume/Fenster/Türen) */
+.read-sub {
+  font-size: 0.8rem; font-weight: 700; color: var(--primary);
+  margin: 0.9rem 0 0.3rem;
+}
+.read-sub:first-child { margin-top: 0; }

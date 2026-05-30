@@ -129,6 +129,27 @@ check("Vision-Räume ohne Text-Beleg verworfen", "Zimmer 7" in hallu_namen and "
       f"hallu: {hallu_namen}")
 check("nur die 6 echten Text-Räume in Berechnung", res["raeume_count"] == 6, f"got {res['raeume_count']}")
 
+print("\nSZENARIO 8: derselbe Raum unterschiedlich benannt über 2 Pläne → F/U/H zusammenführen")
+# Einreichplan: 'Wohnraum Küche' mit F+U (keine H). Polierplan: 'Küche' mit H.
+rooms = [("E", {"name": "Wohnraum Küche", "flaeche_m2": 31.12, "umfang_m": 25.95, "wohnung": "Haus", "_source": "text"})]
+rooms += [("A", {"name": "Küche", "hoehe_m": 2.95, "wohnung": "Haus", "_source": "text"})]
+# zwei klar verschiedene Zimmer dürfen NICHT verschmelzen
+rooms += [("E", {"name": "Zimmer 1", "flaeche_m2": 12.0, "umfang_m": 14.0, "hoehe_m": 2.95, "wohnung": "Haus", "_source": "text"})]
+rooms += [("E", {"name": "Zimmer 2", "flaeche_m2": 14.0, "umfang_m": 15.0, "hoehe_m": 2.95, "wohnung": "Haus", "_source": "text"})]
+# gleiches Kopf-Nomen, anderer Qualifizierer (keine Teilmenge) → NICHT mergen
+rooms += [("E", {"name": "Großes Bad", "flaeche_m2": 18.0, "umfang_m": 17.0, "hoehe_m": 2.95, "wohnung": "Haus", "_source": "text"})]
+rooms += [("E", {"name": "Kleines Bad", "flaeche_m2": 9.0, "umfang_m": 12.0, "hoehe_m": 2.95, "wohnung": "Haus", "_source": "text"})]
+res = _run(rooms, {"E": EG_LOG, "A": {"geo": {"geschoss": "EG"}}})
+kueche = [r for r in res["raeume"] if "üche" in (r.get("name") or "")]
+check("Wohnraum Küche + Küche → EIN Raum", len(kueche) == 1, f"got {[r.get('name') for r in kueche]}")
+check("Küche-Raum hat F+U+H zusammengeführt",
+      kueche and kueche[0].get("flaeche_m2") and kueche[0].get("umfang_m") and kueche[0].get("hoehe_m"),
+      f"got {kueche[0] if kueche else None}")
+zimmer1 = [r for r in res["raeume"] if (r.get("name") or "").lower() in ("zimmer 1", "zimmer 2")]
+check("Zimmer 1 + Zimmer 2 bleiben getrennt (Ziffern-Gate)", len(zimmer1) == 2, f"got {[r.get('name') for r in zimmer1]}")
+baeder = [r for r in res["raeume"] if (r.get("name") or "").lower().endswith("bad")]
+check("Großes/Kleines Bad bleiben getrennt (kein Teilmengen-Match)", len(baeder) == 2, f"got {[r.get('name') for r in baeder]}")
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Generalisierungs-Test(s) gescheitert: {fails}")
