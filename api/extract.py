@@ -3053,10 +3053,20 @@ async def projekt_massen(body: ProjektMassenRequest):
         iso_min = 4.0 * (bp_flaeche ** 0.5)
         umfang_ceil = iso_min * 2.50   # großzügig (auch lange/zerklüftete Bauten)
 
+        # VALIDIERTE Kettenbemaßung (Σ Segmente = gedrucktes Gesamtmaß) ist
+        # byte-exakt → höchste Priorität, KEIN Mitteln mit verrauschten Quellen.
+        validated_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten
+                              if c.get("validiert") and c.get("umfang_m")]
+        m_valid = _median(validated_umfaenge)
         mbbox = _median(bbox_umfaenge)
         mpoly = _median(poly_umfaenge)
 
-        if mbbox:
+        if m_valid:
+            # Byte-exakt aus dem Plan gelesen (Maßkette gegen Gesamtmaß geprüft).
+            aussenumfang_m = round(min(max(m_valid, iso_min), umfang_ceil), 2)
+            quelle = "kettenbemaßung-validiert"
+            konf = 0.97
+        elif mbbox:
             # POLYGON-BUILD: 2×(B+T) ist exakt für Rechteck/L-Form → direkt nutzen,
             # nur an physikalischen Grenzen clampen (NICHT künstlich aufblähen).
             aussenumfang_m = round(min(max(mbbox, iso_min), umfang_ceil), 2)
