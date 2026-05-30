@@ -229,6 +229,15 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         umfang_quelle = f"sqrt(BP)·4·{f('aussenumfang_aufschlag', override):.2f}-Aufschlag"
         umfang_konfidenz = 0.55
 
+    # ── Fundamentplatten-Außenkante (Linie B aus Vision-Außenkontur) ──
+    # Frostschürze, Randabschluss & Sockelabdichtung laufen AUSSEN um die
+    # durchgehende Bodenplatte — also auch unter fest angebauten überdachten
+    # Bereichen (Loggia, überdachte Terrasse) weiter. Das MAUERWERK dagegen
+    # folgt nur der gemauerten Hülle (aussenumfang_m). Fehlt Linie B → = Hülle
+    # (Verhalten exakt wie bisher, kein Regressions-Effekt).
+    fundament_umfang_m = round(float(gemessen.get("fundament_umfang_m") or aussenumfang_m), 2)
+    _fund_groesser = fundament_umfang_m > aussenumfang_m + 0.05
+
     aw_m2_aussen = round(aussenumfang_m * h, 2)
     # Innenwand-Fläche OHNE Doppelzählung: Σ Raum-Umfang zählt jede Innenwand
     # von BEIDEN angrenzenden Räumen (2×), die Außenwand-Innenseite 1×. Also:
@@ -242,8 +251,9 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
 
     # ═══ Frostschürze ═══
     # Die Frostschürze läuft als Graben AUSSEN um die Bodenplatte → etwas
-    # größerer Umfang als die Gebäude-Außenkante (frostgraben_aufschlag).
-    fg_umfang = round(aussenumfang_m * f("frostgraben_aufschlag", override), 2)
+    # größerer Umfang als die Bodenplatten-Außenkante (frostgraben_aufschlag).
+    # Basis = Fundamentkante (Linie B), nicht die gemauerte Hülle.
+    fg_umfang = round(fundament_umfang_m * f("frostgraben_aufschlag", override), 2)
     fs_tiefe = f("frostschuerze_tiefe_m", override)
     fs_breite = f("frostschuerze_breite_m", override)
     fs_m3 = fg_umfang * fs_tiefe * fs_breite
@@ -293,7 +303,10 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         bodenplatte_m2, f"{bodenplatte_m2}m²", konfidenz=0.7))
     out.append(MaterialPos(
         "Bodenplatte", "Randabschlusskorb 16cm", "lfm",
-        aussenumfang_m, f"Außenumfang {aussenumfang_m}m", konfidenz=0.65))
+        fundament_umfang_m,
+        f"Bodenplatten-Außenkante {fundament_umfang_m}m" +
+        (" (inkl. angebauter überdachter Fläche)" if _fund_groesser else ""),
+        konfidenz=0.65))
     aq65_bp = f("aq65_m2_pro_matte", override)
     out.append(MaterialPos(
         "Bodenplatte", "Baustahlgitter AQ 65", "Stk",
@@ -306,8 +319,8 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         f"{bodenplatte_m2}m² ÷ {pe_roll}m²/Rolle", konfidenz=0.6))
     out.append(MaterialPos(
         "Bodenplatte", "Torstahl 12mm (Schürzen-Bewehrung)", "Stk",
-        round(aussenumfang_m * f("torstahl_stk_pro_m_randabschluss", override)),
-        "Außenumfang × Stk-Dichte", konfidenz=0.4))
+        round(fundament_umfang_m * f("torstahl_stk_pro_m_randabschluss", override)),
+        "Bodenplatten-Außenkante × Stk-Dichte", konfidenz=0.4))
 
     # ═══ Mauerwerk EG — HLZ-Paletten pro Wandstärke ═══
     # Paletten-Deckung pro m² Wand: bekannte Stärke aus DEFAULTS, sonst

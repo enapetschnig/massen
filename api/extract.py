@@ -1729,26 +1729,34 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
         # für ~25% Abweichung bei HLZ-Paletten und EKV-Bahnen sorgt.
         # ═══════════════════════════════════════════════════════════════
         AUSSENKONTUR_PROMPT = """Du siehst einen oesterreichischen EFH-Grundriss.
-Bestimme die AUSSENKONTUR der GEMAUERTEN HAUPTBAU-Huelle — also
-die Aussenwand-Linie um die geheizten Innenraeume + Geraete-/
-Abstellraum + Stiegenhaus. NICHT die Terrasse, NICHT den Parkplatz,
-NICHT ueberdachte Carports — auch wenn sie ueberdacht sind, gehoeren
-sie NICHT in die Bodenplatten-Aussenkontur, weil sie kein durchgehendes
-Fundament/Mauerwerk haben.
+Ein Polier unterscheidet ZWEI verschiedene Aussenlinien — gib BEIDE zurueck:
 
-Einfache Regel: wenn ein Bereich Aussen-Bodenbelag (Pflaster/Terrasse)
-hat ohne 4 gemauerte Aussenwaende, gehoert er NICHT in die Kontur.
+══ LINIE A: GEMAUERTE HAUPTBAU-HUELLE ══
+Die Aussenwand-Linie um die geheizten Innenraeume + Geraete-/Abstell-
+raum + Stiegenhaus. Das ist die Linie fuer das MAUERWERK (Ziegel).
+NICHT die Terrasse, NICHT ueberdachte Bereiche — nur die 4 gemauerten
+Aussenwaende des Hauptbaus.
 
-EFH haben fast IMMER eine L-/U-/T-Form mit Vor- und Ruecksprungeen.
-Ein einfaches Rechteck ist die seltene Ausnahme.
+══ LINIE B: FUNDAMENTPLATTEN-AUSSENKANTE ══
+Die Aussenkante der DURCHGEHENDEN BODENPLATTE / des Fundaments. Das ist
+die Linie fuer FROSTSCHUERZE, RANDABSCHLUSS und Sockelabdichtung — sie
+laeuft AUSSEN um ALLES, was auf DERSELBEN durchgehenden Platte steht:
+  • den gemauerten Hauptbau (Linie A), UND
+  • fest angebaute ueberdachte/auskragende Bereiche, die mit dem Haus auf
+    EINER Platte stehen: Loggia, ueberdachte Terrasse unter dem Hauptdach,
+    eingebundener ueberdachter Eingang, in den Baukoerper integrierter Carport.
+AUSGENOMMEN von Linie B: freistehende Terrassen/Carports mit EIGENEM,
+getrenntem Fundament (erkennbar an eigener Fundamentlinie / Fuge / nicht
+unter dem Hauptdach). Im Zweifel: was unter dem durchgehenden Hauptdach
+liegt und an >=1 Hauswand anschliesst, gehoert zu Linie B.
 
-Liefere zwei Sachen:
-1) Polygon der Aussenkontur des Hauptbaus — JEDE Ecke einzeln auflisten.
-   Bei einer L-Form sind das 6 Ecken, bei U-Form 8 Ecken. Nicht vereinfachen!
-   Koordinaten in NORMIERTEN 0-1 relativ zur sichtbaren Plan-Flaeche.
-2) Die Aussenmasse in METERN je Wand-Segment, abgelesen aus der
-   Hauptbemassungskette am Plan-Rand. Pro Himmelsrichtung KANN es
-   MEHRERE Werte geben (L-Form: Nordfassade hat z.B. 8m + 4m = 12m).
+Linie B ist IMMER >= Linie A (oft 5-20% groesser). Wenn ein Plan keine
+angebauten ueberdachten Bereiche zeigt, ist Linie B = Linie A.
+
+EFH haben fast IMMER eine L-/U-/T-Form mit Vor- und Ruecksprungen.
+Ein einfaches Rechteck ist die seltene Ausnahme. Lies die Masse aus der
+Hauptbemassungskette am Plan-Rand. Pro Himmelsrichtung KANN es MEHRERE
+Werte geben (L-Form: Nordfassade z.B. 8m + 4m = 12m → "N" und "N_b").
 
 JSON-Antwort, kein Markdown:
 {
@@ -1756,16 +1764,20 @@ JSON-Antwort, kein Markdown:
   "seiten_m": {"N": 12.40, "S": 7.20, "S_b": 5.20, "W": 8.00, "E": 4.50, "E_b": 3.50},
   "umfang_m": 40.80,
   "flaeche_m2": 79.56,
+  "fundament_seiten_m": {"N": 12.40, "S": 12.40, "W": 10.20, "E": 10.20},
+  "fundament_umfang_m": 45.20,
+  "fundament_flaeche_m2": 126.50,
+  "fundament_einschluss": ["ueberdachte Terrasse Sued"],
   "konfidenz": 0.85
 }
 Wichtig:
-- Polygon im Uhrzeigersinn beginnend oben-links.
-- Bei jedem Versatz/Vorsprung: alle Ecken auflisten.
-- "umfang_m" = Summe ALLER seiten_m-Werte (auch _b/_c-Suffix-Segmente).
-- "flaeche_m2" = Polygon-Flaeche (Shoelace-Formel) des Hauptbaus.
-- Plausi: EFH-Bodenplatte typisch 80-180 m², EFH-Umfang 50-80m.
-- Wenn Bodenplatten-Flaeche > 200 m² oder Umfang > 90m: pruefe ob du
-  Terrasse/Parkplatz mitgenommen hast — die gehoeren NICHT rein."""
+- "polygon_norm" + "seiten_m" + "umfang_m" + "flaeche_m2" = LINIE A (Hauptbau).
+- "fundament_*" = LINIE B (Bodenplatten-Aussenkante inkl. angebauter ueberdachter Bereiche).
+- "fundament_einschluss" = Liste der Bereiche, die du ueber Linie A hinaus mitgenommen hast (leer = keine).
+- Beide "umfang_m" = Summe ALLER zugehoerigen seiten_m-Werte (auch _b/_c-Segmente).
+- Plausi: EFH-Hauptbau 80-180 m² / Umfang 45-75m. Fundamentkante bis ~30% groesser.
+- Wenn fundament_flaeche_m2 > 1.6 × flaeche_m2: zu viel mitgenommen — nur fest
+  angebaute, ueberdachte, auf der Platte stehende Bereiche zaehlen."""
 
         aussenkontur_vision = {}
         try:
@@ -1809,8 +1821,28 @@ Wichtig:
                             aussenkontur_vision["_umfang_korrigiert"] = True
                     else:
                         aussenkontur_vision["umfang_m"] = round(summe, 2)
-                print(f"[aussenkontur] umfang={aussenkontur_vision.get('umfang_m')} m, "
+                # LINIE B (Fundamentplatten-Außenkante): gleiche Konsistenz +
+                # Plausi-Klemmung. Sie MUSS ≥ Linie A sein und darf nicht
+                # absurd groß werden (Vision-Übererfassung) → Band [1.0, 1.30].
+                f_seiten = aussenkontur_vision.get("fundament_seiten_m") or {}
+                f_umfang = aussenkontur_vision.get("fundament_umfang_m")
+                if f_seiten and not f_umfang:
+                    f_umfang = round(sum(float(v or 0) for v in f_seiten.values()), 2)
+                a_umf = aussenkontur_vision.get("umfang_m")
+                a_fl = aussenkontur_vision.get("flaeche_m2")
+                if f_umfang and a_umf:
+                    f_umfang = float(f_umfang)
+                    # Fundamentkante nie kleiner als Hauptbau, nie >30% größer
+                    f_umfang = min(max(f_umfang, float(a_umf)), float(a_umf) * 1.30)
+                    aussenkontur_vision["fundament_umfang_m"] = round(f_umfang, 2)
+                f_fl = aussenkontur_vision.get("fundament_flaeche_m2")
+                if f_fl and a_fl:
+                    f_fl = min(max(float(f_fl), float(a_fl)), float(a_fl) * 1.60)
+                    aussenkontur_vision["fundament_flaeche_m2"] = round(f_fl, 2)
+                print(f"[aussenkontur] hauptbau_umfang={aussenkontur_vision.get('umfang_m')} m, "
+                      f"fundament_umfang={aussenkontur_vision.get('fundament_umfang_m')} m, "
                       f"flaeche={aussenkontur_vision.get('flaeche_m2')} m², "
+                      f"einschluss={aussenkontur_vision.get('fundament_einschluss')}, "
                       f"konf={aussenkontur_vision.get('konfidenz')}")
         except Exception as _exc:
             print(f"[aussenkontur] failed: {_exc!r}")
@@ -2497,6 +2529,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
     aussenpolygon_kandidaten = []  # Liste von {umfang_m, flaeche_m2, quelle}
+    fundament_kandidaten = []  # Linie B: Bodenplatten-Außenkante {umfang_m, flaeche_m2}
     for p in plaene:
         log = p.get("agent_log") or {}
         gw = log.get("gewerke") or {}
@@ -2541,6 +2574,16 @@ async def projekt_massen(body: ProjektMassenRequest):
                 "plan": p.get("dateiname"),
                 "quelle": "vision-aussenkontur",
             })
+            # Linie B: Fundamentplatten-Außenkante (für Frostschürze/Randabschluss)
+            if ak.get("fundament_umfang_m"):
+                fundament_kandidaten.append({
+                    "umfang_m": float(ak["fundament_umfang_m"]),
+                    "flaeche_m2": float(ak.get("fundament_flaeche_m2") or 0) or None,
+                    "ueber_hauptbau": round(float(ak["fundament_umfang_m"]) / float(ak["umfang_m"]), 3)
+                        if ak.get("umfang_m") else None,
+                    "einschluss": ak.get("fundament_einschluss") or [],
+                    "plan": p.get("dateiname"),
+                })
             # Auch aus dem Vision-Polygon eine Bounding-Box rechnen (Cross-Check)
             akb = _bbox_from_sides(ak.get("seiten_m") or {})
             if akb:
@@ -2640,12 +2683,34 @@ async def projekt_massen(body: ProjektMassenRequest):
         if bp_korrigiert:
             quelle += "+bp-plausi"
 
+        # ── LINIE B: Fundamentplatten-Außenkante (Frostschürze/Randabschluss) ──
+        # Median über alle Pläne; muss ≥ Hauptbau-Umfang sein und darf nicht
+        # >30% darüber liegen. Fehlt Linie B (alter Vision-Output / kein
+        # angebauter überdachter Bereich) → = aussenumfang_m (Verhalten wie bisher).
+        fund_umfaenge = [c["umfang_m"] for c in fundament_kandidaten if c.get("umfang_m")]
+        m_fund = _median(fund_umfaenge)
+        fundament_einschluss = []
+        for c in fundament_kandidaten:
+            for e in (c.get("einschluss") or []):
+                if e and e not in fundament_einschluss:
+                    fundament_einschluss.append(e)
+        if m_fund and m_fund > aussenumfang_m + 0.3:
+            fundament_umfang_m = round(min(m_fund, aussenumfang_m * 1.30), 2)
+            fundament_quelle = "vision-fundamentkante"
+        else:
+            fundament_umfang_m = aussenumfang_m
+            fundament_quelle = "= Hauptbau (keine angebaute überdachte Fläche)"
+
         gemessen = {
             "aussenumfang_m": aussenumfang_m,
+            "fundament_umfang_m": fundament_umfang_m,
+            "fundament_quelle": fundament_quelle,
+            "fundament_einschluss": fundament_einschluss,
             "bodenplatte_flaeche_m2": bp_flaeche,
             "quelle": quelle,
             "konfidenz": konf,
             "_debug": {"bbox_umfaenge": bbox_umfaenge, "poly_umfaenge": poly_umfaenge,
+                       "fund_umfaenge": fund_umfaenge,
                        "iso_min": round(iso_min, 1), "ceil": round(umfang_ceil, 1)},
         }
 

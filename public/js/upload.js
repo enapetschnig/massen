@@ -274,8 +274,14 @@
     bdFact('▦', 'Decke', 'decke_cm', ' cm');
     bdFact('🟫', 'Bodenplatte', 'bodenplatte_cm', ' cm');
     bdFact('📏', 'Geschoss-H', 'geschosshoehe_m', ' m');
-    if (g.aussenumfang_m) facts.push('<div class="fact"><span class="fact-ico">📐</span><span class="fact-k">Außenumfang</span><span class="fact-v">' +
+    if (g.aussenumfang_m) facts.push('<div class="fact" title="Gemauerte Hülle — Basis für das Mauerwerk"><span class="fact-ico">📐</span><span class="fact-k">Außenumfang</span><span class="fact-v">' +
       fmtNum(g.aussenumfang_m) + ' m</span><span class="fact-src measured">gemessen</span></div>');
+    if (g.fundament_umfang_m && g.fundament_umfang_m > (g.aussenumfang_m || 0) + 0.05) {
+      var eins = (g.fundament_einschluss || []).join(', ');
+      facts.push('<div class="fact" title="Bodenplatten-Außenkante für Frostschürze/Randabschluss' +
+        (eins ? ' — inkl. ' + esc(eins) : '') + '"><span class="fact-ico">🔲</span><span class="fact-k">Fundamentkante</span><span class="fact-v">' +
+        fmtNum(g.fundament_umfang_m) + ' m</span><span class="fact-src measured">gemessen</span></div>');
+    }
     if (g.bodenplatte_flaeche_m2) facts.push('<div class="fact"><span class="fact-ico">⬛</span><span class="fact-k">Grundfläche</span><span class="fact-v">' +
       fmtNum(g.bodenplatte_flaeche_m2) + ' m²</span><span class="fact-src measured">gemessen</span></div>');
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
