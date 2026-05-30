@@ -3250,20 +3250,23 @@ async def projekt_massen(body: ProjektMassenRequest):
                                  if _kat_check(r.get("name") or "") == "Loggia")
         n_ueberdacht = sum(1 for r in merged_rooms if _kat_check(r.get("name") or "") == "Loggia")
         linie_b_erkannt = bool(m_fund and m_fund > aussenumfang_m + 0.3)
-        if linie_b_erkannt:
-            fundament_umfang_m = round(min(m_fund, aussenumfang_m * 1.30), 2)
-            fundament_quelle = "vision-fundamentkante"
-            fundament_unsicher = False
-        elif ueberdacht_flaeche > 4 and bp_flaeche:
-            # Vision hat die Slab-Kante nicht erweitert, aber es GIBT angebaute
-            # überdachte Bereiche → die Platte läuft mglw. darunter weiter.
-            # SCHÄTZUNG: Umfang skaliert isoperimetrisch mit √(Slab/Footprint),
-            # Slab ≈ Grundfläche + überdachte Fläche. Geklemmt auf ≤1,5× Hülle.
-            # WIE WEIT die Platte wirklich reicht steht nur im Polierplan → unsicher.
+        vision_b = round(min(m_fund, aussenumfang_m * 1.30), 2) if linie_b_erkannt else None
+        # SCHÄTZUNG aus byte-exakten überdachten Flächen: die Platte läuft mglw.
+        # unter Terrasse/Carport weiter → Umfang isoperimetrisch hochskaliert
+        # (Slab ≈ Grundfläche + überdachte Fläche), geklemmt ≤1,5× Hülle.
+        slab_est = None
+        if ueberdacht_flaeche > 4 and bp_flaeche:
             faktor = ((bp_flaeche + ueberdacht_flaeche) / bp_flaeche) ** 0.5
-            fundament_umfang_m = round(min(aussenumfang_m * faktor, aussenumfang_m * 1.5), 2)
-            fundament_quelle = "geschätzt aus überdachten Flächen (Polierplan prüfen)"
-            fundament_unsicher = True
+            slab_est = round(min(aussenumfang_m * faktor, aussenumfang_m * 1.5), 2)
+        # GRÖSSERE plausible Schätzung gewinnt — Vision unterschätzt die Slab-Kante
+        # systematisch, die Flächen-Schätzung ist byte-exakt verankert.
+        cands = [c for c in (vision_b, slab_est) if c]
+        if cands:
+            fundament_umfang_m = max(cands)
+            ist_schaetzung = (slab_est is not None and fundament_umfang_m == slab_est)
+            fundament_quelle = ("geschätzt aus überdachten Flächen (Polierplan prüfen)"
+                                if ist_schaetzung else "vision-fundamentkante")
+            fundament_unsicher = ist_schaetzung
         else:
             fundament_umfang_m = aussenumfang_m
             fundament_quelle = "= Hauptbau (keine angebaute überdachte Fläche)"
