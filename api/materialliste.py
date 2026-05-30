@@ -173,6 +173,11 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     #   K_FORM = reine Faustformel/Annahme (Dichten, Pauschalen) → niedrig
     K_GEO = round(min(0.96, float((gemessen or {}).get("konfidenz") or 0.0) or 0.62), 2)
     K_LEG = round(min(0.97, float((legende or {}).get("konfidenz") or 0.0) or 0.0), 2)
+    # UMFANG separat: Frostschürze/Randabschluss/Außenwand hängen am Außenumfang,
+    # der bei L-Form von Vision unterschätzt wird → eigene, ehrlich niedrigere
+    # Konfidenz wenn der Umfang nicht validiert/verdächtig ist. Fläche bleibt hoch.
+    K_UMF = round(min(0.96, float((gemessen or {}).get("umfang_konfidenz")
+                                  or (gemessen or {}).get("konfidenz") or 0.62)), 2)
     # Σ-F-verankerte + Legende-gelesene Werte sind faktisch byte-exakt → bis 0.96
     K_BEIDE = round(min(K_GEO, K_LEG) if K_LEG else K_GEO * 0.9, 2)
     K_FORM = 0.5   # reine Faustformel ohne direkte Messung — bleibt ehrlich niedrig
@@ -593,26 +598,37 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     DICHTE_FORMEL = ("steckeisen", "torstahl", "bügel", "abstandhalter")
     # Aus byte-exakter Fläche × Produkt-Deckung (Matte/Rolle) → mittel-hoch
     FLAECHEN_PRODUKT = ("aq 65", "pe-folie")
+    # Direkt am Außen-/Fundament-UMFANG hängend → K_UMF (sinkt bei L-Form-Verdacht)
+    PERIMETER_MAT = ("randabschluss", "mauersperrbahn")
     for p in out:
         b, mat = p.bauteil, p.material.lower()
+        formel = (p.formel or "").lower()
+        # umfang-getrieben? (Frostgraben/Außenkante/Außenumfang/Außenwand in der Formel)
+        umf = any(s in formel for s in ("umfang", "außenkante", "außenwand", "frostgraben", "aussenkante", "aussenwand"))
         if any(k in mat for k in DICHTE_FORMEL):
             p.konfidenz = K_FORM                       # reine Bewehrungs-Dichte
         elif any(k in mat for k in FLAECHEN_PRODUKT):
             p.konfidenz = round(min(K_GEO, 0.72), 2)   # Fläche byte-exakt × Produkt-Norm
+        elif any(k in mat for k in PERIMETER_MAT):
+            p.konfidenz = K_UMF                         # läuft am Umfang → Umfang-Konfidenz
         elif b == "Bodenaufbau" or "sauberkeit" in mat:
             p.konfidenz = K_BEIDE if K_LEG else round(K_GEO * 0.85, 2)
         elif b == "Mauerwerk EG" and "hlz" in mat:
-            p.konfidenz = K_BEIDE                       # Fläche × Legende-Wandstärke
+            # Außenwand-HLZ (Umfang×H) erbt die Umfang-Unsicherheit; Innenwand byte-exakt
+            p.konfidenz = round(min(K_BEIDE, K_UMF + 0.05), 2) if ("aw" in formel) else K_BEIDE
         elif b in ("Attika", "Säulen"):
             p.konfidenz = round(K_GEO * 0.6, 2)         # parametrische Schätzung
         elif b in ("Kamin", "Infrastruktur"):
             p.konfidenz = 0.7                           # Text-Zählung
         elif b == "Frostschürze":
-            p.konfidenz = K_GEO if "noppenfolie" in mat else round(K_GEO * 0.82, 2)
+            p.konfidenz = K_UMF if "noppenfolie" in mat else round(K_UMF * 0.9, 2)
         elif b in ("Bodenplatte", "Decke über EG"):
-            p.konfidenz = round(K_GEO * 0.85, 2) if ("iso-korb" in mat or "voranstrich" in mat) else K_GEO
+            if umf:
+                p.konfidenz = K_UMF                     # Rand/Umfang-getrieben
+            else:
+                p.konfidenz = round(K_GEO * 0.85, 2) if ("iso-korb" in mat or "voranstrich" in mat) else K_GEO
         elif b == "Mauerwerk EG":
-            p.konfidenz = round(K_GEO * 0.88, 2)
+            p.konfidenz = round(min(K_GEO, K_UMF + 0.05), 2) if umf else round(K_GEO * 0.88, 2)
 
     return out
 

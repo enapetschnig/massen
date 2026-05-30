@@ -3131,6 +3131,14 @@ async def projekt_massen(body: ProjektMassenRequest):
         if bp_korrigiert:
             quelle += "+bp-plausi"
 
+        # EHRLICHKEIT: ein UNVALIDIERTER Umfang nahe dem geometrischen Minimum
+        # (< iso_min×1.22) ist verdächtig — reale EFH liegen bei 1.25–1.45×√A.
+        # So niedrig heißt meist: Vision hat eine L-/U-Form als kompakt gelesen.
+        # → Umfang-Konfidenz separat senken (Fläche bleibt byte-exakt hoch), damit
+        #   Trust-Ring + Geo-Kasten die Unsicherheit ZEIGEN statt ✓ zu suggerieren.
+        umfang_verdacht_niedrig = (not umfang_validiert) and (aussenumfang_m < iso_min * 1.22)
+        umfang_konfidenz = round(min(konf, 0.5) if umfang_verdacht_niedrig else konf, 2)
+
         # ── LINIE B: Fundamentplatten-Außenkante (Frostschürze/Randabschluss) ──
         # Vision-Umfang ODER aus fundament_seiten_m rekonstruiert; muss ≥ Hauptbau
         # sein und ≤ 1,30× Hauptbau. Fehlt Linie B → = aussenumfang_m (wie bisher).
@@ -3169,11 +3177,13 @@ async def projekt_massen(body: ProjektMassenRequest):
             "fundament_einschluss": fundament_einschluss,
             "bodenplatte_flaeche_m2": bp_flaeche,
             "quelle": quelle,
-            "konfidenz": konf,
+            "konfidenz": konf,                      # Flächen-Konfidenz (byte-exakt-Anker)
+            "umfang_konfidenz": umfang_konfidenz,   # separat: sinkt bei verdächtigem Umfang
             "geometrie_qualitaet": {
                 "umfang_quelle": quelle,
-                "umfang_konfidenz": konf,
+                "umfang_konfidenz": umfang_konfidenz,
                 "umfang_validiert": umfang_validiert,
+                "umfang_verdacht_niedrig": umfang_verdacht_niedrig,
                 "poly_vs_bbox_diff_pct": poly_vs_bbox,
                 "cross_check_warnung": cross_check_warnung,
                 "linie_b_erkannt": linie_b_erkannt,
@@ -3340,6 +3350,24 @@ async def projekt_massen(body: ProjektMassenRequest):
             for k in applied:
                 best_baudaten["_quellen"][k] = "user"
             best_baudaten["konfidenz"] = max(float(best_baudaten.get("konfidenz") or 0), 0.95)
+        # Direkter Außenumfang-Override (Polier hat am Plan gemessen) → schlägt
+        # die Vision-Schätzung 1:1; setzt auch die Fundamentkante proportional nach.
+        try:
+            uo = float(ov.get("aussenumfang_m")) if isinstance(ov, dict) and ov.get("aussenumfang_m") else None
+        except (TypeError, ValueError):
+            uo = None
+        if uo and 10 <= uo <= 400 and gemessen:
+            alt_u = gemessen.get("aussenumfang_m") or uo
+            verh = (gemessen.get("fundament_umfang_m") or alt_u) / alt_u if alt_u else 1.0
+            gemessen["aussenumfang_m"] = round(uo, 2)
+            gemessen["fundament_umfang_m"] = round(uo * max(1.0, verh), 2)
+            gemessen["konfidenz"] = 0.98
+            gemessen["umfang_konfidenz"] = 0.98
+            gemessen["quelle"] = "user-gemessen"
+            gq = gemessen.setdefault("geometrie_qualitaet", {})
+            gq.update({"umfang_quelle": "user-gemessen", "umfang_konfidenz": 0.98,
+                       "umfang_validiert": True, "umfang_verdacht_niedrig": False,
+                       "cross_check_warnung": False})
 
     # 7) Gewerk-Berechnung neu mit gemergten Räumen — nur ausgewählte Gewerke
     gewerke_keys = body.gewerke_filter if body.gewerke_filter else None

@@ -70,6 +70,23 @@ xps_a = _menge(ml_a, "Bodenplatte", "XPS-SF G30 120")
 xps_b = _menge(ml_b, "Bodenplatte", "XPS-SF G30 120")
 check("Bodenplatten-Fläche (XPS 120) unverändert", xps_a == xps_b, f"a={xps_a} b={xps_b}")
 
+print("\nEhrliche Konfidenz: niedriger Umfang senkt UMFANG-Positionen, nicht die Fläche:")
+# gemessen mit verdächtig niedrigem Umfang → umfang_konfidenz niedrig
+G_LOW = {"aussenumfang_m": 50.0, "fundament_umfang_m": 50.0, "bodenplatte_flaeche_m2": 125.0,
+         "konfidenz": 0.9, "umfang_konfidenz": 0.5, "quelle": "test"}
+ml_low = build_materialliste(ROOMS, [], BAUDATEN, gemessen=G_LOW)
+def _konf(ml, bauteil, needle):
+    for p in ml["bauteile"].get(bauteil, []):
+        if needle.lower() in p["material"].lower():
+            return p["konfidenz"]
+    return None
+fs_k = _konf(ml_low, "Frostschürze", "XPS-SF G30")
+ekv_k = _konf(ml_low, "Bodenplatte", "EKV-5")
+ra_k = _konf(ml_low, "Bodenplatte", "Randabschluss")
+check("Frostschürze-Konfidenz folgt Umfang-Konfidenz (≤0.55)", fs_k is not None and fs_k <= 0.55, f"got {fs_k}")
+check("Randabschluss-Konfidenz folgt Umfang-Konfidenz (≤0.55)", ra_k is not None and ra_k <= 0.55, f"got {ra_k}")
+check("Bodenplatten-FLÄCHE (EKV) bleibt hoch trotz niedrigem Umfang (≥0.85)", ekv_k is not None and ekv_k >= 0.85, f"got {ekv_k}")
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Test(s) gescheitert: {fails}")

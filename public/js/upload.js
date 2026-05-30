@@ -320,6 +320,7 @@
     if (g.aussenumfang_m) {
       var cls, mark, note;
       if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'Kettenbemaßung bestätigt (Σ = Gesamtmaß)'; }
+      else if (gq.umfang_verdacht_niedrig) { cls = 'warn'; mark = '⚠'; note = 'wirkt zu niedrig für die Grundfläche — am Plan prüfen / Umfang setzen'; }
       else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'Quellen uneinig — am Plan prüfen'; }
       else { cls = 'ok'; mark = '✓'; note = 'aus gemessener Geometrie'; }
       t.push(tile('📐', 'Außenumfang', fmtNum(g.aussenumfang_m) + ' m', cls, mark, note));
@@ -379,9 +380,15 @@
       hints.push('<div class="status-info">✂ <strong>' + esc(d.groesse) + '</strong> von ' + d.vorher + ' auf ' +
         d.wert + ' korrigiert — Symbol-Zählung am Plan ergab ' + d.symbol + ' (Doppelzählung entfernt).</div>');
     });
-    // Geometrie-Cross-Check: Mess-Quellen uneinig → Außenumfang am Plan prüfen
+    // Geometrie: Außenumfang verdächtig/unsicher → am Plan prüfen
     var gq = (data.gemessen || {}).geometrie_qualitaet || {};
-    if (gq.cross_check_warnung && (data.gemessen || {}).aussenumfang_m) {
+    var g0 = data.gemessen || {};
+    if (gq.umfang_verdacht_niedrig && g0.aussenumfang_m) {
+      hints.push('<div class="status-warn">⚠ <strong>Außenumfang wirkt zu niedrig</strong> (' +
+        fmtNum(g0.aussenumfang_m) + ' m bei ' + fmtNum(g0.bodenplatte_flaeche_m2) + ' m² Grundfläche). ' +
+        'Vermutlich ein L-/U-Bau, den die KI zu kompakt liest. <strong>Frostschürze, Randabschluss und Außenwand-Ziegel sind dadurch zu niedrig</strong> — ' +
+        'bitte am Plan prüfen und unten im Erweitert-Drawer den echten Umfang setzen.</div>');
+    } else if (gq.cross_check_warnung && g0.aussenumfang_m) {
       hints.push('<div class="status-warn">⚠ <strong>Außenumfang unsicher</strong> — die Mess-Quellen sind sich uneinig' +
         (gq.poly_vs_bbox_diff_pct ? ' (' + gq.poly_vs_bbox_diff_pct + '% Abweichung)' : '') +
         '. Frostschürze/Randabschluss/Mauerwerk am Plan gegenprüfen oder im Erweitert-Drawer den Umfang setzen.</div>');
