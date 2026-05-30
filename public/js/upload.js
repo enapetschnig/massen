@@ -379,6 +379,13 @@
       hints.push('<div class="status-info">✂ <strong>' + esc(d.groesse) + '</strong> von ' + d.vorher + ' auf ' +
         d.wert + ' korrigiert — Symbol-Zählung am Plan ergab ' + d.symbol + ' (Doppelzählung entfernt).</div>');
     });
+    // Geometrie-Cross-Check: Mess-Quellen uneinig → Außenumfang am Plan prüfen
+    var gq = (data.gemessen || {}).geometrie_qualitaet || {};
+    if (gq.cross_check_warnung && (data.gemessen || {}).aussenumfang_m) {
+      hints.push('<div class="status-warn">⚠ <strong>Außenumfang unsicher</strong> — die Mess-Quellen sind sich uneinig' +
+        (gq.poly_vs_bbox_diff_pct ? ' (' + gq.poly_vs_bbox_diff_pct + '% Abweichung)' : '') +
+        '. Frostschürze/Randabschluss/Mauerwerk am Plan gegenprüfen oder im Erweitert-Drawer den Umfang setzen.</div>');
+    }
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {
       hints.push('<div class="status-warn">⚠ <strong>0 Öffnungen erkannt</strong> — Laibungen, Rolladenkästen und Überlagen werden pauschal geschätzt.</div>');
