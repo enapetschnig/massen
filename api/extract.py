@@ -1456,9 +1456,13 @@ Wichtig:
             # Aggregiere Wandlängen je Seite mit SELBST-PRÜFUNG (Σ Segmente =
             # Gesamtmaß → byte-exakt). Validierte Kette schlägt jede unvalidierte;
             # unter mehreren validierten/unvalidierten gewinnt die größte (Außenkante).
+            # Die Segmente der Gewinner-Kette bleiben erhalten (für L-Form-BBox).
             wd["validiert"] = {}
+            wd["segmente_m"] = {}
+            wd["seite_konfidenz"] = {}
             for side, payload in wd["ketten_per_side"].items():
                 ketten = payload.get("ketten") or []
+                p_konf = float(payload.get("konfidenz") or 0.7)
                 # Rückwärtskompatibel: alte Form war Liste von Zahlen-Arrays
                 norm = []
                 for k in ketten:
@@ -1484,13 +1488,16 @@ Wichtig:
                                 laenge = g
                         except (TypeError, ValueError):
                             pass
-                    norm.append((laenge, validated))
+                    norm.append((laenge, validated, segs))
                 if not norm:
                     continue
                 # validierte zuerst, dann größte Länge
                 norm.sort(key=lambda t: (1 if t[1] else 0, t[0]), reverse=True)
-                wd["wandlaengen_m"][side] = round(norm[0][0] / 100.0, 2)
-                wd["validiert"][side] = norm[0][1]
+                best_len, best_val, best_segs = norm[0]
+                wd["wandlaengen_m"][side] = round(best_len / 100.0, 2)
+                wd["validiert"][side] = best_val
+                wd["segmente_m"][side] = [round(x / 100.0, 2) for x in best_segs]
+                wd["seite_konfidenz"][side] = round(p_konf if best_val else p_konf * 0.6, 2)
             wall_dims_per_top[top_name] = wd
             tops_done += 1
     except Exception as _exc:
@@ -2145,6 +2152,40 @@ class ProjektMassenRequest(BaseModel):
     # HLZ-Verteilung, Frostschürze-Tiefe, etc.). Schlüssel siehe
     # materialliste.DEFAULTS.
     materialliste_override: dict | None = None
+
+
+def _bbox_from_sides(seiten):
+    """Bounding-Box (Breite/Tiefe/Umfang/Fläche) aus Fassaden-Maßen.
+
+    Segmente DERSELBEN Fassade (N, N_b, N_c …) werden SUMMIERT (nicht max!) —
+    sonst wird eine in Segmente zerlegte L-/U-Form-Fassade (S=7,2 + S_b=5,2 =
+    12,4) auf das längste Einzelsegment (7,2) unterschätzt. Das war die
+    Hauptursache der Umfang-Schwankung. Modul-Level → unit-testbar.
+    """
+    if not seiten:
+        return None
+    facade = {}  # "N"/"S"/"W"/"E" → Summe der Fassaden-Segmente
+    for k, v in seiten.items():
+        if not v or v <= 0:
+            continue
+        base = str(k).strip().upper()[:1]  # N/S/W/E/O
+        if base == "O":
+            base = "E"
+        if base in ("N", "S", "W", "E"):
+            facade[base] = facade.get(base, 0.0) + float(v)
+    horiz = [facade[d] for d in ("N", "S") if d in facade]
+    vert = [facade[d] for d in ("W", "E") if d in facade]
+    breite = max(horiz) if horiz else (max(vert) if vert else None)
+    tiefe = max(vert) if vert else (max(horiz) if horiz else None)
+    if not breite or not tiefe:
+        return None
+    if not (4 <= breite <= 60 and 4 <= tiefe <= 60):  # EFH-Seiten-Plausi
+        return None
+    return {
+        "breite_m": round(breite, 2), "tiefe_m": round(tiefe, 2),
+        "umfang_m": round(2 * (breite + tiefe), 2),
+        "flaeche_m2": round(breite * tiefe, 2),
+    }
 
 
 @app.post("/api/projekt-massen")
@@ -2879,32 +2920,6 @@ async def projekt_massen(body: ProjektMassenRequest):
     # Breite = längste N/S-Fassade, Tiefe = längste W/E-Fassade — genau das
     # liest PASS-4 als äußerste Kettenbemaßung pro Seite. Fehlt eine Seite,
     # rekonstruiert die rechtwinklige Symmetrie sie (N≈S, W≈E).
-    def _bbox_from_sides(seiten):
-        if not seiten:
-            return None
-        horiz, vert = [], []
-        for k, v in seiten.items():
-            if not v or v <= 0:
-                continue
-            base = k.strip().upper()[0]  # erste Buchstabe: N/S/W/E/O
-            # Segmente mit _b/_c-Suffix gehören zur selben Fassade → addieren
-            if base in ("N", "S"):
-                horiz.append(float(v))
-            elif base in ("W", "E", "O"):
-                vert.append(float(v))
-        breite = max(horiz) if horiz else (max(vert) if vert else None)
-        tiefe = max(vert) if vert else (max(horiz) if horiz else None)
-        if not breite or not tiefe:
-            return None
-        # Plausibilität: EFH-Seiten 4-40m
-        if not (4 <= breite <= 60 and 4 <= tiefe <= 60):
-            return None
-        return {
-            "breite_m": round(breite, 2), "tiefe_m": round(tiefe, 2),
-            "umfang_m": round(2 * (breite + tiefe), 2),
-            "flaeche_m2": round(breite * tiefe, 2),
-        }
-
     # 6) Baudaten aus allen Plänen sammeln — höchste Vision-Konfidenz gewinnt
     best_baudaten = {}
     best_konf = -1.0
