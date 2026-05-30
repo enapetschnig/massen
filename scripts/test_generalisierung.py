@@ -164,6 +164,23 @@ wohnen = [r for r in res["raeume"] if r.get("name") == "Wohnen"]
 check("Wohnen mit plausiblem U (24 ≥ 21,9) → U behalten", wohnen and wohnen[0].get("umfang_m") == 24.0,
       f"got {wohnen[0].get('umfang_m') if wohnen else None}")
 
+print("\nSZENARIO 10: angebaute überdachte Flächen → Slab-Kante aus Fläche geschätzt (>Hülle)")
+rooms = [("E", {"name": n, "flaeche_m2": f, "umfang_m": u, "hoehe_m": 2.95, "wohnung": "Haus", "_source": "text"})
+         for n, f, u in [("Wohnen", 31, 25), ("Zimmer 1", 10.5, 13), ("Bad", 8.7, 11), ("Flur", 15.8, 22), ("WC", 1.8, 5.6)]]
+rooms += [("E", {"name": "Terrasse überdacht", "flaeche_m2": 60.0, "umfang_m": 37.0, "wohnung": "Haus", "_source": "text"}),
+          ("E", {"name": "Parkplatz überdacht", "flaeche_m2": 36.0, "umfang_m": 24.0, "wohnung": "Haus", "_source": "text"})]
+MK_LOG = {"geo": {"geschoss": "EG"},
+          "massketten_bbox": {"breite_m": 12.48, "tiefe_m": 10.75, "umfang_m": 46.46, "flaeche_m2": 134.16, "h_rep": 6, "v_rep": 4}}
+res = _run(rooms, {"E": MK_LOG})
+gem = res.get("gemessen") or {}
+gq = gem.get("geometrie_qualitaet") or {}
+check("Hülle = byte-exakte Maßkette (46,46)", gem.get("aussenumfang_m") == 46.46, f"got {gem.get('aussenumfang_m')}")
+check("Fundamentkante aus überdachten Flächen geschätzt (> Hülle)",
+      gem.get("fundament_umfang_m") and gem["fundament_umfang_m"] > gem.get("aussenumfang_m", 0) + 5,
+      f"got {gem.get('fundament_umfang_m')}")
+check("Fundamentkante ehrlich als unsicher geflaggt", gq.get("fundament_unsicher") is True,
+      f"got {gq.get('fundament_unsicher')}")
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Generalisierungs-Test(s) gescheitert: {fails}")

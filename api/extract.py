@@ -3245,19 +3245,29 @@ async def projekt_massen(body: ProjektMassenRequest):
             for e in (c.get("einschluss") or []):
                 if e and e not in fundament_einschluss:
                     fundament_einschluss.append(e)
+        # Überdachte Außenflächen (Terrasse/Parkplatz/Loggia) — byte-exakte Fläche
+        ueberdacht_flaeche = sum(r.get("flaeche_m2") or 0 for r in merged_rooms
+                                 if _kat_check(r.get("name") or "") == "Loggia")
+        n_ueberdacht = sum(1 for r in merged_rooms if _kat_check(r.get("name") or "") == "Loggia")
         linie_b_erkannt = bool(m_fund and m_fund > aussenumfang_m + 0.3)
         if linie_b_erkannt:
             fundament_umfang_m = round(min(m_fund, aussenumfang_m * 1.30), 2)
             fundament_quelle = "vision-fundamentkante"
+            fundament_unsicher = False
+        elif ueberdacht_flaeche > 4 and bp_flaeche:
+            # Vision hat die Slab-Kante nicht erweitert, aber es GIBT angebaute
+            # überdachte Bereiche → die Platte läuft mglw. darunter weiter.
+            # SCHÄTZUNG: Umfang skaliert isoperimetrisch mit √(Slab/Footprint),
+            # Slab ≈ Grundfläche + überdachte Fläche. Geklemmt auf ≤1,5× Hülle.
+            # WIE WEIT die Platte wirklich reicht steht nur im Polierplan → unsicher.
+            faktor = ((bp_flaeche + ueberdacht_flaeche) / bp_flaeche) ** 0.5
+            fundament_umfang_m = round(min(aussenumfang_m * faktor, aussenumfang_m * 1.5), 2)
+            fundament_quelle = "geschätzt aus überdachten Flächen (Polierplan prüfen)"
+            fundament_unsicher = True
         else:
             fundament_umfang_m = aussenumfang_m
             fundament_quelle = "= Hauptbau (keine angebaute überdachte Fläche)"
-        # EHRLICHKEIT: gibt es überdachte Außenflächen (Terrasse/Parkplatz/Loggia),
-        # läuft die Bodenplatte mglw. darunter weiter → Slab-Kante > Hülle. WIE WEIT
-        # steht NICHT im Grundriss (nur im Fundament-/Polierplan). Konnte Vision die
-        # Erweiterung nicht klar lesen → Fundamentkante UNSICHER → flaggen + setzen lassen.
-        n_ueberdacht = sum(1 for r in merged_rooms if _kat_check(r.get("name") or "") == "Loggia")
-        fundament_unsicher = (n_ueberdacht > 0) and (not linie_b_erkannt)
+            fundament_unsicher = False
 
         # Schritt 5: strukturierter Geometrie-Qualitäts-Report (für Dashboard)
         poly_vs_bbox = None
