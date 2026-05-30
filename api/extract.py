@@ -1801,12 +1801,23 @@ Ein einfaches Rechteck ist die seltene Ausnahme. Lies die Masse aus der
 Hauptbemassungskette am Plan-Rand. Pro Himmelsrichtung KANN es MEHRERE
 Werte geben (L-Form: Nordfassade z.B. 8m + 4m = 12m → "N" und "N_b").
 
+══ GESAMTMASS (am WICHTIGSTEN, separat lesen) ══
+Am aeussersten Rand des Grundrisses steht meist je eine GESAMTMASS-Kette:
+die GROESSTE Zahl entlang der oberen/unteren Kante = Gesamt-BREITE des Gebaeudes,
+die GROESSTE Zahl entlang der linken/rechten Kante = Gesamt-TIEFE. Das sind die
+zwei aeussersten, groessten Massketten-Werte (Aussenkante bis Aussenkante, ueber
+ALLE Vor-/Ruecksprunge). Lies sie als "gesamt_breite_m" und "gesamt_tiefe_m".
+Diese beiden Zahlen sind fuer den Umfang am verlaesslichsten — 2×(B+T) ist bei
+rechtwinkligen Bauten der EXAKTE Umfang, auch bei L-Form.
+
 JSON-Antwort, kein Markdown:
 {
   "polygon_norm": [[0.12,0.10],[0.85,0.10],[0.85,0.45],[0.62,0.45],[0.62,0.62],[0.12,0.62]],
   "seiten_m": {"N": 12.40, "S": 7.20, "S_b": 5.20, "W": 8.00, "E": 4.50, "E_b": 3.50},
   "umfang_m": 40.80,
   "flaeche_m2": 79.56,
+  "gesamt_breite_m": 12.40,
+  "gesamt_tiefe_m": 8.00,
   "fundament_seiten_m": {"N": 12.40, "S": 12.40, "W": 10.20, "E": 10.20},
   "fundament_umfang_m": 45.20,
   "fundament_flaeche_m2": 126.50,
@@ -1814,9 +1825,10 @@ JSON-Antwort, kein Markdown:
   "konfidenz": 0.85
 }
 Wichtig:
+- "gesamt_breite_m"/"gesamt_tiefe_m" = aeusserste Gebaeude-Gesamtmasse (Aussenkante
+  bis Aussenkante). NUR setzen wenn du eine klare Gesamtmass-Zahl liest, sonst null.
 - "polygon_norm" + "seiten_m" + "umfang_m" + "flaeche_m2" = LINIE A (Hauptbau).
 - "fundament_*" = LINIE B (Bodenplatten-Aussenkante inkl. angebauter ueberdachter Bereiche).
-- "fundament_einschluss" = Liste der Bereiche, die du ueber Linie A hinaus mitgenommen hast (leer = keine).
 - Beide "umfang_m" = Summe ALLER zugehoerigen seiten_m-Werte (auch _b/_c-Segmente).
 - Plausi: EFH-Hauptbau 80-180 m² / Umfang 45-75m. Fundamentkante bis ~30% groesser.
 - Wenn fundament_flaeche_m2 > 1.6 × flaeche_m2: zu viel mitgenommen — nur fest
@@ -2977,6 +2989,22 @@ async def projekt_massen(body: ProjektMassenRequest):
                 })
         # Außenkontur-Vision (Polygon + Außenmaße + Fläche)
         ak = log.get("aussenkontur_vision") or {}
+        # GESAMTMASS-Kandidat: 2×(Gesamt-Breite + Gesamt-Tiefe) ist bei recht-
+        # winkligen Bauten der exakte Umfang — die verlässlichste Vision-Lesung,
+        # weil es die zwei größten, klar beschrifteten Außenmaße sind.
+        try:
+            gb = float(ak.get("gesamt_breite_m")) if ak.get("gesamt_breite_m") else None
+            gt = float(ak.get("gesamt_tiefe_m")) if ak.get("gesamt_tiefe_m") else None
+        except (TypeError, ValueError):
+            gb = gt = None
+        if gb and gt and 4 <= gb <= 60 and 4 <= gt <= 60:
+            aussenmasse_kandidaten.append({
+                "umfang_m": round(2 * (gb + gt), 2),
+                "flaeche_m2": round(gb * gt, 2),
+                "breite_m": round(gb, 2), "tiefe_m": round(gt, 2),
+                "plan": p.get("dateiname"), "quelle": "vision-gesamtmaß",
+                "gesamtmass": True,
+            })
         if ak.get("umfang_m") and ak.get("flaeche_m2"):
             aussenpolygon_kandidaten.append({
                 "umfang_m": float(ak["umfang_m"]),
@@ -3092,6 +3120,13 @@ async def projekt_massen(body: ProjektMassenRequest):
         validated_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten
                               if c.get("validiert") and c.get("umfang_m")]
         m_valid = _median(validated_umfaenge)
+        # GESAMTMASS-Kandidaten (2×(Gesamt-Breite+Tiefe)) — nur die, deren
+        # Rechteck-Fläche zur byte-exakten Grundfläche passt (B×T ≥ 0.92×Footprint;
+        # sonst wurde ein zu kleines Maß gelesen). Robust gegen L-Form.
+        gesamt_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten
+                           if c.get("gesamtmass") and c.get("umfang_m")
+                           and c.get("flaeche_m2", 0) >= bp_flaeche * 0.92]
+        m_gesamt = _median(gesamt_umfaenge)
         # Outlier-Rejection statt blindem Median: Vision-Unterschätzung verwerfen
         bbox_kept, bbox_verworfen = _mad_filter(bbox_umfaenge, iso_min * 1.15)
         mbbox = _median(bbox_kept)
@@ -3104,6 +3139,13 @@ async def projekt_massen(body: ProjektMassenRequest):
             aussenumfang_m = round(min(max(m_valid, iso_min), umfang_ceil), 2)
             quelle = "kettenbemaßung-validiert"
             konf = 0.97
+            umfang_validiert = True
+        elif m_gesamt:
+            # Gesamt-Breite × Gesamt-Tiefe vom Plan-Rand → 2×(B+T) exakt für
+            # rechtwinklige Bauten. Verlässlicher als das verrauschte Polygon.
+            aussenumfang_m = round(min(max(m_gesamt, iso_min), umfang_ceil), 2)
+            quelle = "vision-gesamtmaß"
+            konf = 0.92
             umfang_validiert = True
         elif mbbox:
             # POLYGON-BUILD: 2×(B+T) ist exakt für Rechteck/L-Form → direkt nutzen,
