@@ -2986,12 +2986,13 @@ async def projekt_massen(body: ProjektMassenRequest):
                 "quelle": "vision-aussenkontur",
             })
             # Linie B: Fundamentplatten-Außenkante (für Frostschürze/Randabschluss)
-            if ak.get("fundament_umfang_m"):
+            # Auch die fundament_seiten_m mitnehmen → falls kein Umfang geliefert,
+            # kann er aus den Fassaden-Maßen rekonstruiert werden (Schritt 4).
+            if ak.get("fundament_umfang_m") or ak.get("fundament_seiten_m"):
                 fundament_kandidaten.append({
-                    "umfang_m": float(ak["fundament_umfang_m"]),
+                    "umfang_m": float(ak["fundament_umfang_m"]) if ak.get("fundament_umfang_m") else None,
+                    "seiten_m": ak.get("fundament_seiten_m") or {},
                     "flaeche_m2": float(ak.get("fundament_flaeche_m2") or 0) or None,
-                    "ueber_hauptbau": round(float(ak["fundament_umfang_m"]) / float(ak["umfang_m"]), 3)
-                        if ak.get("umfang_m") else None,
                     "einschluss": ak.get("fundament_einschluss") or [],
                     "plan": p.get("dateiname"),
                 })
@@ -3023,6 +3024,24 @@ async def projekt_massen(body: ProjektMassenRequest):
             return None
         n = len(s)
         return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+    def _mad_filter(xs, iso_floor):
+        """Verteilungsrobuste Outlier-Entfernung (MAD) statt blindem Median.
+        Verwirft Kandidaten, die WEIT unter dem Median liegen UND physikalisch
+        zu klein sind (< iso_floor) — fängt Vision-Unterschätzung, ohne echte
+        Messungen wegzuwerfen. <3 Werte → unverändert (zu wenig Statistik)."""
+        s = sorted(x for x in xs if x and x > 0)
+        if len(s) < 3:
+            return s, []
+        m = s[len(s) // 2]
+        mad = sorted(abs(x - m) for x in s)[len(s) // 2] or 1e-9
+        keep, drop = [], []
+        for x in s:
+            if abs(x - m) > 1.5 * mad and x < iso_floor:
+                drop.append(round(x, 2))
+            else:
+                keep.append(x)
+        return (keep or s), drop
 
     # ── Robuste Geometrie-Konsolidierung (generalisiert, keine Plan-Hardcodes) ──
     # Prinzip 1: MEDIAN über alle Plan-Mess-Werte statt eines verrauschten
@@ -3073,14 +3092,19 @@ async def projekt_massen(body: ProjektMassenRequest):
         validated_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten
                               if c.get("validiert") and c.get("umfang_m")]
         m_valid = _median(validated_umfaenge)
-        mbbox = _median(bbox_umfaenge)
+        # Outlier-Rejection statt blindem Median: Vision-Unterschätzung verwerfen
+        bbox_kept, bbox_verworfen = _mad_filter(bbox_umfaenge, iso_min * 1.15)
+        mbbox = _median(bbox_kept)
         mpoly = _median(poly_umfaenge)
+        umfang_validiert = False
+        cross_check_warnung = False
 
         if m_valid:
             # Byte-exakt aus dem Plan gelesen (Maßkette gegen Gesamtmaß geprüft).
             aussenumfang_m = round(min(max(m_valid, iso_min), umfang_ceil), 2)
             quelle = "kettenbemaßung-validiert"
             konf = 0.97
+            umfang_validiert = True
         elif mbbox:
             # POLYGON-BUILD: 2×(B+T) ist exakt für Rechteck/L-Form → direkt nutzen,
             # nur an physikalischen Grenzen clampen (NICHT künstlich aufblähen).
@@ -3088,8 +3112,11 @@ async def projekt_massen(body: ProjektMassenRequest):
             quelle = "polygon-build-bbox"
             konf = 0.88
             # Vision-Polygon als Cross-Check für Konfidenz
-            if mpoly and abs(mpoly - mbbox) / max(mpoly, mbbox) < 0.12:
-                konf = 0.95; quelle = "polygon-build+vision-konsistent"
+            if mpoly:
+                if abs(mpoly - mbbox) / max(mpoly, mbbox) < 0.12:
+                    konf = 0.95; quelle = "polygon-build+vision-konsistent"
+                else:
+                    cross_check_warnung = True  # Quellen uneinig → Konf NICHT heben
         elif mpoly:
             # Nur Vision-Polygon → unterschätzt, isoperimetrischer Floor als Netz
             umfang_floor = iso_min * 1.20
@@ -3105,23 +3132,36 @@ async def projekt_massen(body: ProjektMassenRequest):
             quelle += "+bp-plausi"
 
         # ── LINIE B: Fundamentplatten-Außenkante (Frostschürze/Randabschluss) ──
-        # Median über alle Pläne; muss ≥ Hauptbau-Umfang sein und darf nicht
-        # >30% darüber liegen. Fehlt Linie B (alter Vision-Output / kein
-        # angebauter überdachter Bereich) → = aussenumfang_m (Verhalten wie bisher).
+        # Vision-Umfang ODER aus fundament_seiten_m rekonstruiert; muss ≥ Hauptbau
+        # sein und ≤ 1,30× Hauptbau. Fehlt Linie B → = aussenumfang_m (wie bisher).
         fund_umfaenge = [c["umfang_m"] for c in fundament_kandidaten if c.get("umfang_m")]
         m_fund = _median(fund_umfaenge)
+        # Schritt 4: aus Fassaden-Maßen rekonstruieren, wenn kein Umfang direkt da
+        if not (m_fund and m_fund > aussenumfang_m + 0.3):
+            rekon = []
+            for c in fundament_kandidaten:
+                bb = _bbox_from_sides(c.get("seiten_m") or {})
+                if bb and bb["umfang_m"] > aussenumfang_m + 0.3:
+                    rekon.append(bb["umfang_m"])
+            if rekon:
+                m_fund = _median(rekon)
         fundament_einschluss = []
         for c in fundament_kandidaten:
             for e in (c.get("einschluss") or []):
                 if e and e not in fundament_einschluss:
                     fundament_einschluss.append(e)
-        if m_fund and m_fund > aussenumfang_m + 0.3:
+        linie_b_erkannt = bool(m_fund and m_fund > aussenumfang_m + 0.3)
+        if linie_b_erkannt:
             fundament_umfang_m = round(min(m_fund, aussenumfang_m * 1.30), 2)
             fundament_quelle = "vision-fundamentkante"
         else:
             fundament_umfang_m = aussenumfang_m
             fundament_quelle = "= Hauptbau (keine angebaute überdachte Fläche)"
 
+        # Schritt 5: strukturierter Geometrie-Qualitäts-Report (für Dashboard)
+        poly_vs_bbox = None
+        if mpoly and mbbox:
+            poly_vs_bbox = round(abs(mpoly - mbbox) / max(mpoly, mbbox) * 100, 1)
         gemessen = {
             "aussenumfang_m": aussenumfang_m,
             "fundament_umfang_m": fundament_umfang_m,
@@ -3130,8 +3170,20 @@ async def projekt_massen(body: ProjektMassenRequest):
             "bodenplatte_flaeche_m2": bp_flaeche,
             "quelle": quelle,
             "konfidenz": konf,
+            "geometrie_qualitaet": {
+                "umfang_quelle": quelle,
+                "umfang_konfidenz": konf,
+                "umfang_validiert": umfang_validiert,
+                "poly_vs_bbox_diff_pct": poly_vs_bbox,
+                "cross_check_warnung": cross_check_warnung,
+                "linie_b_erkannt": linie_b_erkannt,
+                "kandidaten_n": len(bbox_umfaenge) + len(poly_umfaenge),
+                "verworfen": bbox_verworfen,
+                "physikalisch_plausibel": bool(iso_min <= aussenumfang_m <= umfang_ceil),
+                "flaeche_anker": "Σ Innenraum-Fläche (byte-exakt)" if bp_korrigiert else "Vision-Polygon im Plausi-Band",
+            },
             "_debug": {"bbox_umfaenge": bbox_umfaenge, "poly_umfaenge": poly_umfaenge,
-                       "fund_umfaenge": fund_umfaenge,
+                       "fund_umfaenge": fund_umfaenge, "bbox_verworfen": bbox_verworfen,
                        "iso_min": round(iso_min, 1), "ceil": round(umfang_ceil, 1)},
         }
 
