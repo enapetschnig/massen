@@ -1940,6 +1940,92 @@ Regeln:
             print(f"[schnitt] failed: {_exc!r}")
             schnitt_vision = {}
 
+        # ═══════════════════════════════════════════════════════════════
+        # ÖFFNUNGS-SYMBOL-VISION-PASS
+        # Zählt Tür-/Fenster-SYMBOLE rein nach Zeichnung (Schwenkbogen = Tür,
+        # Wandöffnung mit Parallellinien = Fenster) — unabhängig von Text-Codes.
+        # Dient als OBERGRENZE (Cap) + Doppelcheck gegen Über-Erkennung (z.B.
+        # WC/WC1-Doppelzählung). NIE auffüllen, nie erfinden.
+        # ═══════════════════════════════════════════════════════════════
+        OEFFNUNGS_SYMBOL_PROMPT = """Du siehst einen oesterreichischen Geschoss-Grundriss.
+Deine EINZIGE Aufgabe: zaehle die TUER- und FENSTER-SYMBOLE rein nach ihrer
+ZEICHNUNG (NICHT nach Text-Codes — STUK/FPH werden separat gelesen).
+
+TUER-SYMBOL — zaehle als "tuer":
+- Drehfluegeltuer: kurze Tuerblatt-Linie senkrecht zur Wand + angehaengter
+  Viertelkreis-Bogen (Schwenkbogen, zeigt Aufschlagrichtung). Hauptmerkmal.
+- Doppel-/Pendeltuer: zwei spiegelbildliche Viertelkreis-Boegen = EINE Oeffnung.
+- Schiebetuer: zwei parallele Linien laengs der Wand mit Versatz/Pfeil (KEIN Bogen).
+- Eine Tuer sitzt IMMER in einer Wandluecke (Mauerwerk links+rechts unterbrochen).
+
+FENSTER-SYMBOL — zaehle als "fenster":
+- Wandunterbrechung mit 2-3 duennen PARALLELEN Linien laengs der Wand (aussen =
+  Wandkanten, Mitte = Glas). Kein Schwenkbogen. Sitzt fast immer in der AUSSENWAND.
+- Boden-/Terrassenfenster und Hebe-Schiebe-Elemente (oft ~240cm) auch als Fenster.
+
+NICHT zaehlen: Moebel/Einbauten (Schrank-/Duschtuer MITTEN im Raum ohne Wandluecke),
+Schraffuren, Daemmungs-Doppellinien, Treppen, Bemaszungs-/Hilfslinien,
+Tuerrahmen-Doppellinien OHNE Bogen.
+
+Regeln:
+- KONSERVATIV zaehlen. Im Zweifel NICHT zaehlen. Lieber leicht zu wenig als zu
+  viel — erfinde NIE eine Oeffnung. Jede physische Oeffnung genau EINMAL.
+- Raum zuordnen wenn sicher, sonst raum=null (nicht raten).
+
+Antworte NUR mit JSON, kein Markdown:
+{
+  "tueren_gesamt": 9,
+  "fenster_gesamt": 11,
+  "tueren": [{"raum": "WC", "typ": "dreh", "konfidenz": 0.9}],
+  "fenster": [{"raum": "Bad", "konfidenz": 0.9}],
+  "konfidenz": 0.75
+}
+Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": true}."""
+        oeffnungs_symbole = {}
+        try:
+            doco = fitz.open(stream=pdf_bytes, filetype="pdf")
+            po = doco[0]
+            dpi_o = 250
+            o_img = None
+            while dpi_o >= 120:
+                mat = fitz.Matrix(dpi_o / 72, dpi_o / 72)
+                pix = po.get_pixmap(matrix=mat)
+                o_img = pix.tobytes("jpeg", jpg_quality=85)
+                if len(o_img) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                    break
+                dpi_o -= 30
+            doco.close()
+            if o_img:
+                o_b64 = base64.standard_b64encode(o_img).decode("utf-8")
+                resp = client.messages.create(
+                    model="claude-sonnet-4-20250514", max_tokens=2048, temperature=0,
+                    system=OEFFNUNGS_SYMBOL_PROMPT,
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {"type": "base64",
+                         "media_type": "image/jpeg", "data": o_b64}},
+                        {"type": "text", "text": "Zähle die Tür- und Fenster-Symbole im Grundriss."}
+                    ]}],
+                )
+                raw = resp.content[0].text if resp.content else "{}"
+                try:
+                    oeffnungs_symbole = json.loads(raw)
+                except Exception:
+                    mjs = re.search(r"\{[\s\S]*\}", raw)
+                    oeffnungs_symbole = json.loads(mjs.group()) if mjs else {}
+                for kk in ("tueren_gesamt", "fenster_gesamt"):
+                    v = oeffnungs_symbole.get(kk)
+                    if v is not None:
+                        try:
+                            oeffnungs_symbole[kk] = max(0, min(60, int(v)))
+                        except (TypeError, ValueError):
+                            oeffnungs_symbole[kk] = None
+                print(f"[oeffnungs-symbole] tueren={oeffnungs_symbole.get('tueren_gesamt')}, "
+                      f"fenster={oeffnungs_symbole.get('fenster_gesamt')}, "
+                      f"konf={oeffnungs_symbole.get('konfidenz')}")
+        except Exception as _exc:
+            print(f"[oeffnungs-symbole] failed: {_exc!r}")
+            oeffnungs_symbole = {}
+
         try:
             gewerke_result = _berechne_gewerke(
                 rooms_fg, alle_fenster, baudaten, geschoss or "EG", None)
@@ -1975,6 +2061,11 @@ Regeln:
         # Schnitt-/Ansichts-Lesung (Säulen, Geschoss-Höhe, Dachtyp, Attika)
         try:
             log["schnitt_vision"] = schnitt_vision
+        except NameError:
+            pass
+        # Öffnungs-Symbol-Zählung (Cap/Doppelcheck gegen Über-Erkennung)
+        try:
+            log["oeffnungs_symbole"] = oeffnungs_symbole
         except NameError:
             pass
     # Bauteil-Legende byte-exakt aus dem Text-Layer lesen (wie ein Mensch):
@@ -2644,17 +2735,42 @@ async def projekt_massen(body: ProjektMassenRequest):
                     0 if _is_stuk(i) else 1,
                     -_konf(i))
 
+        # Raum-Identität über Plan-Varianten: der Einreichplan nennt einen Raum
+        # "WC", der Polierplan "WC1" → dieselbe Tür darf nicht doppelt zählen.
+        # Gleiche Logik wie der Raum-Merge (Stamm ohne trailing-Zahl, Kopf-Nomen,
+        # Token-Teilmenge), aber "Zimmer 1" ≠ "Zimmer 2" bleibt getrennt.
+        def _stem(name):
+            return re.sub(r"\d+\s*$", "", (name or "").strip().lower()).strip()
+        def _raum_match(a, b):
+            a, b = (a or "").strip().lower(), (b or "").strip().lower()
+            if a == b:
+                return True
+            if not a or not b:
+                return False
+            ia, ib = _trailing_int(a), _trailing_int(b)
+            if ia is not None and ib is not None and ia != ib:
+                return False  # Zimmer 1 ≠ Zimmer 2
+            sa, sb = _stem(a), _stem(b)
+            if sa and sa == sb:
+                return True  # "wc1"→"wc" == "wc"
+            ta, tb = _tokens(sa), _tokens(sb)
+            if not ta or not tb:
+                return False
+            if ta[-1] == tb[-1]:
+                return True  # gleiches Kopf-Nomen
+            return set(ta) <= set(tb) or set(tb) <= set(ta)
+
         clusters = []  # {"raum","breite_m","hoehe_m","rep"}
         for i in sorted(items, key=_sortkey):
             raum = _rn(i)
             b, h = i.get("breite_m"), i.get("hoehe_m")
             has_dims = bool(b and h)
             # maßloser Fund in einem Raum mit bereits bemaßten Öffnungen → redundant
-            if not has_dims and raum in raeume_mit_massen:
+            if not has_dims and any(_raum_match(raum, rm) for rm in raeume_mit_massen):
                 continue
             match = None
             for c in clusters:
-                if c["raum"] != raum:
+                if not _raum_match(raum, c["raum"]):
                     continue
                 if has_dims and c["breite_m"] and c["hoehe_m"]:
                     if abs(b - c["breite_m"]) <= TOL and abs(h - c["hoehe_m"]) <= TOL:
@@ -2678,6 +2794,51 @@ async def projekt_massen(body: ProjektMassenRequest):
 
     alle_fenster = _collect_oeffnungen(fenster_rows)
     alle_tueren = _collect_oeffnungen(tueren_rows)
+
+    # ── ÖFFNUNGS-SYMBOL-CAP: Vision-Symbol-Zählung als OBERGRENZE ──────────
+    # Die Text/STUK-Funde sind die primäre Mengenquelle (byte-exakt). Die
+    # Symbol-Zählung (Schwenkbögen/Wandöffnungen) ist die unabhängige Stückzahl.
+    # Findet der Text MEHR als Symbole da sind (z.B. WC/WC1-Doppelzählung) →
+    # auf die Symbol-Zahl KAPPEN, die UNSICHERSTEN zuerst entfernen. NIE
+    # auffüllen, nie eine Öffnung erfinden. Konservativ: nur ab Konfidenz 0.6.
+    oeff_cap = []  # doppelcheck-Einträge für Öffnungen
+    def _symbol_max(key):
+        vals = []
+        for p in plaene:
+            sym = (p.get("agent_log") or {}).get("oeffnungs_symbole") or {}
+            if sym.get("kein_grundriss"):
+                continue
+            v = sym.get(key)
+            k = sym.get("konfidenz")
+            if v is not None and (k is None or float(k) >= 0.6):
+                try:
+                    vals.append(int(v))
+                except (TypeError, ValueError):
+                    pass
+        return max(vals) if vals else None  # ein Plan = ganzes Geschoss → max, nicht Summe
+    def _cap_liste(liste, symbol_n, label, key):
+        if symbol_n is None or symbol_n <= 0 or len(liste) <= symbol_n:
+            oeff_cap.append({"groesse": label, "key": key, "wert": len(liste),
+                             "symbol": symbol_n,
+                             "status": "bestätigt" if (symbol_n == len(liste)) else "info"})
+            return liste
+        # unsicherste zuerst entfernen: maßlos vor bemaßt, Vision vor STUK, niedrige Konf
+        def _certain(o):
+            has_dims = bool(o.get("breite_m") and o.get("hoehe_m"))
+            is_stuk = "stuk" in (o.get("quelle") or "").lower()
+            try:
+                kf = float(o.get("konfidenz") or 0)
+            except (TypeError, ValueError):
+                kf = 0.0
+            return (1 if has_dims else 0, 1 if is_stuk else 0, kf)
+        gekappt = sorted(liste, key=_certain, reverse=True)[:symbol_n]
+        oeff_cap.append({"groesse": label, "key": key, "wert": len(gekappt),
+                         "symbol": symbol_n, "vorher": len(liste), "status": "gekappt"})
+        return gekappt
+    _sym_t = _symbol_max("tueren_gesamt")
+    _sym_f = _symbol_max("fenster_gesamt")
+    alle_tueren = _cap_liste(alle_tueren, _sym_t, "Türen", "tueren")
+    alle_fenster = _cap_liste(alle_fenster, _sym_f, "Fenster", "fenster")
 
     # ── VEKTOR-POLYGON-BUILD (rechtwinklige Geometrie) ──────────────────
     # Für rechteckige + L-förmige Gebäude (≈99% aller EFH) gilt exakt:
@@ -3035,6 +3196,11 @@ async def projekt_massen(body: ProjektMassenRequest):
         # hebt K_LEG (Decke/Bodenplatte/Bodenaufbau-Konfidenz in der Materialliste).
         if best_legende and bestaetigt_keys & {"decke_cm", "bodenplatte_cm", "estrich_cm"}:
             best_legende["konfidenz"] = max(float(best_legende.get("konfidenz") or 0), 0.97)
+
+    # Öffnungs-Cap-Ergebnisse in den Doppelcheck aufnehmen (gekappt + bestätigt)
+    for c in oeff_cap:
+        if c.get("status") in ("gekappt", "bestätigt"):
+            doppelcheck.append(c)
 
     # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
     if body.baudaten_override:

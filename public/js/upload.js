@@ -332,9 +332,14 @@
         ') — unabhängig aus Legende + Schnitt gelesen, sehr hohe Konfidenz.</div>');
     }
     widerspruch.forEach(function (d) {
-      var vals = d.quellen.map(function (q) { return esc(q.quelle) + ' ' + q.wert + (d.einheit || ''); }).join(' vs ');
+      var vals = (d.quellen || []).map(function (q) { return esc(q.quelle) + ' ' + q.wert + (d.einheit || ''); }).join(' vs ');
       hints.push('<div class="status-warn">⚠ <strong>' + esc(d.groesse) + ' unklar</strong>: ' + vals +
         ' — Quellen widersprechen sich, bitte am Plan prüfen.</div>');
+    });
+    // Öffnungs-Cap: Symbol-Zählung hat Über-Erkennung korrigiert
+    dc.filter(function (d) { return d.status === 'gekappt'; }).forEach(function (d) {
+      hints.push('<div class="status-info">✂ <strong>' + esc(d.groesse) + '</strong> von ' + d.vorher + ' auf ' +
+        d.wert + ' korrigiert — Symbol-Zählung am Plan ergab ' + d.symbol + ' (Doppelzählung entfernt).</div>');
     });
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {

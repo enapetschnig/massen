@@ -45,8 +45,13 @@ def _row(plan, bez, raum, b, h, quelle, typ, konf=90):
     if h is not None: daten["hoehe_m"] = h
     return {"plan_id": plan, "bezeichnung": bez, "daten": daten, "typ": typ}
 
-def _run(raum_rows, fenster_rows, tuer_rows, plaene_ids):
-    plaene = [{"id": pid, "dateiname": pid, "agent_log": {"geo": {"geschoss": "EG"}}} for pid in plaene_ids]
+def _run(raum_rows, fenster_rows, tuer_rows, plaene_ids, symbole=None):
+    plaene = []
+    for pid in plaene_ids:
+        log = {"geo": {"geschoss": "EG"}}
+        if symbole and pid in symbole:
+            log["oeffnungs_symbole"] = symbole[pid]
+        plaene.append({"id": pid, "dateiname": pid, "agent_log": log})
     ex.sb = _mkSB(raum_rows, fenster_rows, tuer_rows, plaene)
     return asyncio.run(ex.projekt_massen(ex.ProjektMassenRequest(plan_id=plaene_ids[0])))
 
@@ -89,6 +94,43 @@ res = _run(RAEUME, fenster, [], ["E", "A"])
 fe = [f for f in res["fenster"] if (f.get("raum") or "").lower() == "bad"]
 check("Bad: 1 Fenster nach Merge", len(fe) == 1, f"got {len(fe)}")
 check("Bad-Fenster trägt die STUK-Maße (0.60×0.57)", fe and fe[0].get("breite_m") == 0.60, f"got {fe[0] if fe else None}")
+
+print("\nSZENARIO D: Raum-Varianten über Pläne (WC vs WC1) → dieselbe Tür mergt; Zimmer 1 ≠ Zimmer 2")
+tueren = [
+    _row("E", "T-80x204", "WC", 0.80, 2.04, "text-layer-stuk-fph", "tuer", 95),
+    _row("A", "T_02", "WC1", 0.80, 2.04, "vision", "tuer", 70),       # selbe Tür, Polierplan nennt Raum WC1
+    _row("E", "T-80x204", "Zimmer 1", 0.80, 2.04, "text-layer-stuk-fph", "tuer", 95),
+    _row("E", "T-80x204", "Zimmer 2", 0.80, 2.04, "text-layer-stuk-fph", "tuer", 95),
+]
+res = _run(RAEUME, [], tueren, ["E", "A"])
+wc = [t for t in res["tueren"] if (t.get("raum") or "").lower().startswith("wc")]
+check("WC + WC1 → 1 Tür (Raum-Variante gemergt)", len(wc) == 1, f"got {len(wc)}: {[t.get('raum') for t in wc]}")
+zi = [t for t in res["tueren"] if (t.get("raum") or "").lower().startswith("zimmer")]
+check("Zimmer 1 + Zimmer 2 bleiben 2 Türen", len(zi) == 2, f"got {len(zi)}")
+check("Türen gesamt = 3 (WC + Zimmer1 + Zimmer2)", res["tueren_count"] == 3, f"got {res['tueren_count']}")
+
+print("\nSZENARIO E: Symbol-Zählung kappt Über-Erkennung (4 Türen in Varianten-Räumen → Symbol 2)")
+tueren = [
+    _row("E", "T-80x204", "Vorraum", 0.80, 2.04, "text-layer-stuk-fph", "tuer", 95),   # STUK — bleibt
+    _row("A", "T_01", "Garderobe", 0.90, 2.01, "vision", "tuer", 70),
+    _row("A", "T_02", "Diele", 0.90, 2.01, "vision", "tuer", 65),
+    _row("A", "T_03", "Entree", 0.85, 2.01, "vision", "tuer", 60),
+]
+res = _run(RAEUME, [], tueren, ["E", "A"], symbole={"A": {"tueren_gesamt": 2, "konfidenz": 0.8}})
+check("Türen auf Symbol-Zahl 2 gekappt", res["tueren_count"] == 2, f"got {res['tueren_count']}")
+namen = [t.get("bezeichnung") for t in res["tueren"]]
+check("STUK-Tür bleibt beim Kappen erhalten", "T-80x204" in namen, f"got {namen}")
+cap = [d for d in (res.get("doppelcheck") or []) if d.get("status") == "gekappt"]
+check("Cap im Doppelcheck vermerkt", any(d["key"] == "tueren" for d in cap), f"got {cap}")
+
+print("\nSZENARIO F: niedrige Symbol-Konfidenz → KEIN Cap (No-Op)")
+res = _run(RAEUME, [], tueren, ["E", "A"], symbole={"A": {"tueren_gesamt": 2, "konfidenz": 0.4}})
+check("bei Konf 0.4 kein Cap (alle 4 bleiben)", res["tueren_count"] == 4, f"got {res['tueren_count']}")
+
+print("\nSZENARIO G: Symbol-Zahl GRÖSSER als erkannt → NIE auffüllen")
+res = _run(RAEUME, [], [_row("E", "T-80x204", "Bad", 0.80, 2.04, "text-layer-stuk-fph", "tuer", 95)],
+           ["E", "A"], symbole={"A": {"tueren_gesamt": 9, "konfidenz": 0.9}})
+check("Symbol 9 > erkannt 1 → bleibt 1 (kein Auffüllen)", res["tueren_count"] == 1, f"got {res['tueren_count']}")
 
 print()
 if fails:
