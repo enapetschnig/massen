@@ -467,13 +467,15 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     out.append(MaterialPos(
         "Decke über EG", "Schaltafel 200/50", "m²",
         decke_m2, f"{decke_m2}m² Schalung", konfidenz=0.7))
-    # Decken-Rand-Umfang: die Decke kragt über die Gebäudekante aus (Terrassen-
-    # dach, Vordach) → ihr Rand ist länger als der Bodenplatten-Umfang. Skaliert
-    # mit der Wurzel des Flächenverhältnisses (geometrisch, planunabhängig).
+    # Decken-Rand-Umfang: die Decke ist die Dachplatte über der GANZEN Boden-
+    # platte inkl. angebauter überdachter Bereiche → ihr Rand folgt der
+    # Fundamentplatten-Außenkante (Linie B), nicht der gemauerten Hülle, und
+    # skaliert zusätzlich mit der Wurzel des Flächenverhältnisses (Auskragung).
+    _rand_basis = fundament_umfang_m if _fund_groesser else aussenumfang_m
     if bodenplatte_m2 > 0:
-        decke_umfang = round(aussenumfang_m * (decke_m2 / bodenplatte_m2) ** 0.5, 2)
+        decke_umfang = round(_rand_basis * (decke_m2 / bodenplatte_m2) ** 0.5, 2)
     else:
-        decke_umfang = aussenumfang_m
+        decke_umfang = _rand_basis
     iso_korb_m = aussenumfang_m * f("iso_korb_anteil", override)
     out.append(MaterialPos(
         "Decke über EG", "ISO-Korb 8/25", "lfm",
