@@ -52,6 +52,13 @@ except Exception as _e:  # pragma: no cover
     print(f"[legende] Import fehlgeschlagen: {_e}")
     _LEGENDE_OK = False
 
+try:
+    from massketten import numeric_spans as _mk_spans, reconstruct_bbox as _mk_bbox
+    _MASSKETTEN_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[massketten] Import fehlgeschlagen: {_e}")
+    _MASSKETTEN_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -1762,6 +1769,28 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
         alle_fenster = list(unique_fenster)
 
         # ═══════════════════════════════════════════════════════════════
+        # MASSKETTEN-TEXT-LAYER-PASS (byte-exakt, KEIN Vision)
+        # Die Außenmaße stehen als Kettenbemaßung im PDF-Text-Layer. Wir lesen
+        # sie byte-exakt und rekonstruieren die Gebäude-Hülle (Bounding-Box),
+        # verankert an der Σ-Innenraum-Fläche → stabil, kein Vision-Schwanken.
+        # ═══════════════════════════════════════════════════════════════
+        massketten_bbox = None
+        if _MASSKETTEN_OK:
+            try:
+                docm = fitz.open(stream=pdf_bytes, filetype="pdf")
+                spans_mk = _mk_spans(docm[0].get_text("words"))
+                docm.close()
+                from massen_logic import kategorie_of as _kat_mk
+                fp = sum(r.get("flaeche_m2") or 0 for r in unique_rooms
+                         if _kat_mk(r.get("name") or "") == "Innenraum_warm")
+                if fp > 20 and spans_mk:
+                    massketten_bbox = _mk_bbox(spans_mk, fp)
+                print(f"[massketten] footprint={round(fp,1)} → {massketten_bbox}")
+            except Exception as _exc:
+                print(f"[massketten] failed: {_exc!r}")
+                massketten_bbox = None
+
+        # ═══════════════════════════════════════════════════════════════
         # AUSSENKONTUR-VISION-PASS
         # Vision sieht den gesamten Grundriss und liefert:
         #   - Außenkontur-Polygon in normalisierten 0-1-Koordinaten
@@ -2117,6 +2146,11 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
         # Öffnungs-Symbol-Zählung (Cap/Doppelcheck gegen Über-Erkennung)
         try:
             log["oeffnungs_symbole"] = oeffnungs_symbole
+        except NameError:
+            pass
+        # Maßketten-Text-Layer-BBox (byte-exakte Hülle, kein Vision)
+        try:
+            log["massketten_bbox"] = massketten_bbox
         except NameError:
             pass
     # Bauteil-Legende byte-exakt aus dem Text-Layer lesen (wie ein Mensch):
@@ -2967,6 +3001,17 @@ async def projekt_massen(body: ProjektMassenRequest):
             g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
             if g:
                 geschoss = g
+        # MASSKETTEN-TEXT-LAYER-BBox — byte-exakte Hülle, höchste Priorität
+        # (validiert: aus Kettenbemaßung gelesen + an Grundfläche verankert).
+        mk = log.get("massketten_bbox")
+        if mk and mk.get("umfang_m"):
+            aussenmasse_kandidaten.append({
+                "umfang_m": float(mk["umfang_m"]),
+                "flaeche_m2": float(mk.get("flaeche_m2") or 0) or None,
+                "breite_m": mk.get("breite_m"), "tiefe_m": mk.get("tiefe_m"),
+                "plan": p.get("dateiname"), "quelle": "textlayer-kette",
+                "validiert": True,
+            })
         # PASS 4 — Bemaßungs-Vision: wandlaengen_m pro Seite
         wbv = log.get("wand_bemassung_vision") or {}
         for top_name, top_data in wbv.items():

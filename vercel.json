@@ -7,7 +7,7 @@
       "config": {
         "maxLambdaSize": "50mb",
         "maxDuration": 300,
-        "includeFiles": "api/{massen_logic,materialliste,oeffnungen,konsistenz,legende}.py"
+        "includeFiles": "api/{massen_logic,materialliste,oeffnungen,konsistenz,legende,massketten}.py"
       }
     },
     { "src": "public/**", "use": "@vercel/static" }
