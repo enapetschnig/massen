@@ -2519,3 +2519,9 @@ img {
   margin: 0.9rem 0 0.3rem;
 }
 .read-sub:first-child { margin-top: 0; }
+
+/* Doppelcheck: von zwei unabhängigen Quellen bestätigt */
+.fact-confirm {
+  margin-left: 4px; color: #15803d; font-weight: 700; font-size: 0.72rem;
+  letter-spacing: -1px;
+}

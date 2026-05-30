@@ -2980,6 +2980,62 @@ async def projekt_massen(body: ProjektMassenRequest):
             if "anzahl_saeulen" not in ov:
                 body.materialliste_override = dict(ov, anzahl_saeulen=sa)
 
+    # 6c3) DOPPELCHECK: unabhängige Quellen gegeneinander prüfen. Stimmen ZWEI
+    # überein → sehr hohe Konfidenz (verdient, nicht gefaket). Widersprechen sie
+    # sich → Konsistenz-Warnung statt falscher Sicherheit. So erreichen wir
+    # ehrlich hohe Konfidenz: Legende (Text) × Schnitt (Vision) × Raumhöhen.
+    doppelcheck = []
+    _leg = best_legende or {}
+    _sv = best_schnitt or {}
+    _schichten = _sv.get("schichten_cm") or {}
+    def _dc_num(label, key, einheit, quellen, tol):
+        vv = []
+        for q, v in quellen:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if fv > 0:
+                vv.append((q, round(fv, 2)))
+        if len(vv) < 2:
+            return
+        med = sorted(v for _, v in vv)[len(vv) // 2]
+        agree = all(abs(v - med) <= tol for _, v in vv)
+        doppelcheck.append({
+            "groesse": label, "key": key, "einheit": einheit, "wert": med,
+            "quellen": [{"quelle": q, "wert": v} for q, v in vv],
+            "status": "bestätigt" if agree else "widerspruch",
+        })
+    _dc_num("Decke", "decke_cm", "cm",
+            [("Legende", _leg.get("decke_cm")), ("Schnitt", _schichten.get("decke"))], 1.5)
+    _dc_num("Bodenplatte", "bodenplatte_cm", "cm",
+            [("Legende", _leg.get("bodenplatte_cm")), ("Schnitt", _schichten.get("bodenplatte"))], 2.0)
+    _dc_num("Estrich", "estrich_cm", "cm",
+            [("Legende", _leg.get("estrich_cm")), ("Schnitt", _schichten.get("estrich"))], 1.5)
+    _dc_num("Geschoss-Höhe", "geschosshoehe_m", "m",
+            [("Schnitt", _sv.get("geschosshoehe_rohbau_m")),
+             ("Raumhöhen", h_max if (h_max and h_max > 0) else None)], 0.12)
+    _dt = [(q, str(v).lower()) for q, v in
+           [("Legende", _leg.get("dach_typ")), ("Schnitt", _sv.get("dachtyp"))] if v]
+    if len(_dt) >= 2:
+        doppelcheck.append({"groesse": "Dachtyp", "key": "dach_typ", "einheit": "", "wert": _dt[0][1],
+            "quellen": [{"quelle": q, "wert": v} for q, v in _dt],
+            "status": "bestätigt" if len(set(v for _, v in _dt)) == 1 else "widerspruch"})
+
+    bestaetigt_keys = {d["key"] for d in doppelcheck if d["status"] == "bestätigt"}
+    if bestaetigt_keys:
+        best_baudaten.setdefault("_quellen", {})
+        for k in bestaetigt_keys:
+            if k in best_baudaten:
+                cur = best_baudaten["_quellen"].get(k, "")
+                if "doppelcheck" not in cur:
+                    best_baudaten["_quellen"][k] = (cur + "+doppelcheck").lstrip("+")
+        best_baudaten["konfidenz"] = max(float(best_baudaten.get("konfidenz") or 0), 0.97)
+        # Zwei unabhängige Lesungen bestätigen die Legende → byte-exakt-Niveau,
+        # hebt K_LEG (Decke/Bodenplatte/Bodenaufbau-Konfidenz in der Materialliste).
+        if best_legende and bestaetigt_keys & {"decke_cm", "bodenplatte_cm", "estrich_cm"}:
+            best_legende["konfidenz"] = max(float(best_legende.get("konfidenz") or 0), 0.97)
+
     # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
     if body.baudaten_override:
         ov = body.baudaten_override
@@ -3074,6 +3130,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "aussen_ohne_h_count": aussen_ohne_h,
         "schnitt": best_schnitt,
         "saeulen_erkannt": saeulen_erkannt,
+        "doppelcheck": doppelcheck,
         "geschoss": geschoss,
         "raeume": merged_rooms,
         "fenster": alle_fenster,

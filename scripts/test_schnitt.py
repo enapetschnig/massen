@@ -72,6 +72,26 @@ res2 = _run(ROOMS, {"E": {"geo": {"geschoss": "EG"}, "schnitt_vision": {"kein_sc
                           "aussenkontur_vision": LOG["aussenkontur_vision"]}})
 check("ohne Schnitt: saeulen_erkannt None", not res2.get("saeulen_erkannt"), f"got {res2.get('saeulen_erkannt')}")
 
+print("\nSZENARIO: DOPPELCHECK — Legende & Schnitt stimmen überein (Decke 20cm) → bestätigt")
+LEG = {"wand_typen": {"AW1": {"dicke_cm": 50, "art": "aussen"}, "IW1": {"dicke_cm": 25, "art": "innen"}},
+       "decke_cm": 20.0, "bodenplatte_cm": 25.0, "estrich_cm": 7.0, "konfidenz": 0.9, "dach_typ": "flach"}
+SCH = {"geschosshoehe_rohbau_m": 2.95, "dachtyp": "flach",
+       "schichten_cm": {"decke": 20, "bodenplatte": 25, "estrich": 7}, "konfidenz": 0.75}
+res3 = _run(ROOMS, {"E": dict(LOG, legende=LEG, schnitt_vision=SCH)})
+dc = res3.get("doppelcheck") or []
+best = [d for d in dc if d["status"] == "bestätigt"]
+check("Decke doppelt bestätigt (Legende 20 = Schnitt 20)",
+      any(d["key"] == "decke_cm" and d["status"] == "bestätigt" for d in dc), f"got {dc}")
+check("Dachtyp flach doppelt bestätigt",
+      any(d["key"] == "dach_typ" and d["status"] == "bestätigt" for d in dc), f"got {[d['key'] for d in best]}")
+
+print("\nSZENARIO: DOPPELCHECK — Widerspruch (Legende Decke 20 vs Schnitt 25) → Warnung")
+SCH_W = dict(SCH, schichten_cm={"decke": 25, "bodenplatte": 25})
+res4 = _run(ROOMS, {"E": dict(LOG, legende=LEG, schnitt_vision=SCH_W)})
+dc4 = res4.get("doppelcheck") or []
+check("Decke-Widerspruch erkannt (20 vs 25)",
+      any(d["key"] == "decke_cm" and d["status"] == "widerspruch" for d in dc4), f"got {dc4}")
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Test(s) gescheitert: {fails}")

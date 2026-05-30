@@ -260,11 +260,14 @@
     var facts = [];
     function srcTag(key) {
       var q = (bq[key] || '') + '';
-      if (q.indexOf('legende') >= 0) return '<span class="fact-src read" title="byte-exakt aus Bauteil-Legende gelesen">gelesen</span>';
-      if (q === 'schnitt') return '<span class="fact-src measured" title="aus dem Schnitt/der Ansicht gelesen">aus Schnitt</span>';
-      if (/vision|raumhoehen|gemessen|bbox|polygon|kette/i.test(q)) return '<span class="fact-src measured" title="aus dem Plan gemessen">gemessen</span>';
-      if (!q) return '';
-      return '<span class="fact-src assumed" title="Standard-Annahme — kein Plan-Beleg">Standard</span>';
+      var dc = q.indexOf('doppelcheck') >= 0 ? '<span class="fact-confirm" title="von zwei unabhängigen Quellen bestätigt — sehr hohe Konfidenz">✓✓</span>' : '';
+      var base;
+      if (q.indexOf('legende') >= 0) base = '<span class="fact-src read" title="byte-exakt aus Bauteil-Legende gelesen">gelesen</span>';
+      else if (q.indexOf('schnitt') >= 0) base = '<span class="fact-src measured" title="aus dem Schnitt/der Ansicht gelesen">aus Schnitt</span>';
+      else if (/vision|raumhoehen|gemessen|bbox|polygon|kette/i.test(q)) base = '<span class="fact-src measured" title="aus dem Plan gemessen">gemessen</span>';
+      else if (!q) base = '';
+      else base = '<span class="fact-src assumed" title="Standard-Annahme — kein Plan-Beleg">Standard</span>';
+      return base + dc;
     }
     function bdFact(icon, label, key, unit) {
       if (bd[key] == null) return;
@@ -319,6 +322,20 @@
       hints.push('<div class="status-ok">✓ ' + data.aussen_ohne_h_count +
         ' überdachte Außenfläche(n) ohne Raumhöhe — korrekt, fließen nur über die Fläche in Decke/Bodenaufbau.</div>');
     }
+    // DOPPELCHECK: unabhängige Quellen gegeneinander geprüft
+    var dc = data.doppelcheck || [];
+    var bestaetigt = dc.filter(function (d) { return d.status === 'bestätigt'; });
+    var widerspruch = dc.filter(function (d) { return d.status === 'widerspruch'; });
+    if (bestaetigt.length) {
+      hints.push('<div class="status-ok">✓✓ <strong>' + bestaetigt.length +
+        ' Wert(e) doppelt bestätigt</strong> (' + bestaetigt.map(function (d) { return esc(d.groesse); }).join(', ') +
+        ') — unabhängig aus Legende + Schnitt gelesen, sehr hohe Konfidenz.</div>');
+    }
+    widerspruch.forEach(function (d) {
+      var vals = d.quellen.map(function (q) { return esc(q.quelle) + ' ' + q.wert + (d.einheit || ''); }).join(' vs ');
+      hints.push('<div class="status-warn">⚠ <strong>' + esc(d.groesse) + ' unklar</strong>: ' + vals +
+        ' — Quellen widersprechen sich, bitte am Plan prüfen.</div>');
+    });
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {
       hints.push('<div class="status-warn">⚠ <strong>0 Öffnungen erkannt</strong> — Laibungen, Rolladenkästen und Überlagen werden pauschal geschätzt.</div>');
