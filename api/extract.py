@@ -597,12 +597,11 @@ async def analyse_zoom(body: ExtractRequest):
         # Bei Code-Räumen (EG301) liegen F/U/H oft 100-150pt entfernt; bei
         # ArchiCAD-Beschriftungsblöcken stehen sie kompakt direkt unter dem Namen.
         is_code = bool(ROOM_CODE_RX_INNER.match(rs["text"].strip()))
-        # Fenster etwas weiter (85pt statt 60) für 2-spaltige / 3-zeilige
-        # ArchiCAD-Stempel, in denen F/U/H unter ODER neben dem Namen stehen.
-        # rad_y_neg klein halten (-5): Werte deutlich ÜBER dem Namen gehören
-        # meist zum darüberliegenden Raum (kein Cross-Talk).
-        rad_x = 150 if is_code else 85
-        rad_y_pos = 150 if is_code else 85
+        # Enges Fenster (60pt) gegen Stempel-Cross-Talk: ein weiteres Fenster
+        # ließ den Flur den Umfang des Nachbar-Raums (Bad) greifen. Lieber eng
+        # + die isoperimetrische Plausi-Sicherung unten als Netz.
+        rad_x = 150 if is_code else 60
+        rad_y_pos = 150 if is_code else 60
         rad_y_neg = -150 if is_code else -5
         candidates = []
         for s in spans_all:
@@ -610,9 +609,8 @@ async def analyse_zoom(body: ExtractRequest):
             dx = s["cx"] - rx; dy = s["cy"] - ry
             if abs(dx) <= rad_x and rad_y_neg <= dy <= rad_y_pos:
                 candidates.append((dy, dx, s))
-        # Nächster Wert (vertikal, dann horizontal) zuerst → der eigene
-        # Stempel-Wert gewinnt vor weiter entfernten Nachbar-Werten.
-        candidates.sort(key=lambda c: (abs(c[0]), abs(c[1])))
+        # nächster Wert zuerst (key-Funktion vermeidet Dict-Vergleich bei Gleichstand)
+        candidates.sort(key=lambda c: (c[0], c[1]))
         f_val = u_val = h_val = None
         bodenbelag = None
         for dy, dx, s in candidates:
@@ -2367,6 +2365,17 @@ async def projekt_massen(body: ProjektMassenRequest):
 
     halluzinationen = [r for r in merged_rooms if r.get("_hallucination")]
     merged_rooms = cleaned_rooms
+
+    # 4b1) ISOPERIMETRISCHE PLAUSI PRO RAUM: ein Footprint der Fläche F kann
+    # geometrisch keinen Umfang < 4·√F haben (Quadrat-Minimum). Ein kleinerer
+    # U ist ein falsch zugeordneter Nachbar-Wert (Stempel-Cross-Talk, z.B. der
+    # Flur erbt Bads Umfang) → verwerfen statt die Wandmengen zu verfälschen.
+    # Der Wert wird zur Transparenz vermerkt; U bleibt leer (ehrlich „–").
+    for r in merged_rooms:
+        f, u = r.get("flaeche_m2"), r.get("umfang_m")
+        if f and u and u < 4.0 * (float(f) ** 0.5) * 0.98:
+            r["_umfang_implausibel"] = round(float(u), 2)
+            r["umfang_m"] = None
 
     # 4b2) GESCHOSS/EINHEIT-TRENNUNG für die Rohbau-Mengen:
     # Die Bodenplatte/Decke/Mauerwerk ist EIN EG-Grundriss. Wenn der Plan

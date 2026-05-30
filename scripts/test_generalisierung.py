@@ -150,6 +150,20 @@ check("Zimmer 1 + Zimmer 2 bleiben getrennt (Ziffern-Gate)", len(zimmer1) == 2, 
 baeder = [r for r in res["raeume"] if (r.get("name") or "").lower().endswith("bad")]
 check("Großes/Kleines Bad bleiben getrennt (kein Teilmengen-Match)", len(baeder) == 2, f"got {[r.get('name') for r in baeder]}")
 
+print("\nSZENARIO 9: geometrisch unmöglicher Umfang (U < 4·√F, Stempel-Cross-Talk) → U verworfen")
+rooms = [("E", {"name": "Flur", "flaeche_m2": 15.84, "umfang_m": 11.90, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"}),
+         ("E", {"name": "Wohnen", "flaeche_m2": 30.0, "umfang_m": 24.0, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"}),
+         ("E", {"name": "Bad", "flaeche_m2": 8.0, "umfang_m": 11.0, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"}),
+         ("E", {"name": "WC", "flaeche_m2": 2.0, "umfang_m": 6.0, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"}),
+         ("E", {"name": "Speis", "flaeche_m2": 4.0, "umfang_m": 8.0, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"})]
+res = _run(rooms, {"E": EG_LOG})
+flur = [r for r in res["raeume"] if r.get("name") == "Flur"]
+check("Flur mit unmöglichem U (11,9 < 15,9) → U verworfen", flur and not flur[0].get("umfang_m"),
+      f"got umfang_m={flur[0].get('umfang_m') if flur else None}")
+wohnen = [r for r in res["raeume"] if r.get("name") == "Wohnen"]
+check("Wohnen mit plausiblem U (24 ≥ 21,9) → U behalten", wohnen and wohnen[0].get("umfang_m") == 24.0,
+      f"got {wohnen[0].get('umfang_m') if wohnen else None}")
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Generalisierungs-Test(s) gescheitert: {fails}")
