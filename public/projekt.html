@@ -72,7 +72,7 @@
       <div class="result-hero">
         <div class="result-hero-text">
           <div class="result-hero-kicker">&#129683; Rohbau-Materialliste</div>
-          <h2 class="result-hero-title">Material bereit zur Bestellung</h2>
+          <h2 class="result-hero-title" id="result-hero-status">Material wird ausgewertet …</h2>
           <div class="result-hero-sub"><span id="projekt-massen-badge"></span></div>
         </div>
         <div class="result-hero-side">
@@ -83,6 +83,9 @@
           <button class="btn btn-accent btn-export" id="projekt-export-btn" title="Räume + Fenster + Türen + Materialliste als CSV">&#128229; Export CSV</button>
         </div>
       </div>
+
+      <!-- GEOMETRIE-KASTEN: die kritischen Maße mit Sicherungs-Flag -->
+      <div class="geo-box" id="geo-box"></div>
 
       <!-- FACTS: was die App byte-exakt aus dem Plan gelesen hat -->
       <div class="fact-strip" id="fact-strip"></div>

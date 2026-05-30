@@ -2525,3 +2525,40 @@ img {
   margin-left: 4px; color: #15803d; font-weight: 700; font-size: 0.72rem;
   letter-spacing: -1px;
 }
+
+/* GEOMETRIE-KASTEN — kritische Maße mit Sicherungs-Flag (Dashboard) */
+.geo-box {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: 0.6rem; margin-bottom: 1.1rem;
+}
+.geo-tile {
+  background: var(--white); border: 1px solid var(--border); border-left: 4px solid var(--border);
+  border-radius: var(--radius); padding: 0.55rem 0.8rem; box-shadow: var(--shadow);
+}
+.geo-tile.ok2 { border-left-color: #16a34a; }
+.geo-tile.ok  { border-left-color: #65a30d; }
+.geo-tile.warn { border-left-color: #f39301; background: #fffaf0; }
+.geo-tile.grey { border-left-color: #cbd5e1; }
+.geo-tile-head { display: flex; align-items: center; gap: 0.35rem; font-size: 0.76rem; color: var(--text-light); }
+.geo-label { flex: 1; }
+.geo-ico { font-size: 0.92rem; line-height: 1; }
+.geo-flag { font-weight: 700; color: #15803d; letter-spacing: -1px; }
+.geo-tile.warn .geo-flag { color: #b45309; }
+.geo-tile.grey .geo-flag { color: #94a3b8; }
+.geo-val { font-size: 1.25rem; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; margin: 0.1rem 0; }
+.geo-note { font-size: 0.71rem; color: var(--text-light); line-height: 1.25; }
+
+/* HERO-Status (3-Stufen-Bau-Signal) auf dem navy Hero */
+.result-hero-title.st-green { color: #bbf7d0; }
+.result-hero-title.st-yellow { color: #fde68a; }
+.result-hero-title.st-red { color: #fecaca; }
+
+/* Material-Board: Konfidenz-Legende + Tier-Rand oben */
+.ml-legende {
+  grid-column: 1 / -1; font-size: 0.76rem; color: var(--text-light);
+  display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.1rem;
+}
+.ml-legende .ml-dot { display: inline-block; }
+.ml-group.tier-hoch { border-top: 3px solid #16a34a; }
+.ml-group.tier-mittel { border-top: 3px solid #f59e0b; }
+.ml-group.tier-niedrig { border-top: 3px solid #ef4444; }

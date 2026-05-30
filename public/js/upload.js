@@ -300,6 +300,44 @@
     el.innerHTML = facts.join('');
   }
 
+  // GEOMETRIE-KASTEN: die kritischen Maße für die Mengen, jede mit Sicherungs-Flag
+  function renderGeoBox(data) {
+    var el = document.getElementById('geo-box');
+    if (!el) return;
+    var g = data.gemessen || {};
+    var gq = g.geometrie_qualitaet || {};
+    var bd = data.baudaten || {};
+    var dc = data.doppelcheck || [];
+    var ghOk = dc.some(function (d) { return d.key === 'geschosshoehe_m' && d.status === 'bestätigt'; });
+    function tile(icon, label, value, cls, mark, note) {
+      return '<div class="geo-tile ' + cls + '">' +
+        '<div class="geo-tile-head"><span class="geo-ico">' + icon + '</span><span class="geo-label">' + label +
+          '</span><span class="geo-flag">' + mark + '</span></div>' +
+        '<div class="geo-val">' + value + '</div>' +
+        '<div class="geo-note">' + note + '</div></div>';
+    }
+    var t = [];
+    if (g.aussenumfang_m) {
+      var cls, mark, note;
+      if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'Kettenbemaßung bestätigt (Σ = Gesamtmaß)'; }
+      else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'Quellen uneinig — am Plan prüfen'; }
+      else { cls = 'ok'; mark = '✓'; note = 'aus gemessener Geometrie'; }
+      t.push(tile('📐', 'Außenumfang', fmtNum(g.aussenumfang_m) + ' m', cls, mark, note));
+    }
+    if (g.bodenplatte_flaeche_m2) t.push(tile('⬛', 'Grundfläche', fmtNum(g.bodenplatte_flaeche_m2) + ' m²',
+      'ok2', '✓✓', gq.flaeche_anker || 'byte-exakt aus Raumflächen'));
+    if (g.fundament_umfang_m) {
+      var lb = gq.linie_b_erkannt;
+      t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m',
+        lb ? 'ok' : 'grey', lb ? '✓' : '=',
+        lb ? 'inkl. angebauter überdachter Fläche' : '= Außenkante (kein Überstand)'));
+    }
+    if (bd.geschosshoehe_m) t.push(tile('📏', 'Geschoss-Höhe', fmtNum(bd.geschosshoehe_m) + ' m',
+      ghOk ? 'ok2' : 'ok', ghOk ? '✓✓' : '✓',
+      ghOk ? 'Legende + Schnitt bestätigt' : ((bd._quellen || {}).geschosshoehe_m || 'aus Plan')));
+    el.innerHTML = t.join('');
+  }
+
   // STATUS-BANNER: nur Hinweise, bei denen der Nutzer etwas tun kann/sollte
   function renderStatusBanner(data) {
     var statusEl = document.getElementById('ergebnis-status-banner');
@@ -392,6 +430,7 @@
 
     if (data.plaene) renderPlanFilter(data.plaene);
     renderFactStrip(data);
+    renderGeoBox(data);
     renderStatusBanner(data);
 
     // ÖNORM-Gewerke-Kacheln (im Erweitert-Drawer)
@@ -521,16 +560,27 @@
 
     var showFormel = !!(tog && tog.checked);
     var totalPos = 0, sicherPos = 0;
-    var html = '';
-    Object.keys(ml.bauteile).forEach(function (bauteil) {
-      var rows = ml.bauteile[bauteil] || [];
-      if (!rows.length) return;
-      html += '<section class="ml-group">';
-      html += '<header class="ml-group-head"><span class="ml-group-ico">' + bauteilIcon(bauteil) + '</span>' +
-        '<span class="ml-group-name">' + esc(bauteil) + '</span>' +
-        '<span class="ml-group-meta">' + rows.length + ' Position' + (rows.length === 1 ? '' : 'en') + '</span></header>';
+    // Gruppen nach Konfidenz sortieren: sofort-bestellbar (grün) zuerst,
+    // dann prüfen (gelb), dann am-Bau-klären (grau) — ein Polier sieht oben,
+    // was sicher ist.
+    var groups = Object.keys(ml.bauteile).map(function (bauteil) {
+      var rows = (ml.bauteile[bauteil] || []).filter(Boolean);
+      var avg = rows.length ? rows.reduce(function (a, p) { return a + (p.konfidenz || 0); }, 0) / rows.length : 0;
+      return { bauteil: bauteil, rows: rows, avg: avg };
+    }).filter(function (g) { return g.rows.length; });
+    groups.sort(function (a, b) { return b.avg - a.avg; });
+
+    var html = '<div class="ml-legende"><span class="ml-dot hoch"></span> sehr sicher · ' +
+      '<span class="ml-dot mittel"></span> Standard-Annahme · ' +
+      '<span class="ml-dot niedrig"></span> am Bau klären</div>';
+    groups.forEach(function (grp) {
+      var gtier = grp.avg >= 0.7 ? 'hoch' : (grp.avg >= 0.5 ? 'mittel' : 'niedrig');
+      html += '<section class="ml-group tier-' + gtier + '">';
+      html += '<header class="ml-group-head"><span class="ml-group-ico">' + bauteilIcon(grp.bauteil) + '</span>' +
+        '<span class="ml-group-name">' + esc(grp.bauteil) + '</span>' +
+        '<span class="ml-group-meta">' + grp.rows.length + ' Position' + (grp.rows.length === 1 ? '' : 'en') + '</span></header>';
       html += '<div class="ml-rows">';
-      rows.forEach(function (p) {
+      grp.rows.forEach(function (p) {
         totalPos++;
         var konf = p.konfidenz || 0;
         if (konf >= 0.7) sicherPos++;
@@ -555,6 +605,15 @@
       ring.classList.remove('low', 'mid', 'high');
       ring.classList.add(pct >= 75 ? 'high' : (pct >= 50 ? 'mid' : 'low'));
       ring.title = sicherPos + ' von ' + totalPos + ' Positionen byte-exakt aus Plan/Legende oder gemessener Geometrie (≥ 70% Konfidenz)';
+    }
+
+    // HERO-Status: 3-stufiges Bau-Signal statt nacktem Prozent
+    var statusEl = document.getElementById('result-hero-status');
+    if (statusEl) {
+      statusEl.classList.remove('st-green', 'st-yellow', 'st-red');
+      if (pct >= 75) { statusEl.textContent = '✓ Material bereit zum Bestellen'; statusEl.classList.add('st-green'); }
+      else if (pct >= 50) { statusEl.textContent = '⚠ Vor Bestellung Geometrie prüfen'; statusEl.classList.add('st-yellow'); }
+      else { statusEl.textContent = '⛔ Plan nachprüfen — Daten noch unsicher'; statusEl.classList.add('st-red'); }
     }
   }
 
