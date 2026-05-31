@@ -38,6 +38,17 @@ create index if not exists idx_soll_listen_firma on soll_listen(firma_id);
 -- 3) Account-Sperre für den Super-Admin (e-power steuert, wer das Produkt nutzt).
 alter table firmen add column if not exists gesperrt boolean default false;
 
+-- 3b) Sperre beim Login durchsetzen (login_firma um gesperrt-Check erweitert).
+create or replace function public.login_firma(p_email text, p_passwort text)
+  returns json language plpgsql security definer
+as $function$ declare v_firma firmen%rowtype; begin
+  select * into v_firma from firmen where email = p_email;
+  if not found then raise exception 'Ungueltige Anmeldedaten'; end if;
+  if v_firma.passwort_hash != crypt(p_passwort, v_firma.passwort_hash) then raise exception 'Ungueltige Anmeldedaten'; end if;
+  if coalesce(v_firma.gesperrt, false) then raise exception 'Account gesperrt - bitte e-power kontaktieren'; end if;
+  return json_build_object('id', v_firma.id, 'name', v_firma.name, 'email', v_firma.email);
+end; $function$;
+
 -- 4) Admin-Token für die /api/admin/*-Endpunkte (Server prüft dagegen).
 --    Setze einen sicheren Wert; die normale Firma-Auth läuft client-seitig.
 insert into app_config (key, value)
