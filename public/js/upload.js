@@ -317,12 +317,17 @@
         '<div class="geo-note">' + note + '</div></div>';
     }
     var t = [];
+    var opusGarage = (gq.opus_garage || []).filter(Boolean);
     if (g.aussenumfang_m) {
       var cls, mark, note;
       if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'gemauerte Hülle — Kettenbemaßung bestätigt (Σ = Gesamtmaß)'; }
       else if (gq.umfang_verdacht_niedrig) { cls = 'warn'; mark = '⚠'; note = 'wirkt zu niedrig für die Grundfläche — am Plan prüfen / Umfang setzen'; }
       else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'Quellen uneinig — am Plan prüfen'; }
       else { cls = 'ok'; mark = '✓'; note = 'gemauerte Hülle (für Mauerwerk)'; }
+      if (opusGarage.length && gq.opus_mauerwerk_zusatz_m) {
+        note += ' · inkl. ' + esc(opusGarage.join(', ')) + ' als gemauert erkannt (+' +
+          fmtNum(gq.opus_mauerwerk_zusatz_m) + ' m, Schnitt)';
+      }
       t.push(tile('📐', 'Außenumfang', fmtNum(g.aussenumfang_m) + ' m', cls, mark, note));
     }
     if (g.bodenplatte_flaeche_m2) t.push(tile('⬛', 'Grundfläche', fmtNum(g.bodenplatte_flaeche_m2) + ' m²',
@@ -331,15 +336,22 @@
       if (gq.fundament_unsicher) {
         t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'warn', '⚠',
           (gq.ueberdachte_flaechen || '') + ' überdachte Fläche(n) — Platte läuft mglw. weiter, im Polierplan prüfen / Umfang setzen'));
+      } else if (gq.opus_slab_aktiv) {
+        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'ok', '✓',
+          'Platte läuft unter Anbau weiter — vom Bauingenieur-Pass aus dem Schnitt belegt'));
       } else if (gq.linie_b_erkannt) {
         t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'ok', '✓', 'inkl. angebauter überdachter Fläche'));
       } else {
         t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'grey', '=', '= Außenkante (kein Überstand)'));
       }
     }
-    if (bd.geschosshoehe_m) t.push(tile('📏', 'Geschoss-Höhe', fmtNum(bd.geschosshoehe_m) + ' m',
-      ghOk ? 'ok2' : 'ok', ghOk ? '✓✓' : '✓',
-      ghOk ? 'Legende + Schnitt bestätigt' : ((bd._quellen || {}).geschosshoehe_m || 'aus Plan')));
+    if (bd.geschosshoehe_m) {
+      var ghEntry = dc.filter(function (d) { return d.key === 'geschosshoehe_m'; })[0];
+      var ghSrc = ghEntry ? (ghEntry.quellen || []).map(function (q) { return esc(q.quelle); }).join(' + ') + ' bestätigt'
+        : ((bd._quellen || {}).geschosshoehe_m || 'aus Plan');
+      t.push(tile('📏', 'Geschoss-Höhe', fmtNum(bd.geschosshoehe_m) + ' m',
+        ghOk ? 'ok2' : 'ok', ghOk ? '✓✓' : '✓', ghSrc));
+    }
     el.innerHTML = t.join('');
   }
 
@@ -370,9 +382,14 @@
     var bestaetigt = dc.filter(function (d) { return d.status === 'bestätigt'; });
     var widerspruch = dc.filter(function (d) { return d.status === 'widerspruch'; });
     if (bestaetigt.length) {
+      var allSrc = {};
+      bestaetigt.forEach(function (d) { (d.quellen || []).forEach(function (q) { allSrc[q.quelle] = 1; }); });
+      var srcList = Object.keys(allSrc);
+      var srcTxt = srcList.length ? srcList.join(' + ') : 'mehreren Quellen';
+      var mehr3 = srcList.length >= 3 ? ' (Vier-Augen-Prinzip: ' + srcList.length + ' unabhängige Leser)' : '';
       hints.push('<div class="status-ok">✓✓ <strong>' + bestaetigt.length +
         ' Wert(e) doppelt bestätigt</strong> (' + bestaetigt.map(function (d) { return esc(d.groesse); }).join(', ') +
-        ') — unabhängig aus Legende + Schnitt gelesen, sehr hohe Konfidenz.</div>');
+        ') — unabhängig aus ' + esc(srcTxt) + ' gelesen' + mehr3 + ', sehr hohe Konfidenz.</div>');
     }
     widerspruch.forEach(function (d) {
       var vals = (d.quellen || []).map(function (q) { return esc(q.quelle) + ' ' + q.wert + (d.einheit || ''); }).join(' vs ');
@@ -401,6 +418,19 @@
       hints.push('<div class="status-warn">⚠ <strong>Fundamentkante prüfen</strong> — ' + (gq.ueberdachte_flaechen || '') +
         ' überdachte Fläche(n) (Terrasse/Carport) am Haus. Die Bodenplatte läuft mglw. darunter weiter — <strong>wie weit, steht nur im Polierplan</strong>. ' +
         'Frostschürze/Randabschluss daher mit Vorsicht; bei Bedarf den echten Umfang im Erweitert-Drawer setzen.</div>');
+    }
+    // OPUS-BAUINGENIEUR: im Schnitt als gemauert erkannte „überdachte" Bereiche
+    // (z.B. ein als Parkplatz beschrifteter, real gemauerter Garagen-Anbau)
+    var opusGar = (gq.opus_garage || []).filter(Boolean);
+    if (opusGar.length && gq.opus_mauerwerk_zusatz_m) {
+      hints.push('<div class="status-ok">🏗 <strong>' + esc(opusGar.join(', ')) +
+        ' als Mauerwerk erkannt</strong> — im Grundriss „überdacht", im Schnitt aber rundum gemauert. ' +
+        '+' + fmtNum(gq.opus_mauerwerk_zusatz_m) + ' m Außenwand in die Mauerwerks-Hülle übernommen ' +
+        '(Bauingenieur-Pass, gegen die Maßketten geprüft).</div>');
+    }
+    if (gq.opus_slab_aktiv) {
+      hints.push('<div class="status-ok">✓ <strong>Bodenplatte läuft unter den Anbau weiter</strong> — ' +
+        'der Bauingenieur-Pass belegt die durchgehende Platte aus dem Schnitt; Fundamentkante entsprechend gesetzt.</div>');
     }
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {

@@ -59,6 +59,13 @@ except Exception as _e:  # pragma: no cover
     print(f"[massketten] Import fehlgeschlagen: {_e}")
     _MASSKETTEN_OK = False
 
+try:
+    import opus_konsum as _ok
+    _OPUS_KONSUM_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[opus_konsum] Import fehlgeschlagen: {_e}")
+    _OPUS_KONSUM_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -2106,6 +2113,110 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
             print(f"[oeffnungs-symbole] failed: {_exc!r}")
             oeffnungs_symbole = {}
 
+        # ═══════════════════════════════════════════════════════════════
+        # OPUS-4.8-BAUINGENIEUR-PASS — liest den Plan GANZHEITLICH (Grundriss +
+        # Schnitte + Ansichten + Legende ZUSAMMEN), gegroundet an den byte-exakten
+        # Text-Layer-Fakten (die er NIE überschreibt). Beurteilt NUR das
+        # Mehrdeutige, das ein Mensch nur aus der Zusammenschau treffen kann:
+        # ist der "Parkplatz überdacht" eine geschlossene gemauerte GARAGE
+        # (→ Mauerwerk!) oder offen? läuft die Bodenplatte drunter? lichte vs
+        # Rohbau-Höhe? Dachtyp/Attika? — IMMER mit Plan-Beleg, sonst null
+        # (nichts raten). Additiv + fallback-sicher (env OPUS_PASS=0 schaltet ab).
+        # ═══════════════════════════════════════════════════════════════
+        OPUS_BAUINGENIEUR_PROMPT = """Du bist ein erfahrener österreichischer Bauingenieur/Polier mit 30 Jahren
+Praxis im Lesen von Einreich- und Polierplänen. Du liest den Plan GANZHEITLICH
+wie ein Mensch: Grundriss + Schnitte + Ansichten + Legende ZUSAMMEN.
+
+══ DEINE BASIS (FAKTEN — NIEMALS ÄNDERN) ══
+Du bekommst byte-exakt aus dem PDF-Text-Layer gelesene Fakten (Räume mit F/U/H,
+Legende-Wandstärken, Maßketten-Hülle, Öffnungs-Anzahl). Diese sind WAHRHEIT. Du
+misst KEINE Flächen/Maße neu. Du baust DARAUF AUF.
+
+══ DEINE AUFGABE — NUR DAS MEHRDEUTIGE, IMMER MIT BELEG ══
+Fälle nur die Urteile, die man NUR aus Grundriss+Schnitt zusammen treffen kann.
+Für JEDES Urteil: gib eine kurze "evidenz" (was du WO siehst) + "konfidenz" 0–1.
+KEIN Beleg sichtbar → Wert null + konfidenz < 0.4. NIEMALS raten.
+
+1) ÜBERDACHTE BEREICHE (Parkplatz/Carport/Garage/Terrasse/Loggia/Eingang):
+   - geschlossen_typ: "gemauert" (Wände rundum bis Dach, HLZ/Ziegel im Schnitt),
+     "ständer" (nur Stützen/Säulen, offen), oder "offen" (nur Platte/Dach).
+     WICHTIG: ein im Grundriss als "Parkplatz/Carport überdacht" beschrifteter
+     Bereich ist eine GESCHLOSSENE GARAGE, wenn der SCHNITT rundum gemauerte
+     Wände bis zum Dach + ein Tor zeigt. Das erkennt man NUR im Schnitt.
+   - auf_slab: steht der Bereich auf DERSELBEN durchgehenden Bodenplatte wie der
+     Hauptbau (kein eigenes Fundament, unter dem Hauptdach, an ≥1 Hauswand)?
+   - mauerwerk_umfang_zusatz_m: zusätzliche GEMAUERTE Außenwand-Länge dieses
+     Bereichs gegenüber der Hauptbau-Hülle (nur wenn geschlossen_typ="gemauert").
+   - fundament_umfang_zusatz_m: zusätzlicher Bodenplatten-Rand (nur wenn auf_slab).
+
+2) HÖHE: rohbau_m (FBOK bis Rohdecke-OK) und licht_m (FBOK bis Decke-UK) aus dem
+   Schnitt. 3) DACH: dach_typ ("flach"/"pult"/"sattel"/"walm") + attika_hoehe_m
+   bei Flach-/Pultdach. 4) saeulen_anzahl: freistehende tragende Stützen (0 wenn keine).
+
+Antworte NUR mit JSON, kein Markdown:
+{
+  "ueberdachte_bereiche": [
+    {"name": "Parkplatz überdacht", "geschlossen_typ": "gemauert", "auf_slab": true,
+     "mauerwerk_umfang_zusatz_m": 12.0, "fundament_umfang_zusatz_m": 8.0,
+     "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände bis Dach + Tor"}
+  ],
+  "hoehe": {"rohbau_m": 2.95, "licht_m": 2.70, "konfidenz": 0.8, "evidenz": "Schnitt A-A"},
+  "dach": {"dach_typ": "flach", "attika_hoehe_m": 0.4, "konfidenz": 0.8, "evidenz": "Attika XPS im Schnitt"},
+  "saeulen_anzahl": 0,
+  "gesamtkonfidenz": 0.8
+}"""
+        opus_bauingenieur = {}
+        if os.environ.get("OPUS_PASS", "1") != "0":
+            try:
+                _leg_facts = _parse_legende(spans_all) if _LEGENDE_OK else {}
+                fakten = {
+                    "text_layer_raeume": [{"name": r.get("name"), "flaeche_m2": r.get("flaeche_m2"),
+                                           "umfang_m": r.get("umfang_m"), "hoehe_m": r.get("hoehe_m"),
+                                           "bodenbelag": r.get("bodenbelag")} for r in unique_rooms],
+                    "text_layer_legende": {"wand_typen": _leg_facts.get("wand_typen"),
+                                           "decke_cm": _leg_facts.get("decke_cm"),
+                                           "bodenplatte_cm": _leg_facts.get("bodenplatte_cm")},
+                    "text_layer_massketten_huelle": massketten_bbox,
+                    "anzahl_fenster": len(unique_fenster), "anzahl_tueren": len(all_tueren),
+                }
+                doco = fitz.open(stream=pdf_bytes, filetype="pdf")
+                pgo = doco[0]
+                bilder, dpi_o = [], 300
+                while dpi_o >= 120:
+                    pix = pgo.get_pixmap(matrix=fitz.Matrix(dpi_o / 72, dpi_o / 72))
+                    ib = pix.tobytes("jpeg", jpg_quality=85)
+                    if len(ib) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                        bilder = [ib]
+                        break
+                    dpi_o -= 40
+                if not bilder:  # Kachel-Fallback für große Blätter (A1/A0)
+                    hh = pgo.rect.height
+                    for y0, y1 in ((0, hh * 0.58), (hh * 0.42, hh)):
+                        pix = pgo.get_pixmap(matrix=fitz.Matrix(180 / 72, 180 / 72),
+                                             clip=fitz.Rect(0, y0, pgo.rect.width, y1))
+                        bilder.append(pix.tobytes("jpeg", jpg_quality=82))
+                doco.close()
+                content = [{"type": "text", "text": "BYTE-EXAKTE FAKTEN (nicht ändern):\n" +
+                            json.dumps(fakten, ensure_ascii=False)}]
+                for ib in bilder:
+                    content.append({"type": "image", "source": {"type": "base64",
+                        "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
+                content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
+                resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000, temperature=0,
+                    system=OPUS_BAUINGENIEUR_PROMPT, messages=[{"role": "user", "content": content}])
+                raw = resp.content[0].text if resp.content else "{}"
+                try:
+                    opus_bauingenieur = json.loads(raw)
+                except Exception:
+                    mjs = re.search(r"\{[\s\S]*\}", raw)
+                    opus_bauingenieur = json.loads(mjs.group()) if mjs else {}
+                print(f"[opus-bauingenieur] konf={opus_bauingenieur.get('gesamtkonfidenz')}, "
+                      f"bereiche={len(opus_bauingenieur.get('ueberdachte_bereiche') or [])}, "
+                      f"dach={(opus_bauingenieur.get('dach') or {}).get('dach_typ')}")
+            except Exception as _exc:
+                print(f"[opus-bauingenieur] failed: {_exc!r}")
+                opus_bauingenieur = {}
+
         try:
             gewerke_result = _berechne_gewerke(
                 rooms_fg, alle_fenster, baudaten, geschoss or "EG", None)
@@ -2151,6 +2262,12 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
         # Maßketten-Text-Layer-BBox (byte-exakte Hülle, kein Vision)
         try:
             log["massketten_bbox"] = massketten_bbox
+        except NameError:
+            pass
+        # Opus-4.8-Bauingenieur-Urteil (ganzheitlich, gegroundet) — eigene Quelle
+        # für Kreuz-Kontrolle/Doppelcheck, byte-exaktes bleibt unangetastet.
+        try:
+            log["opus_bauingenieur"] = opus_bauingenieur
         except NameError:
             pass
     # Bauteil-Legende byte-exakt aus dem Text-Layer lesen (wie ein Mensch):
@@ -2972,6 +3089,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     geschoss = "EG"
     best_legende = None  # Legende mit höchster Konfidenz (byte-exakt > Vision)
     best_schnitt = None   # Schnitt-/Ansichts-Lesung (Säulen, Geschoss-H, Dach)
+    best_opus = None      # Opus-Bauingenieur-Urteil (geschlossene Garage, Slab, Höhe)
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
@@ -2996,6 +3114,15 @@ async def projekt_massen(body: ProjektMassenRequest):
         if sv and not sv.get("kein_schnitt") and (best_schnitt is None or
                 (sv.get("konfidenz") or 0) > (best_schnitt.get("konfidenz") or 0)):
             best_schnitt = sv
+        # Opus-Bauingenieur-Urteil — bestes Blatt (klarste Schnitte) gewinnt.
+        # Global unsicheres Urteil (gesamtkonfidenz < 0.45) → ganz verwerfen
+        # ("nichts raten"); die Feld-Gates ≥0.6 sind die zweite Sicherung.
+        ov = log.get("opus_bauingenieur") or {}
+        if ov and float(ov.get("gesamtkonfidenz") or 0) < 0.45:
+            ov = dict(ov, unsicherheit_flag=True)
+        if ov and (best_opus is None or
+                (ov.get("gesamtkonfidenz") or 0) > (best_opus.get("gesamtkonfidenz") or 0)):
+            best_opus = ov
         # Geschoss aus dem ersten Plan, der eines hat
         if not geschoss or geschoss == "EG":
             g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
@@ -3218,6 +3345,17 @@ async def projekt_massen(body: ProjektMassenRequest):
         if bp_korrigiert:
             quelle += "+bp-plausi"
 
+        # OPUS-BAUINGENIEUR: geschlossene GEMAUERTE überdachte Bereiche (z.B. eine
+        # als "Parkplatz" beschriftete, im Schnitt aber gemauerte GARAGE) gehören
+        # zur Mauerwerks-Hülle → ihren Wand-Umfang auf Linie A addieren. Nur mit
+        # Beleg + Konfidenz ≥0.6; die byte-exakte Grund-Hülle bleibt der Anker.
+        opus_mw_zusatz, opus_garage = 0.0, []
+        if _OPUS_KONSUM_OK:
+            opus_mw_zusatz, opus_garage = _ok.mauerwerk_zusatz(best_opus, aussenumfang_m)
+        if opus_mw_zusatz > 0:
+            aussenumfang_m = round(aussenumfang_m + opus_mw_zusatz, 2)
+            quelle += "+opus-garage"
+
         # EHRLICHKEIT: ein UNVALIDIERTER Umfang nahe dem geometrischen Minimum
         # (< iso_min×1.22) ist verdächtig — reale EFH liegen bei 1.25–1.45×√A.
         # So niedrig heißt meist: Vision hat eine L-/U-Form als kompakt gelesen.
@@ -3258,15 +3396,23 @@ async def projekt_massen(body: ProjektMassenRequest):
         if ueberdacht_flaeche > 4 and bp_flaeche:
             faktor = ((bp_flaeche + ueberdacht_flaeche) / bp_flaeche) ** 0.5
             slab_est = round(min(aussenumfang_m * faktor, aussenumfang_m * 1.5), 2)
+        # OPUS: Bereiche, die laut Bauingenieur auf der DURCHGEHENDEN Platte stehen
+        # → ihren Platten-Rand-Zusatz als eigenen (gegroundeten) Slab-Kandidaten.
+        opus_slab = _ok.slab_zusatz(best_opus, aussenumfang_m) if _OPUS_KONSUM_OK else None
         # GRÖSSERE plausible Schätzung gewinnt — Vision unterschätzt die Slab-Kante
-        # systematisch, die Flächen-Schätzung ist byte-exakt verankert.
-        cands = [c for c in (vision_b, slab_est) if c]
+        # systematisch; Opus + Flächen-Schätzung sind byte-exakt/beleg-verankert.
+        cands = [c for c in (vision_b, slab_est, opus_slab) if c]
         if cands:
             fundament_umfang_m = max(cands)
-            ist_schaetzung = (slab_est is not None and fundament_umfang_m == slab_est)
-            fundament_quelle = ("geschätzt aus überdachten Flächen (Polierplan prüfen)"
-                                if ist_schaetzung else "vision-fundamentkante")
-            fundament_unsicher = ist_schaetzung
+            if opus_slab is not None and fundament_umfang_m == opus_slab:
+                fundament_quelle = "opus-bauingenieur (Platte unter Anbau)"
+                fundament_unsicher = False   # mit Plan-Beleg → nicht „unsicher"
+            elif slab_est is not None and fundament_umfang_m == slab_est:
+                fundament_quelle = "geschätzt aus überdachten Flächen (Polierplan prüfen)"
+                fundament_unsicher = True
+            else:
+                fundament_quelle = "vision-fundamentkante"
+                fundament_unsicher = False
         else:
             fundament_umfang_m = aussenumfang_m
             fundament_quelle = "= Hauptbau (keine angebaute überdachte Fläche)"
@@ -3299,6 +3445,9 @@ async def projekt_massen(body: ProjektMassenRequest):
                 "verworfen": bbox_verworfen,
                 "physikalisch_plausibel": bool(iso_min <= aussenumfang_m <= umfang_ceil),
                 "flaeche_anker": "Σ Innenraum-Fläche (byte-exakt)" if bp_korrigiert else "Vision-Polygon im Plausi-Band",
+                "opus_garage": opus_garage,
+                "opus_mauerwerk_zusatz_m": round(opus_mw_zusatz, 2) if opus_mw_zusatz else 0,
+                "opus_slab_aktiv": bool(opus_slab is not None and fundament_umfang_m == opus_slab),
             },
             "_debug": {"bbox_umfaenge": bbox_umfaenge, "poly_umfaenge": poly_umfaenge,
                        "fund_umfaenge": fund_umfaenge, "bbox_verworfen": bbox_verworfen,
@@ -3373,6 +3522,25 @@ async def projekt_massen(body: ProjektMassenRequest):
             if "anzahl_saeulen" not in ov:
                 body.materialliste_override = dict(ov, anzahl_saeulen=sa)
 
+    # 6c2c) OPUS-BAUINGENIEUR: füllt nur, was NOCH NICHT byte-exakt/aus Schnitt
+    # kam (Schnitt/Legende schlagen Opus). Höhe (Rohbau), Flachdach→Attika, Säulen.
+    if _OPUS_KONSUM_OK and _ok.opus_usable(best_opus):
+        o_roh = _ok.hoehe_rohbau(best_opus)
+        _q = (best_baudaten.get("_quellen") or {}).get("geschosshoehe_m")
+        if o_roh and _q not in ("schnitt", "legende"):
+            best_baudaten["geschosshoehe_m"] = o_roh
+            best_baudaten.setdefault("_quellen", {})["geschosshoehe_m"] = "opus"
+        if _ok.dach_typ(best_opus) == "flach":
+            ov = body.materialliste_override or {}
+            if "attika_aktiv" not in ov:
+                body.materialliste_override = dict(ov, attika_aktiv=1)
+        o_sa = _ok.saeulen(best_opus)   # Säulen nur, falls Schnitt keine lieferte
+        if o_sa > 0 and not saeulen_erkannt:
+            saeulen_erkannt = o_sa
+            ov = body.materialliste_override or {}
+            if "anzahl_saeulen" not in ov:
+                body.materialliste_override = dict(ov, anzahl_saeulen=o_sa)
+
     # 6c3) DOPPELCHECK: unabhängige Quellen gegeneinander prüfen. Stimmen ZWEI
     # überein → sehr hohe Konfidenz (verdient, nicht gefaket). Widersprechen sie
     # sich → Konsistenz-Warnung statt falscher Sicherheit. So erreichen wir
@@ -3380,8 +3548,12 @@ async def projekt_massen(body: ProjektMassenRequest):
     doppelcheck = []
     _leg = best_legende or {}
     _sv = best_schnitt or {}
+    # Opus als DRITTE unabhängige Quelle (Vier-Augen-Prinzip): es bestätigt oder
+    # widerspricht nur, ersetzt nie. Konf-Gate steckt in _ok.hoehe_rohbau/dach_typ.
+    _ov_h = _ok.hoehe_rohbau(best_opus) if _OPUS_KONSUM_OK else None
+    _ov_dach = _ok.dach_typ(best_opus) if _OPUS_KONSUM_OK else None
     _schichten = _sv.get("schichten_cm") or {}
-    def _dc_num(label, key, einheit, quellen, tol):
+    def _dc_num_inline(label, key, einheit, quellen, tol):
         vv = []
         for q, v in quellen:
             try:
@@ -3391,14 +3563,17 @@ async def projekt_massen(body: ProjektMassenRequest):
             if fv > 0:
                 vv.append((q, round(fv, 2)))
         if len(vv) < 2:
-            return
+            return None
         med = sorted(v for _, v in vv)[len(vv) // 2]
         agree = all(abs(v - med) <= tol for _, v in vv)
-        doppelcheck.append({
-            "groesse": label, "key": key, "einheit": einheit, "wert": med,
-            "quellen": [{"quelle": q, "wert": v} for q, v in vv],
-            "status": "bestätigt" if agree else "widerspruch",
-        })
+        return {"groesse": label, "key": key, "einheit": einheit, "wert": med,
+                "quellen": [{"quelle": q, "wert": v} for q, v in vv],
+                "status": "bestätigt" if agree else "widerspruch"}
+    def _dc_num(label, key, einheit, quellen, tol):
+        d = (_ok.doppelcheck_num(label, key, einheit, quellen, tol)
+             if _OPUS_KONSUM_OK else _dc_num_inline(label, key, einheit, quellen, tol))
+        if d:
+            doppelcheck.append(d)
     _dc_num("Decke", "decke_cm", "cm",
             [("Legende", _leg.get("decke_cm")), ("Schnitt", _schichten.get("decke"))], 1.5)
     _dc_num("Bodenplatte", "bodenplatte_cm", "cm",
@@ -3407,13 +3582,20 @@ async def projekt_massen(body: ProjektMassenRequest):
             [("Legende", _leg.get("estrich_cm")), ("Schnitt", _schichten.get("estrich"))], 1.5)
     _dc_num("Geschoss-Höhe", "geschosshoehe_m", "m",
             [("Schnitt", _sv.get("geschosshoehe_rohbau_m")),
-             ("Raumhöhen", h_max if (h_max and h_max > 0) else None)], 0.12)
-    _dt = [(q, str(v).lower()) for q, v in
-           [("Legende", _leg.get("dach_typ")), ("Schnitt", _sv.get("dachtyp"))] if v]
-    if len(_dt) >= 2:
-        doppelcheck.append({"groesse": "Dachtyp", "key": "dach_typ", "einheit": "", "wert": _dt[0][1],
-            "quellen": [{"quelle": q, "wert": v} for q, v in _dt],
-            "status": "bestätigt" if len(set(v for _, v in _dt)) == 1 else "widerspruch"})
+             ("Raumhöhen", h_max if (h_max and h_max > 0) else None),
+             ("Opus", _ov_h)], 0.12)
+    _dt_q = [("Legende", _leg.get("dach_typ")), ("Schnitt", _sv.get("dachtyp")),
+             ("Opus", _ov_dach)]
+    if _OPUS_KONSUM_OK:
+        _dt = _ok.doppelcheck_kat("Dachtyp", "dach_typ", _dt_q)
+    else:
+        _dd = [(q, str(v).lower()) for q, v in _dt_q if v]
+        _dt = ({"groesse": "Dachtyp", "key": "dach_typ", "einheit": "", "wert": _dd[0][1],
+                "quellen": [{"quelle": q, "wert": v} for q, v in _dd],
+                "status": "bestätigt" if len(set(v for _, v in _dd)) == 1 else "widerspruch"}
+               if len(_dd) >= 2 else None)
+    if _dt:
+        doppelcheck.append(_dt)
 
     bestaetigt_keys = {d["key"] for d in doppelcheck if d["status"] == "bestätigt"}
     if bestaetigt_keys:
@@ -3545,6 +3727,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "h_inferred_value": h_median,
         "aussen_ohne_h_count": aussen_ohne_h,
         "schnitt": best_schnitt,
+        "opus_bauingenieur": best_opus,   # ganzheitliches Urteil + Belege (Transparenz)
         "saeulen_erkannt": saeulen_erkannt,
         "doppelcheck": doppelcheck,
         "geschoss": geschoss,
