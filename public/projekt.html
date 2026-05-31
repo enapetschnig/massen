@@ -193,6 +193,24 @@
             <div id="projekt-massen-rooms"></div>
           </div>
 
+          <!-- Block 4: Selbst-Kalibrierung (Moat) -->
+          <div class="advanced-block">
+            <h4 class="advanced-h">&#127919; Selbst-Kalibrierung &mdash; lernt aus deinen Polier-Listen</h4>
+            <div id="kalibrierung-status" class="kalib-status"></div>
+            <p class="kalib-hint">Lade eine fertige Polier-Materialliste (Soll) hoch. Das System vergleicht sie
+              mit seiner Berechnung und lernt firmenspezifische Korrektur-Faktoren &mdash; <strong>je mehr Listen,
+              desto genauer f&uuml;r genau deine Bauweise</strong>. Byte-exakte Werte bleiben unangetastet; ein Faktor
+              wird erst ab <strong>2 Listen</strong> gelernt (Schutz vor &Uuml;beranpassung). CSV (Bezeichnung;Menge;Einheit)
+              oder Freitext.</p>
+            <textarea id="kalibrierung-soll" class="kalib-textarea" rows="6"
+              placeholder="Bodenplatte Beton C25/30;48,5;m³&#10;Frostsch&uuml;rze XPS;62,0;lfm&#10;Au&szlig;enwand HLZ 50;145,8;m²"></textarea>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
+              <button class="btn btn-sm btn-primary" id="kalibrierung-upload">Soll-Liste abgleichen &amp; lernen</button>
+              <button class="btn btn-sm btn-outline" id="kalibrierung-reset">Kalibrierung zur&uuml;cksetzen</button>
+            </div>
+            <div id="kalibrierung-result" class="kalib-result"></div>
+          </div>
+
         </div>
       </details>
     </div>

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — KI-Massenermittlung</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .admin-wrap { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    .admin-card { background: #fff; border: 1px solid #e5e9f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem; }
+    .admin-card h2 { font-size: 1rem; margin: 0 0 .8rem; }
+    .admin-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: flex-end; }
+    .admin-row label { display: flex; flex-direction: column; font-size: .78rem; color: #64748b; gap: .2rem; }
+    .admin-row input { padding: .45rem .6rem; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .85rem; }
+    table.admin-tbl { width: 100%; border-collapse: collapse; font-size: .82rem; margin-top: .6rem; }
+    table.admin-tbl th, table.admin-tbl td { text-align: left; padding: .4rem .55rem; border-bottom: 1px solid #eef2f7; }
+    table.admin-tbl th { color: #64748b; }
+    .admin-locked { color: #ef4444; font-weight: 600; }
+    .admin-note { font-size: .78rem; color: #64748b; }
+    #admin-msg { margin: .5rem 0; }
+  </style>
+</head>
+<body>
+  <div class="admin-wrap">
+    <h1 style="font-size:1.3rem;margin-bottom:.3rem">⚙️ e-power Admin</h1>
+    <p class="admin-note">Kunden-Accounts verwalten &amp; globale Basis-Kalibrierung. Zugriff über Admin-Token.</p>
+
+    <div class="admin-card">
+      <h2>Admin-Token</h2>
+      <div class="admin-row">
+        <label>Token <input type="password" id="admin-token" placeholder="ADMIN_TOKEN" style="min-width:280px"></label>
+        <button class="btn btn-sm btn-primary" id="admin-login">Laden</button>
+      </div>
+      <div id="admin-msg"></div>
+    </div>
+
+    <div class="admin-card" id="admin-firmen-card" style="display:none">
+      <h2>Kunden-Accounts</h2>
+      <div class="admin-row" style="margin-bottom:.6rem">
+        <label>Firma <input type="text" id="nf-name" placeholder="Baubetrieb Muster GmbH"></label>
+        <label>E-Mail <input type="email" id="nf-email" placeholder="kontakt@firma.at"></label>
+        <label>Passwort <input type="text" id="nf-pass" placeholder="min. 8 Zeichen"></label>
+        <button class="btn btn-sm btn-primary" id="nf-create">Account anlegen</button>
+      </div>
+      <table class="admin-tbl" id="firmen-tbl"><thead><tr>
+        <th>Firma</th><th>E-Mail</th><th>Projekte</th><th>Soll-Listen</th><th>Status</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="admin-card" id="admin-global-card" style="display:none">
+      <h2>Globale Basis-Kalibrierung</h2>
+      <p class="admin-note">Neue Accounts starten mit diesen Faktoren (bis sie eigene Listen hochladen). Werte 0.5–2.5.</p>
+      <div class="admin-row" id="global-faktoren">
+        <label>Bodenplatte <input type="number" step="0.05" data-gf="bodenplatte_aufschlag" placeholder="1.15"></label>
+        <label>Decke <input type="number" step="0.05" data-gf="decke_aufschlag" placeholder="1.10"></label>
+        <label>Frostschürze <input type="number" step="0.05" data-gf="frostgraben_aufschlag" placeholder="1.15"></label>
+        <label>Außenumfang <input type="number" step="0.05" data-gf="aussenumfang_aufschlag" placeholder="1.55"></label>
+        <button class="btn btn-sm btn-primary" id="gf-save">Speichern</button>
+      </div>
+    </div>
+  </div>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

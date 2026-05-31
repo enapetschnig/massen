@@ -505,6 +505,7 @@
     renderFactStrip(data);
     renderGeoBox(data);
     renderStatusBanner(data);
+    renderKalibrierungStatus(data.kalibrierung);
 
     // ÖNORM-Gewerke-Kacheln (im Erweitert-Drawer)
     var gw = data.gewerke || {};
@@ -1089,6 +1090,85 @@
       autoAnalyseQueue(queue, i + 1);
     });
   }
+
+  // ── SELBST-KALIBRIERUNG (Moat) ──────────────────────────────────────────
+  function renderKalibrierungStatus(kal) {
+    var el = document.getElementById('kalibrierung-status');
+    if (!el) return;
+    var n = (kal && kal.anzahl) || 0;
+    if (n > 0) {
+      el.innerHTML = '<span class="kalib-badge kalib-on">&#10003; kalibriert &mdash; ' + n +
+        ' firmenspezifische' + (n === 1 ? 'r Faktor' : ' Faktoren') + ' aktiv</span>';
+    } else {
+      el.innerHTML = '<span class="kalib-badge kalib-off">noch nicht kalibriert &mdash; Standard-Faktoren</span>';
+    }
+  }
+
+  function kalibFaktorLabel(k) {
+    var m = { bodenplatte_aufschlag: 'Bodenplatte-Aufschlag', decke_aufschlag: 'Decke-Aufschlag',
+      frostgraben_aufschlag: 'Frostschürze-Aufschlag', aussenumfang_aufschlag: 'Außenumfang-Aufschlag',
+      ekv_decke_aufschlag: 'Dachabdichtung-Aufschlag' };
+    return m[k] || k;
+  }
+
+  function renderKalibrierungResult(r) {
+    var el = document.getElementById('kalibrierung-result');
+    if (!el) return;
+    if (r.error) { el.innerHTML = '<div class="status-warn">⚠ ' + esc(r.error) + '</div>'; return; }
+    var html = '<div class="status-ok">✓ ' + (r.soll_positionen || 0) + ' Soll-Positionen abgeglichen · ' +
+      (r.anzahl_soll_listen || 0) + ' Liste(n) gesamt.</div>';
+    var bel = r.belege || [];
+    if (bel.length) {
+      html += '<table class="kalib-table"><thead><tr><th>Faktor</th><th>Ist</th><th>Soll</th><th>Verhältnis</th></tr></thead><tbody>';
+      bel.forEach(function (b) {
+        var pct = Math.round((b.ratio - 1) * 100);
+        var sign = pct > 0 ? '+' : '';
+        html += '<tr><td>' + esc(kalibFaktorLabel(b.faktor)) + '</td><td>' + fmtNum(b.ist) +
+          '</td><td>' + fmtNum(b.soll) + '</td><td>' + sign + pct + '%</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    var gl = r.gelernte_faktoren || {};
+    var keys = Object.keys(gl);
+    if (keys.length) {
+      html += '<div class="status-ok" style="margin-top:.4rem"><strong>Gelernte Faktoren (≥2 Listen):</strong> ' +
+        keys.map(function (k) { return esc(kalibFaktorLabel(k)) + ' = ' + fmtNum(gl[k].wert) + ' (aus ' + gl[k].n_belege + ')'; }).join(' · ') + '</div>';
+    } else if (r.hinweis) {
+      html += '<div class="status-info" style="margin-top:.4rem">ℹ ' + esc(r.hinweis) + '</div>';
+    }
+    el.innerHTML = html;
+  }
+
+  function wireKalibrierung() {
+    var up = document.getElementById('kalibrierung-upload');
+    var rs = document.getElementById('kalibrierung-reset');
+    if (up) up.addEventListener('click', function () {
+      var txt = (document.getElementById('kalibrierung-soll') || {}).value || '';
+      if (!txt.trim()) { renderKalibrierungResult({ error: 'Bitte eine Soll-Liste einfügen.' }); return; }
+      up.disabled = true; up.textContent = 'Lerne…';
+      fetch('/api/kalibrierung-upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projekt_id: projectId, soll_text: txt })
+      }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+        .then(function (o) {
+          renderKalibrierungResult(o.ok ? o.j : { error: (o.j && o.j.detail) || 'Upload fehlgeschlagen' });
+          if (o.ok) refreshProjektMassen();  // Materialliste mit der neuen Kalibrierung neu laden
+        })
+        .catch(function (e) { renderKalibrierungResult({ error: String(e) }); })
+        .finally(function () { up.disabled = false; up.textContent = 'Soll-Liste abgleichen & lernen'; });
+    });
+    if (rs) rs.addEventListener('click', function () {
+      if (!confirm('Firmen-Kalibrierung wirklich zurücksetzen? (globale Basis bleibt)')) return;
+      fetch('/api/kalibrierung-reset', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projekt_id: projectId })
+      }).then(function (res) { return res.json(); })
+        .then(function () { renderKalibrierungStatus({ anzahl: 0 });
+          document.getElementById('kalibrierung-result').innerHTML = '<div class="status-info">Kalibrierung zurückgesetzt.</div>';
+          refreshProjektMassen(); });
+    });
+  }
+  wireKalibrierung();
 
   window.loadPlans = loadPlans;
   window.projectId = projectId;
