@@ -50,25 +50,36 @@ check("Rohbau-Höhe aus Schnitt", ok.hoehe_rohbau(OPUS_GARAGE) == 2.95, f"got {o
 check("Dachtyp flach", ok.dach_typ(OPUS_GARAGE) == "flach", f"got {ok.dach_typ(OPUS_GARAGE)}")
 check("Säulen 0 wenn keine", ok.saeulen(OPUS_GARAGE) == 0)
 
-print("4) KREUZ-KONTROLLE (Vier-Augen): drei Quellen stimmen → bestätigt:")
+print("4) ECHTE UNABHÄNGIGKEIT — nur Text×Vision bestätigt, nicht Vision×Vision:")
+# Raumhöhen = byte-exakter Text-Layer, Schnitt = Vision → ZWEI Methoden → bestätigt
 dc = ok.doppelcheck_num("Geschoss-Höhe", "geschosshoehe_m", "m",
-        [("Schnitt", 2.95), ("Raumhöhen", 2.92), ("Opus", 2.95)], 0.12)
-check("3 Quellen einig → bestätigt", dc and dc["status"] == "bestätigt", f"got {dc}")
+        [("Schnitt", 2.95, "vision"), ("Raumhöhen", 2.92, "text"), ("Opus", 2.95, "vision")], 0.12)
+check("Text + Vision einig → bestätigt", dc and dc["status"] == "bestätigt", f"got {dc}")
+check("als unabhängig markiert (2 Typen)", dc and dc["unabhaengig"] and dc["typen_n"] == 2, f"got {dc}")
 check("3 Quellen protokolliert", dc and len(dc["quellen"]) == 3, f"got {dc}")
+# KERN-EHRLICHKEIT: Schnitt + Opus lesen DASSELBE Bild → keine echte Bestätigung
+dc_vv = ok.doppelcheck_num("Geschoss-Höhe", "geschosshoehe_m", "m",
+        [("Schnitt", 2.95, "vision"), ("Opus", 2.95, "vision")], 0.12)
+check("zwei Vision-Pässe einig → NUR verstaerkt (nicht bestätigt)",
+      dc_vv and dc_vv["status"] == "verstaerkt" and not dc_vv["unabhaengig"], f"got {dc_vv}")
+# Dachtyp: Legende (Text) + Schnitt (Vision) → bestätigt
 dct = ok.doppelcheck_kat("Dachtyp", "dach_typ",
-        [("Legende", "Flach"), ("Schnitt", "flach"), ("Opus", "flach")])
-check("Dachtyp 3× flach → bestätigt", dct and dct["status"] == "bestätigt", f"got {dct}")
+        [("Legende", "Flach", "text"), ("Schnitt", "flach", "vision"), ("Opus", "flach", "vision")])
+check("Dachtyp Text+Vision flach → bestätigt", dct and dct["status"] == "bestätigt", f"got {dct}")
+dct_vv = ok.doppelcheck_kat("Dachtyp", "dach_typ",
+        [("Schnitt", "flach", "vision"), ("Opus", "flach", "vision")])
+check("Dachtyp zwei Vision-Pässe → nur verstaerkt", dct_vv and dct_vv["status"] == "verstaerkt", f"got {dct_vv}")
 
 print("5) WIDERSPRUCH statt falscher Sicherheit:")
 dc2 = ok.doppelcheck_num("Geschoss-Höhe", "geschosshoehe_m", "m",
-        [("Schnitt", 2.95), ("Raumhöhen", 2.50), ("Opus", 2.95)], 0.12)
+        [("Schnitt", 2.95, "vision"), ("Raumhöhen", 2.50, "text"), ("Opus", 2.95, "vision")], 0.12)
 check("Eine Quelle weicht ab → widerspruch", dc2 and dc2["status"] == "widerspruch", f"got {dc2}")
 dct2 = ok.doppelcheck_kat("Dachtyp", "dach_typ",
-        [("Legende", "flach"), ("Opus", "pult")])
+        [("Legende", "flach", "text"), ("Opus", "pult", "vision")])
 check("Dachtyp uneinig → widerspruch", dct2 and dct2["status"] == "widerspruch", f"got {dct2}")
 # Nur EINE Quelle → gar kein Eintrag (nichts behaupten)
 check("eine einzige Quelle → kein Doppelcheck-Eintrag",
-      ok.doppelcheck_num("X", "x", "m", [("Opus", 2.95)], 0.12) is None)
+      ok.doppelcheck_num("X", "x", "m", [("Opus", 2.95, "vision")], 0.12) is None)
 
 print("6) NICHTS RATEN — global unsicher → komplett verworfen:")
 unsicher = dict(OPUS_GARAGE, unsicherheit_flag=True)
@@ -111,6 +122,27 @@ check("None → Mauerwerk (0, [])", ok.mauerwerk_zusatz(None, HUELLE) == (0.0, [
 check("None → Slab None", ok.slab_zusatz(None, HUELLE) is None)
 check("None → Höhe None", ok.hoehe_rohbau(None) is None)
 check("{} → Dach None", ok.dach_typ({}) is None)
+
+print("11) GENERALISIERUNG — offener Carport (ständer) ist KEIN Mauerwerk:")
+# Echter offener Carport: nur Stützen, kein Mauerwerk, aber auf der Platte.
+carport = {"ueberdachte_bereiche": [
+    {"name": "Carport", "geschlossen_typ": "ständer", "auf_slab": True,
+     "mauerwerk_umfang_zusatz_m": 0.0, "fundament_umfang_zusatz_m": 9.0, "konfidenz": 0.8}],
+    "gesamtkonfidenz": 0.8}
+check("ständer-Carport → KEIN Mauerwerk-Zusatz", ok.mauerwerk_zusatz(carport, HUELLE) == (0.0, []))
+check("ständer-Carport auf Platte → Slab-Zusatz (Plattenrand zählt)",
+      ok.slab_zusatz(carport, HUELLE) == round(HUELLE + 9.0, 2), f"got {ok.slab_zusatz(carport, HUELLE)}")
+# Reiner offener Bereich (nur Dach/Platte) ohne auf_slab → gar nichts
+offen = {"ueberdachte_bereiche": [
+    {"name": "Vordach", "geschlossen_typ": "offen", "auf_slab": False,
+     "mauerwerk_umfang_zusatz_m": 0.0, "fundament_umfang_zusatz_m": 0.0, "konfidenz": 0.8}],
+    "gesamtkonfidenz": 0.8}
+check("offenes Vordach → kein Mauerwerk, kein Slab", ok.mauerwerk_zusatz(offen, HUELLE) == (0.0, []) and ok.slab_zusatz(offen, HUELLE) is None)
+# Leerer bereiche-Array (Plan ohne Anbau) → keine Phantom-Zusätze
+leer = {"ueberdachte_bereiche": [], "hoehe": {"rohbau_m": 2.8, "konfidenz": 0.8}, "gesamtkonfidenz": 0.8}
+check("Plan ohne Anbau → kein Mauerwerk-Phantom", ok.mauerwerk_zusatz(leer, HUELLE) == (0.0, []))
+check("Plan ohne Anbau → kein Slab-Phantom", ok.slab_zusatz(leer, HUELLE) is None)
+check("Plan ohne Anbau → Höhe trotzdem lesbar", ok.hoehe_rohbau(leer) == 2.8)
 
 print()
 if fails:

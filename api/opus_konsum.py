@@ -103,44 +103,85 @@ def saeulen(best_opus):
         return 0
 
 
+# ── ECHTE Unabhängigkeit: zwei Leser desselben Plan-BILDES (Schnitt-Vision +
+# Opus) sind NICHT unabhängig — sie teilen dieselbe Fehlerquelle. Nur Quellen
+# mit QUALITATIV unterschiedlicher Methode dürfen sich gegenseitig „bestätigen":
+#   "text"   = byte-exakter PDF-Text-Layer (Raumhöhen, Legende-Maße)
+#   "vision" = ein Bild-Lese-Pass (Schnitt-Vision ODER Opus — gleiche Methode!)
+# >=2 UNTERSCHIEDLICHE Typen einig → "bestätigt" (verdiente hohe Konfidenz).
+# Mehrere einig, aber alle gleicher Typ → "verstaerkt" (nur Redundanz, gedeckelt).
+def _quellen_struktur(vv):
+    """vv: Liste (name, wert, typ). Liefert (quellen_payload, typen_set)."""
+    typen = set(t for _, _, t in vv)
+    payload = [{"quelle": q, "wert": w, "typ": t} for q, w, t in vv]
+    return payload, typen
+
+
+def _norm_quellen(quellen):
+    """Akzeptiert (name, wert) ODER (name, wert, typ); fehlt typ → 'vision'."""
+    out = []
+    for item in quellen:
+        if len(item) == 3:
+            out.append((item[0], item[1], item[2]))
+        else:
+            out.append((item[0], item[1], "vision"))
+    return out
+
+
 def doppelcheck_num(label, key, einheit, quellen, tol):
-    """Kreuz-Kontrolle EINER Größe über mehrere unabhängige Quellen.
+    """Kreuz-Kontrolle EINER numerischen Größe über mehrere Quellen.
 
-    quellen: Liste von (quelle_name, wert). Werte, die nicht numerisch/>0 sind,
-    werden ignoriert. Erst ab ZWEI gültigen Quellen entsteht ein Eintrag:
-    stimmen alle innerhalb tol zum Median → "bestätigt", sonst "widerspruch".
-    So wird Konfidenz VERDIENT (Übereinstimmung), nicht gefaket.
-
-    Returns dict (doppelcheck-Eintrag) oder None.
+    quellen: (name, wert) oder (name, wert, typ). Werte nicht-numerisch/<=0 raus.
+    Ab ZWEI gültigen Quellen ein Eintrag. status:
+      - "widerspruch"  wenn nicht alle innerhalb tol zum Median liegen
+      - "bestätigt"    wenn einig UND >=2 unterschiedliche Quellen-TYPEN (Text×Vision)
+      - "verstaerkt"   wenn einig, aber alle vom selben Typ (nur Redundanz)
+    Returns dict|None. So wird Konfidenz VERDIENT, nicht durch Schein-Unabhängigkeit.
     """
     vv = []
-    for q, v in quellen:
+    for q, v, t in _norm_quellen(quellen):
         try:
             fv = float(v)
         except (TypeError, ValueError):
             continue
         if fv > 0:
-            vv.append((q, round(fv, 2)))
+            vv.append((q, round(fv, 2), t))
     if len(vv) < 2:
         return None
-    med = sorted(v for _, v in vv)[len(vv) // 2]
-    agree = all(abs(v - med) <= tol for _, v in vv)
+    med = sorted(v for _, v, _ in vv)[len(vv) // 2]
+    agree = all(abs(v - med) <= tol for _, v, _ in vv)
+    payload, typen = _quellen_struktur(vv)
+    if not agree:
+        status = "widerspruch"
+    elif len(typen) >= 2:
+        status = "bestätigt"
+    else:
+        status = "verstaerkt"
     return {
         "groesse": label, "key": key, "einheit": einheit, "wert": med,
-        "quellen": [{"quelle": q, "wert": v} for q, v in vv],
-        "status": "bestätigt" if agree else "widerspruch",
+        "quellen": payload, "typen_n": len(typen), "unabhaengig": len(typen) >= 2,
+        "status": status,
     }
 
 
 def doppelcheck_kat(label, key, quellen):
     """Kreuz-Kontrolle einer KATEGORIALEN Größe (z.B. Dachtyp). quellen:
-    (name, wert)-Liste; leere Werte werden ignoriert. Ab zwei Quellen:
-    alle gleich → 'bestätigt', sonst 'widerspruch'. Returns dict|None."""
-    vv = [(q, str(v).lower()) for q, v in quellen if v]
+    (name, wert) oder (name, wert, typ); leere Werte raus. Gleiche Typ-Logik wie
+    doppelcheck_num: gleich + >=2 Typen → 'bestätigt', gleich + 1 Typ → 'verstaerkt',
+    uneinig → 'widerspruch'. Returns dict|None."""
+    vv = [(q, str(v).lower(), t) for q, v, t in _norm_quellen(quellen) if v]
     if len(vv) < 2:
         return None
+    payload, typen = _quellen_struktur(vv)
+    einig = len(set(w for _, w, _ in vv)) == 1
+    if not einig:
+        status = "widerspruch"
+    elif len(typen) >= 2:
+        status = "bestätigt"
+    else:
+        status = "verstaerkt"
     return {
         "groesse": label, "key": key, "einheit": "", "wert": vv[0][1],
-        "quellen": [{"quelle": q, "wert": v} for q, v in vv],
-        "status": "bestätigt" if len(set(v for _, v in vv)) == 1 else "widerspruch",
+        "quellen": payload, "typen_n": len(typen), "unabhaengig": len(typen) >= 2,
+        "status": status,
     }

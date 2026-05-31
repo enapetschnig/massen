@@ -433,7 +433,9 @@ async def analyse_zoom(body: ExtractRequest):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page = doc[0]
     pw, ph = page.rect.width, page.rect.height
-    client = anthropic.Anthropic(api_key=api_key)
+    # Timeout < Vercel-Limit (300s) und 429-Retries, damit ein hängender oder
+    # ratenlimitierter API-Call die Extraktion nicht ins Vercel-Timeout laufen lässt.
+    client = anthropic.Anthropic(api_key=api_key, timeout=120.0, max_retries=3)
 
     # ── Extract text spans with positions from PDF text layer ──
     spans_all = []  # each: {"text", "bbox", "size", "cx", "cy"}
@@ -2165,8 +2167,16 @@ Antworte NUR mit JSON, kein Markdown:
   "saeulen_anzahl": 0,
   "gesamtkonfidenz": 0.8
 }"""
+        # KOSTEN/LATENZ: der Opus-Pass holt seinen Mehrwert AUS dem Schnitt
+        # (Garage gemauert?, Rohbau-Höhe, Dachtyp). Auf reinen Grundriss-Blättern
+        # ohne Schnitt/Ansicht (typische Polierpläne) hat er kaum Grundlage → dort
+        # den teuren Call überspringen. Standard an; OPUS_ALL_SHEETS=1 erzwingt ihn
+        # überall, OPUS_PASS=0 schaltet ihn ganz ab.
+        _hat_schnitt = bool(schnitt_vision and not schnitt_vision.get("kein_schnitt"))
+        _opus_an = os.environ.get("OPUS_PASS", "1") != "0"
+        _opus_nur_schnitt = os.environ.get("OPUS_ALL_SHEETS", "0") != "1"
         opus_bauingenieur = {}
-        if os.environ.get("OPUS_PASS", "1") != "0":
+        if _opus_an and (_hat_schnitt or not _opus_nur_schnitt):
             try:
                 _leg_facts = _parse_legende(spans_all) if _LEGENDE_OK else {}
                 fakten = {
@@ -2215,7 +2225,14 @@ Antworte NUR mit JSON, kein Markdown:
                       f"dach={(opus_bauingenieur.get('dach') or {}).get('dach_typ')}")
             except Exception as _exc:
                 print(f"[opus-bauingenieur] failed: {_exc!r}")
-                opus_bauingenieur = {}
+                # Fehler EHRLICH signalisieren statt stilles {} — sonst ist später
+                # nicht unterscheidbar zwischen „Opus lief, fand nichts" und „Opus
+                # ist abgestürzt" (Audit-Trail: warum 46m statt 32m?).
+                opus_bauingenieur = {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
+        elif _opus_an:
+            # bewusst übersprungen (kein Schnitt auf diesem Blatt) — im Audit-Trail
+            # sichtbar machen, zählt aber nicht als Versuch/Fehler.
+            opus_bauingenieur = {"_skipped": "kein_schnitt"}
 
         try:
             gewerke_result = _berechne_gewerke(
@@ -3090,6 +3107,8 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_legende = None  # Legende mit höchster Konfidenz (byte-exakt > Vision)
     best_schnitt = None   # Schnitt-/Ansichts-Lesung (Säulen, Geschoss-H, Dach)
     best_opus = None      # Opus-Bauingenieur-Urteil (geschlossene Garage, Slab, Höhe)
+    opus_versuche = 0     # wie oft der Opus-Pass lief (über alle Pläne)
+    opus_fehler = 0       # davon mit Crash/Timeout (ehrliches Fehler-Signal)
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
@@ -3117,7 +3136,15 @@ async def projekt_massen(body: ProjektMassenRequest):
         # Opus-Bauingenieur-Urteil — bestes Blatt (klarste Schnitte) gewinnt.
         # Global unsicheres Urteil (gesamtkonfidenz < 0.45) → ganz verwerfen
         # ("nichts raten"); die Feld-Gates ≥0.6 sind die zweite Sicherung.
-        ov = log.get("opus_bauingenieur") or {}
+        ov = log.get("opus_bauingenieur")
+        if ov:                       # nicht-leer → der Pass lief tatsächlich
+            if ov.get("_fehler"):    # Crash/Timeout → zählt als Versuch UND Fehler
+                opus_versuche += 1; opus_fehler += 1
+                ov = None
+            elif not ov.get("_skipped"):   # echtes Urteil (kein „kein Schnitt"-Skip)
+                opus_versuche += 1
+            else:
+                ov = None            # bewusst übersprungen → kein Urteil, kein Fehler
         if ov and float(ov.get("gesamtkonfidenz") or 0) < 0.45:
             ov = dict(ov, unsicherheit_flag=True)
         if ov and (best_opus is None or
@@ -3349,9 +3376,14 @@ async def projekt_massen(body: ProjektMassenRequest):
         # als "Parkplatz" beschriftete, im Schnitt aber gemauerte GARAGE) gehören
         # zur Mauerwerks-Hülle → ihren Wand-Umfang auf Linie A addieren. Nur mit
         # Beleg + Konfidenz ≥0.6; die byte-exakte Grund-Hülle bleibt der Anker.
+        # Original-Hülle VOR dem Garage-Zusatz festhalten: alle Plausi-/Verdachts-
+        # Prüfungen und die Slab-Basis müssen sich auf die gemessene Grund-Hülle
+        # beziehen, NICHT auf den durch Opus erhöhten Wert (sonst übertüncht der
+        # Zusatz eine verdächtige Geometrie / verzerrt die Slab-Schwelle).
+        aussenumfang_m_basis = aussenumfang_m
         opus_mw_zusatz, opus_garage = 0.0, []
         if _OPUS_KONSUM_OK:
-            opus_mw_zusatz, opus_garage = _ok.mauerwerk_zusatz(best_opus, aussenumfang_m)
+            opus_mw_zusatz, opus_garage = _ok.mauerwerk_zusatz(best_opus, aussenumfang_m_basis)
         if opus_mw_zusatz > 0:
             aussenumfang_m = round(aussenumfang_m + opus_mw_zusatz, 2)
             quelle += "+opus-garage"
@@ -3361,7 +3393,9 @@ async def projekt_massen(body: ProjektMassenRequest):
         # So niedrig heißt meist: Vision hat eine L-/U-Form als kompakt gelesen.
         # → Umfang-Konfidenz separat senken (Fläche bleibt byte-exakt hoch), damit
         #   Trust-Ring + Geo-Kasten die Unsicherheit ZEIGEN statt ✓ zu suggerieren.
-        umfang_verdacht_niedrig = (not umfang_validiert) and (aussenumfang_m < iso_min * 1.22)
+        # gegen die ORIGINAL-Hülle prüfen — ein Opus-Garage-Zusatz darf eine
+        # verdächtig kompakte Grund-Geometrie nicht als „ok" übertünchen.
+        umfang_verdacht_niedrig = (not umfang_validiert) and (aussenumfang_m_basis < iso_min * 1.22)
         umfang_konfidenz = round(min(konf, 0.5) if umfang_verdacht_niedrig else konf, 2)
 
         # ── LINIE B: Fundamentplatten-Außenkante (Frostschürze/Randabschluss) ──
@@ -3398,7 +3432,11 @@ async def projekt_massen(body: ProjektMassenRequest):
             slab_est = round(min(aussenumfang_m * faktor, aussenumfang_m * 1.5), 2)
         # OPUS: Bereiche, die laut Bauingenieur auf der DURCHGEHENDEN Platte stehen
         # → ihren Platten-Rand-Zusatz als eigenen (gegroundeten) Slab-Kandidaten.
-        opus_slab = _ok.slab_zusatz(best_opus, aussenumfang_m) if _OPUS_KONSUM_OK else None
+        # Basis = ORIGINAL-Hülle (vor Garage-Zusatz), damit die interne 60%-Schwelle
+        # und die globale Obergrenze nicht gegen einen schon erhöhten Wert rechnen.
+        opus_slab = _ok.slab_zusatz(best_opus, aussenumfang_m_basis) if _OPUS_KONSUM_OK else None
+        if opus_slab is not None:
+            opus_slab = round(min(opus_slab, aussenumfang_m_basis * 1.5), 2)  # globale Plausi-Decke
         # GRÖSSERE plausible Schätzung gewinnt — Vision unterschätzt die Slab-Kante
         # systematisch; Opus + Flächen-Schätzung sind byte-exakt/beleg-verankert.
         cands = [c for c in (vision_b, slab_est, opus_slab) if c]
@@ -3541,58 +3579,67 @@ async def projekt_massen(body: ProjektMassenRequest):
             if "anzahl_saeulen" not in ov:
                 body.materialliste_override = dict(ov, anzahl_saeulen=o_sa)
 
-    # 6c3) DOPPELCHECK: unabhängige Quellen gegeneinander prüfen. Stimmen ZWEI
-    # überein → sehr hohe Konfidenz (verdient, nicht gefaket). Widersprechen sie
-    # sich → Konsistenz-Warnung statt falscher Sicherheit. So erreichen wir
-    # ehrlich hohe Konfidenz: Legende (Text) × Schnitt (Vision) × Raumhöhen.
+    # 6c3) DOPPELCHECK: Quellen gegeneinander prüfen. ECHTE Unabhängigkeit zählt:
+    # nur QUALITATIV unterschiedliche Methoden (Text-Layer vs Vision) dürfen sich
+    # „bestätigen" → 0.97. Zwei Vision-Pässe desselben Bildes (Schnitt + Opus) sind
+    # NICHT unabhängig → nur "verstaerkt" (Redundanz, gedeckelt). Quellen-Typ:
+    # "text" = byte-exakt aus PDF (Legende-Maße, Raumhöhen); "vision" = Bild-Pass.
     doppelcheck = []
     _leg = best_legende or {}
     _sv = best_schnitt or {}
-    # Opus als DRITTE unabhängige Quelle (Vier-Augen-Prinzip): es bestätigt oder
-    # widerspricht nur, ersetzt nie. Konf-Gate steckt in _ok.hoehe_rohbau/dach_typ.
+    # Opus als zusätzliche (Vision-)Lesart — bestätigt/widerspricht, ersetzt nie.
     _ov_h = _ok.hoehe_rohbau(best_opus) if _OPUS_KONSUM_OK else None
     _ov_dach = _ok.dach_typ(best_opus) if _OPUS_KONSUM_OK else None
     _schichten = _sv.get("schichten_cm") or {}
     def _dc_num_inline(label, key, einheit, quellen, tol):
         vv = []
-        for q, v in quellen:
+        for item in quellen:
+            q, v = item[0], item[1]
+            t = item[2] if len(item) == 3 else "vision"
             try:
                 fv = float(v)
             except (TypeError, ValueError):
                 continue
             if fv > 0:
-                vv.append((q, round(fv, 2)))
+                vv.append((q, round(fv, 2), t))
         if len(vv) < 2:
             return None
-        med = sorted(v for _, v in vv)[len(vv) // 2]
-        agree = all(abs(v - med) <= tol for _, v in vv)
+        med = sorted(v for _, v, _ in vv)[len(vv) // 2]
+        agree = all(abs(v - med) <= tol for _, v, _ in vv)
+        typen = set(t for _, _, t in vv)
+        status = ("widerspruch" if not agree else "bestätigt" if len(typen) >= 2 else "verstaerkt")
         return {"groesse": label, "key": key, "einheit": einheit, "wert": med,
-                "quellen": [{"quelle": q, "wert": v} for q, v in vv],
-                "status": "bestätigt" if agree else "widerspruch"}
+                "quellen": [{"quelle": q, "wert": v, "typ": t} for q, v, t in vv],
+                "typen_n": len(typen), "unabhaengig": len(typen) >= 2, "status": status}
     def _dc_num(label, key, einheit, quellen, tol):
         d = (_ok.doppelcheck_num(label, key, einheit, quellen, tol)
              if _OPUS_KONSUM_OK else _dc_num_inline(label, key, einheit, quellen, tol))
         if d:
             doppelcheck.append(d)
     _dc_num("Decke", "decke_cm", "cm",
-            [("Legende", _leg.get("decke_cm")), ("Schnitt", _schichten.get("decke"))], 1.5)
+            [("Legende", _leg.get("decke_cm"), "text"), ("Schnitt", _schichten.get("decke"), "vision")], 1.5)
     _dc_num("Bodenplatte", "bodenplatte_cm", "cm",
-            [("Legende", _leg.get("bodenplatte_cm")), ("Schnitt", _schichten.get("bodenplatte"))], 2.0)
+            [("Legende", _leg.get("bodenplatte_cm"), "text"), ("Schnitt", _schichten.get("bodenplatte"), "vision")], 2.0)
     _dc_num("Estrich", "estrich_cm", "cm",
-            [("Legende", _leg.get("estrich_cm")), ("Schnitt", _schichten.get("estrich"))], 1.5)
+            [("Legende", _leg.get("estrich_cm"), "text"), ("Schnitt", _schichten.get("estrich"), "vision")], 1.5)
+    # Raumhöhen = byte-exakter Text-Layer (echte unabhängige Quelle); Schnitt + Opus
+    # sind beide Vision (gleiche Methode) → „bestätigt" nur wenn die Text-Höhe mitzieht.
     _dc_num("Geschoss-Höhe", "geschosshoehe_m", "m",
-            [("Schnitt", _sv.get("geschosshoehe_rohbau_m")),
-             ("Raumhöhen", h_max if (h_max and h_max > 0) else None),
-             ("Opus", _ov_h)], 0.12)
-    _dt_q = [("Legende", _leg.get("dach_typ")), ("Schnitt", _sv.get("dachtyp")),
-             ("Opus", _ov_dach)]
+            [("Schnitt", _sv.get("geschosshoehe_rohbau_m"), "vision"),
+             ("Raumhöhen", h_max if (h_max and h_max > 0) else None, "text"),
+             ("Opus", _ov_h, "vision")], 0.12)
+    _dt_q = [("Legende", _leg.get("dach_typ"), "text"), ("Schnitt", _sv.get("dachtyp"), "vision"),
+             ("Opus", _ov_dach, "vision")]
     if _OPUS_KONSUM_OK:
         _dt = _ok.doppelcheck_kat("Dachtyp", "dach_typ", _dt_q)
     else:
-        _dd = [(q, str(v).lower()) for q, v in _dt_q if v]
+        _dd = [(q, str(v).lower(), t) for q, v, t in _dt_q if v]
+        _dt_typen = set(t for _, _, t in _dd)
         _dt = ({"groesse": "Dachtyp", "key": "dach_typ", "einheit": "", "wert": _dd[0][1],
-                "quellen": [{"quelle": q, "wert": v} for q, v in _dd],
-                "status": "bestätigt" if len(set(v for _, v in _dd)) == 1 else "widerspruch"}
+                "quellen": [{"quelle": q, "wert": v, "typ": t} for q, v, t in _dd],
+                "typen_n": len(_dt_typen), "unabhaengig": len(_dt_typen) >= 2,
+                "status": ("bestätigt" if len(set(v for _, v, _ in _dd)) == 1 and len(_dt_typen) >= 2
+                           else "verstaerkt" if len(set(v for _, v, _ in _dd)) == 1 else "widerspruch")}
                if len(_dd) >= 2 else None)
     if _dt:
         doppelcheck.append(_dt)
@@ -3728,6 +3775,9 @@ async def projekt_massen(body: ProjektMassenRequest):
         "aussen_ohne_h_count": aussen_ohne_h,
         "schnitt": best_schnitt,
         "opus_bauingenieur": best_opus,   # ganzheitliches Urteil + Belege (Transparenz)
+        "opus_status": ("aus" if opus_versuche == 0
+                        else "fehler" if (opus_fehler >= opus_versuche)
+                        else "ok"),       # ehrlich: lief der Pass / ist er abgestürzt?
         "saeulen_erkannt": saeulen_erkannt,
         "doppelcheck": doppelcheck,
         "geschoss": geschoss,

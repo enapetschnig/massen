@@ -347,8 +347,14 @@
     }
     if (bd.geschosshoehe_m) {
       var ghEntry = dc.filter(function (d) { return d.key === 'geschosshoehe_m'; })[0];
-      var ghSrc = ghEntry ? (ghEntry.quellen || []).map(function (q) { return esc(q.quelle); }).join(' + ') + ' bestätigt'
-        : ((bd._quellen || {}).geschosshoehe_m || 'aus Plan');
+      var ghSrc;
+      if (ghEntry && ghEntry.status === 'bestätigt') {
+        ghSrc = (ghEntry.quellen || []).map(function (q) { return esc(q.quelle); }).join(' + ') + ' — unabhängig bestätigt';
+      } else if (ghEntry && ghEntry.status === 'verstaerkt') {
+        ghSrc = 'mehrfach gelesen (gleiche Methode) — nicht unabhängig bestätigt';
+      } else {
+        ghSrc = (bd._quellen || {}).geschosshoehe_m || 'aus Plan';
+      }
       t.push(tile('📏', 'Geschoss-Höhe', fmtNum(bd.geschosshoehe_m) + ' m',
         ghOk ? 'ok2' : 'ok', ghOk ? '✓✓' : '✓', ghSrc));
     }
@@ -377,19 +383,28 @@
       hints.push('<div class="status-ok">✓ ' + data.aussen_ohne_h_count +
         ' überdachte Außenfläche(n) ohne Raumhöhe — korrekt, fließen nur über die Fläche in Decke/Bodenaufbau.</div>');
     }
-    // DOPPELCHECK: unabhängige Quellen gegeneinander geprüft
+    // DOPPELCHECK: nur QUALITATIV unterschiedliche Methoden (Text-Layer vs Vision)
+    // gelten als echte Bestätigung ("bestätigt"). Zwei Bild-Lesungen desselben Plans
+    // (Schnitt + Opus) sind nur Redundanz ("verstaerkt") — ehrlich getrennt anzeigen.
     var dc = data.doppelcheck || [];
     var bestaetigt = dc.filter(function (d) { return d.status === 'bestätigt'; });
+    var verstaerkt = dc.filter(function (d) { return d.status === 'verstaerkt'; });
     var widerspruch = dc.filter(function (d) { return d.status === 'widerspruch'; });
     if (bestaetigt.length) {
-      var allSrc = {};
-      bestaetigt.forEach(function (d) { (d.quellen || []).forEach(function (q) { allSrc[q.quelle] = 1; }); });
-      var srcList = Object.keys(allSrc);
-      var srcTxt = srcList.length ? srcList.join(' + ') : 'mehreren Quellen';
-      var mehr3 = srcList.length >= 3 ? ' (Vier-Augen-Prinzip: ' + srcList.length + ' unabhängige Leser)' : '';
+      function methodLabel(t) { return t === 'text' ? 'Plan-Text (byte-exakt)' : 'Plan-Bild (Vision)'; }
+      var typeSet = {};
+      bestaetigt.forEach(function (d) { (d.quellen || []).forEach(function (q) { if (q.typ) typeSet[q.typ] = 1; }); });
+      var methods = Object.keys(typeSet).map(methodLabel);
+      var methodTxt = methods.length ? methods.join(' × ') : 'zwei Methoden';
       hints.push('<div class="status-ok">✓✓ <strong>' + bestaetigt.length +
-        ' Wert(e) doppelt bestätigt</strong> (' + bestaetigt.map(function (d) { return esc(d.groesse); }).join(', ') +
-        ') — unabhängig aus ' + esc(srcTxt) + ' gelesen' + mehr3 + ', sehr hohe Konfidenz.</div>');
+        ' Wert(e) unabhängig bestätigt</strong> (' + bestaetigt.map(function (d) { return esc(d.groesse); }).join(', ') +
+        ') — aus ' + esc(methodTxt) + ' gelesen (zwei unabhängige Methoden), sehr hohe Konfidenz.</div>');
+    }
+    if (verstaerkt.length) {
+      hints.push('<div class="status-info">ℹ ' + verstaerkt.length +
+        ' Wert(e) mehrfach gelesen (' + verstaerkt.map(function (d) { return esc(d.groesse); }).join(', ') +
+        '), aber mit derselben Methode (zwei Bild-Lesungen) — das ist Redundanz, keine unabhängige Bestätigung. ' +
+        'Für volle Sicherheit fehlt eine Text-/Plan-Quelle.</div>');
     }
     widerspruch.forEach(function (d) {
       var vals = (d.quellen || []).map(function (q) { return esc(q.quelle) + ' ' + q.wert + (d.einheit || ''); }).join(' vs ');
@@ -431,6 +446,11 @@
     if (gq.opus_slab_aktiv) {
       hints.push('<div class="status-ok">✓ <strong>Bodenplatte läuft unter den Anbau weiter</strong> — ' +
         'der Bauingenieur-Pass belegt die durchgehende Platte aus dem Schnitt; Fundamentkante entsprechend gesetzt.</div>');
+    }
+    if (data.opus_status === 'fehler') {
+      hints.push('<div class="status-info">ℹ <strong>Bauingenieur-Pass nicht verfügbar</strong> — die ganzheitliche ' +
+        'Schnitt-Lesung (Garage/Höhe/Dach) ist diesmal ausgefallen (API-Fehler). Die byte-exakten Werte und die ' +
+        'übrigen Lesungen sind davon unberührt; nur die Garage-/Anbau-Erkennung fehlt ggf.</div>');
     }
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {

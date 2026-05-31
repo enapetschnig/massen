@@ -619,8 +619,11 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         elif b == "Bodenaufbau" or "sauberkeit" in mat:
             p.konfidenz = K_BEIDE if K_LEG else round(K_GEO * 0.85, 2)
         elif b == "Mauerwerk EG" and "hlz" in mat:
-            # Außenwand-HLZ (Umfang×H) erbt die Umfang-Unsicherheit; Innenwand byte-exakt
-            p.konfidenz = round(min(K_BEIDE, K_UMF + 0.05), 2) if ("aw" in formel) else K_BEIDE
+            # BEIDE HLZ-Sorten hängen am Außenumfang und erben dessen Unsicherheit:
+            # Außenwand = Umfang×H direkt; Innenwand-Länge = (ΣU_innen − Außenumfang)/2
+            # → ein zu kompakt gelesener Umfang bläht die Innenwand-Länge auf. Darum
+            # KEINE Schein-Sicherheit: min(K_BEIDE, K_UMF) für beide (sinkt bei L-Form).
+            p.konfidenz = round(min(K_BEIDE, K_UMF), 2)
         elif b in ("Attika", "Säulen"):
             p.konfidenz = round(K_GEO * 0.6, 2)         # parametrische Schätzung
         elif b in ("Kamin", "Infrastruktur"):
