@@ -4,7 +4,7 @@ Extracts ALL text with exact positions, groups into rooms/fenster/dimensions.
 Called after PDF upload, stores results in Supabase for the orchestrator.
 """
 from __future__ import annotations
-import json, os, re, math, tempfile
+import json, os, re, math, tempfile, time
 
 # ÖNORM-Gewerk-Engine — robuster Import (Vercel bündelt api/ mit).
 # Bei Fehler läuft die Pipeline ohne Gewerk-Berechnung weiter.
@@ -1069,6 +1069,10 @@ REGELN:
 - Fuer Loggia/Balkon: U und H trotzdem eintragen falls sichtbar.
 - Erfinde niemals Werte die du nicht siehst."""
 
+    _t_tiles0 = time.time()
+    # ── PHASE A (seriell): alle Tiles rendern. PyMuPDF (fitz) ist NICHT thread-
+    # safe → das Rendern bleibt seriell (ist CPU-schnell, nicht der Engpass). ──
+    tiles_to_call = []   # [(tile_idx, sec, img_b64)]
     for tile_idx, sec in enumerate(sections):
         # Adaptive DPI: balance image size (<3.5MB binary, <5MB base64)
         # AND pixel dimensions (max 8000 per side, Anthropic API limit)
@@ -1090,9 +1094,12 @@ REGELN:
 
         if len(img_bytes) > 5 * 1024 * 1024 or pix.width > 8000 or pix.height > 8000:
             continue
+        tiles_to_call.append((tile_idx, sec, base64.standard_b64encode(img_bytes).decode("utf-8")))
 
-        img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
-
+    # Ein Tile lesen (reiner I/O-Call + Parse) — wird parallel ausgeführt. KEINE
+    # geteilte Mutation hier: liefert nur das geparste Ergebnis zurück.
+    def _call_vision_tile(item):
+        t_idx, sec, img_b64 = item
         try:
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
@@ -1106,36 +1113,61 @@ REGELN:
                     ]
                 }]
             )
-
             raw = response.content[0].text if response.content else "{}"
-            result = None
             try:
-                result = json.loads(raw)
-            except:
+                return json.loads(raw)
+            except Exception:
                 m = re.search(r'\{[\s\S]*\}', raw)
                 if m:
                     try:
-                        result = json.loads(m.group())
-                    except:
-                        pass
-
-            if result:
-                # Tag each observation with its source tile index
-                for r in result.get("raeume", []):
-                    r["_tile"] = tile_idx
-                    all_rooms.append(r)
-                for f in result.get("fenster", []):
-                    f["_tile"] = tile_idx
-                    all_fenster.append(f)
-                for t in result.get("tueren", []):
-                    t["_tile"] = tile_idx
-                    all_tueren.append(t)
-                if not massstab and result.get("massstab"):
-                    massstab = result["massstab"]
-                if not geschoss and result.get("geschoss"):
-                    geschoss = result["geschoss"]
+                        return json.loads(m.group())
+                    except Exception:
+                        return None
+            return None
         except Exception:
-            pass
+            return None
+
+    # ── PHASE B (parallel): die langsamen Vision-Calls nebenläufig. Der anthropic-
+    # Client ist thread-safe; die Ergebnisse werden tile-indiziert eingesammelt. ──
+    _tile_results = [None] * len(tiles_to_call)
+    try:
+        _workers = max(1, min(int(os.environ.get("TILE_WORKERS", "4")), len(tiles_to_call) or 1))
+        if _workers > 1 and len(tiles_to_call) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=_workers) as _ex:
+                for _i, _res in enumerate(_ex.map(_call_vision_tile, tiles_to_call)):
+                    _tile_results[_i] = _res
+        else:
+            for _i, item in enumerate(tiles_to_call):
+                _tile_results[_i] = _call_vision_tile(item)
+    except Exception as _exc:  # Parallelisierung fällt sauber auf seriell zurück
+        print(f"[tiles] Parallel-Fallback (seriell): {_exc!r}")
+        for _i, item in enumerate(tiles_to_call):
+            if _tile_results[_i] is None:
+                _tile_results[_i] = _call_vision_tile(item)
+
+    # ── PHASE C (seriell, DETERMINISTISCH): in Tile-Reihenfolge zusammenführen.
+    # massstab/geschoss = erster nicht-leerer Wert in Tile-Reihenfolge (stabil). ──
+    for (tile_idx, sec, _), result in zip(tiles_to_call, _tile_results):
+        if not result:
+            continue
+        for r in result.get("raeume", []):
+            r["_tile"] = tile_idx
+            all_rooms.append(r)
+        for f in result.get("fenster", []):
+            f["_tile"] = tile_idx
+            all_fenster.append(f)
+        for t in result.get("tueren", []):
+            t["_tile"] = tile_idx
+            all_tueren.append(t)
+        if not massstab and result.get("massstab"):
+            massstab = result["massstab"]
+        if not geschoss and result.get("geschoss"):
+            geschoss = result["geschoss"]
+    _tiles_dauer_s = round(time.time() - _t_tiles0, 2)
+    _tiles_ok = sum(1 for r in _tile_results if r)
+    print(f"[tiles] {len(tiles_to_call)} Tiles, {_tiles_ok} mit Treffer, "
+          f"{os.environ.get('TILE_WORKERS', '4')} Worker, {_tiles_dauer_s}s")
 
     # ═══ CONSENSUS GROUPING ═══
     # Key: (normalized name, normalized wohnung, F-bucket of 0.2m2).
@@ -2282,6 +2314,12 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
         "massstab": massstab,
         "geschoss": geschoss,
         "vision_wall_tops": len(wall_dims_per_top),
+    }
+    # Beobachtbarkeit: Tile-Phasen-Dauer + Worker-Zahl (Prod-Debugging der Latenz)
+    log["_timing"] = {
+        "tiles_s": _tiles_dauer_s,
+        "tiles_n": len(tiles_to_call),
+        "tiles_worker": int(os.environ.get("TILE_WORKERS", "4")),
     }
     log["geo"] = {
         "raeume": unique_rooms,

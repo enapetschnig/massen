@@ -6,7 +6,7 @@
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "50mb",
-        "maxDuration": 300,
+        "maxDuration": 600,
         "includeFiles": "api/{massen_logic,materialliste,oeffnungen,konsistenz,legende,massketten,opus_konsum}.py"
       }
     },
