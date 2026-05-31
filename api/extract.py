@@ -135,6 +135,135 @@ BODENBELAEGE = [
 ]
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# OPUS-4.8-BAUINGENIEUR-PASS (modul-level, wiederverwendbar) — liest den Plan
+# GANZHEITLICH (Grundriss + Schnitte + Ansichten + Legende ZUSAMMEN), gegroundet
+# an byte-exakten Text-Layer-Fakten (die er NIE überschreibt). Beurteilt NUR das
+# Mehrdeutige (geschlossene gemauerte Garage? Platte unter Anbau? Rohbau-Höhe?
+# Dachtyp?) — IMMER mit Beleg, sonst null (nichts raten). Wird PRO PROJEKT 1×
+# aufgerufen (projekt_massen), optional pro Plan (env OPUS_PER_PLAN=1).
+# ═══════════════════════════════════════════════════════════════════════════
+OPUS_BAUINGENIEUR_PROMPT = """Du bist ein erfahrener österreichischer Bauingenieur/Polier mit 30 Jahren
+Praxis im Lesen von Einreich- und Polierplänen. Du liest den Plan GANZHEITLICH
+wie ein Mensch: Grundriss + Schnitte + Ansichten + Legende ZUSAMMEN.
+
+══ DEINE BASIS (FAKTEN — NIEMALS ÄNDERN) ══
+Du bekommst byte-exakt aus dem PDF-Text-Layer gelesene Fakten (Räume mit F/U/H,
+Legende-Wandstärken, Maßketten-Hülle, Öffnungs-Anzahl). Diese sind WAHRHEIT. Du
+misst KEINE Flächen/Maße neu. Du baust DARAUF AUF.
+
+══ DEINE AUFGABE — NUR DAS MEHRDEUTIGE, IMMER MIT BELEG ══
+Fälle nur die Urteile, die man NUR aus Grundriss+Schnitt zusammen treffen kann.
+Für JEDES Urteil: gib eine kurze "evidenz" (was du WO siehst) + "konfidenz" 0–1.
+KEIN Beleg sichtbar → Wert null + konfidenz < 0.4. NIEMALS raten.
+
+1) ÜBERDACHTE BEREICHE (Parkplatz/Carport/Garage/Terrasse/Loggia/Eingang):
+   - geschlossen_typ: "gemauert" (Wände rundum bis Dach, HLZ/Ziegel im Schnitt),
+     "ständer" (nur Stützen/Säulen, offen), oder "offen" (nur Platte/Dach).
+     WICHTIG: ein im Grundriss als "Parkplatz/Carport überdacht" beschrifteter
+     Bereich ist eine GESCHLOSSENE GARAGE, wenn der SCHNITT rundum gemauerte
+     Wände bis zum Dach + ein Tor zeigt. Das erkennt man NUR im Schnitt.
+   - auf_slab: steht der Bereich auf DERSELBEN durchgehenden Bodenplatte wie der
+     Hauptbau (kein eigenes Fundament, unter dem Hauptdach, an ≥1 Hauswand)?
+   - mauerwerk_umfang_zusatz_m: zusätzliche GEMAUERTE Außenwand-Länge dieses
+     Bereichs gegenüber der Hauptbau-Hülle (nur wenn geschlossen_typ="gemauert").
+   - fundament_umfang_zusatz_m: zusätzlicher Bodenplatten-Rand (nur wenn auf_slab).
+
+2) HÖHE: rohbau_m (FBOK bis Rohdecke-OK) und licht_m (FBOK bis Decke-UK) aus dem
+   Schnitt. 3) DACH: dach_typ ("flach"/"pult"/"sattel"/"walm") + attika_hoehe_m
+   bei Flach-/Pultdach. 4) saeulen_anzahl: freistehende tragende Stützen (0 wenn keine).
+
+Antworte NUR mit JSON, kein Markdown:
+{
+  "ueberdachte_bereiche": [
+    {"name": "Parkplatz überdacht", "geschlossen_typ": "gemauert", "auf_slab": true,
+     "mauerwerk_umfang_zusatz_m": 12.0, "fundament_umfang_zusatz_m": 8.0,
+     "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände bis Dach + Tor"}
+  ],
+  "hoehe": {"rohbau_m": 2.95, "licht_m": 2.70, "konfidenz": 0.8, "evidenz": "Schnitt A-A"},
+  "dach": {"dach_typ": "flach", "attika_hoehe_m": 0.4, "konfidenz": 0.8, "evidenz": "Attika XPS im Schnitt"},
+  "saeulen_anzahl": 0,
+  "gesamtkonfidenz": 0.8
+}"""
+
+
+def _render_plan_bilder(pdf_bytes: bytes):
+    """Rendert das erste Blatt für den Opus-Pass: 300 DPI adaptiv reduziert
+    (Cap 8000px/4.5MB), sonst 2-Kachel-Fallback für A1/A0. Liefert [jpeg_bytes]."""
+    import fitz
+    doco = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        pgo = doco[0]
+        bilder, dpi_o = [], 300
+        while dpi_o >= 120:
+            pix = pgo.get_pixmap(matrix=fitz.Matrix(dpi_o / 72, dpi_o / 72))
+            ib = pix.tobytes("jpeg", jpg_quality=85)
+            if len(ib) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                return [ib]
+            dpi_o -= 40
+        hh = pgo.rect.height  # Kachel-Fallback für große Blätter (A1/A0)
+        for y0, y1 in ((0, hh * 0.58), (hh * 0.42, hh)):
+            pix = pgo.get_pixmap(matrix=fitz.Matrix(180 / 72, 180 / 72),
+                                 clip=fitz.Rect(0, y0, pgo.rect.width, y1))
+            bilder.append(pix.tobytes("jpeg", jpg_quality=82))
+        return bilder
+    finally:
+        doco.close()
+
+
+def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
+    """Ruft den Opus-Bauingenieur-Pass 1× auf: rendert das Blatt, schickt die
+    byte-exakten Fakten + Bild(er) an claude-opus-4-8 (temperature=0). Liefert das
+    geparste Urteil ODER {"_fehler": ...} bei API-/Parse-Fehler (fallback-sicher).
+    Zusätzlich opus_hash (sha1 des Roh-JSON) für Determinismus-Audit."""
+    import anthropic
+    import base64
+    import hashlib
+    try:
+        bilder = _render_plan_bilder(pdf_bytes)
+        if not bilder:
+            return {"_fehler": "kein Bild gerendert", "_quelle": "fallback"}
+        client = anthropic.Anthropic(api_key=api_key, timeout=120.0, max_retries=3)
+        content = [{"type": "text", "text": "BYTE-EXAKTE FAKTEN (nicht ändern):\n" +
+                    json.dumps(fakten, ensure_ascii=False)}]
+        for ib in bilder:
+            content.append({"type": "image", "source": {"type": "base64",
+                "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
+        content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
+        resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000, temperature=0,
+            system=OPUS_BAUINGENIEUR_PROMPT, messages=[{"role": "user", "content": content}])
+        raw = resp.content[0].text if resp.content else "{}"
+        try:
+            urteil = json.loads(raw)
+        except Exception:
+            mjs = re.search(r"\{[\s\S]*\}", raw)
+            urteil = json.loads(mjs.group()) if mjs else {}
+        # Determinismus-Audit (KEINE Garantie — temperature=0 ist Absicht, nicht Zusage)
+        urteil["_opus_hash"] = hashlib.sha1((raw or "").encode("utf-8")).hexdigest()[:16]
+        print(f"[opus-bauingenieur] konf={urteil.get('gesamtkonfidenz')}, "
+              f"bereiche={len(urteil.get('ueberdachte_bereiche') or [])}, "
+              f"dach={(urteil.get('dach') or {}).get('dach_typ')}, hash={urteil['_opus_hash']}")
+        return urteil
+    except Exception as _exc:
+        print(f"[opus-bauingenieur] failed: {_exc!r}")
+        # Fehler EHRLICH signalisieren statt stilles {} (Audit-Trail).
+        return {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
+
+
+def _opus_fakten(rooms, leg_facts, massketten_bbox, n_fenster, n_tueren) -> dict:
+    """Baut das byte-exakte Fakten-JSON, an dem der Opus-Pass gegroundet wird."""
+    return {
+        "text_layer_raeume": [{"name": r.get("name"), "flaeche_m2": r.get("flaeche_m2"),
+                               "umfang_m": r.get("umfang_m"), "hoehe_m": r.get("hoehe_m"),
+                               "bodenbelag": r.get("bodenbelag")} for r in (rooms or [])],
+        "text_layer_legende": {"wand_typen": (leg_facts or {}).get("wand_typen"),
+                               "decke_cm": (leg_facts or {}).get("decke_cm"),
+                               "bodenplatte_cm": (leg_facts or {}).get("bodenplatte_cm")},
+        "text_layer_massketten_huelle": massketten_bbox,
+        "anzahl_fenster": int(n_fenster or 0), "anzahl_tueren": int(n_tueren or 0),
+    }
+
+
 def extract_from_pdf(pdf_bytes: bytes) -> dict:
     """Extract all text with exact positions using pdfplumber."""
     import pdfplumber
@@ -2115,124 +2244,26 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
             print(f"[oeffnungs-symbole] failed: {_exc!r}")
             oeffnungs_symbole = {}
 
-        # ═══════════════════════════════════════════════════════════════
-        # OPUS-4.8-BAUINGENIEUR-PASS — liest den Plan GANZHEITLICH (Grundriss +
-        # Schnitte + Ansichten + Legende ZUSAMMEN), gegroundet an den byte-exakten
-        # Text-Layer-Fakten (die er NIE überschreibt). Beurteilt NUR das
-        # Mehrdeutige, das ein Mensch nur aus der Zusammenschau treffen kann:
-        # ist der "Parkplatz überdacht" eine geschlossene gemauerte GARAGE
-        # (→ Mauerwerk!) oder offen? läuft die Bodenplatte drunter? lichte vs
-        # Rohbau-Höhe? Dachtyp/Attika? — IMMER mit Plan-Beleg, sonst null
-        # (nichts raten). Additiv + fallback-sicher (env OPUS_PASS=0 schaltet ab).
-        # ═══════════════════════════════════════════════════════════════
-        OPUS_BAUINGENIEUR_PROMPT = """Du bist ein erfahrener österreichischer Bauingenieur/Polier mit 30 Jahren
-Praxis im Lesen von Einreich- und Polierplänen. Du liest den Plan GANZHEITLICH
-wie ein Mensch: Grundriss + Schnitte + Ansichten + Legende ZUSAMMEN.
-
-══ DEINE BASIS (FAKTEN — NIEMALS ÄNDERN) ══
-Du bekommst byte-exakt aus dem PDF-Text-Layer gelesene Fakten (Räume mit F/U/H,
-Legende-Wandstärken, Maßketten-Hülle, Öffnungs-Anzahl). Diese sind WAHRHEIT. Du
-misst KEINE Flächen/Maße neu. Du baust DARAUF AUF.
-
-══ DEINE AUFGABE — NUR DAS MEHRDEUTIGE, IMMER MIT BELEG ══
-Fälle nur die Urteile, die man NUR aus Grundriss+Schnitt zusammen treffen kann.
-Für JEDES Urteil: gib eine kurze "evidenz" (was du WO siehst) + "konfidenz" 0–1.
-KEIN Beleg sichtbar → Wert null + konfidenz < 0.4. NIEMALS raten.
-
-1) ÜBERDACHTE BEREICHE (Parkplatz/Carport/Garage/Terrasse/Loggia/Eingang):
-   - geschlossen_typ: "gemauert" (Wände rundum bis Dach, HLZ/Ziegel im Schnitt),
-     "ständer" (nur Stützen/Säulen, offen), oder "offen" (nur Platte/Dach).
-     WICHTIG: ein im Grundriss als "Parkplatz/Carport überdacht" beschrifteter
-     Bereich ist eine GESCHLOSSENE GARAGE, wenn der SCHNITT rundum gemauerte
-     Wände bis zum Dach + ein Tor zeigt. Das erkennt man NUR im Schnitt.
-   - auf_slab: steht der Bereich auf DERSELBEN durchgehenden Bodenplatte wie der
-     Hauptbau (kein eigenes Fundament, unter dem Hauptdach, an ≥1 Hauswand)?
-   - mauerwerk_umfang_zusatz_m: zusätzliche GEMAUERTE Außenwand-Länge dieses
-     Bereichs gegenüber der Hauptbau-Hülle (nur wenn geschlossen_typ="gemauert").
-   - fundament_umfang_zusatz_m: zusätzlicher Bodenplatten-Rand (nur wenn auf_slab).
-
-2) HÖHE: rohbau_m (FBOK bis Rohdecke-OK) und licht_m (FBOK bis Decke-UK) aus dem
-   Schnitt. 3) DACH: dach_typ ("flach"/"pult"/"sattel"/"walm") + attika_hoehe_m
-   bei Flach-/Pultdach. 4) saeulen_anzahl: freistehende tragende Stützen (0 wenn keine).
-
-Antworte NUR mit JSON, kein Markdown:
-{
-  "ueberdachte_bereiche": [
-    {"name": "Parkplatz überdacht", "geschlossen_typ": "gemauert", "auf_slab": true,
-     "mauerwerk_umfang_zusatz_m": 12.0, "fundament_umfang_zusatz_m": 8.0,
-     "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände bis Dach + Tor"}
-  ],
-  "hoehe": {"rohbau_m": 2.95, "licht_m": 2.70, "konfidenz": 0.8, "evidenz": "Schnitt A-A"},
-  "dach": {"dach_typ": "flach", "attika_hoehe_m": 0.4, "konfidenz": 0.8, "evidenz": "Attika XPS im Schnitt"},
-  "saeulen_anzahl": 0,
-  "gesamtkonfidenz": 0.8
-}"""
-        # KOSTEN/LATENZ: der Opus-Pass holt seinen Mehrwert AUS dem Schnitt
-        # (Garage gemauert?, Rohbau-Höhe, Dachtyp). Auf reinen Grundriss-Blättern
-        # ohne Schnitt/Ansicht (typische Polierpläne) hat er kaum Grundlage → dort
-        # den teuren Call überspringen. Standard an; OPUS_ALL_SHEETS=1 erzwingt ihn
-        # überall, OPUS_PASS=0 schaltet ihn ganz ab.
+        # OPUS-BAUINGENIEUR: läuft jetzt PRO PROJEKT (1× in projekt_massen, nach
+        # dem Merge aller Pläne), NICHT mehr pro Plan — spart bei Multi-Plan-Projekten
+        # N−1 teure Opus-Calls. Pro-Plan nur noch optional via env OPUS_PER_PLAN=1
+        # (Dev/Fallback). OPUS_PASS=0 schaltet ganz ab. Der Prompt + Aufruf sind in
+        # der modul-level _run_opus_pass()/_opus_fakten() gekapselt (DRY).
         _hat_schnitt = bool(schnitt_vision and not schnitt_vision.get("kein_schnitt"))
         _opus_an = os.environ.get("OPUS_PASS", "1") != "0"
-        _opus_nur_schnitt = os.environ.get("OPUS_ALL_SHEETS", "0") != "1"
+        _opus_per_plan = os.environ.get("OPUS_PER_PLAN", "0") != "0"
         opus_bauingenieur = {}
-        if _opus_an and (_hat_schnitt or not _opus_nur_schnitt):
-            try:
-                _leg_facts = _parse_legende(spans_all) if _LEGENDE_OK else {}
-                fakten = {
-                    "text_layer_raeume": [{"name": r.get("name"), "flaeche_m2": r.get("flaeche_m2"),
-                                           "umfang_m": r.get("umfang_m"), "hoehe_m": r.get("hoehe_m"),
-                                           "bodenbelag": r.get("bodenbelag")} for r in unique_rooms],
-                    "text_layer_legende": {"wand_typen": _leg_facts.get("wand_typen"),
-                                           "decke_cm": _leg_facts.get("decke_cm"),
-                                           "bodenplatte_cm": _leg_facts.get("bodenplatte_cm")},
-                    "text_layer_massketten_huelle": massketten_bbox,
-                    "anzahl_fenster": len(unique_fenster), "anzahl_tueren": len(all_tueren),
-                }
-                doco = fitz.open(stream=pdf_bytes, filetype="pdf")
-                pgo = doco[0]
-                bilder, dpi_o = [], 300
-                while dpi_o >= 120:
-                    pix = pgo.get_pixmap(matrix=fitz.Matrix(dpi_o / 72, dpi_o / 72))
-                    ib = pix.tobytes("jpeg", jpg_quality=85)
-                    if len(ib) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
-                        bilder = [ib]
-                        break
-                    dpi_o -= 40
-                if not bilder:  # Kachel-Fallback für große Blätter (A1/A0)
-                    hh = pgo.rect.height
-                    for y0, y1 in ((0, hh * 0.58), (hh * 0.42, hh)):
-                        pix = pgo.get_pixmap(matrix=fitz.Matrix(180 / 72, 180 / 72),
-                                             clip=fitz.Rect(0, y0, pgo.rect.width, y1))
-                        bilder.append(pix.tobytes("jpeg", jpg_quality=82))
-                doco.close()
-                content = [{"type": "text", "text": "BYTE-EXAKTE FAKTEN (nicht ändern):\n" +
-                            json.dumps(fakten, ensure_ascii=False)}]
-                for ib in bilder:
-                    content.append({"type": "image", "source": {"type": "base64",
-                        "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
-                content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
-                resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000, temperature=0,
-                    system=OPUS_BAUINGENIEUR_PROMPT, messages=[{"role": "user", "content": content}])
-                raw = resp.content[0].text if resp.content else "{}"
-                try:
-                    opus_bauingenieur = json.loads(raw)
-                except Exception:
-                    mjs = re.search(r"\{[\s\S]*\}", raw)
-                    opus_bauingenieur = json.loads(mjs.group()) if mjs else {}
-                print(f"[opus-bauingenieur] konf={opus_bauingenieur.get('gesamtkonfidenz')}, "
-                      f"bereiche={len(opus_bauingenieur.get('ueberdachte_bereiche') or [])}, "
-                      f"dach={(opus_bauingenieur.get('dach') or {}).get('dach_typ')}")
-            except Exception as _exc:
-                print(f"[opus-bauingenieur] failed: {_exc!r}")
-                # Fehler EHRLICH signalisieren statt stilles {} — sonst ist später
-                # nicht unterscheidbar zwischen „Opus lief, fand nichts" und „Opus
-                # ist abgestürzt" (Audit-Trail: warum 46m statt 32m?).
-                opus_bauingenieur = {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
-        elif _opus_an:
-            # bewusst übersprungen (kein Schnitt auf diesem Blatt) — im Audit-Trail
-            # sichtbar machen, zählt aber nicht als Versuch/Fehler.
+        if _opus_an and _opus_per_plan and _hat_schnitt:
+            _leg_facts = _parse_legende(spans_all) if _LEGENDE_OK else {}
+            opus_bauingenieur = _run_opus_pass(
+                pdf_bytes,
+                _opus_fakten(unique_rooms, _leg_facts, massketten_bbox,
+                             len(unique_fenster), len(all_tueren)),
+                api_key)
+        elif _opus_an and _opus_per_plan:
             opus_bauingenieur = {"_skipped": "kein_schnitt"}
+        else:
+            opus_bauingenieur = {"_skipped": "projekt_weit"}  # läuft in projekt_massen
 
         try:
             gewerke_result = _berechne_gewerke(
@@ -2396,7 +2427,7 @@ async def projekt_massen(body: ProjektMassenRequest):
 
     # 2) Alle Pläne des Projekts laden (mit agent_log für Baudaten + Fenster)
     plaene_res = sb.table("plaene").select(
-        "id, dateiname, agent_log"
+        "id, dateiname, agent_log, storage_path"
     ).eq("projekt_id", projekt_id).execute()
     plaene_all = plaene_res.data or []
     if not plaene_all:
@@ -3109,6 +3140,8 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_opus = None      # Opus-Bauingenieur-Urteil (geschlossene Garage, Slab, Höhe)
     opus_versuche = 0     # wie oft der Opus-Pass lief (über alle Pläne)
     opus_fehler = 0       # davon mit Crash/Timeout (ehrliches Fehler-Signal)
+    best_schnitt_plan = None  # Plan-Datensatz mit dem besten Schnitt (für Projekt-Opus)
+    best_schnitt_konf = -1.0
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
@@ -3133,6 +3166,8 @@ async def projekt_massen(body: ProjektMassenRequest):
         if sv and not sv.get("kein_schnitt") and (best_schnitt is None or
                 (sv.get("konfidenz") or 0) > (best_schnitt.get("konfidenz") or 0)):
             best_schnitt = sv
+            best_schnitt_konf = float(sv.get("konfidenz") or 0)
+            best_schnitt_plan = p   # dieses Blatt trägt den besten Schnitt → Projekt-Opus
         # Opus-Bauingenieur-Urteil — bestes Blatt (klarste Schnitte) gewinnt.
         # Global unsicheres Urteil (gesamtkonfidenz < 0.45) → ganz verwerfen
         # ("nichts raten"); die Feld-Gates ≥0.6 sind die zweite Sicherung.
@@ -3232,6 +3267,38 @@ async def projekt_massen(body: ProjektMassenRequest):
                     "tiefe_m": akb["tiefe_m"], "plan": p.get("dateiname"),
                     "quelle": "vision-bbox",
                 })
+
+    # ── OPUS-BAUINGENIEUR PRO PROJEKT (1× nach dem Merge) ──────────────────
+    # Statt N× pro Plan: genau EIN ganzheitliches Urteil auf dem informativsten
+    # Blatt (höchste Schnitt-Konfidenz), gegroundet an den GEMERGTEN byte-exakten
+    # Fakten aller Pläne. Spart bei Multi-Plan-Projekten N−1 teure Opus-Calls.
+    # Fallback-sicher: PDF-/API-Fehler → best_opus bleibt None, Materialliste
+    # unberührt. Übersprungen, wenn schon ein Pro-Plan-Urteil existiert
+    # (OPUS_PER_PLAN=1) oder kein Blatt einen Schnitt trägt.
+    opus_projekt_plan = None
+    if os.environ.get("OPUS_PASS", "1") != "0" and best_opus is None and best_schnitt_plan:
+        try:
+            _cfg = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data
+            _api_key = (_cfg[0]["value"] if _cfg else os.environ.get("ANTHROPIC_API_KEY", "")).strip()
+            _sp = best_schnitt_plan.get("storage_path")
+            if _api_key and _sp:
+                _pdf = sb.storage.from_("plaene").download(_sp)
+                _mk = (best_schnitt_plan.get("agent_log") or {}).get("massketten_bbox")
+                _fakten = _opus_fakten(merged_rooms, best_legende, _mk,
+                                       len(alle_fenster), len(alle_tueren))
+                _urteil = _run_opus_pass(_pdf, _fakten, _api_key)
+                opus_versuche += 1
+                if _urteil.get("_fehler"):
+                    opus_fehler += 1
+                else:
+                    if float(_urteil.get("gesamtkonfidenz") or 0) < 0.45:
+                        _urteil = dict(_urteil, unsicherheit_flag=True)
+                    best_opus = _urteil
+                    opus_projekt_plan = best_schnitt_plan.get("dateiname")
+        except Exception as _exc:
+            print(f"[opus-projekt] failed: {_exc!r}")
+            opus_versuche += 1
+            opus_fehler += 1
 
     # Konsolidieren: Vision-Polygon ist primäre Quelle (es zeichnet die
     # ganze Kontur nach), PASS-4-Bemaßung dient als Cross-Check (liest
@@ -3778,6 +3845,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "opus_status": ("aus" if opus_versuche == 0
                         else "fehler" if (opus_fehler >= opus_versuche)
                         else "ok"),       # ehrlich: lief der Pass / ist er abgestürzt?
+        "opus_quelle_plan": opus_projekt_plan,  # welches Blatt Opus gelesen hat
         "saeulen_erkannt": saeulen_erkannt,
         "doppelcheck": doppelcheck,
         "geschoss": geschoss,
