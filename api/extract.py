@@ -66,6 +66,13 @@ except Exception as _e:  # pragma: no cover
     print(f"[opus_konsum] Import fehlgeschlagen: {_e}")
     _OPUS_KONSUM_OK = False
 
+try:
+    import kalibrierung as _kalib
+    _KALIB_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[kalibrierung] Import fehlgeschlagen: {_e}")
+    _KALIB_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -248,6 +255,28 @@ def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
         print(f"[opus-bauingenieur] failed: {_exc!r}")
         # Fehler EHRLICH signalisieren statt stilles {} (Audit-Trail).
         return {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
+
+
+def _lade_kalibrierung(sb, firma_id):
+    """Lädt die gelernten Faktoren für eine Firma + die globale Basis (firma_id=NULL)
+    aus der kalibrierungen-Tabelle und löst sie auf (Firma > Global). Liefert ein
+    flaches {faktor_key: wert}-Dict für build_materialliste — oder {} bei Fehler/leer.
+    Nur Faktoren mit n_belege >= MIN_BELEGE wurden überhaupt gelernt (Guard im Upload)."""
+    if not (_KALIB_OK and sb):
+        return {}
+    try:
+        glob_rows = sb.table("kalibrierungen").select(
+            "faktor_key, wert, n_belege").is_("firma_id", "null").execute().data or []
+        firma_rows = []
+        if firma_id:
+            firma_rows = sb.table("kalibrierungen").select(
+                "faktor_key, wert, n_belege").eq("firma_id", firma_id).execute().data or []
+        glob = {r["faktor_key"]: {"wert": r["wert"]} for r in glob_rows if r.get("wert") is not None}
+        firma = {r["faktor_key"]: {"wert": r["wert"]} for r in firma_rows if r.get("wert") is not None}
+        return _kalib.resolve_kalibrierung(firma, glob)
+    except Exception as _exc:
+        print(f"[kalibrierung] laden fehlgeschlagen: {_exc!r}")
+        return {}
 
 
 def _opus_fakten(rooms, leg_facts, massketten_bbox, n_fenster, n_tueren) -> dict:
@@ -2401,6 +2430,10 @@ class ProjektMassenRequest(BaseModel):
     # HLZ-Verteilung, Frostschürze-Tiefe, etc.). Schlüssel siehe
     # materialliste.DEFAULTS.
     materialliste_override: dict | None = None
+    # intern: firmenspezifische Kalibrierung NICHT anwenden (für den Ist-Default-
+    # Vergleich beim Soll-Listen-Upload — sonst würde gegen schon korrigierte
+    # Werte kalibriert).
+    ohne_kalibrierung: bool = False
 
 
 def _bbox_from_sides(seiten):
@@ -2462,6 +2495,17 @@ async def projekt_massen(body: ProjektMassenRequest):
         projekt_id = pl.data["projekt_id"]
     if not projekt_id:
         raise HTTPException(400, "projekt_id oder plan_id erforderlich")
+
+    # 1b) firma_id des Projekts ermitteln + firmenspezifische Selbst-Kalibrierung
+    # laden (Firma > globale Basis > Default). Fehlt etwas → leeres Dict, byte-exakt
+    # bleibt unangetastet. Das ist der Moat: die Liste wird firmen-genauer.
+    firma_id = None
+    try:
+        _pr = sb.table("projekte").select("firma_id").eq("id", projekt_id).single().execute()
+        firma_id = (_pr.data or {}).get("firma_id")
+    except Exception as _exc:
+        print(f"[kalibrierung] firma_id-Lookup fehlgeschlagen: {_exc!r}")
+    kalibrierung_faktoren = {} if body.ohne_kalibrierung else _lade_kalibrierung(sb, firma_id)
 
     # 2) Alle Pläne des Projekts laden (mit agent_log für Baudaten + Fenster)
     plaene_res = sb.table("plaene").select(
@@ -3179,7 +3223,6 @@ async def projekt_massen(body: ProjektMassenRequest):
     opus_versuche = 0     # wie oft der Opus-Pass lief (über alle Pläne)
     opus_fehler = 0       # davon mit Crash/Timeout (ehrliches Fehler-Signal)
     best_schnitt_plan = None  # Plan-Datensatz mit dem besten Schnitt (für Projekt-Opus)
-    best_schnitt_konf = -1.0
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
@@ -3204,7 +3247,6 @@ async def projekt_massen(body: ProjektMassenRequest):
         if sv and not sv.get("kein_schnitt") and (best_schnitt is None or
                 (sv.get("konfidenz") or 0) > (best_schnitt.get("konfidenz") or 0)):
             best_schnitt = sv
-            best_schnitt_konf = float(sv.get("konfidenz") or 0)
             best_schnitt_plan = p   # dieses Blatt trägt den besten Schnitt → Projekt-Opus
         # Opus-Bauingenieur-Urteil — bestes Blatt (klarste Schnitte) gewinnt.
         # Global unsicheres Urteil (gesamtkonfidenz < 0.45) → ganz verwerfen
@@ -3831,6 +3873,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                 override=body.materialliste_override, geschoss=geschoss,
                 tueren=alle_tueren, gemessen=gemessen,
                 wand_verteilung=wand_verteilung, legende=best_legende,
+                kalibrierung=kalibrierung_faktoren,
             )
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
@@ -3884,6 +3927,11 @@ async def projekt_massen(body: ProjektMassenRequest):
                         else "fehler" if (opus_fehler >= opus_versuche)
                         else "ok"),       # ehrlich: lief der Pass / ist er abgestürzt?
         "opus_quelle_plan": opus_projekt_plan,  # welches Blatt Opus gelesen hat
+        "kalibrierung": {                        # firmenspezifische Selbst-Kalibrierung
+            "aktiv": bool(kalibrierung_faktoren),
+            "faktoren": kalibrierung_faktoren,
+            "anzahl": len(kalibrierung_faktoren),
+        },
         "saeulen_erkannt": saeulen_erkannt,
         "doppelcheck": doppelcheck,
         "geschoss": geschoss,
@@ -4114,3 +4162,219 @@ async def projekt_export(body: ProjektMassenRequest):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SELBST-KALIBRIERUNG (MOAT) — Firma lädt Polier-Soll-Liste, System lernt
+# firmenspezifische Faktoren (mit harten Guards). Auflösung: User > Firma >
+# Global > Default. Tabellen: kalibrierungen, soll_listen (siehe db/kalibrierung.sql).
+# ═══════════════════════════════════════════════════════════════════════════
+class KalibrierungUploadRequest(BaseModel):
+    projekt_id: str | None = None
+    plan_id: str | None = None
+    soll_text: str                      # Polier-Soll-Liste (CSV oder Freitext)
+
+
+def _firma_id_von_projekt(projekt_id):
+    try:
+        pr = sb.table("projekte").select("firma_id").eq("id", projekt_id).single().execute()
+        return (pr.data or {}).get("firma_id")
+    except Exception:
+        return None
+
+
+def _firma_faktoren_neu_lernen(firma_id):
+    """Lädt ALLE Soll-Listen-Belege der Firma, gruppiert die ratios je Faktor und
+    lernt daraus (Guards: ≥2 Belege, IQR, Median, Klemmung). Schreibt das Ergebnis
+    in kalibrierungen (firma_id, faktor_key, wert, n_belege). Idempotent."""
+    rows = sb.table("soll_listen").select("belege").eq("firma_id", firma_id).execute().data or []
+    ratios = {}
+    for r in rows:
+        for b in (r.get("belege") or []):
+            ratios.setdefault(b["faktor"], []).append(b["ratio"])
+    gelernt = _kalib.lerne_faktoren(ratios)
+    # bestehende Firma-Faktoren entfernen, neu schreiben (sauberer Zustand)
+    sb.table("kalibrierungen").delete().eq("firma_id", firma_id).execute()
+    for faktor, info in gelernt.items():
+        sb.table("kalibrierungen").insert({
+            "firma_id": firma_id, "faktor_key": faktor, "wert": info["wert"],
+            "n_belege": info["n_belege"], "ratio_median": info["ratio_median"],
+        }).execute()
+    return gelernt
+
+
+@app.post("/api/kalibrierung-upload")
+async def kalibrierung_upload(body: KalibrierungUploadRequest):
+    """Polier-Soll-Liste hochladen → Ist↔Soll-Vergleich → Belege speichern →
+    Firma-Faktoren neu lernen. Liefert Abweichungen + gelernte Faktoren transparent."""
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    if not _KALIB_OK:
+        raise HTTPException(500, "Kalibrierung nicht verfügbar")
+    projekt_id = body.projekt_id
+    if not projekt_id and body.plan_id:
+        pl = sb.table("plaene").select("projekt_id").eq("id", body.plan_id).single().execute()
+        projekt_id = (pl.data or {}).get("projekt_id")
+    if not projekt_id:
+        raise HTTPException(400, "projekt_id oder plan_id erforderlich")
+    firma_id = _firma_id_von_projekt(projekt_id)
+    if not firma_id:
+        raise HTTPException(404, "Firma zum Projekt nicht gefunden")
+
+    # Ist bei DEFAULT-Faktoren (NICHT kalibriert) — sonst kalibrieren wir gegen
+    # schon korrigierte Werte. Wir nutzen die volle Pipeline mit ohne_kalibrierung.
+    ist = await projekt_massen(ProjektMassenRequest(projekt_id=projekt_id, ohne_kalibrierung=True))
+    ist_bauteile = ((ist or {}).get("materialliste") or {}).get("bauteile") or {}
+
+    soll = _kalib.parse_soll_liste(body.soll_text)
+    if not soll:
+        raise HTTPException(400, "Keine Positionen in der Soll-Liste erkannt")
+    belege = _kalib.belege_aus_vergleich(ist_bauteile, soll)
+
+    sb.table("soll_listen").insert({
+        "firma_id": firma_id, "projekt_id": projekt_id,
+        "rohtext": body.soll_text[:20000], "positionen": len(soll),
+        "belege": belege,
+    }).execute()
+    gelernt = _firma_faktoren_neu_lernen(firma_id)
+
+    n_listen = len(sb.table("soll_listen").select("id").eq("firma_id", firma_id).execute().data or [])
+    return {
+        "status": "ok",
+        "soll_positionen": len(soll),
+        "belege": belege,
+        "gelernte_faktoren": gelernt,
+        "anzahl_soll_listen": n_listen,
+        "hinweis": ("Faktoren aktiv." if gelernt else
+                    "Noch keine Faktoren gelernt — es braucht ≥2 Soll-Listen, die denselben "
+                    "Faktor stützen (Schutz vor Überanpassung)."),
+    }
+
+
+@app.get("/api/kalibrierung")
+async def kalibrierung_status(projekt_id: str | None = None, firma_id: str | None = None):
+    """Aktuelle Kalibrierung einer Firma (gelernte Faktoren + globale Basis)."""
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    if not firma_id and projekt_id:
+        firma_id = _firma_id_von_projekt(projekt_id)
+    firma_rows, glob_rows = [], []
+    try:
+        glob_rows = sb.table("kalibrierungen").select("*").is_("firma_id", "null").execute().data or []
+        if firma_id:
+            firma_rows = sb.table("kalibrierungen").select("*").eq("firma_id", firma_id).execute().data or []
+    except Exception as _exc:
+        print(f"[kalibrierung] status fehlgeschlagen: {_exc!r}")
+    n_listen = 0
+    if firma_id:
+        n_listen = len(sb.table("soll_listen").select("id").eq("firma_id", firma_id).execute().data or [])
+    return {
+        "firma_id": firma_id,
+        "firma_faktoren": firma_rows,
+        "global_faktoren": glob_rows,
+        "aufgeloest": _kalib.resolve_kalibrierung(
+            {r["faktor_key"]: {"wert": r["wert"]} for r in firma_rows},
+            {r["faktor_key"]: {"wert": r["wert"]} for r in glob_rows}),
+        "anzahl_soll_listen": n_listen,
+    }
+
+
+@app.post("/api/kalibrierung-reset")
+async def kalibrierung_reset(body: KalibrierungUploadRequest):
+    """Setzt die Firma-Kalibrierung zurück (löscht Soll-Listen + gelernte Faktoren).
+    Die globale Basis bleibt unberührt. Reversibilität = Vertrauens-Guard."""
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    projekt_id = body.projekt_id
+    if not projekt_id and body.plan_id:
+        pl = sb.table("plaene").select("projekt_id").eq("id", body.plan_id).single().execute()
+        projekt_id = (pl.data or {}).get("projekt_id")
+    firma_id = _firma_id_von_projekt(projekt_id) if projekt_id else None
+    if not firma_id:
+        raise HTTPException(404, "Firma nicht gefunden")
+    sb.table("kalibrierungen").delete().eq("firma_id", firma_id).execute()
+    sb.table("soll_listen").delete().eq("firma_id", firma_id).execute()
+    return {"status": "ok", "firma_id": firma_id, "hinweis": "Kalibrierung zurückgesetzt."}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SUPER-ADMIN (e-power) — Kunden-Accounts verwalten + globale Basis-Kalibrierung.
+# Auth: admin_token muss app_config['ADMIN_TOKEN'] (oder env) entsprechen. Da die
+# normale Auth client-seitig läuft, ist das die pragmatische, sichere MVP-Schranke.
+# ═══════════════════════════════════════════════════════════════════════════
+class AdminRequest(BaseModel):
+    admin_token: str
+    name: str | None = None
+    email: str | None = None
+    passwort: str | None = None
+    firma_id: str | None = None
+    gesperrt: bool | None = None
+    faktoren: dict | None = None       # für globale Basis-Kalibrierung
+
+
+def _admin_ok(token):
+    try:
+        cfg = sb.table("app_config").select("value").eq("key", "ADMIN_TOKEN").execute().data
+        erwartet = (cfg[0]["value"] if cfg else os.environ.get("ADMIN_TOKEN", "")).strip()
+    except Exception:
+        erwartet = os.environ.get("ADMIN_TOKEN", "").strip()
+    return bool(erwartet) and token == erwartet
+
+
+@app.post("/api/admin/firmen")
+async def admin_firmen(body: AdminRequest):
+    """Alle Kunden-Accounts + Nutzungszahlen (Projekte, Soll-Listen)."""
+    if not sb or not _admin_ok(body.admin_token):
+        raise HTTPException(403, "Kein Admin-Zugriff")
+    firmen = sb.table("firmen").select("id, name, email, gesperrt, created_at").execute().data or []
+    for f_ in firmen:
+        f_["projekte"] = len(sb.table("projekte").select("id").eq("firma_id", f_["id"]).execute().data or [])
+        f_["soll_listen"] = len(sb.table("soll_listen").select("id").eq("firma_id", f_["id"]).execute().data or [])
+        f_.pop("passwort_hash", None)
+    return {"firmen": firmen, "anzahl": len(firmen)}
+
+
+@app.post("/api/admin/firma-anlegen")
+async def admin_firma_anlegen(body: AdminRequest):
+    """Legt einen Kunden-Account an (e-power steuert, wer das Produkt nutzt).
+    Passwort wird über die bestehende register_firma-RPC gehasht."""
+    if not sb or not _admin_ok(body.admin_token):
+        raise HTTPException(403, "Kein Admin-Zugriff")
+    if not (body.name and body.email and body.passwort):
+        raise HTTPException(400, "name, email, passwort erforderlich")
+    try:
+        res = sb.rpc("register_firma", {"p_name": body.name, "p_email": body.email,
+                                        "p_passwort": body.passwort}).execute()
+        return {"status": "ok", "firma": res.data}
+    except Exception as e:
+        raise HTTPException(400, f"Anlegen fehlgeschlagen: {e}")
+
+
+@app.post("/api/admin/firma-sperren")
+async def admin_firma_sperren(body: AdminRequest):
+    """Account sperren/entsperren."""
+    if not sb or not _admin_ok(body.admin_token):
+        raise HTTPException(403, "Kein Admin-Zugriff")
+    if not body.firma_id:
+        raise HTTPException(400, "firma_id erforderlich")
+    sb.table("firmen").update({"gesperrt": bool(body.gesperrt)}).eq("id", body.firma_id).execute()
+    return {"status": "ok", "firma_id": body.firma_id, "gesperrt": bool(body.gesperrt)}
+
+
+@app.post("/api/admin/global-kalibrierung")
+async def admin_global_kalibrierung(body: AdminRequest):
+    """Globale Basis-Kalibrierung setzen — neue Accounts starten damit besser.
+    faktoren = {faktor_key: wert}. Nur bekannte Faktor-Keys werden übernommen."""
+    if not sb or not _admin_ok(body.admin_token):
+        raise HTTPException(403, "Kein Admin-Zugriff")
+    erlaubt = {r["faktor"] for r in _kalib.FAKTOR_REGELN} if _KALIB_OK else set()
+    sb.table("kalibrierungen").delete().is_("firma_id", "null").execute()
+    gesetzt = {}
+    for k, v in (body.faktoren or {}).items():
+        if k in erlaubt and v is not None:
+            wert = max(_kalib.FAKTOR_MIN, min(_kalib.FAKTOR_MAX, float(v)))
+            sb.table("kalibrierungen").insert({
+                "firma_id": None, "faktor_key": k, "wert": wert, "n_belege": 0,
+            }).execute()
+            gesetzt[k] = wert
+    return {"status": "ok", "global_faktoren": gesetzt}

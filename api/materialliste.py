@@ -642,7 +642,8 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
 
 
 def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
-                         tueren=None, gemessen=None, wand_verteilung=None, legende=None):
+                         tueren=None, gemessen=None, wand_verteilung=None, legende=None,
+                         kalibrierung=None):
     """Wrapper: gibt strukturiertes Gewerk-Dict zurück.
 
     gemessen: optional dict mit gemessenen Werten aus PASS-4-Bemaßung +
@@ -650,7 +651,14 @@ def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
                 {aussenumfang_m, bodenplatte_flaeche_m2, konfidenz, quelle}
               Wenn vorhanden, werden die Schätzformeln (sqrt-Bodenplatte,
               aussenumfang × 1.55) durch die gemessenen Werte ersetzt.
+    kalibrierung: optional dict {faktor_key: wert} aus der firmenspezifischen +
+              globalen Selbst-Kalibrierung. Auflösungs-Reihenfolge der Faktoren:
+              USER-Override > Kalibrierung > Default. Umgesetzt durch Merge UNTER
+              override — die byte-exakten Werte (Flächen/Maße) bleiben unangetastet,
+              nur die parametrischen Aufschläge werden firmen-genauer.
     """
+    if kalibrierung:
+        override = {**kalibrierung, **(override or {})}
     positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss,
                                          tueren=tueren, gemessen=gemessen,
                                          wand_verteilung=wand_verteilung, legende=legende)
