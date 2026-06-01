@@ -2590,3 +2590,11 @@ img {
 .ml-merken-status { font-size: .78rem; color: #16a34a; }
 .dashboard-tipp { margin: 0 0 1.25rem; padding: .7rem 1rem; border-radius: 10px; font-size: .82rem;
   color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.5; }
+
+/* ── Warte-Hinweis (Ergebnis erst wenn alle Pläne fertig) ─────────────── */
+.ergebnis-warte { display: flex; align-items: center; gap: .6rem; margin: 1.25rem 0;
+  padding: 1rem 1.25rem; border-radius: 12px; font-size: .9rem; color: #475569;
+  background: #f8fafc; border: 1px solid #e2e8f0; }
+.ergebnis-warte .spinner { flex: none; }
+.export-group { display: flex; flex-direction: column; gap: .35rem; align-items: stretch; }
+.export-group .btn-sm { font-size: .74rem; padding: .3rem .5rem; }

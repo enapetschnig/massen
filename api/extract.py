@@ -2585,6 +2585,9 @@ class ProjektMassenRequest(BaseModel):
     # Vergleich beim Soll-Listen-Upload — sonst würde gegen schon korrigierte
     # Werte kalibriert).
     ohne_kalibrierung: bool = False
+    # Export-Format: "rohbau" = nur die saubere Bestell-Materialliste (Bauteil/
+    # Material/Menge/Einheit), sonst der vollständige Dump (Räume/ÖNORM/Detail).
+    export_format: str | None = None
 
 
 def _bbox_from_sides(seiten):
@@ -4186,6 +4189,19 @@ async def projekt_export(body: ProjektMassenRequest):
         if ";" in s or '"' in s or "\n" in s:
             return '"' + s.replace('"', '""') + '"'
         return s
+
+    # CLEAN "ROHBAU"-FORMAT: nur die Bestell-Materialliste, wie ein Polier sie braucht
+    # (Bauteil; Material; Menge; Einheit) — ohne Räume/ÖNORM/Formeln/Konfidenz.
+    if (body.export_format or "").lower() == "rohbau":
+        rl = ["Bauteil;Material;Menge;Einheit"]
+        for bauteil, pps in ((data.get("materialliste") or {}).get("bauteile") or {}).items():
+            for p in pps:
+                rl.append(";".join([esc(bauteil), esc(p.get("material")),
+                                    fmt(p.get("menge")), esc(p.get("einheit"))]))
+        csv_r = "﻿" + "\r\n".join(rl) + "\r\n"
+        fn_r = f"materialliste-{(data.get('projekt_id') or 'export')[:8]}.csv"
+        return Response(content=csv_r, media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{fn_r}"'})
 
     lines = []
 

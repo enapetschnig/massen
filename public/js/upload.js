@@ -73,12 +73,25 @@
           countEl.innerHTML = '<span class="plans-count-badge work">' + fertigCount + ' von ' + plans.length + ' analysiert</span>';
         }
       }
-      // Ergebnis-Section nur, wenn mindestens ein Plan fertig analysiert ist.
-      if (fertigCount >= 1) {
+      // Ergebnis ERST zeigen, wenn ALLE Pläne fertig analysiert sind — sonst
+      // verwirren Teil-Ergebnisse (Räume/Mengen ändern sich noch). Solange noch
+      // Pläne laufen: Ergebnis ausblenden + klaren Warte-Hinweis zeigen.
+      var sec = document.getElementById('ergebnis-section');
+      var warteEl = document.getElementById('ergebnis-warte');
+      if (plans.length > 0 && fertigCount === plans.length) {
+        if (warteEl) warteEl.classList.add('hidden');
         loadProjektMassen(fertigCount, plans.length);
       } else {
-        var sec = document.getElementById('ergebnis-section');
         if (sec) sec.classList.add('hidden');
+        if (warteEl) {
+          if (plans.length === 0) { warteEl.classList.add('hidden'); }
+          else {
+            warteEl.classList.remove('hidden');
+            warteEl.innerHTML = '<div class="spinner"></div> <strong>' + fertigCount + ' von ' +
+              plans.length + ' Plänen analysiert</strong> — das Ergebnis erscheint, sobald alle fertig sind ' +
+              '(sonst ändern sich Räume und Mengen noch).';
+          }
+        }
       }
     });
   }
@@ -663,7 +676,7 @@
     }
 
     var showFormel = !!(tog && tog.checked);
-    var totalPos = 0, sicherPos = 0;
+    var totalPos = 0, sicherPos = 0, sumKonf = 0;
     // Gruppen nach Konfidenz sortieren: sofort-bestellbar (grün) zuerst,
     // dann prüfen (gelb), dann am-Bau-klären (grau) — ein Polier sieht oben,
     // was sicher ist.
@@ -687,6 +700,7 @@
       grp.rows.forEach(function (p) {
         totalPos++;
         var konf = p.konfidenz || 0;
+        sumKonf += konf;
         if (konf >= 0.7) sicherPos++;
         var tier = konfTier(konf);
         html += '<div class="ml-row">' +
@@ -701,14 +715,23 @@
     });
     board.innerHTML = html;
 
-    // Trust-Ring: Anteil verlässlicher (byte-exakt/gemessener) Positionen
-    var pct = totalPos ? Math.round(sicherPos / totalPos * 100) : 0;
+    // Trust-Ring: EHRLICH + dynamisch — Mischung aus Anteil sicherer Positionen
+    // UND echter Durchschnitts-Konfidenz, minus Abzug für geflaggte Geometrie-
+    // Unsicherheit (Slab-Kante/Umfang). So steht da nicht immer dieselbe Zahl,
+    // sondern sie spiegelt die tatsächliche Datenlage des Projekts.
+    var gq2 = (gemessen || {}).geometrie_qualitaet || {};
+    var base = totalPos ? (sicherPos / totalPos) : 0;
+    var meanK = totalPos ? (sumKonf / totalPos) : 0;
+    var penalty = (gq2.umfang_verdacht_niedrig ? 0.08 : 0) + (gq2.fundament_unsicher ? 0.05 : 0) +
+      (gq2.cross_check_warnung ? 0.04 : 0);
+    var pct = Math.max(0, Math.min(100, Math.round((base * 0.5 + meanK * 0.5 - penalty) * 100)));
     if (ringNum) ringNum.textContent = pct + '%';
     if (ring) {
       ring.style.setProperty('--ring-pct', pct);
       ring.classList.remove('low', 'mid', 'high');
       ring.classList.add(pct >= 75 ? 'high' : (pct >= 50 ? 'mid' : 'low'));
-      ring.title = sicherPos + ' von ' + totalPos + ' Positionen byte-exakt aus Plan/Legende oder gemessener Geometrie (≥ 70% Konfidenz)';
+      ring.title = sicherPos + ' von ' + totalPos + ' Positionen byte-exakt (≥70%); Ø-Konfidenz ' +
+        Math.round(meanK * 100) + '%' + (penalty ? '; −' + Math.round(penalty * 100) + ' wg. unsicherer Geometrie' : '');
     }
 
     // HERO-Status: 3-stufiges Bau-Signal statt nacktem Prozent
@@ -727,36 +750,37 @@
   }
 
   // ─── Projekt-Export-Button (CSV mit allen Daten + Materialliste) ───
-  function bindProjektExport() {
-    var btn = document.getElementById('projekt-export-btn');
-    if (!btn || btn.dataset.bound) return;
-    btn.dataset.bound = '1';
-    btn.addEventListener('click', function () {
-      btn.disabled = true;
-      var orig = btn.innerHTML;
-      btn.textContent = 'Wird exportiert...';
-      var payload = { projekt_id: projectId };
-      if (_filterState.gewerke) payload.gewerke_filter = _filterState.gewerke;
-      if (_filterState.plan_ids) payload.plan_ids = _filterState.plan_ids;
-      if (_filterState.baudaten_override) payload.baudaten_override = _filterState.baudaten_override;
-      if (_filterState.materialliste_override) payload.materialliste_override = _filterState.materialliste_override;
-      fetch('/api/projekt-export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+  function doExport(format, btn) {
+    var orig = btn.innerHTML;
+    btn.disabled = true; btn.textContent = 'Wird exportiert...';
+    var payload = { projekt_id: projectId };
+    if (format) payload.export_format = format;
+    if (_filterState.gewerke) payload.gewerke_filter = _filterState.gewerke;
+    if (_filterState.plan_ids) payload.plan_ids = _filterState.plan_ids;
+    if (_filterState.baudaten_override) payload.baudaten_override = _filterState.baudaten_override;
+    if (_filterState.materialliste_override) payload.materialliste_override = _filterState.materialliste_override;
+    fetch('/api/projekt-export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+      .then(function (r) { if (!r.ok) throw new Error('Export-Status ' + r.status); return r.blob(); })
+      .then(function (blob) {
+        var url = window.URL.createObjectURL(blob);
+        var a = document.createElement('a'); a.href = url;
+        a.download = (format === 'rohbau' ? 'materialliste-' : 'projekt-massenermittlung-') +
+          (projectId || 'export').slice(0, 8) + '.csv';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
       })
-        .then(function (r) { if (!r.ok) throw new Error('Export-Status ' + r.status); return r.blob(); })
-        .then(function (blob) {
-          var url = window.URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = url;
-          a.download = 'projekt-massenermittlung-' + (projectId || 'export').slice(0,8) + '.csv';
-          document.body.appendChild(a); a.click(); document.body.removeChild(a);
-          window.URL.revokeObjectURL(url);
-        })
-        .catch(function (e) { alert('Export-Fehler: ' + e.message); })
-        .finally(function () { btn.disabled = false; btn.innerHTML = orig; });
-    });
+      .catch(function (e) { alert('Export-Fehler: ' + e.message); })
+      .finally(function () { btn.disabled = false; btn.innerHTML = orig; });
+  }
+  function bindProjektExport() {
+    var btn = document.getElementById('projekt-export-btn');       // saubere Materialliste (Polier)
+    if (btn && !btn.dataset.bound) { btn.dataset.bound = '1';
+      btn.addEventListener('click', function () { doExport('rohbau', btn); }); }
+    var btnFull = document.getElementById('projekt-export-voll-btn'); // voller Dump
+    if (btnFull && !btnFull.dataset.bound) { btnFull.dataset.bound = '1';
+      btnFull.addEventListener('click', function () { doExport(null, btnFull); }); }
   }
 
   // ─── Tab-Wechsel innerhalb der Ergebnis-Section ───

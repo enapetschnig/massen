@@ -65,6 +65,9 @@
       </div>
     </div>
 
+    <!-- WARTE-HINWEIS: solange noch Pläne analysiert werden (Ergebnis erst wenn alle fertig) -->
+    <div class="ergebnis-warte hidden" id="ergebnis-warte"></div>
+
     <!-- ERGEBNISSE: Rohbau-Materialliste als übersichtliches Herzstück -->
     <div class="section hidden ergebnis-v2" id="ergebnis-section">
 
@@ -80,7 +83,10 @@
             <span class="trust-ring-num" id="trust-ring-num">&ndash;</span>
             <span class="trust-ring-cap">verl&auml;sslich</span>
           </div>
-          <button class="btn btn-accent btn-export" id="projekt-export-btn" title="Räume + Fenster + Türen + Materialliste als CSV">&#128229; Export CSV</button>
+          <div class="export-group">
+            <button class="btn btn-accent btn-export" id="projekt-export-btn" title="Saubere Bestell-Materialliste (Bauteil · Material · Menge · Einheit) — für Excel/Polier">&#128203; Materialliste</button>
+            <button class="btn btn-outline btn-sm" id="projekt-export-voll-btn" title="Vollständiger Export: Räume · Fenster · ÖNORM-Gewerke · Detailzeilen · Materialliste">&#128229; Alles (CSV)</button>
+          </div>
         </div>
       </div>
 
