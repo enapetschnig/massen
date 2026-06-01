@@ -93,6 +93,34 @@ def dach_typ(best_opus):
     return d.get("dach_typ") or None
 
 
+def wand_verteilung_aus_opus(best_opus, min_konf=0.5):
+    """Wandstärken-Verteilung, die Opus aus den SCHARFEN Grundriss-Kacheln gelesen
+    hat (Schraffur/Dicke) → {aussen:{dicke:pct}, innen:{dicke:pct}} oder None.
+    Konf-gegated. Das ist eine VISION-Schätzung: besser als die unzuverlässigen
+    Legende-Code-Counts, aber schlechter als eine firmen-Kalibrierung (die schlägt es)."""
+    if not opus_usable(best_opus):
+        return None
+    wv = best_opus.get("wand_verteilung") or {}
+    if _f(wv.get("konfidenz")) < min_konf:
+        return None
+
+    def _conv(d):
+        out = {}
+        for k, v in (d or {}).items():
+            try:
+                dk = float(k); pv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if dk > 0 and pv >= 0:
+                out[dk] = pv
+        return out
+    aussen, innen = _conv(wv.get("aussen_pct")), _conv(wv.get("innen_pct"))
+    if not aussen and not innen:
+        return None
+    return {"aussen": aussen, "innen": innen, "quelle": "opus-vision",
+            "konfidenz": round(_f(wv.get("konfidenz")), 2)}
+
+
 def saeulen(best_opus):
     """Anzahl freistehender tragender Stützen (0/None wenn keine)."""
     if not opus_usable(best_opus):

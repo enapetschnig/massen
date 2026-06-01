@@ -180,6 +180,15 @@ KEIN Beleg sichtbar → Wert null + konfidenz < 0.4. NIEMALS raten.
    Schnitt. 3) DACH: dach_typ ("flach"/"pult"/"sattel"/"walm") + attika_hoehe_m
    bei Flach-/Pultdach. 4) saeulen_anzahl: freistehende tragende Stützen (0 wenn keine).
 
+5) WANDSTÄRKEN-VERTEILUNG (NUR aus den SCHARFEN Grundriss-Kacheln): schätze, welcher
+   ANTEIL (%) der Wände welche Stärke hat — Außenwände (dick, oft 50/38cm, oft
+   wärmegedämmt-schraffiert) getrennt von Innenwänden (dünner, 25/20/12cm). Nutze die
+   gezeichnete Wand-Dicke + Schraffur. Anteile je Gruppe summieren zu 100. Nur die
+   Stärken aus der Legende-Fakten-Liste verwenden. KEIN sicheres Bild → konfidenz < 0.4.
+6) ÖFFNUNGS-BREITEN (aus den scharfen Kacheln + Ansichten): liste die erkennbaren
+   Fenster-/Tür-Breiten in cm mit Anzahl (z.B. Rolladen-/Fensterbreiten 124/184/214).
+   Nur was du WIRKLICH ablesen/abmessen kannst; sonst leere Liste.
+
 Antworte NUR mit JSON, kein Markdown:
 {
   "ueberdachte_bereiche": [
@@ -190,6 +199,10 @@ Antworte NUR mit JSON, kein Markdown:
   "hoehe": {"rohbau_m": 2.95, "licht_m": 2.70, "konfidenz": 0.8, "evidenz": "Schnitt A-A"},
   "dach": {"dach_typ": "flach", "attika_hoehe_m": 0.4, "konfidenz": 0.8, "evidenz": "Attika XPS im Schnitt"},
   "saeulen_anzahl": 0,
+  "wand_verteilung": {"aussen_pct": {"50": 85, "38": 8, "25": 7},
+     "innen_pct": {"25": 30, "20": 39, "12": 31}, "konfidenz": 0.55,
+     "evidenz": "Schraffur/Dicke in den scharfen Kacheln"},
+  "oeffnungs_breiten": [{"breite_cm": 214, "anzahl": 3}, {"breite_cm": 124, "anzahl": 2}],
   "gesamtkonfidenz": 0.8
 }"""
 
@@ -218,6 +231,56 @@ def _render_plan_bilder(pdf_bytes: bytes):
         doco.close()
 
 
+_RAUM_LABEL_RX = re.compile(
+    r"\b(Wohn\w*|Küche|Kueche|Zimmer|Bad|WC|Diele|Flur|Vorraum|Abstell\w*|Technik|"
+    r"Waschen|Speis|Schlaf|Kind\w*|Büro|Buero|Gang|Parkplatz|Carport|Garage|Terrasse|"
+    r"Loggia|Eingang|Stiege|Esszimmer|Wohnraum)\b", re.I)
+
+
+def _render_grundriss_tiles(pdf_bytes: bytes, max_px=1500, max_tiles=6):
+    """SCHARFE Grundriss-Kacheln: lokalisiert die Grundriss-/Ansichts-Region byte-
+    exakt über die Raum-Labels und rendert sie in Kacheln, deren lange Kante ~max_px
+    füllt. Hintergrund: die Vision-API skaliert jedes Bild auf ~1568px → ein A1-
+    Vollblatt landet bei ~47 DPI (Schraffur/Fenster-Breiten verloren). Pro Kachel
+    erreicht der Grundriss 3-5× mehr Detail → Opus liest Wandtyp/Öffnungsbreite/Garage.
+    Liefert [jpeg_bytes] (leer, wenn keine Raum-Labels gefunden)."""
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        pg = doc[0]
+        xs, ys = [], []
+        for w in pg.get_text("words"):
+            if _RAUM_LABEL_RX.search(w[4]):
+                xs += [w[0], w[2]]; ys += [w[1], w[3]]
+        if not xs:
+            return []
+        x0 = max(0, min(xs) - 60); x1 = min(pg.rect.width, max(xs) + 60)
+        y0 = max(0, min(ys) - 60); y1 = min(pg.rect.height, max(ys) + 60)
+        bw, bh = x1 - x0, y1 - y0
+        if bw < 50 or bh < 50:
+            return []
+        nx = min(3, max(1, round(bw / 850.0)))
+        ny = min(3, max(1, round(bh / 850.0)))
+        tw, th = bw / nx, bh / ny
+        # ~8% Überlappung, damit Wände/Öffnungen an Kachelrändern nicht abgeschnitten werden
+        ox, oy = tw * 0.08, th * 0.08
+        tiles = []
+        for iy in range(ny):
+            for ix in range(nx):
+                cx0 = max(x0, x0 + ix * tw - ox); cy0 = max(y0, y0 + iy * th - oy)
+                cx1 = min(x1, x0 + (ix + 1) * tw + ox); cy1 = min(y1, y0 + (iy + 1) * th + oy)
+                clip = fitz.Rect(cx0, cy0, cx1, cy1)
+                long_pt = max(cx1 - cx0, cy1 - cy0)
+                dpi = min(400, max_px / (long_pt / 72.0))
+                pix = pg.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72), clip=clip)
+                jb = pix.tobytes("jpeg", jpg_quality=88)
+                if len(jb) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
+                    tiles.append(jb)
+        return tiles[:max_tiles]
+    finally:
+        doc.close()
+
+
 def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
     """Ruft den Opus-Bauingenieur-Pass 1× auf: rendert das Blatt, schickt die
     byte-exakten Fakten + Bild(er) an claude-opus-4-8 (temperature=0). Liefert das
@@ -227,15 +290,23 @@ def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
     import base64
     import hashlib
     try:
-        bilder = _render_plan_bilder(pdf_bytes)
+        bilder = _render_plan_bilder(pdf_bytes)        # Gesamtblatt (Übersicht/Schnitt)
         if not bilder:
             return {"_fehler": "kein Bild gerendert", "_quelle": "fallback"}
+        tiles = _render_grundriss_tiles(pdf_bytes)     # SCHARFE Grundriss-/Ansichts-Kacheln
         client = anthropic.Anthropic(api_key=api_key, timeout=120.0, max_retries=3)
         content = [{"type": "text", "text": "BYTE-EXAKTE FAKTEN (nicht ändern):\n" +
                     json.dumps(fakten, ensure_ascii=False)}]
+        content.append({"type": "text", "text": "GESAMTBLATT (Übersicht + Schnitte/Ansichten):"})
         for ib in bilder:
             content.append({"type": "image", "source": {"type": "base64",
                 "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
+        if tiles:
+            content.append({"type": "text", "text": f"SCHARFE GRUNDRISS-KACHELN ({len(tiles)}, "
+                "hohe Auflösung — hier Schraffur/Wandstärken + Fenster-/Tür-Breiten ablesen):"})
+            for ib in tiles:
+                content.append({"type": "image", "source": {"type": "base64",
+                    "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
         content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
         resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000, temperature=0,
             system=OPUS_BAUINGENIEUR_PROMPT, messages=[{"role": "user", "content": content}])
@@ -3667,6 +3738,13 @@ async def projekt_massen(body: ProjektMassenRequest):
             best_baudaten["konfidenz"] = max(float(best_baudaten.get("konfidenz") or 0),
                                              leg_bd.get("konfidenz", 0.9))
         wand_verteilung = _wand_verteilung(best_legende)
+        # OPUS-VISION-VERTEILUNG (aus den scharfen Grundriss-Kacheln gelesen) schlägt
+        # die unzuverlässigen Legende-Code-Counts (Codes stehen selten je Wand). Eine
+        # firmen-Kalibrierung (wand_anteil_* im Override) schlägt weiterhin BEIDE.
+        if _OPUS_KONSUM_OK:
+            _opus_wv = _ok.wand_verteilung_aus_opus(best_opus)
+            if _opus_wv and (_opus_wv.get("aussen") or _opus_wv.get("innen")):
+                wand_verteilung = _opus_wv
         # Gezählte Wand-Codes ohne Legende-Eintrag → ehrlicher Prüf-Hinweis
         _unbek = (wand_verteilung or {}).get("unbekannte_codes") if wand_verteilung else None
         if _unbek:

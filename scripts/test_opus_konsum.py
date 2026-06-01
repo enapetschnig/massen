@@ -144,6 +144,19 @@ check("Plan ohne Anbau → kein Mauerwerk-Phantom", ok.mauerwerk_zusatz(leer, HU
 check("Plan ohne Anbau → kein Slab-Phantom", ok.slab_zusatz(leer, HUELLE) is None)
 check("Plan ohne Anbau → Höhe trotzdem lesbar", ok.hoehe_rohbau(leer) == 2.8)
 
+print("12) WAND-VERTEILUNG aus scharfen Grundriss-Kacheln (Vision, konf-gegated):")
+mit_wv = {"wand_verteilung": {"aussen_pct": {"50": 85, "38": 8, "25": 7},
+          "innen_pct": {"25": 30, "20": 39, "12": 31}, "konfidenz": 0.6},
+          "gesamtkonfidenz": 0.7}
+wv = ok.wand_verteilung_aus_opus(mit_wv)
+check("Außen-Anteile konvertiert (50→85)", wv and wv["aussen"][50.0] == 85.0, f"got {wv}")
+check("Innen-Anteile konvertiert (12→31)", wv and wv["innen"][12.0] == 31.0, f"got {wv}")
+check("Quelle = opus-vision", wv and wv["quelle"] == "opus-vision")
+schwach_wv = {"wand_verteilung": {"aussen_pct": {"50": 90}, "konfidenz": 0.3}, "gesamtkonfidenz": 0.6}
+check("schwache Konfidenz (0.3) → None (nicht raten)", ok.wand_verteilung_aus_opus(schwach_wv) is None)
+check("unsicheres Opus → None", ok.wand_verteilung_aus_opus(dict(mit_wv, unsicherheit_flag=True)) is None)
+check("ohne wand_verteilung → None", ok.wand_verteilung_aus_opus({"gesamtkonfidenz": 0.8}) is None)
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Test(s) gescheitert: {fails}")
