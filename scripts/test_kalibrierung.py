@@ -173,8 +173,19 @@ check("ohne Kalibrierung: Legende-Verteilung greift (25cm-Wand vorhanden)",
 check("mit Kalibrierung 12cm=100%: 12cm-Menge steigt, 20cm→0",
       _hlz(ml_kal_wv, "HLZ 12cm") and _hlz(ml_kal_wv, "HLZ 20cm") == 0, f"12er={_hlz(ml_kal_wv,'HLZ 12cm')} 20er={_hlz(ml_kal_wv,'HLZ 20cm')}")
 
+print("\n11) GEMESSENE Genauigkeit aus Belegen (Ground-Truth gegen Engine):")
+bel = [{"faktor": "bodenplatte_aufschlag", "ratio": 1.0, "ist": 125.0, "soll": 125.0},   # exakt → 100%
+       {"faktor": "decke_aufschlag", "ratio": 1.07, "ist": 232.89, "soll": 250.0},        # ~93%
+       {"faktor": "aussenumfang_aufschlag", "ratio": 1.2, "ist": 40.0, "soll": 48.0}]      # ~83%
+g = kal.genauigkeit_aus_belegen(bel)
+check("Bodenplatte 100% (Ist=Soll)", any(p["label"] == "Bodenplatte" and p["pct"] == 100.0 for p in g["pro_bauteil"]), f"got {g}")
+check("Außenwand am ungenauesten (~83%)", g["pro_bauteil"][0]["label"].startswith("Außenwand") and abs(g["pro_bauteil"][0]["pct"] - 83.3) < 1, f"got {g['pro_bauteil']}")
+check("Gesamt = Median der Einzelnähe (~93%)", abs(g["gesamt_pct"] - 93.2) < 1.5, f"got {g['gesamt_pct']}")
+check("n_belege gezählt", g["n_belege"] == 3, f"got {g['n_belege']}")
+check("leere Belege → gesamt None", kal.genauigkeit_aus_belegen([])["gesamt_pct"] is None)
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Test(s) gescheitert: {fails}")
     sys.exit(1)
-print("OK — Kalibrierung lernt Faktoren + Wandverteilung mit Guards, byte-exakt unangetastet, Präzedenz stimmt.")
+print("OK — Kalibrierung lernt Faktoren + Wandverteilung mit Guards, byte-exakt unangetastet, Präzedenz stimmt, Genauigkeit gemessen.")

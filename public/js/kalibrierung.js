@@ -92,11 +92,26 @@
   // ── Referenzliste ──
   function renderReferenzen(data) {
     var refs = data.referenzen || [];
+    var gen = data.genauigkeit;
+    var genHtml = '';
+    if (gen && gen.gesamt_pct != null) {
+      var bars = (gen.pro_bauteil || []).map(function (p) {
+        var cls = p.pct >= 95 ? 'gen-ok' : (p.pct >= 85 ? 'gen-mid' : 'gen-low');
+        return '<div class="gen-row"><span class="gen-label">' + esc(p.label) + '</span>'
+          + '<span class="gen-bar"><span class="gen-fill ' + cls + '" style="width:' + Math.max(4, Math.min(100, p.pct)) + '%"></span></span>'
+          + '<span class="gen-pct">' + p.pct + '%</span></div>';
+      }).join('');
+      genHtml = '<div class="kalib-gen"><div class="kalib-gen-head">Gemessene Genauigkeit gegen deine Listen'
+        + '<span class="kalib-gen-big">' + gen.gesamt_pct + '%</span></div>'
+        + '<div class="kalib-gen-sub">So nah lag die automatische Rechnung an deinen ' + (gen.n_belege || 0)
+        + ' verglichenen Positionen (vor Kalibrierung). Schwächste Stelle zuerst:</div>'
+        + bars + '</div>';
+    }
     if (!refs.length) {
-      refEl.innerHTML = '<p class="kalib-empty">Noch keine Referenzen hochgeladen.</p>';
+      refEl.innerHTML = genHtml + '<p class="kalib-empty">Noch keine Referenzen hochgeladen.</p>';
       return;
     }
-    refEl.innerHTML = refs.map(function (r) {
+    refEl.innerHTML = genHtml + refs.map(function (r) {
       var wv = r.wand_verteilung || {};
       var wvTxt = (wv.wand_anteil_50cm != null)
         ? ('Wand 50/38 · ' + Math.round(wv.wand_anteil_50cm) + '/' + Math.round(wv.wand_anteil_38cm || 0) + '%')

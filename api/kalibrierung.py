@@ -273,6 +273,53 @@ def lerne_faktoren(ratios_je_faktor, min_belege=MIN_BELEGE):
     return out
 
 
+_FAKTOR_LABEL = {
+    "bodenplatte_aufschlag": "Bodenplatte",
+    "decke_aufschlag": "Decke",
+    "frostgraben_aufschlag": "Frostschürze",
+    "aussenumfang_aufschlag": "Außenwand/Mauerwerk",
+}
+
+
+def genauigkeit_aus_belegen(belege_liste):
+    """Misst, wie NAH die Engine-Rechnung (Ist, mit Default-Faktoren) an den echten
+    Polier-Listen lag — über ALLE Belege aller hochgeladenen Referenzen.
+
+    Pro Beleg: genauigkeit = min(ist,soll)/max(ist,soll) ∈ (0,1] (symmetrische
+    Nähe, einheiten-bereinigt durch die Regel). Aggregiert je Faktor (Median) +
+    gesamt. Das ist eine ECHTE, gemessene Genauigkeit gegen Ground-Truth — keine
+    geschätzte Konfidenz. Liefert {gesamt_pct, pro_bauteil:[{label,pct,n}], n_belege}.
+
+    belege_liste: flache Liste von Belegen [{faktor, ratio, ist, soll}, …].
+    """
+    je_faktor = {}
+    for b in (belege_liste or []):
+        ist, soll = b.get("ist"), b.get("soll")
+        try:
+            ist, soll = float(ist), float(soll)
+        except (TypeError, ValueError):
+            continue
+        if ist <= 0 or soll <= 0:
+            continue
+        g = min(ist, soll) / max(ist, soll)
+        je_faktor.setdefault(b.get("faktor"), []).append(g)
+    pro_bauteil = []
+    alle = []
+    for faktor, gs in je_faktor.items():
+        alle.extend(gs)
+        pro_bauteil.append({
+            "label": _FAKTOR_LABEL.get(faktor, faktor),
+            "pct": round(_median(gs) * 100, 1),
+            "n": len(gs),
+        })
+    pro_bauteil.sort(key=lambda x: x["pct"])
+    return {
+        "gesamt_pct": round(_median(alle) * 100, 1) if alle else None,
+        "pro_bauteil": pro_bauteil,
+        "n_belege": len(alle),
+    }
+
+
 def hlz_verteilung_aus_soll(soll_positions):
     """Lernt die Wandstärken-VERTEILUNG aus den HLZ-Paletten einer Soll-Liste —
     die eine Größe, die NICHT byte-exakt aus dem Plan lesbar ist (sie steckt in

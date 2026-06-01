@@ -4778,7 +4778,12 @@ async def kalibrierung_referenzen(firma_id: str | None = None, projekt_id: str |
         "wand_verteilung": r.get("wand_verteilung"),
         "erstellt_am": r.get("erstellt_am"),
     } for r in rows]
-    return {"firma_id": firma_id, "referenzen": refs, "anzahl": len(refs)}
+    # GEMESSENE Genauigkeit: alle Belege aller Referenzen → wie nah lag die Engine
+    # (mit Default-Faktoren) an den echten Polier-Listen. Echte Ground-Truth-Metrik.
+    alle_belege = [b for r in rows for b in (r.get("belege") or [])]
+    genauigkeit = _kalib.genauigkeit_aus_belegen(alle_belege) if _KALIB_OK else None
+    return {"firma_id": firma_id, "referenzen": refs, "anzahl": len(refs),
+            "genauigkeit": genauigkeit}
 
 
 class KalibrierungLoeschenRequest(BaseModel):

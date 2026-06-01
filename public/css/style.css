@@ -2727,3 +2727,19 @@ img {
 .pl-ico { flex-shrink: 0; font-size: .7rem; margin-top: .15rem; }
 .pl-body strong { color: var(--text); }
 .pl-more { font-size: .76rem; color: var(--text-light); margin-top: .4rem; }
+
+/* ===== Gemessene Genauigkeit (Kalibrierungs-Seite) ===== */
+.kalib-gen { margin-bottom: 1.2rem; padding: .9rem 1rem; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.kalib-gen-head { display: flex; align-items: center; justify-content: space-between;
+  font-size: .82rem; font-weight: 700; color: var(--text); }
+.kalib-gen-big { font-size: 1.5rem; font-weight: 800; color: var(--primary); }
+.kalib-gen-sub { font-size: .76rem; color: var(--text-light); margin: .25rem 0 .7rem; line-height: 1.45; }
+.gen-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .4rem; }
+.gen-label { flex: 0 0 38%; font-size: .78rem; color: var(--text); }
+.gen-bar { flex: 1; height: 8px; background: var(--border); border-radius: 999px; overflow: hidden; }
+.gen-fill { display: block; height: 100%; border-radius: 999px; }
+.gen-fill.gen-ok { background: #16a34a; }
+.gen-fill.gen-mid { background: var(--accent); }
+.gen-fill.gen-low { background: #dc2626; }
+.gen-pct { flex: 0 0 3rem; text-align: right; font-size: .78rem; font-weight: 700; color: var(--text); }
