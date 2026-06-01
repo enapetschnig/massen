@@ -2577,3 +2577,16 @@ img {
 .kalib-table th, .kalib-table td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #eef2f7; }
 .kalib-table th { color: #64748b; font-weight: 600; }
 .kalib-table td:nth-child(n+2), .kalib-table th:nth-child(n+2) { text-align: right; }
+
+/* ── Referenz-Upload CTA (prominent) + "merken" ───────────────────────── */
+.referenz-cta { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  flex-wrap: wrap; margin: 1rem 0; padding: 1rem 1.25rem; border-radius: 12px;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4); border: 1px solid #bfdbfe; }
+.referenz-cta-text { display: flex; flex-direction: column; gap: .15rem; }
+.referenz-cta-text strong { font-size: .95rem; color: #1e3a8a; }
+.referenz-cta-text span { font-size: .8rem; color: #475569; }
+.referenz-cta .btn { white-space: nowrap; }
+.ml-merken-label { font-size: .8rem; color: #334155; display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
+.ml-merken-status { font-size: .78rem; color: #16a34a; }
+.dashboard-tipp { margin: 0 0 1.25rem; padding: .7rem 1rem; border-radius: 10px; font-size: .82rem;
+  color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.5; }

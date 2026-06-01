@@ -4182,6 +4182,12 @@ class KalibrierungUploadRequest(BaseModel):
     soll_text: str                      # Polier-Soll-Liste (CSV oder Freitext)
 
 
+class KalibrierungMerkenRequest(BaseModel):
+    projekt_id: str | None = None
+    plan_id: str | None = None
+    overrides: dict                     # manuelle Materiallisten-Korrekturen der Firma
+
+
 def _firma_id_von_projekt(projekt_id):
     try:
         pr = sb.table("projekte").select("firma_id").eq("id", projekt_id).single().execute()
@@ -4207,16 +4213,23 @@ def _firma_faktoren_neu_lernen(firma_id):
     gelernt = _kalib.lerne_faktoren(ratios)
     wandvert = _kalib.aggregiere_verteilungen(verteilungen)   # {wand_anteil_*: pct}
     n_vert = len(verteilungen)
-    # bestehende Firma-Faktoren entfernen, neu schreiben (sauberer Zustand)
-    sb.table("kalibrierungen").delete().eq("firma_id", firma_id).execute()
+    # MANUELLE Korrekturen NICHT überschreiben: nur gelernte Zeilen ersetzen.
+    manuell = sb.table("kalibrierungen").select("faktor_key").eq(
+        "firma_id", firma_id).eq("quelle", "manuell").execute().data or []
+    manuell_keys = {r["faktor_key"] for r in manuell}
+    sb.table("kalibrierungen").delete().eq("firma_id", firma_id).eq("quelle", "gelernt").execute()
     for faktor, info in gelernt.items():
+        if faktor in manuell_keys:
+            continue   # die Firma hat das bewusst korrigiert → Vorrang
         sb.table("kalibrierungen").insert({
             "firma_id": firma_id, "faktor_key": faktor, "wert": info["wert"],
-            "n_belege": info["n_belege"], "ratio_median": info["ratio_median"],
+            "n_belege": info["n_belege"], "ratio_median": info["ratio_median"], "quelle": "gelernt",
         }).execute()
     for faktor, wert in wandvert.items():   # gelernte Wandverteilung (Anteil in %)
+        if faktor in manuell_keys:
+            continue
         sb.table("kalibrierungen").insert({
-            "firma_id": firma_id, "faktor_key": faktor, "wert": wert, "n_belege": n_vert,
+            "firma_id": firma_id, "faktor_key": faktor, "wert": wert, "n_belege": n_vert, "quelle": "gelernt",
         }).execute()
     return {**gelernt, **({"_wandverteilung": wandvert} if wandvert else {})}
 
@@ -4326,6 +4339,53 @@ async def kalibrierung_reset(body: KalibrierungUploadRequest):
     sb.table("kalibrierungen").delete().eq("firma_id", firma_id).execute()
     sb.table("soll_listen").delete().eq("firma_id", firma_id).execute()
     return {"status": "ok", "firma_id": firma_id, "hinweis": "Kalibrierung zurückgesetzt."}
+
+
+# Nur bekannte, sinnvolle Materiallisten-Faktoren als manuelle Korrektur merken
+# (keine beliebigen Keys; byte-exakte cm-Werte gehören nicht hierher).
+_MERKBARE_KEYS = {
+    "bodenplatte_aufschlag", "decke_aufschlag", "decke_auskragung", "ekv_decke_aufschlag",
+    "aussenumfang_aufschlag", "frostgraben_aufschlag", "frostschuerze_tiefe_m",
+    "frostschuerze_breite_m", "xps_frostschuerze_tiefe_m", "iso_korb_anteil",
+    "wand_anteil_50cm", "wand_anteil_38cm", "wand_anteil_25cm_aussen",
+    "wand_anteil_25cm_innen", "wand_anteil_20cm", "wand_anteil_12cm",
+    "attika_aktiv", "attika_hoehe_m", "anzahl_saeulen", "anzahl_kamine",
+    "aq65_m2_pro_matte", "pe_folie_m2_pro_rolle", "mauermoertel_paletten_pro_100m2",
+}
+
+
+@app.post("/api/kalibrierung-merken")
+async def kalibrierung_merken(body: KalibrierungMerkenRequest):
+    """Manuelle Korrekturen der Firma DAUERHAFT merken — die KI lernt mit, sobald
+    der Betrieb Werte ausbessert. Gespeichert als quelle='manuell' (schlägt gelernte
+    Faktoren, wird beim Soll-Listen-Lernen NICHT überschrieben). Gilt ab dann
+    automatisch für künftige Projekte der Firma. Reset über /api/kalibrierung-reset."""
+    if not sb or not _KALIB_OK:
+        raise HTTPException(500, "Kalibrierung nicht verfügbar")
+    projekt_id = body.projekt_id
+    if not projekt_id and body.plan_id:
+        pl = sb.table("plaene").select("projekt_id").eq("id", body.plan_id).single().execute()
+        projekt_id = (pl.data or {}).get("projekt_id")
+    firma_id = _firma_id_von_projekt(projekt_id) if projekt_id else None
+    if not firma_id:
+        raise HTTPException(404, "Firma nicht gefunden")
+    gemerkt = {}
+    for k, v in (body.overrides or {}).items():
+        if k not in _MERKBARE_KEYS or v is None or v == "":
+            continue
+        try:
+            wert = float(v)
+        except (TypeError, ValueError):
+            continue
+        # vorhandene Zeile (egal welche Quelle) ersetzen → manuell gewinnt
+        sb.table("kalibrierungen").delete().eq("firma_id", firma_id).eq("faktor_key", k).execute()
+        sb.table("kalibrierungen").insert({
+            "firma_id": firma_id, "faktor_key": k, "wert": wert, "n_belege": 0, "quelle": "manuell",
+        }).execute()
+        gemerkt[k] = wert
+    return {"status": "ok", "gemerkt": gemerkt, "anzahl": len(gemerkt),
+            "hinweis": (f"{len(gemerkt)} Korrektur(en) für deine Firma gemerkt — gilt ab jetzt automatisch."
+                        if gemerkt else "Keine merkbaren Korrekturen gefunden.")}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

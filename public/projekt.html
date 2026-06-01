@@ -100,6 +100,15 @@
       </div>
       <div class="ml-board" id="ml-board"></div>
 
+      <!-- REFERENZ-UPLOAD: prominent, damit jeder Betrieb es sofort findet -->
+      <div class="referenz-cta" id="referenz-cta">
+        <div class="referenz-cta-text">
+          <strong>📋 Mach es genauer für deinen Betrieb</strong>
+          <span id="referenz-cta-sub">Lade eine fertige Polier-Materialliste hoch — die KI lernt deine Bauweise und rechnet ab dann genauer.</span>
+        </div>
+        <button class="btn btn-primary" id="referenz-cta-btn">Referenz-Liste hochladen</button>
+      </div>
+
       <!-- ERWEITERT: alles Optionale in EINEM Drawer, standardmäßig zu -->
       <details class="advanced-drawer">
         <summary>&#9881;&#65039; Erweitert &mdash; Annahmen anpassen &middot; ÖNORM-Gewerke &middot; gelesene Räume</summary>
@@ -169,9 +178,13 @@
                   <label>Anzahl S&auml;ulen <input type="number" step="1" min="0" max="20" data-ml="anzahl_saeulen" placeholder="0"></label>
                   <label>Anzahl Kamine <input type="number" step="1" min="0" max="5" data-ml="anzahl_kamine" placeholder="0"></label>
                 </div>
-                <div style="grid-column:1/-1;display:flex;gap:0.5rem">
+                <div style="grid-column:1/-1;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
                   <button class="btn btn-sm btn-primary" id="materialliste-apply">Materialliste anwenden</button>
                   <button class="btn btn-sm btn-outline" id="materialliste-reset">Defaults</button>
+                  <label class="ml-merken-label" title="Speichert deine Korrekturen dauerhaft für deine Firma — gilt ab dann automatisch für alle Projekte">
+                    <input type="checkbox" id="ml-merken-check"> 🧠 Für meine Firma merken (KI lernt mit)
+                  </label>
+                  <span id="ml-merken-status" class="ml-merken-status"></span>
                 </div>
               </div>
             </div>

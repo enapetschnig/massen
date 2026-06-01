@@ -148,6 +148,18 @@
         });
         _filterState.materialliste_override = Object.keys(ov).length ? ov : null;
         refreshProjektMassen();
+        // KI lernt mit: wenn angehakt, die Korrekturen dauerhaft für die Firma merken
+        var merken = document.getElementById('ml-merken-check');
+        var mst = document.getElementById('ml-merken-status');
+        if (merken && merken.checked && Object.keys(ov).length) {
+          if (mst) mst.textContent = ' merke …';
+          fetch('/api/kalibrierung-merken', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projekt_id: projectId, overrides: ov })
+          }).then(function (r) { return r.json(); }).then(function (j) {
+            if (mst) mst.textContent = j && j.anzahl ? ' ✓ ' + j.anzahl + ' Korrektur(en) gemerkt' : ' (nichts merkbar)';
+          }).catch(function () { if (mst) mst.textContent = ' ✗ Merken fehlgeschlagen'; });
+        }
       });
     }
     var mlReset = document.getElementById('materialliste-reset');
@@ -1178,6 +1190,14 @@
         .then(function () { renderKalibrierungStatus({ anzahl: 0 });
           document.getElementById('kalibrierung-result').innerHTML = '<div class="status-info">Kalibrierung zurückgesetzt.</div>';
           refreshProjektMassen(); });
+    });
+    // Prominenter CTA: öffnet den Erweitert-Drawer und scrollt zum Kalibrierungs-Block
+    var cta = document.getElementById('referenz-cta-btn');
+    if (cta) cta.addEventListener('click', function () {
+      var drawer = document.querySelector('.advanced-drawer');
+      if (drawer) drawer.open = true;
+      var soll = document.getElementById('kalibrierung-soll');
+      if (soll) { soll.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(function () { soll.focus(); }, 400); }
     });
   }
   wireKalibrierung();
