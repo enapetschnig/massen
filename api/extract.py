@@ -126,6 +126,7 @@ else:
 
 class ExtractRequest(BaseModel):
     plan_id: str
+    force: bool = False   # True = neu auslesen, auch wenn der Plan unverändert ist
 
 
 ROOM_KEYWORDS = [
@@ -734,6 +735,29 @@ async def analyse_zoom(body: ExtractRequest):
     except Exception as e:
         raise HTTPException(500, f"PDF Download: {e}")
 
+    # ── KONSTANZ-FREEZE ──────────────────────────────────────────────────────
+    # Gleicher Plan-INHALT → gleiche gespeicherte Auswertung. Ohne das würfelt
+    # JEDER analyse-zoom-Aufruf neu (delete+insert der elemente) und der User
+    # sieht „bei jedem Klick was anderes". Wir hängen einen Inhalts-Hash an den
+    # Plan; stimmt er + es liegt schon ein Ergebnis vor + kein force → geben wir
+    # das gespeicherte Ergebnis unverändert zurück, ohne die Vision-Pässe neu zu
+    # würfeln. „Neu auslesen" (force=true) umgeht den Freeze bewusst.
+    import hashlib as _hl
+    input_hash = _hl.sha256(pdf_bytes).hexdigest()
+    _za = (plan.get("agent_log") or {}).get("zoom_analyse")
+    if (not body.force) and plan.get("input_hash") == input_hash and _za:
+        return {
+            "status": "ok", "cached": True,
+            "sections_analyzed": _za.get("sections", 0),
+            "raeume": _za.get("raeume", 0),
+            "fenster": _za.get("fenster", 0),
+            "tueren": _za.get("tueren", 0),
+            "massstab": _za.get("massstab"),
+            "geschoss": _za.get("geschoss"),
+            "vision_wall_tops": _za.get("vision_wall_tops", 0),
+            "hinweis": "unveraendert - gespeichertes Ergebnis (konstant). 'Neu auslesen' erzwingt eine frische Analyse.",
+        }
+
     # DETERMINISTIC OVERLAPPING GRID + TEXT VERIFICATION + PASS 3 ULTRA ZOOM:
     # 1. Extract text tokens with positions from PDF layer.
     # 2. Tile-based Claude Vision (1800pt, 30% overlap, 300 DPI).
@@ -1288,6 +1312,7 @@ REGELN:
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=8192,
+                temperature=0,   # KONSTANZ: gleicher Plan → gleiche Raumliste (Tile-Backbone)
                 system=SYSTEM_PROMPT,
                 messages=[{
                     "role": "user",
@@ -1382,8 +1407,11 @@ REGELN:
             vals = sorted([float(o.get(fld)) for o in obs_list if o.get(fld)])
             if vals:
                 merged[fld] = vals[len(vals)//2]
-        confs = [float(o.get("konfidenz") or 0) for o in obs_list]
-        merged["konfidenz"] = max(confs) if confs else 0.8
+        # KONSTANZ: Konfidenz deterministisch aus der Konsens-Anzahl ableiten —
+        # NICHT max() über die lauf-variablen Einzel-Tile-Konfidenzen (das ließ den
+        # Wert springen). F/U/H bleiben Median (unverändert). Text-verifizierte
+        # Räume werden später ohnehin auf 1.0 gehoben (s. _verified).
+        merged["konfidenz"] = round(min(0.95, 0.6 + 0.08 * min(len(obs_list), 4)), 2)
         merged["_consensus"] = len(obs_list)
         merged["_tile_sources"] = sorted({o.get("_tile") for o in obs_list if o.get("_tile") is not None})
         return merged
@@ -1484,6 +1512,7 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=512,
+                temperature=0,   # KONSTANZ: deterministischer Ultra-Zoom (PASS 3)
                 system=ULTRA_PROMPT,
                 messages=[{
                     "role": "user",
@@ -1606,9 +1635,17 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
                     "_synthetic": True,
                 })
 
-    # Fenster dedup: by bezeichnung, merge dimensions (highest confidence wins)
+    # Fenster dedup — KONSTANZ: deterministisch. Vorher gewann „höchste Konfidenz",
+    # was bei lauf-variablen Konfidenzen die Auswahl springen ließ. Jetzt: stabile
+    # Sortierung (Konfidenz desc, dann Name/Maße) → der erste je Schlüssel ist der
+    # Repräsentant, fehlende Felder werden ergänzt. Mit temperature=0 davor sind die
+    # Vision-Funde selbst schon stabil; das hier sichert die Zusammenführung ab.
     fenster_groups = {}
-    for f in all_fenster:
+    for f in sorted(all_fenster, key=lambda x: (
+            -float(x.get("konfidenz") or 0),
+            _norm_name(x.get("bezeichnung")),
+            round(float(x.get("breite_m") or 0), 2),
+            round(float(x.get("hoehe_m") or 0), 2))):
         key = _norm_name(f.get("bezeichnung"))
         if not key:
             continue
@@ -1616,14 +1653,9 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
             fenster_groups[key] = dict(f)
         else:
             existing = fenster_groups[key]
-            if float(f.get("konfidenz") or 0) > float(existing.get("konfidenz") or 0):
-                for fld, val in f.items():
-                    if val not in (None, "", 0):
-                        existing[fld] = val
-            else:
-                for fld, val in f.items():
-                    if val not in (None, "", 0) and not existing.get(fld):
-                        existing[fld] = val
+            for fld, val in f.items():   # erste (höchste Konf.) gewinnt, Rest ergänzt
+                if val not in (None, "", 0) and not existing.get(fld):
+                    existing[fld] = val
     unique_fenster = list(fenster_groups.values())
 
     # ─── ÖFFNUNGEN AUS TEXT-LAYER MERGEN ──────────────────────────────
@@ -1787,6 +1819,7 @@ Wichtig:
                     resp = client.messages.create(
                         model="claude-sonnet-4-20250514",
                         max_tokens=512,
+                        temperature=0,   # KONSTANZ: deterministische Wandbemaßung (PASS 4)
                         system=BEMASSUNG_PROMPT,
                         messages=[{
                             "role": "user",
@@ -2550,7 +2583,23 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
     log["oenorm_lv"] = oenorm_lv
     if gewerke_result:
         log["gewerke"] = gewerke_result
-    sb.table("plaene").update({"agent_log": log, "gesamt_konfidenz": 95}).eq("id", body.plan_id).execute()
+    # ── DETERMINISTISCHE Plan-Konfidenz (statt hartem 95) ──
+    # Anteil der gegen den PDF-Text-Layer verifizierten Raum-Werte (F/U/H). Reine
+    # Funktion gespeicherter Daten → gleicher Plan ergibt IMMER dieselbe Zahl
+    # (kein „gefühltes" 95/88). Nur anwendbare Felder zählen (Loggia hat keine Höhe).
+    _FLD = {"F": "flaeche_m2", "U": "umfang_m", "H": "hoehe_m"}
+    def _vscore(r):
+        v = r.get("_verified") or {}
+        applicable = [k for k in ("F", "U", "H") if r.get(_FLD[k])]
+        if not applicable:
+            return 0.5
+        return sum(1 for k in applicable if v.get(k)) / len(applicable)
+    _rooms_conf = [r for r in unique_rooms if (r.get("flaeche_m2") or r.get("umfang_m"))]
+    _avg_v = (sum(_vscore(r) for r in _rooms_conf) / len(_rooms_conf)) if _rooms_conf else 0.5
+    gesamt_konf = int(round(max(55, min(98, 60 + _avg_v * 38))))
+    sb.table("plaene").update({
+        "agent_log": log, "gesamt_konfidenz": gesamt_konf, "input_hash": input_hash,
+    }).eq("id", body.plan_id).execute()
 
     return {
         "status": "ok",

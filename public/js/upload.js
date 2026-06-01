@@ -883,12 +883,13 @@
       });
     });
 
-    // Neu-analysieren-Button
+    // Neu-auslesen-Button: erzwingt eine frische Analyse (umgeht den Konstanz-Freeze)
     planList.querySelectorAll('.reana-btn').forEach(function (b) {
       b.addEventListener('click', function () {
         var btn = this;
         var planId = btn.getAttribute('data-id');
-        startAnalysis(planId, btn);
+        if (!confirm('Plan neu auslesen? Das verwirft das gespeicherte Ergebnis und analysiert frisch.')) return;
+        startAnalysis(planId, btn, null, true);
       });
     });
 
@@ -906,7 +907,7 @@
   // --- Analyse starten (3 Schritte nacheinander) ---
   // btn ist optional: beim Auto-Flow (direkt nach Upload) gibt es keinen Button.
   // onDone ist optional: Callback nach Abschluss (für die Auto-Queue).
-  function startAnalysis(planId, btn, onDone) {
+  function startAnalysis(planId, btn, onDone, force) {
     if (btn) {
       btn.disabled = true;
       btn.textContent = 'KI analysiert...';
@@ -945,7 +946,7 @@
     fetch('/api/analyse-zoom', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_id: planId })
+      body: JSON.stringify({ plan_id: planId, force: !!force })
     })
       .then(function(res) {
         // Try to parse JSON, but if response is HTML (404/500 page) show raw text
