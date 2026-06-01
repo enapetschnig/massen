@@ -308,7 +308,8 @@ def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
                 content.append({"type": "image", "source": {"type": "base64",
                     "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
         content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
-        resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000, temperature=0,
+        # claude-opus-4-8 akzeptiert KEIN temperature (deprecated → 400) → weglassen.
+        resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000,
             system=OPUS_BAUINGENIEUR_PROMPT, messages=[{"role": "user", "content": content}])
         raw = resp.content[0].text if resp.content else "{}"
         try:
@@ -392,7 +393,7 @@ def _run_opus_review(pdf_bytes: bytes, fakten: dict, materialliste: dict, api_ke
                 content.append({"type": "image", "source": {"type": "base64",
                     "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
         content.append({"type": "text", "text": "Prüfe die Liste gegen den Plan (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
-        resp = client.messages.create(model="claude-opus-4-8", max_tokens=2000, temperature=0,
+        resp = client.messages.create(model="claude-opus-4-8", max_tokens=2000,
             system=OPUS_REVIEW_PROMPT, messages=[{"role": "user", "content": content}])
         raw = resp.content[0].text if resp.content else "{}"
         try:
