@@ -91,11 +91,12 @@ check("Opus-Fakten gegroundet an Maßketten-Hülle",
       (_calls["fakten"] or {}).get("text_layer_massketten_huelle", {}).get("umfang_m") == 46.46,
       f"got {(_calls['fakten'] or {}).get('text_layer_massketten_huelle')}")
 
-print("\nSZENARIO 2: kein Plan mit Schnitt → Opus läuft NICHT (kein Mehrwert)")
+print("\nSZENARIO 2: kein ERKANNTER Schnitt → Opus läuft TROTZDEM (Fallback aufs")
+print("            Haupt-Grundriss-Blatt; Opus liest den Schnitt selbst aus dem Bild)")
 _calls["n"] = 0
 res2 = _run(ROOMS, {"E": LOG_POLIER, "P": LOG_POLIER})
-check("Opus NICHT aufgerufen", _calls["n"] == 0, f"got {_calls['n']}")
-check("opus_status = aus", res2.get("opus_status") == "aus", f"got {res2.get('opus_status')}")
+check("Opus 1× aufgerufen (Fallback-Plan)", _calls["n"] == 1, f"got {_calls['n']}")
+check("opus_status = ok", res2.get("opus_status") == "ok", f"got {res2.get('opus_status')}")
 
 print("\nSZENARIO 3: Pro-Plan-Urteil schon da (OPUS_PER_PLAN) → kein zweiter Call")
 _calls["n"] = 0

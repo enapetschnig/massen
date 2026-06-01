@@ -3373,6 +3373,8 @@ async def projekt_massen(body: ProjektMassenRequest):
     opus_versuche = 0     # wie oft der Opus-Pass lief (über alle Pläne)
     opus_fehler = 0       # davon mit Crash/Timeout (ehrliches Fehler-Signal)
     best_schnitt_plan = None  # Plan-Datensatz mit dem besten Schnitt (für Projekt-Opus)
+    best_content_plan = None  # Plan mit den meisten Räumen (Haupt-Grundriss-Blatt)
+    best_content_n = -1
     # PASS-4-Daten + Außenkontur-Vision aus allen Plänen sammeln
     # (für gemessene Geometrie statt sqrt-Schätzung)
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
@@ -3387,6 +3389,13 @@ async def projekt_massen(body: ProjektMassenRequest):
             if k > best_konf:
                 best_konf = k
                 best_baudaten = bd
+        # Haupt-Grundriss-Blatt = das mit den meisten Räumen (Fallback für Opus,
+        # falls der separate Schnitt-Pass nicht anschlägt — Opus liest den Schnitt
+        # ohnehin selbst aus dem Bild; er darf nicht an best_schnitt_plan hängen).
+        _nr = len((log.get("geo") or {}).get("raeume") or [])
+        if p.get("storage_path") and _nr > best_content_n:
+            best_content_n = _nr
+            best_content_plan = p
         # Bauteil-Legende (byte-exakt) — beste über alle Pläne
         leg = log.get("legende") or {}
         if leg.get("wand_typen") and (best_legende is None or
@@ -3509,14 +3518,18 @@ async def projekt_massen(body: ProjektMassenRequest):
     _opus_review_pdf = None       # für die Schlussprüfung (#3) wiederverwenden
     _opus_review_api_key = None
     _opus_review_fakten = None
-    if os.environ.get("OPUS_PASS", "1") != "0" and best_opus is None and best_schnitt_plan:
+    # Bestes Blatt für Opus: das mit dem erkannten Schnitt, sonst das Haupt-Grundriss-
+    # Blatt (meiste Räume). Opus liest den Schnitt selbst aus dem Bild → es darf NICHT
+    # daran scheitern, dass der separate Schnitt-Pass leer blieb.
+    _opus_plan = best_schnitt_plan or best_content_plan
+    if os.environ.get("OPUS_PASS", "1") != "0" and best_opus is None and _opus_plan:
         try:
             _cfg = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data
             _api_key = (_cfg[0]["value"] if _cfg else os.environ.get("ANTHROPIC_API_KEY", "")).strip()
-            _sp = best_schnitt_plan.get("storage_path")
+            _sp = _opus_plan.get("storage_path")
             if _api_key and _sp:
                 _pdf = sb.storage.from_("plaene").download(_sp)
-                _mk = (best_schnitt_plan.get("agent_log") or {}).get("massketten_bbox")
+                _mk = (_opus_plan.get("agent_log") or {}).get("massketten_bbox")
                 _fakten = _opus_fakten(merged_rooms, best_legende, _mk,
                                        len(alle_fenster), len(alle_tueren))
                 _opus_review_pdf, _opus_review_api_key, _opus_review_fakten = _pdf, _api_key, _fakten
@@ -3528,7 +3541,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                     if float(_urteil.get("gesamtkonfidenz") or 0) < 0.45:
                         _urteil = dict(_urteil, unsicherheit_flag=True)
                     best_opus = _urteil
-                    opus_projekt_plan = best_schnitt_plan.get("dateiname")
+                    opus_projekt_plan = _opus_plan.get("dateiname")
         except Exception as _exc:
             print(f"[opus-projekt] failed: {_exc!r}")
             opus_versuche += 1
