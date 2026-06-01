@@ -2700,8 +2700,13 @@ async def projekt_massen(body: ProjektMassenRequest):
     tueren_rows = tueren_res.data or []
 
     # 4) Räume mergen — name-basiert (Einfamilienhaus) bzw. name+wohnung (Mehrwohnungs-Bau).
+    def _deumlaut(s):
+        # Umlaute/ß vereinheitlichen, damit "Küche" (Einreichplan) und "Kueche"
+        # (Polierplan) als DERSELBE Raum mergen statt doppelt gezählt zu werden.
+        return ((s or "").lower().replace("ä", "ae").replace("ö", "oe")
+                .replace("ü", "ue").replace("ß", "ss"))
     def _nk(s):
-        return re.sub(r"[\s\-_/]+", "", (s or "").lower())
+        return re.sub(r"[\s\-_/]+", "", _deumlaut(s))
 
     # EFH-Erkennung: wenn das Projekt nur 1-2 einzigartige "Wohnungen" hat
     # (z.B. "Haus" + "TOP 25" wegen Vision-Halluzination eines TOP-Labels),
@@ -2715,7 +2720,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     is_efh = len(wohnungen_im_projekt) <= 2
 
     def _tokens(s):
-        return [t for t in re.findall(r"[a-zäöüß0-9]+", (s or "").lower()) if t]
+        return [t for t in re.findall(r"[a-z0-9]+", _deumlaut(s)) if t]
     def _trailing_int(s):
         m = re.search(r"(\d+)\s*$", (s or "").strip())
         return m.group(1) if m else None
