@@ -167,9 +167,10 @@ KEIN Beleg sichtbar → Wert null + konfidenz < 0.4. NIEMALS raten.
 1) ÜBERDACHTE BEREICHE (Parkplatz/Carport/Garage/Terrasse/Loggia/Eingang):
    - geschlossen_typ: "gemauert" (Wände rundum bis Dach, HLZ/Ziegel im Schnitt),
      "ständer" (nur Stützen/Säulen, offen), oder "offen" (nur Platte/Dach).
-     WICHTIG: ein im Grundriss als "Parkplatz/Carport überdacht" beschrifteter
-     Bereich ist eine GESCHLOSSENE GARAGE, wenn der SCHNITT rundum gemauerte
-     Wände bis zum Dach + ein Tor zeigt. Das erkennt man NUR im Schnitt.
+     REGEL: "Carport/Parkplatz/Terrasse überdacht" ist im Normalfall OFFEN
+     (Dach auf Stützen → "ständer", zähle die Stützen in saeulen_anzahl). Nur als
+     "gemauert" einstufen, wenn der SCHNITT eindeutig rundum gemauerte Wände bis
+     zum Dach + ein Tor zeigt (= echte Garage). Im Zweifel "ständer"/"offen".
    - auf_slab: steht der Bereich auf DERSELBEN durchgehenden Bodenplatte wie der
      Hauptbau (kein eigenes Fundament, unter dem Hauptdach, an ≥1 Hauswand)?
    - mauerwerk_umfang_zusatz_m: zusätzliche GEMAUERTE Außenwand-Länge dieses
@@ -192,9 +193,12 @@ KEIN Beleg sichtbar → Wert null + konfidenz < 0.4. NIEMALS raten.
 Antworte NUR mit JSON, kein Markdown:
 {
   "ueberdachte_bereiche": [
-    {"name": "Parkplatz überdacht", "geschlossen_typ": "gemauert", "auf_slab": true,
+    {"name": "Garage", "geschlossen_typ": "gemauert", "auf_slab": true,
      "mauerwerk_umfang_zusatz_m": 12.0, "fundament_umfang_zusatz_m": 8.0,
-     "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände bis Dach + Tor"}
+     "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände bis Dach + Tor"},
+    {"name": "Parkplatz überdacht", "geschlossen_typ": "ständer", "auf_slab": true,
+     "mauerwerk_umfang_zusatz_m": 0.0, "fundament_umfang_zusatz_m": 8.0,
+     "konfidenz": 0.8, "evidenz": "Schnitt: nur Stützen, kein Mauerwerk"}
   ],
   "hoehe": {"rohbau_m": 2.95, "licht_m": 2.70, "konfidenz": 0.8, "evidenz": "Schnitt A-A"},
   "dach": {"dach_typ": "flach", "attika_hoehe_m": 0.4, "konfidenz": 0.8, "evidenz": "Attika XPS im Schnitt"},

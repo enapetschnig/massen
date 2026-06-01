@@ -65,9 +65,14 @@ def _fake_opus(pdf_bytes, fakten, api_key):
     _calls["fakten"] = fakten
     return {
         "ueberdachte_bereiche": [
-            {"name": "Parkplatz überdacht", "geschlossen_typ": "gemauert", "auf_slab": True,
+            {"name": "Garage", "geschlossen_typ": "gemauert", "auf_slab": True,
              "mauerwerk_umfang_zusatz_m": 12.0, "fundament_umfang_zusatz_m": 12.0,
-             "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände + Tor"}],
+             "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände + Tor"},
+            # Opus liest den offenen Carport fälschlich als gemauert — der
+            # deterministische Namens-Guard muss ihn aus dem Mauerwerk halten:
+            {"name": "Parkplatz überdacht", "geschlossen_typ": "gemauert", "auf_slab": True,
+             "mauerwerk_umfang_zusatz_m": 14.0, "fundament_umfang_zusatz_m": 8.0,
+             "konfidenz": 0.85, "evidenz": "im Grundriss als überdacht beschriftet"}],
         "hoehe": {"rohbau_m": 2.95, "konfidenz": 0.8}, "dach": {"dach_typ": "flach", "konfidenz": 0.8},
         "saeulen_anzahl": 0, "gesamtkonfidenz": 0.82,
     }
@@ -86,7 +91,9 @@ check("opus_status = ok", res.get("opus_status") == "ok", f"got {res.get('opus_s
 check("opus_quelle_plan = Einreichplan (bester Schnitt)", res.get("opus_quelle_plan") == "E", f"got {res.get('opus_quelle_plan')}")
 check("Opus-Urteil in Response", bool(res.get("opus_bauingenieur")), f"got {res.get('opus_bauingenieur')}")
 gq = (res.get("gemessen") or {}).get("geometrie_qualitaet") or {}
-check("Garage in die Mauerwerks-Hülle übernommen", "Parkplatz überdacht" in (gq.get("opus_garage") or []), f"got {gq.get('opus_garage')}")
+check("echte Garage in die Mauerwerks-Hülle übernommen", "Garage" in (gq.get("opus_garage") or []), f"got {gq.get('opus_garage')}")
+check("offener 'Parkplatz überdacht' NICHT als Mauerwerk (Namens-Guard)",
+      "Parkplatz überdacht" not in (gq.get("opus_garage") or []), f"got {gq.get('opus_garage')}")
 check("Opus-Fakten gegroundet an Maßketten-Hülle",
       (_calls["fakten"] or {}).get("text_layer_massketten_huelle", {}).get("umfang_m") == 46.46,
       f"got {(_calls['fakten'] or {}).get('text_layer_massketten_huelle')}")

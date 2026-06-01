@@ -54,18 +54,33 @@ check("alternierend: HLZ-Verteilung lernt 38cm-Bucket",
       (kal.hlz_verteilung_aus_soll(pa) or {}).get("wand_anteil_38cm", 0) > 0,
       f"got {kal.hlz_verteilung_aus_soll(pa)}")
 
-print("\n2) Belege aus Ist↔Soll-Vergleich (ratio = soll/ist):")
-ist = {"Bodenplatte": [{"material": "Beton C25/30", "menge": 40.0}],
-       "Frostschürze": [{"material": "XPS-SF G30", "menge": 50.0}],
-       "Mauerwerk EG": [{"material": "HLZ 50 Außenwand", "menge": 120.0}]}
-soll = [{"bezeichnung": "Bodenplatte Beton", "menge": 44.0},   # 44/40 = 1.10
-        {"bezeichnung": "Frostschürze XPS", "menge": 60.0},     # 60/50 = 1.20
-        {"bezeichnung": "Außenwand HLZ 50", "menge": 132.0}]     # 132/120 = 1.10
+print("\n2) Belege aus Ist↔Soll-Vergleich (ABSCHNITTS-EINDEUTIG + Einheiten-Familie):")
+# Match nur auf abschnitts-eindeutige Materialien (XPS-120=Bodenplatte, Schaltafel=
+# Decke, Noppenfolie=Frostschürze, HLZ-50=Mauerwerk), gleiche Einheit auf beiden Seiten.
+ist = {"Bodenplatte": [{"material": "XPS-SF G30 120mm", "menge": 100.0, "einheit": "m²"}],
+       "Frostschürze": [{"material": "Noppenfolie 1m", "menge": 50.0, "einheit": "lfm"}],
+       "Mauerwerk EG": [{"material": "HLZ 50cm Plan", "menge": 100.0, "einheit": "Paletten"}],
+       "Decke über EG": [{"material": "Schaltafel 200/50", "menge": 200.0, "einheit": "m²"}]}
+soll = [{"bezeichnung": "XPS-SF G30 120mm", "menge": 110.0, "einheit": "m²"},     # 110/100 = 1.10
+        {"bezeichnung": "Noppenfolie 1m", "menge": 60.0, "einheit": "lfm"},        # 60/50 = 1.20
+        {"bezeichnung": "HLZ 50cm H.I. Plan", "menge": 110.0, "einheit": "Paletten"}, # 110/100 = 1.10
+        {"bezeichnung": "Schaltafel 200/50", "menge": 230.0, "einheit": "m²"},     # 230/200 = 1.15
+        # ABSCHNITTS-RAUSCHEN: EKV-5 steht in mehreren Abschnitten — darf NICHT
+        # in bodenplatte_aufschlag einfließen (früher 608 statt 125):
+        {"bezeichnung": "EKV-5", "menge": 136.0, "einheit": "m²"},
+        {"bezeichnung": "EKV-5 Dachabdichtung", "menge": 340.0, "einheit": "m²"}]
 belege = kal.belege_aus_vergleich(ist, soll)
 bm = {b["faktor"]: b["ratio"] for b in belege}
-check("Bodenplatte ratio 1.10", abs(bm.get("bodenplatte_aufschlag", 0) - 1.10) < 0.01, f"got {bm}")
-check("Frostschürze ratio 1.20", abs(bm.get("frostgraben_aufschlag", 0) - 1.20) < 0.01, f"got {bm}")
-check("Außenumfang ratio 1.10", abs(bm.get("aussenumfang_aufschlag", 0) - 1.10) < 0.01, f"got {bm}")
+check("Bodenplatte ratio 1.10 (XPS-120, kein EKV-Quersummen)", abs(bm.get("bodenplatte_aufschlag", 0) - 1.10) < 0.01, f"got {bm}")
+check("Frostschürze ratio 1.20 (Noppenfolie)", abs(bm.get("frostgraben_aufschlag", 0) - 1.20) < 0.01, f"got {bm}")
+check("Außenumfang ratio 1.10 (HLZ-50 Paletten)", abs(bm.get("aussenumfang_aufschlag", 0) - 1.10) < 0.01, f"got {bm}")
+check("Decke ratio 1.15 (Schaltafel)", abs(bm.get("decke_aufschlag", 0) - 1.15) < 0.01, f"got {bm}")
+# Einheiten-Guard: HLZ-50 als m² (statt Paletten) → falsche Familie → KEIN Beleg
+ist_falsch = {"Mauerwerk EG": [{"material": "HLZ 50cm Plan", "menge": 100.0, "einheit": "m²"}]}
+soll_falsch = [{"bezeichnung": "HLZ 50cm Plan", "menge": 110.0, "einheit": "m²"}]
+check("Einheiten-Guard: HLZ-50 in m² (statt Paletten) → kein Beleg",
+      not any(b["faktor"] == "aussenumfang_aufschlag" for b in kal.belege_aus_vergleich(ist_falsch, soll_falsch)),
+      f"got {kal.belege_aus_vergleich(ist_falsch, soll_falsch)}")
 
 print("\n3) GUARD: nie aus EINER Liste lernen (min_belege=2):")
 eine = {"frostgraben_aufschlag": [1.20]}
@@ -87,8 +102,8 @@ check("Median statt Mittel → Ausreißer ohne Wirkung",
 
 print("\n5) GUARD: Klemmung — eine absurde Liste kann nicht entgleisen:")
 # ratio wird schon beim Beleg auf [0.6,1.6] geklemmt
-ist2 = {"Bodenplatte": [{"material": "Beton", "menge": 10.0}]}
-soll2 = [{"bezeichnung": "Bodenplatte Beton", "menge": 1000.0}]  # ratio 100 → geklemmt 1.6
+ist2 = {"Bodenplatte": [{"material": "XPS-SF G30 120mm", "menge": 10.0, "einheit": "m²"}]}
+soll2 = [{"bezeichnung": "XPS-SF G30 120mm", "menge": 1000.0, "einheit": "m²"}]  # ratio 100 → geklemmt 1.6
 b2 = kal.belege_aus_vergleich(ist2, soll2)
 check("absurde ratio auf 1.6 geklemmt", b2 and b2[0]["ratio"] == 1.6, f"got {b2}")
 g3 = kal.lerne_faktoren({"bodenplatte_aufschlag": [1.6, 1.6]})

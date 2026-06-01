@@ -428,6 +428,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     rolladen_125 = sum(1 for b in fenster_breiten if 1.0 <= b <= 1.4)
     rolladen_180 = sum(1 for b in fenster_breiten if 1.4 < b <= 2.0)
     rolladen_215 = sum(1 for b in fenster_breiten if 2.0 < b <= 2.4)
+    rolladen_245 = sum(1 for b in fenster_breiten if b > 2.4)   # breite Schiebe-Elemente
 
     if rolladen_125:
         out.append(MaterialPos(
@@ -441,6 +442,10 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         out.append(MaterialPos(
             "Öffnungen", "Rolladenkasten (Lavatherm) 214cm", "Stk",
             rolladen_215, f"{rolladen_215} Fenster mit 2.0–2.4m Breite", konfidenz=0.7))
+    if rolladen_245:
+        out.append(MaterialPos(
+            "Öffnungen", "Rolladenkasten (Lavatherm) 244cm", "Stk",
+            rolladen_245, f"{rolladen_245} Fenster/Schiebe-Element >2.4m Breite", konfidenz=0.6))
 
     # Ziegelüberlagen aus den ERKANNTEN Türen (statt Pauschal).
     # Ziegelüberlage-Standard-Längen: 125cm (für Türöffnungen bis ~100cm),

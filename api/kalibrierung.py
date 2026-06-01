@@ -26,24 +26,42 @@ MIN_BELEGE = 2                          # nie aus einer einzigen Liste lernen
 
 # Welche Material-Position kalibriert welchen PARAMETER. Bewusst klein gehalten
 # (high-signal, klar 1:1-zuordenbar) — lieber wenige robuste Faktoren als viele
-# wackelige. Matcher = Schlüsselwörter (lowercase) in Bauteil bzw. Material.
+# wackelige.
+#
+# KRITISCH für echte Polier-Listen: das Matching-Material muss ABSCHNITTS-EINDEUTIG
+# sein. Z.B. "EKV-5" kommt in der Polier-Liste in VIER Abschnitten vor (Frostschürze/
+# Bodenplatte/Mauerwerk/Decke) — ein Match darauf summiert quer über alle Abschnitte
+# (608 statt 125) und mischt Einheiten. Darum matchen wir auf Materialien, die NUR in
+# EINEM Abschnitt stehen (Noppenfolie=Frostschürze, XPS-120=Bodenplatte, HLZ-50=
+# Mauerwerk, Schaltafel=Decke) und prüfen zusätzlich die Einheiten-FAMILIE (Fläche/
+# Volumen/Länge/Stück), damit nie m² gegen Paletten verglichen wird. So ergeben sich
+# saubere, sinnvolle ratios statt geklemmtem Müll.
 FAKTOR_REGELN = [
-    {"faktor": "bodenplatte_aufschlag", "default": 1.15,
-     "ist": {"bauteil": "bodenplatte", "material": ("ekv", "beton", "c25")},
-     "soll": ("bodenplatte", "fundamentplatte", "ekv")},
-    {"faktor": "decke_aufschlag", "default": 1.10,
-     "ist": {"bauteil": "decke", "material": ("beton", "c25", "schaltafel")},
-     "soll": ("decke", "geschossdecke")},
-    {"faktor": "frostgraben_aufschlag", "default": 1.15,
-     "ist": {"bauteil": "frostschürze", "material": ("xps", "beton", "steckeisen")},
-     "soll": ("frostschürze", "frostschuerze", "sockel")},
-    {"faktor": "aussenumfang_aufschlag", "default": 1.55,
-     "ist": {"bauteil": "mauerwerk", "material": ("hlz 50", "hlz50", "aussenwand", "außenwand")},
-     "soll": ("hlz 50", "hlz50", "außenwand", "aussenwand", "mauerwerk")},
-    {"faktor": "ekv_decke_aufschlag", "default": 1.35,
-     "ist": {"bauteil": "decke", "material": ("ekv", "abdichtung", "bitumen")},
-     "soll": ("dachabdichtung", "ekv-dach", "abdichtung")},
+    {"faktor": "bodenplatte_aufschlag", "default": 1.15, "familie": "flaeche",
+     "ist": {"bauteil": "bodenplatte", "material": ("xps-sf g30 120", "g30 120", "120mm")},
+     "soll": ("xps-sf g30 120", "g30 120", "120mm")},
+    {"faktor": "decke_aufschlag", "default": 1.10, "familie": "flaeche",
+     "ist": {"bauteil": "decke", "material": ("schaltafel",)},
+     "soll": ("schaltafel",)},
+    {"faktor": "frostgraben_aufschlag", "default": 1.15, "familie": "laenge",
+     "ist": {"bauteil": "frostschürze", "material": ("noppenfolie",)},
+     "soll": ("noppenfolie",)},
+    {"faktor": "aussenumfang_aufschlag", "default": 1.55, "familie": "stk",
+     "ist": {"bauteil": "mauerwerk", "material": ("hlz 50", "hlz50")},
+     "soll": ("hlz 50", "hlz50")},
 ]
+
+
+def _einheit_familie(e):
+    """Einheiten-Familie für den Belege-Vergleich. Verhindert m²-vs-Paletten-Unfug."""
+    e = (e or "").lower().strip().rstrip(".")
+    if e in ("m²", "m2"):
+        return "flaeche"
+    if e in ("m³", "m3"):
+        return "volumen"
+    if e in ("lfm", "m", "laufmeter"):
+        return "laenge"
+    return "stk"   # stk, dtk, paletten, rollen, bund, kanister, sack, paket, …
 
 
 # MENGEN-Einheiten (stark) — eine Zeile/Spalte mit GENAU diesen Einheiten ist eine
@@ -154,9 +172,11 @@ def parse_soll_liste(text):
 
 
 def _summe_ist(ist_bauteile, regel):
-    """Σ Menge aller Ist-Positionen, die zu dieser Regel passen."""
+    """Σ Menge aller Ist-Positionen, die zu dieser Regel passen (Bauteil + Material
+    + passende Einheiten-Familie)."""
     bt_key = regel["ist"]["bauteil"]
     mat_keys = regel["ist"]["material"]
+    fam = regel.get("familie")
     total = 0.0
     found = False
     for bauteil, positionen in (ist_bauteile or {}).items():
@@ -164,6 +184,8 @@ def _summe_ist(ist_bauteile, regel):
             continue
         for p in positionen:
             mat = (p.get("material") or "").lower()
+            if fam and _einheit_familie(p.get("einheit")) != fam:
+                continue
             if any(k in mat for k in mat_keys):
                 m = _to_float(p.get("menge"))
                 if m and m > 0:
@@ -173,12 +195,16 @@ def _summe_ist(ist_bauteile, regel):
 
 
 def _summe_soll(soll_positions, regel):
-    """Σ Menge aller Soll-Positionen, deren Bezeichnung zur Regel passt."""
+    """Σ Menge aller Soll-Positionen, deren Bezeichnung zur Regel passt (Material +
+    passende Einheiten-Familie)."""
     keys = regel["soll"]
+    fam = regel.get("familie")
     total = 0.0
     found = False
     for p in (soll_positions or []):
         bez = (p.get("bezeichnung") or "").lower()
+        if fam and _einheit_familie(p.get("einheit")) != fam:
+            continue
         if any(k in bez for k in keys):
             m = _to_float(p.get("menge"))
             if m and m > 0:

@@ -16,6 +16,23 @@ KONF_MIN = 0.6   # Feld-Gate: unter dieser Konfidenz wird ein Opus-Wert verworfe
 # Urteile die Mauerwerks-Hülle erweitern. Sonst springt der Umfang lauf-zu-lauf.
 GARAGE_KONF_MIN = 0.75
 
+# Inhärent OFFENE Überdachungen: Dach auf Stützen, KEINE rundum-Wände — egal was
+# Opus zum geschlossen_typ rät. Ein „Carport/Parkplatz/Terrasse überdacht" ist per
+# Definition offen; nur eine echte GARAGE (oder ein gemauerter Abstell-/Geräteraum)
+# bekommt Wände. Dieser deterministische Namens-Guard stoppt das Lauf-zu-Lauf-
+# Springen (mal +Wand, mal nicht) und den daraus folgenden Außenwand-Overcount.
+_OFFEN_NAMEN = ("carport", "car-port", "car port", "parkplatz", "terrasse",
+                "pergola", "vordach", "überdach", "ueberdach", "loggia",
+                "balkon", "freisitz", "eingangsüberdach", "eingangsueberdach")
+
+
+def _name_ist_offen(name):
+    """True, wenn der Bereichsname eine inhärent OFFENE Überdachung bezeichnet
+    (Carport/Parkplatz/Terrasse/…) → bekommt nie Mauerwerk, auch wenn Opus es
+    als 'gemauert' liest. 'Garage'/'Abstellraum'/… matchen hier NICHT."""
+    n = (name or "").lower()
+    return any(k in n for k in _OFFEN_NAMEN)
+
 
 def _f(v, default=0.0):
     try:
@@ -40,6 +57,8 @@ def mauerwerk_zusatz(best_opus, aussenumfang_m):
         return 0.0, []
     zusatz, namen = 0.0, []
     for b in (best_opus.get("ueberdachte_bereiche") or []):
+        if _name_ist_offen(b.get("name")):   # Carport/Parkplatz/Terrasse = offen → nie Wand
+            continue
         if b.get("geschlossen_typ") != "gemauert":
             continue
         if _f(b.get("konfidenz")) < GARAGE_KONF_MIN:   # höhere Schwelle = stabiler

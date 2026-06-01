@@ -17,11 +17,12 @@ def check(name, cond, detail=""):
     if not cond:
         fails.append(name)
 
-# Realistischer Fall Angerer: "Parkplatz überdacht" ist im Schnitt eine
-# geschlossene GEMAUERTE Garage auf der durchgehenden Bodenplatte.
+# Realistischer Fall Angerer: eine echte GEMAUERTE Garage zählt zur Hülle, der
+# OFFENE überdachte Parkplatz (Dach auf Stützen) NICHT — auch wenn Opus ihn
+# fälschlich als "gemauert" liest (deterministischer Namens-Guard).
 OPUS_GARAGE = {
     "ueberdachte_bereiche": [
-        {"name": "Parkplatz überdacht", "geschlossen_typ": "gemauert", "auf_slab": True,
+        {"name": "Garage", "geschlossen_typ": "gemauert", "auf_slab": True,
          "mauerwerk_umfang_zusatz_m": 14.0, "fundament_umfang_zusatz_m": 14.0,
          "konfidenz": 0.85, "evidenz": "Schnitt: HLZ-Wände bis Dach + Tor"},
         {"name": "Terrasse", "geschlossen_typ": "offen", "auf_slab": True,
@@ -38,10 +39,20 @@ HUELLE = 46.46   # byte-exakte Maßketten-Hülle Angerer
 print("1) Geschlossene gemauerte Garage → Mauerwerks-Hülle (Linie A):")
 mw, namen = ok.mauerwerk_zusatz(OPUS_GARAGE, HUELLE)
 check("nur die GEMAUERTE Garage zählt (14m), Terrasse nicht", mw == 14.0, f"got {mw}")
-check("Garagen-Name geliefert", namen == ["Parkplatz überdacht"], f"got {namen}")
+check("Garagen-Name geliefert", namen == ["Garage"], f"got {namen}")
+# DETERMINISTISCHER NAMENS-GUARD: ein "Parkplatz/Carport/Terrasse überdacht" ist
+# inhärent OFFEN (Dach auf Stützen) → bekommt NIE Mauerwerk, selbst wenn Opus
+# ihn als "gemauert" mit hoher Konfidenz liest. Das stoppt das Lauf-zu-Lauf-
+# Springen + den Außenwand-Overcount (echtes Angerer-Problem).
+_offener_pp = {"ueberdachte_bereiche": [{"name": "Parkplatz überdacht",
+               "geschlossen_typ": "gemauert", "auf_slab": True,
+               "mauerwerk_umfang_zusatz_m": 14.0, "konfidenz": 0.9}],
+               "gesamtkonfidenz": 0.9}
+check("'Parkplatz überdacht' gemauert (Konf 0.9) → TROTZDEM kein Mauerwerk (offen)",
+      ok.mauerwerk_zusatz(_offener_pp, HUELLE) == (0.0, []), f"got {ok.mauerwerk_zusatz(_offener_pp, HUELLE)}")
 # STABILITÄT: eine nur mittel-sichere Garage (0.65 < 0.75) erweitert die Hülle NICHT
 # (offen-vs-gemauert schwankt; nur sehr sichere Urteile zählen).
-_wackel = {"ueberdachte_bereiche": [{"name": "Parkplatz", "geschlossen_typ": "gemauert",
+_wackel = {"ueberdachte_bereiche": [{"name": "Garage", "geschlossen_typ": "gemauert",
            "auf_slab": True, "mauerwerk_umfang_zusatz_m": 14.0, "konfidenz": 0.65}],
            "gesamtkonfidenz": 0.7}
 check("wackelige Garage (Konf 0.65) → KEIN Mauerwerk-Zusatz (stabil)",
@@ -49,7 +60,8 @@ check("wackelige Garage (Konf 0.65) → KEIN Mauerwerk-Zusatz (stabil)",
 
 print("2) Bereiche auf durchgehender Platte → Slab-Kante (Linie B):")
 slab = ok.slab_zusatz(OPUS_GARAGE, HUELLE)
-# Garage 14 + Terrasse 6 = 20 → 46,46 + 20 = 66,46 (beide auf_slab)
+# Garage 14 + Terrasse 6 = 20 → 46,46 + 20 = 66,46 (beide auf_slab; Slab folgt
+# auf_slab, NICHT dem Namens-Guard — die Platte läuft auch unter den Carport).
 check("Slab = Hülle + Σ Platten-Zusatz (Garage+Terrasse)", slab == round(HUELLE + 20.0, 2), f"got {slab}")
 
 print("3) Höhe/Dach/Säulen nur konf-gegated (≥0.6):")
