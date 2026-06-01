@@ -4357,7 +4357,7 @@ async def admin_firmen(body: AdminRequest):
     """Alle Kunden-Accounts + Nutzungszahlen (Projekte, Soll-Listen)."""
     if not sb or not _admin_ok(body.admin_token):
         raise HTTPException(403, "Kein Admin-Zugriff")
-    firmen = sb.table("firmen").select("id, name, email, gesperrt, created_at").execute().data or []
+    firmen = sb.table("firmen").select("id, name, email, gesperrt, erstellt_am").execute().data or []
     for f_ in firmen:
         f_["projekte"] = len(sb.table("projekte").select("id").eq("firma_id", f_["id"]).execute().data or [])
         f_["soll_listen"] = len(sb.table("soll_listen").select("id").eq("firma_id", f_["id"]).execute().data or [])
