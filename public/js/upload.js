@@ -272,9 +272,9 @@
   }
   // Konfidenz (0..1) → ehrliche Vertrauens-Stufe
   function konfTier(konf) {
-    if (konf >= 0.7) return { cls: 'hoch', title: 'Byte-exakt aus Plan + Bauteil-Legende oder gemessener Geometrie' };
-    if (konf >= 0.5) return { cls: 'mittel', title: 'Gemessene Geometrie + bauphysikalische Standard-Annahme' };
-    return { cls: 'niedrig', title: 'Faustformel / Pauschale — am Bau gegenprüfen' };
+    if (konf >= 0.7) return { cls: 'hoch', title: 'Direkt aus dem Plan gelesen — verlässlich' };
+    if (konf >= 0.5) return { cls: 'mittel', title: 'Aus Plan-Maßen + üblicher Annahme' };
+    return { cls: 'niedrig', title: 'Schätzung — am Bau gegenprüfen' };
   }
 
   // FACT-STRIP: zeigt knapp, was die App byte-exakt aus dem Plan gelesen hat
@@ -299,20 +299,11 @@
       facts.push('<div class="fact"><span class="fact-ico">' + icon + '</span><span class="fact-k">' + label +
         '</span><span class="fact-v">' + bd[key] + unit + '</span>' + srcTag(key) + '</div>');
     }
+    // Nur die WANDSTÄRKEN + Öffnungen hier — die Geometrie (Umfang/Fläche/Höhe)
+    // steht schon im Geometrie-Kasten darüber, damit es nicht doppelt + überladen wirkt.
     bdFact('🧱', 'Außenwand', 'aussenwand_cm', ' cm');
     bdFact('▦', 'Decke', 'decke_cm', ' cm');
     bdFact('🟫', 'Bodenplatte', 'bodenplatte_cm', ' cm');
-    bdFact('📏', 'Geschoss-H', 'geschosshoehe_m', ' m');
-    if (g.aussenumfang_m) facts.push('<div class="fact" title="Gemauerte Hülle — Basis für das Mauerwerk"><span class="fact-ico">📐</span><span class="fact-k">Außenumfang</span><span class="fact-v">' +
-      fmtNum(g.aussenumfang_m) + ' m</span><span class="fact-src measured">gemessen</span></div>');
-    if (g.fundament_umfang_m && g.fundament_umfang_m > (g.aussenumfang_m || 0) + 0.05) {
-      var eins = (g.fundament_einschluss || []).join(', ');
-      facts.push('<div class="fact" title="Bodenplatten-Außenkante für Frostschürze/Randabschluss' +
-        (eins ? ' — inkl. ' + esc(eins) : '') + '"><span class="fact-ico">🔲</span><span class="fact-k">Fundamentkante</span><span class="fact-v">' +
-        fmtNum(g.fundament_umfang_m) + ' m</span><span class="fact-src measured">gemessen</span></div>');
-    }
-    if (g.bodenplatte_flaeche_m2) facts.push('<div class="fact"><span class="fact-ico">⬛</span><span class="fact-k">Grundfläche</span><span class="fact-v">' +
-      fmtNum(g.bodenplatte_flaeche_m2) + ' m²</span><span class="fact-src measured">gemessen</span></div>');
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen || tur) facts.push('<div class="fact"><span class="fact-ico">🪟</span><span class="fact-k">Öffnungen</span><span class="fact-v">' +
       fen + ' F · ' + tur + ' T</span><span class="fact-src read">aus Text</span></div>');
@@ -345,40 +336,40 @@
     var opusGarage = (gq.opus_garage || []).filter(Boolean);
     if (g.aussenumfang_m) {
       var cls, mark, note;
-      if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'gemauerte Hülle — Kettenbemaßung bestätigt (Σ = Gesamtmaß)'; }
-      else if (gq.umfang_verdacht_niedrig) { cls = 'warn'; mark = '⚠'; note = 'wirkt zu niedrig für die Grundfläche — am Plan prüfen / Umfang setzen'; }
-      else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'Quellen uneinig — am Plan prüfen'; }
-      else { cls = 'ok'; mark = '✓'; note = 'gemauerte Hülle (für Mauerwerk)'; }
+      if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'aus den Maßen im Plan bestätigt'; }
+      else if (gq.umfang_verdacht_niedrig) { cls = 'warn'; mark = '⚠'; note = 'wirkt zu klein für die Fläche — am Plan prüfen oder unten eintragen'; }
+      else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'unsicher — am Plan prüfen'; }
+      else { cls = 'ok'; mark = '✓'; note = 'Umfang der Außenwände'; }
       if (opusGarage.length && gq.opus_mauerwerk_zusatz_m) {
-        note += ' · inkl. ' + esc(opusGarage.join(', ')) + ' als gemauert erkannt (+' +
-          fmtNum(gq.opus_mauerwerk_zusatz_m) + ' m, Schnitt)';
+        note += ' · inkl. ' + esc(opusGarage.join(', ')) + ' (im Schnitt gemauert, +' +
+          fmtNum(gq.opus_mauerwerk_zusatz_m) + ' m)';
       }
-      t.push(tile('📐', 'Außenumfang', fmtNum(g.aussenumfang_m) + ' m', cls, mark, note));
+      t.push(tile('📐', 'Außenwand-Umfang', fmtNum(g.aussenumfang_m) + ' m', cls, mark, note));
     }
     if (g.bodenplatte_flaeche_m2) t.push(tile('⬛', 'Grundfläche', fmtNum(g.bodenplatte_flaeche_m2) + ' m²',
-      'ok2', '✓✓', gq.flaeche_anker || 'byte-exakt aus Raumflächen'));
+      'ok2', '✓✓', 'aus den Raumflächen im Plan'));
     if (g.fundament_umfang_m) {
       if (gq.fundament_unsicher) {
-        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'warn', '⚠',
-          (gq.ueberdachte_flaechen || '') + ' überdachte Fläche(n) — Platte läuft mglw. weiter, im Polierplan prüfen / Umfang setzen'));
+        t.push(tile('🔲', 'Bodenplatten-Kante', fmtNum(g.fundament_umfang_m) + ' m', 'warn', '⚠',
+          'überdachte Bereiche am Haus (Terrasse/Carport) — die Platte läuft evtl. weiter. Am Polierplan prüfen oder Umfang eintragen.'));
       } else if (gq.opus_slab_aktiv) {
-        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'ok', '✓',
-          'Platte läuft unter Anbau weiter — vom Bauingenieur-Pass aus dem Schnitt belegt'));
+        t.push(tile('🔲', 'Bodenplatten-Kante', fmtNum(g.fundament_umfang_m) + ' m', 'ok', '✓',
+          'läuft unter den Anbau weiter (im Schnitt erkannt)'));
       } else if (gq.linie_b_erkannt) {
-        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'ok', '✓', 'inkl. angebauter überdachter Fläche'));
+        t.push(tile('🔲', 'Bodenplatten-Kante', fmtNum(g.fundament_umfang_m) + ' m', 'ok', '✓', 'inkl. angebautem überdachten Bereich'));
       } else {
-        t.push(tile('🔲', 'Fundamentkante', fmtNum(g.fundament_umfang_m) + ' m', 'grey', '=', '= Außenkante (kein Überstand)'));
+        t.push(tile('🔲', 'Bodenplatten-Kante', fmtNum(g.fundament_umfang_m) + ' m', 'grey', '=', 'gleich Außenkante (kein Überstand)'));
       }
     }
     if (bd.geschosshoehe_m) {
       var ghEntry = dc.filter(function (d) { return d.key === 'geschosshoehe_m'; })[0];
       var ghSrc;
       if (ghEntry && ghEntry.status === 'bestätigt') {
-        ghSrc = (ghEntry.quellen || []).map(function (q) { return esc(q.quelle); }).join(' + ') + ' — unabhängig bestätigt';
+        ghSrc = 'aus Plan + Schnitt bestätigt';
       } else if (ghEntry && ghEntry.status === 'verstaerkt') {
-        ghSrc = 'mehrfach gelesen (gleiche Methode) — nicht unabhängig bestätigt';
+        ghSrc = 'aus dem Plan gelesen';
       } else {
-        ghSrc = (bd._quellen || {}).geschosshoehe_m || 'aus Plan';
+        ghSrc = 'aus den Raumhöhen im Plan';
       }
       t.push(tile('📏', 'Geschoss-Höhe', fmtNum(bd.geschosshoehe_m) + ' m',
         ghOk ? 'ok2' : 'ok', ghOk ? '✓✓' : '✓', ghSrc));
@@ -416,21 +407,12 @@
     var verstaerkt = dc.filter(function (d) { return d.status === 'verstaerkt'; });
     var widerspruch = dc.filter(function (d) { return d.status === 'widerspruch'; });
     if (bestaetigt.length) {
-      function methodLabel(t) { return t === 'text' ? 'Plan-Text (byte-exakt)' : 'Plan-Bild (Vision)'; }
-      var typeSet = {};
-      bestaetigt.forEach(function (d) { (d.quellen || []).forEach(function (q) { if (q.typ) typeSet[q.typ] = 1; }); });
-      var methods = Object.keys(typeSet).map(methodLabel);
-      var methodTxt = methods.length ? methods.join(' × ') : 'zwei Methoden';
       hints.push('<div class="status-ok">✓✓ <strong>' + bestaetigt.length +
-        ' Wert(e) unabhängig bestätigt</strong> (' + bestaetigt.map(function (d) { return esc(d.groesse); }).join(', ') +
-        ') — aus ' + esc(methodTxt) + ' gelesen (zwei unabhängige Methoden), sehr hohe Konfidenz.</div>');
+        ' Wert(e) doppelt bestätigt</strong> (' + bestaetigt.map(function (d) { return esc(d.groesse); }).join(', ') +
+        ') — aus dem Plan-Text und dem Plan-Bild übereinstimmend gelesen. Sehr verlässlich.</div>');
     }
-    if (verstaerkt.length) {
-      hints.push('<div class="status-info">ℹ ' + verstaerkt.length +
-        ' Wert(e) mehrfach gelesen (' + verstaerkt.map(function (d) { return esc(d.groesse); }).join(', ') +
-        '), aber mit derselben Methode (zwei Bild-Lesungen) — das ist Redundanz, keine unabhängige Bestätigung. ' +
-        'Für volle Sicherheit fehlt eine Text-/Plan-Quelle.</div>');
-    }
+    // (verstaerkt-Hinweis bewusst weggelassen — technische Feinheit, die der
+    //  Baubetrieb nicht braucht; hält die Auswertung fokussiert.)
     widerspruch.forEach(function (d) {
       var vals = (d.quellen || []).map(function (q) { return esc(q.quelle) + ' ' + q.wert + (d.einheit || ''); }).join(' vs ');
       hints.push('<div class="status-warn">⚠ <strong>' + esc(d.groesse) + ' unklar</strong>: ' + vals +
@@ -464,18 +446,16 @@
     var opusGar = (gq.opus_garage || []).filter(Boolean);
     if (opusGar.length && gq.opus_mauerwerk_zusatz_m) {
       hints.push('<div class="status-ok">🏗 <strong>' + esc(opusGar.join(', ')) +
-        ' als Mauerwerk erkannt</strong> — im Grundriss „überdacht", im Schnitt aber rundum gemauert. ' +
-        '+' + fmtNum(gq.opus_mauerwerk_zusatz_m) + ' m Außenwand in die Mauerwerks-Hülle übernommen ' +
-        '(Bauingenieur-Pass, gegen die Maßketten geprüft).</div>');
+        ' ist gemauert</strong> — im Grundriss nur „überdacht", aber im Schnitt rundum gemauert. ' +
+        '+' + fmtNum(gq.opus_mauerwerk_zusatz_m) + ' m Außenwand kommen dazu.</div>');
     }
     if (gq.opus_slab_aktiv) {
       hints.push('<div class="status-ok">✓ <strong>Bodenplatte läuft unter den Anbau weiter</strong> — ' +
-        'der Bauingenieur-Pass belegt die durchgehende Platte aus dem Schnitt; Fundamentkante entsprechend gesetzt.</div>');
+        'im Schnitt erkannt; die Bodenplatten-Kante ist entsprechend gesetzt.</div>');
     }
     if (data.opus_status === 'fehler') {
-      hints.push('<div class="status-info">ℹ <strong>Bauingenieur-Pass nicht verfügbar</strong> — die ganzheitliche ' +
-        'Schnitt-Lesung (Garage/Höhe/Dach) ist diesmal ausgefallen (API-Fehler). Die byte-exakten Werte und die ' +
-        'übrigen Lesungen sind davon unberührt; nur die Garage-/Anbau-Erkennung fehlt ggf.</div>');
+      hints.push('<div class="status-info">ℹ <strong>Schnitt-Auswertung diesmal nicht verfügbar</strong> — ' +
+        'die Garage-/Höhen-/Dach-Erkennung aus dem Schnitt ist ausgefallen. Die übrigen Werte sind davon nicht betroffen.</div>');
     }
     // OPUS-SCHLUSSPRÜFUNG: der Polier hat die fertige Liste gegen den Plan geprüft
     var pruef = data.opus_pruefung;
