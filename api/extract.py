@@ -4191,15 +4191,22 @@ def _firma_id_von_projekt(projekt_id):
 
 
 def _firma_faktoren_neu_lernen(firma_id):
-    """Lädt ALLE Soll-Listen-Belege der Firma, gruppiert die ratios je Faktor und
-    lernt daraus (Guards: ≥2 Belege, IQR, Median, Klemmung). Schreibt das Ergebnis
-    in kalibrierungen (firma_id, faktor_key, wert, n_belege). Idempotent."""
-    rows = sb.table("soll_listen").select("belege").eq("firma_id", firma_id).execute().data or []
+    """Lädt ALLE Soll-Listen der Firma und lernt: (a) Ratio-Faktoren aus den Belegen
+    (Guards: ≥2 Belege, IQR, Median, Klemmung); (b) die WANDSTÄRKEN-VERTEILUNG (die
+    schraffur-gebundene, nicht byte-exakt lesbare Größe) als Median über die Listen.
+    Schreibt alles in kalibrierungen (firma_id, faktor_key, wert). Idempotent."""
+    rows = sb.table("soll_listen").select(
+        "belege, wand_verteilung").eq("firma_id", firma_id).execute().data or []
     ratios = {}
+    verteilungen = []
     for r in rows:
         for b in (r.get("belege") or []):
             ratios.setdefault(b["faktor"], []).append(b["ratio"])
+        if r.get("wand_verteilung"):
+            verteilungen.append(r["wand_verteilung"])
     gelernt = _kalib.lerne_faktoren(ratios)
+    wandvert = _kalib.aggregiere_verteilungen(verteilungen)   # {wand_anteil_*: pct}
+    n_vert = len(verteilungen)
     # bestehende Firma-Faktoren entfernen, neu schreiben (sauberer Zustand)
     sb.table("kalibrierungen").delete().eq("firma_id", firma_id).execute()
     for faktor, info in gelernt.items():
@@ -4207,7 +4214,11 @@ def _firma_faktoren_neu_lernen(firma_id):
             "firma_id": firma_id, "faktor_key": faktor, "wert": info["wert"],
             "n_belege": info["n_belege"], "ratio_median": info["ratio_median"],
         }).execute()
-    return gelernt
+    for faktor, wert in wandvert.items():   # gelernte Wandverteilung (Anteil in %)
+        sb.table("kalibrierungen").insert({
+            "firma_id": firma_id, "faktor_key": faktor, "wert": wert, "n_belege": n_vert,
+        }).execute()
+    return {**gelernt, **({"_wandverteilung": wandvert} if wandvert else {})}
 
 
 @app.post("/api/kalibrierung-upload")
@@ -4237,24 +4248,37 @@ async def kalibrierung_upload(body: KalibrierungUploadRequest):
     if not soll:
         raise HTTPException(400, "Keine Positionen in der Soll-Liste erkannt")
     belege = _kalib.belege_aus_vergleich(ist_bauteile, soll)
+    # Wandstärken-Verteilung aus den HLZ-Paletten lernen (die Schraffur-Größe)
+    wandvert = _kalib.hlz_verteilung_aus_soll(soll)
 
     sb.table("soll_listen").insert({
         "firma_id": firma_id, "projekt_id": projekt_id,
         "rohtext": body.soll_text[:20000], "positionen": len(soll),
-        "belege": belege,
+        "belege": belege, "wand_verteilung": wandvert,
     }).execute()
     gelernt = _firma_faktoren_neu_lernen(firma_id)
 
     n_listen = len(sb.table("soll_listen").select("id").eq("firma_id", firma_id).execute().data or [])
+    _wv = gelernt.get("_wandverteilung") if isinstance(gelernt, dict) else None
+    _ratio_faktoren = {k: v for k, v in (gelernt or {}).items() if k != "_wandverteilung"}
+    hinweise = []
+    if _wv and ("wand_anteil_25cm_innen" in _wv):
+        hinweise.append("Innenwand-Aufteilung aus deiner Liste übernommen "
+                        f"(25cm {_wv.get('wand_anteil_25cm_innen')}% / "
+                        f"20cm {_wv.get('wand_anteil_20cm')}% / 12cm {_wv.get('wand_anteil_12cm')}%).")
+    if _ratio_faktoren:
+        hinweise.append(f"{len(_ratio_faktoren)} Korrektur-Faktor(en) aktiv.")
+    elif not _wv:
+        hinweise.append("Noch keine Faktoren gelernt — Ratio-Faktoren brauchen ≥2 Soll-Listen "
+                        "(Schutz vor Überanpassung); die Wandverteilung greift ab der 1. Liste mit HLZ-Paletten.")
     return {
         "status": "ok",
         "soll_positionen": len(soll),
         "belege": belege,
-        "gelernte_faktoren": gelernt,
+        "gelernte_faktoren": _ratio_faktoren,
+        "gelernte_wandverteilung": _wv,
         "anzahl_soll_listen": n_listen,
-        "hinweis": ("Faktoren aktiv." if gelernt else
-                    "Noch keine Faktoren gelernt — es braucht ≥2 Soll-Listen, die denselben "
-                    "Faktor stützen (Schutz vor Überanpassung)."),
+        "hinweis": " ".join(hinweise),
     }
 
 

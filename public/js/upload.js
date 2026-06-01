@@ -1132,12 +1132,20 @@
       });
       html += '</tbody></table>';
     }
+    var wv = r.gelernte_wandverteilung;
+    if (wv && wv.wand_anteil_25cm_innen != null) {
+      html += '<div class="status-ok" style="margin-top:.4rem">🧱 <strong>Innenwand-Aufteilung gelernt</strong> ' +
+        '(die Schraffur-Größe, die im Plan-Text nicht steht): 25cm ' + fmtNum(wv.wand_anteil_25cm_innen) +
+        '% · 20cm ' + fmtNum(wv.wand_anteil_20cm) + '% · 12cm ' + fmtNum(wv.wand_anteil_12cm) +
+        '% — gilt ab jetzt automatisch für deine Projekte.</div>';
+    }
     var gl = r.gelernte_faktoren || {};
     var keys = Object.keys(gl);
     if (keys.length) {
       html += '<div class="status-ok" style="margin-top:.4rem"><strong>Gelernte Faktoren (≥2 Listen):</strong> ' +
         keys.map(function (k) { return esc(kalibFaktorLabel(k)) + ' = ' + fmtNum(gl[k].wert) + ' (aus ' + gl[k].n_belege + ')'; }).join(' · ') + '</div>';
-    } else if (r.hinweis) {
+    }
+    if (r.hinweis) {
       html += '<div class="status-info" style="margin-top:.4rem">ℹ ' + esc(r.hinweis) + '</div>';
     }
     el.innerHTML = html;

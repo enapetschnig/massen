@@ -208,6 +208,54 @@ def lerne_faktoren(ratios_je_faktor, min_belege=MIN_BELEGE):
     return out
 
 
+def hlz_verteilung_aus_soll(soll_positions):
+    """Lernt die Wandstärken-VERTEILUNG aus den HLZ-Paletten einer Soll-Liste —
+    die eine Größe, die NICHT byte-exakt aus dem Plan lesbar ist (sie steckt in
+    der Schraffur). Aus 'HLZ 50cm … 48 Paletten' etc. die Anteile ableiten:
+    ≥38cm = Außenwand-Bucket, ≤25cm = Innenwand-Bucket (25cm gilt als innere
+    tragende Wand — die häufige Konvention). Liefert {wand_anteil_*: pct} oder None.
+    Anders als die Ratio-Faktoren ist DAS eine DIREKTE Messung der echten Firma-
+    Bauweise → schon EINE Soll-Liste ist aussagekräftig (Median über mehrere stabilisiert)."""
+    pal = {}
+    for p in (soll_positions or []):
+        bez = (p.get("bezeichnung") or "").lower()
+        einh = (p.get("einheit") or "").lower()
+        m = re.search(r"hlz\s*(\d{2})\s*cm", bez)
+        if m and ("palette" in einh or "palette" in bez or "pal" in einh):
+            d = int(m.group(1))
+            menge = _to_float(p.get("menge")) or 0
+            if menge > 0:
+                pal[d] = pal.get(d, 0) + menge
+    if not pal:
+        return None
+    out = {}
+    aussen = {d: pal[d] for d in (50, 38) if d in pal}
+    innen = {d: pal[d] for d in (25, 20, 12) if d in pal}
+    sa = sum(aussen.values())
+    si = sum(innen.values())
+    if sa > 0:
+        out["wand_anteil_50cm"] = round(aussen.get(50, 0) / sa * 100, 1)
+        out["wand_anteil_38cm"] = round(aussen.get(38, 0) / sa * 100, 1)
+        out["wand_anteil_25cm_aussen"] = 0.0
+    if si > 0:
+        out["wand_anteil_25cm_innen"] = round(innen.get(25, 0) / si * 100, 1)
+        out["wand_anteil_20cm"] = round(innen.get(20, 0) / si * 100, 1)
+        out["wand_anteil_12cm"] = round(innen.get(12, 0) / si * 100, 1)
+    return out or None
+
+
+def aggregiere_verteilungen(verteilungen):
+    """Median je Anteil-Schlüssel über mehrere Soll-Listen-Verteilungen → stabile
+    firmenspezifische Wandverteilung. Eine Liste reicht (direkte Messung), mehrere
+    stabilisieren. Liefert {wand_anteil_*: pct} (leere/None-Einträge ignoriert)."""
+    keys = {}
+    for v in (verteilungen or []):
+        for k, val in (v or {}).items():
+            if val is not None:
+                keys.setdefault(k, []).append(float(val))
+    return {k: round(_median(vals), 1) for k, vals in keys.items() if vals}
+
+
 def resolve_kalibrierung(firma_faktoren, global_faktoren):
     """Mischt globale Basis (e-power) + firmenspezifische Kalibrierung zu EINEM
     {faktor: wert}-Dict für build_materialliste. FIRMA schlägt GLOBAL (die eigene

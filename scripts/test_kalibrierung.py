@@ -97,8 +97,44 @@ check("kalibrierung=None → exakt wie Baseline",
 check("leere Kalibrierung {} → unverändert",
       build_materialliste(ROOMS, [], BAUD, kalibrierung={})["annahmen"]["bodenplatte_aufschlag"] == a_base)
 
+print("\n9) WANDVERTEILUNG (Schraffur-Größe) aus Soll-HLZ-Paletten lernen:")
+soll_hlz = [{"bezeichnung": "HLZ 50cm H.I. Plan", "menge": 48, "einheit": "Paletten"},
+            {"bezeichnung": "HLZ 38cm H.I. Plan", "menge": 4, "einheit": "Paletten"},
+            {"bezeichnung": "HLZ 25cm Plan", "menge": 7, "einheit": "Paletten"},
+            {"bezeichnung": "HLZ 20cm Plan", "menge": 9, "einheit": "Paletten"},
+            {"bezeichnung": "HLZ 12cm Plan", "menge": 7, "einheit": "Paletten"}]
+wv = kal.hlz_verteilung_aus_soll(soll_hlz)
+check("Innenwand 25/20/12 aus echten Paletten (30/39/30)",
+      wv and round(wv["wand_anteil_25cm_innen"]) == 30 and round(wv["wand_anteil_20cm"]) == 39
+      and round(wv["wand_anteil_12cm"]) == 30, f"got {wv}")
+check("Außenwand 50 dominiert (≈92%)", round(wv["wand_anteil_50cm"]) == 92, f"got {wv}")
+check("keine HLZ in Liste → None", kal.hlz_verteilung_aus_soll([{"bezeichnung": "Beton", "menge": 5}]) is None)
+agg = kal.aggregiere_verteilungen([{"wand_anteil_12cm": 30.0}, {"wand_anteil_12cm": 40.0}, {"wand_anteil_12cm": 50.0}])
+check("Aggregation = Median über Listen", agg["wand_anteil_12cm"] == 40.0, f"got {agg}")
+
+print("\n10) Verteilungs-PRÄZEDENZ: explizite Anteile schlagen Legende-Counts:")
+WROOMS = [{"name": "Wohnen", "flaeche_m2": 40.0, "umfang_m": 26.0, "hoehe_m": 2.7, "bodenbelag": "Fliesen"},
+          {"name": "Zimmer", "flaeche_m2": 16.0, "umfang_m": 16.0, "hoehe_m": 2.7, "bodenbelag": "Fliesen"}]
+# explizite Geometrie, damit Innenwand-Länge positiv ist: (ΣU 42 − Außen 26)/2 = 8m
+G_W = {"aussenumfang_m": 26.0, "bodenplatte_flaeche_m2": 56.0, "konfidenz": 0.9, "quelle": "test"}
+def _hlz(ml, needle):
+    for p in ml["bauteile"].get("Mauerwerk EG", []):
+        if needle.lower() in p["material"].lower():
+            return p["menge"]
+    return None
+# Legende sagt Innen 25:80/12:20; explizite Kalibrierung sagt 25:0/20:0/12:100
+leg_vert = {"aussen": {50.0: 100.0}, "innen": {25.0: 80.0, 12.0: 20.0}}
+ml_leg = build_materialliste(WROOMS, [], BAUD, wand_verteilung=leg_vert, gemessen=G_W)
+ml_kal_wv = build_materialliste(WROOMS, [], BAUD, wand_verteilung=leg_vert, gemessen=G_W,
+              kalibrierung={"wand_anteil_25cm_innen": 0, "wand_anteil_20cm": 0, "wand_anteil_12cm": 100,
+                            "wand_anteil_50cm": 100, "wand_anteil_38cm": 0, "wand_anteil_25cm_aussen": 0})
+check("ohne Kalibrierung: Legende-Verteilung greift (25cm-Wand vorhanden)",
+      _hlz(ml_leg, "HLZ 25cm") and _hlz(ml_leg, "HLZ 25cm") > 0, f"got {_hlz(ml_leg,'HLZ 25cm')}")
+check("mit Kalibrierung 12cm=100%: 12cm-Menge steigt, 20cm→0",
+      _hlz(ml_kal_wv, "HLZ 12cm") and _hlz(ml_kal_wv, "HLZ 20cm") == 0, f"12er={_hlz(ml_kal_wv,'HLZ 12cm')} 20er={_hlz(ml_kal_wv,'HLZ 20cm')}")
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Test(s) gescheitert: {fails}")
     sys.exit(1)
-print("OK — Kalibrierung lernt mit Guards, byte-exakt bleibt unangetastet, Reihenfolge stimmt.")
+print("OK — Kalibrierung lernt Faktoren + Wandverteilung mit Guards, byte-exakt unangetastet, Präzedenz stimmt.")

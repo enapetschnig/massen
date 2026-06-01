@@ -363,7 +363,16 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
                 f"{' + '.join(formel_teile[dd])} ÷ {cov}m²/Pal", konfidenz=konf))
         return pos, gesamt
 
-    if wand_verteilung and (wand_verteilung.get("aussen") or wand_verteilung.get("innen")):
+    # Verteilungs-Quelle in Reihenfolge: EXPLIZIT gesetzte Anteile (User-Override
+    # ODER firmenspezifische Kalibrierung) > Legende-Verteilung (aus Code-Vorkommen,
+    # empirisch unzuverlässig weil Codes selten je Wand stehen) > Default. So
+    # schlägt der manuelle Innenwand-Regler / die gelernte Verteilung die wackeligen
+    # Legende-Counts, ohne die byte-exakten Wandstärken anzutasten.
+    _WAND_ANTEIL_KEYS = ("wand_anteil_50cm", "wand_anteil_38cm", "wand_anteil_25cm_aussen",
+                         "wand_anteil_25cm_innen", "wand_anteil_20cm", "wand_anteil_12cm")
+    _explizite_verteilung = bool(override and any(k in override for k in _WAND_ANTEIL_KEYS))
+    if (wand_verteilung and (wand_verteilung.get("aussen") or wand_verteilung.get("innen"))
+            and not _explizite_verteilung):
         # LEGENDE-basiert: echte Wandstärken + Verteilung aus dem Plan gelesen
         hlz_pos, gesamt_wand_m2 = _hlz_positionen(
             wand_verteilung.get("aussen"), wand_verteilung.get("innen"), konf=0.75)

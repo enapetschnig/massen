@@ -30,8 +30,11 @@ create table if not exists soll_listen (
     rohtext text,
     positionen integer default 0,
     belege jsonb default '[]'::jsonb,    -- [{faktor, ratio, ist, soll}]
+    wand_verteilung jsonb,               -- {wand_anteil_*: pct} aus den HLZ-Paletten gelernt
     erstellt_am timestamptz default now()
 );
+-- (Migration für bestehende DB:)
+alter table soll_listen add column if not exists wand_verteilung jsonb;
 
 create index if not exists idx_soll_listen_firma on soll_listen(firma_id);
 
