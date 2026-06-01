@@ -3942,6 +3942,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     # Schnitten/Ansichten des Einreichplans — füllt Lücken, die der Grundriss
     # nicht hergibt (Polier liest genau dort Stützen/Höhen/Dach ab).
     saeulen_erkannt = None
+    sa_schnitt, sa_opus = 0, 0   # Roh-Lesungen für den Säulen-Doppelcheck
     if best_schnitt:
         gh_s = best_schnitt.get("geschosshoehe_rohbau_m")
         if gh_s:
@@ -3965,6 +3966,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         except (TypeError, ValueError):
             sa = 0
         if sa > 0:
+            sa_schnitt = sa
             saeulen_erkannt = sa
             ov = body.materialliste_override or {}
             if "anzahl_saeulen" not in ov:
@@ -3983,6 +3985,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             if "attika_aktiv" not in ov:
                 body.materialliste_override = dict(ov, attika_aktiv=1)
         o_sa = _ok.saeulen(best_opus)   # Säulen nur, falls Schnitt keine lieferte
+        sa_opus = o_sa or 0
         if o_sa > 0 and not saeulen_erkannt:
             saeulen_erkannt = o_sa
             ov = body.materialliste_override or {}
@@ -4053,6 +4056,12 @@ async def projekt_massen(body: ProjektMassenRequest):
                if len(_dd) >= 2 else None)
     if _dt:
         doppelcheck.append(_dt)
+
+    # Säulen/Stützen: Schnitt × Opus gegeneinander (beide Vision). Stimmen sie überein
+    # → verstärkt; weichen sie ab → „widerspruch" landet in der Prüf-Liste (genau der
+    # Fall, den der User sah: Säulen-Anzahl schwankt/unsicher). tol=0 = exakt gleich.
+    _dc_num("Säulen/Stützen", "anzahl_saeulen", "Stk",
+            [("Schnitt", sa_schnitt or None, "vision"), ("Opus", sa_opus or None, "vision")], 0)
 
     bestaetigt_keys = {d["key"] for d in doppelcheck if d["status"] == "bestätigt"}
     if bestaetigt_keys:
@@ -4189,9 +4198,51 @@ async def projekt_massen(body: ProjektMassenRequest):
                     "dateiname": p.get("dateiname", ""),
                     "selected": False,
                 })
+    # ── PRÜF-LISTE: „wo soll der Polier nachschauen" — deterministisch aus den
+    # bereits vorhandenen Signalen (Quellen-Widersprüche + Bauphysik-Plausi +
+    # Opus-Schlussprüfung + unsichere Faustformel-Positionen). Eine klare, nach
+    # Priorität sortierte Liste statt verstreuter Hinweise. Reine Funktion der
+    # gespeicherten Daten → konstant; der Chatbot kann sie ebenfalls nutzen.
+    pruefliste = []
+    _einh = lambda d: d.get("einheit") or ""
+    for _d in doppelcheck:
+        if _d.get("status") == "widerspruch":
+            _qs = " vs ".join(f"{q.get('quelle')} {q.get('wert')}{_einh(_d)}"
+                              for q in (_d.get("quellen") or []))
+            pruefliste.append({"prio": "hoch", "thema": _d.get("groesse"),
+                               "hinweis": f"Quellen widersprechen sich ({_qs}) — am Plan prüfen."})
+    for _f in (konsistenz_findings or []):
+        _s = (_f.get("schwere") or "").lower()
+        if _s in ("warnung", "fehler"):
+            pruefliste.append({"prio": "hoch" if _s == "fehler" else "mittel",
+                               "thema": _f.get("check") or "Plausibilität",
+                               "hinweis": _f.get("botschaft") or ""})
+    if isinstance(opus_pruefung, dict):
+        for _b in (opus_pruefung.get("pruefung") or []):
+            _s = (_b.get("schwere") or "").lower()
+            _prio = "hoch" if _s in ("hoch", "fehler") else ("niedrig" if _s in ("niedrig", "info") else "mittel")
+            _thema = " · ".join(x for x in (_b.get("bauteil"), _b.get("position")) if x) or "Schlussprüfung"
+            _hin = _b.get("problem") or ""
+            if _b.get("vorschlag"):
+                _hin = (_hin + " → " + _b["vorschlag"]).strip(" →")
+            if _hin:
+                pruefliste.append({"prio": _prio, "thema": _thema, "hinweis": _hin[:260]})
+    _unsicher = {}
+    for _bt, _poss in ((materialliste_result or {}).get("bauteile") or {}).items():
+        for _p in _poss:
+            if (_p.get("konfidenz") or 1) < 0.5 and (_p.get("menge") or 0) > 0:
+                _unsicher.setdefault(_bt, []).append(_p.get("material"))
+    for _bt, _mats in _unsicher.items():
+        pruefliste.append({"prio": "niedrig", "thema": _bt,
+                           "hinweis": f"{len(_mats)} Position(en) als Faustformel geschätzt "
+                                      f"(z.B. {_mats[0]}) — am Polierplan gegenprüfen."})
+    _prio_rang = {"hoch": 0, "mittel": 1, "niedrig": 2}
+    pruefliste.sort(key=lambda x: _prio_rang.get(x.get("prio"), 3))
+
     return {
         "status": "ok",
         "projekt_id": projekt_id,
+        "pruefliste": pruefliste,
         "legende_warnungen": (best_baudaten or {}).get("_warnungen") or [],
         "plaene_count": len(plaene),
         "plaene_total": len(plaene_all),

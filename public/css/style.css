@@ -2709,3 +2709,21 @@ img {
 .chat-chip:hover { background: #fde7cc; }
 .chat-input-row { display: flex; gap: .5rem; }
 .chat-input-row .form-control { flex: 1; }
+
+/* ===== Prüf-Liste (wo der Polier nachschauen sollte) ===== */
+.pruefliste { margin: 1.2rem 0 0.5rem; }
+.pruefliste:empty { margin: 0; }
+.pl-title { font-size: .82rem; font-weight: 700; color: var(--text); text-transform: uppercase;
+  letter-spacing: .01em; margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
+.pl-count { background: var(--accent); color: #fff; border-radius: 999px; font-size: .72rem;
+  padding: .05rem .5rem; font-weight: 700; }
+.pl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+.pl-row { display: flex; gap: .55rem; align-items: flex-start; padding: .55rem .7rem;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2);
+  font-size: .83rem; line-height: 1.45; }
+.pl-row.pl-hoch { border-left: 3px solid #dc2626; }
+.pl-row.pl-mittel { border-left: 3px solid var(--accent); }
+.pl-row.pl-niedrig { border-left: 3px solid var(--border-strong); }
+.pl-ico { flex-shrink: 0; font-size: .7rem; margin-top: .15rem; }
+.pl-body strong { color: var(--text); }
+.pl-more { font-size: .76rem; color: var(--text-light); margin-top: .4rem; }

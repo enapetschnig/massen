@@ -407,6 +407,25 @@
     el.innerHTML = '<div class="kz-title">Kennzahlen auf einen Blick</div><div class="kz-grid">' + tiles.join('') + '</div>';
   }
 
+  // PRÜF-LISTE: klare „hier nachschauen"-Punkte für den Polier (deterministisch
+  // vom Backend nach Priorität sortiert). Nichts erfinden — nur was die Engine
+  // selbst als unsicher/widersprüchlich markiert hat.
+  function renderPruefliste(data) {
+    var el = document.getElementById('pruefliste');
+    if (!el) return;
+    var items = (data && data.pruefliste) || [];
+    if (!items.length) { el.innerHTML = ''; return; }
+    var ICON = { hoch: '🔴', mittel: '🟡', niedrig: '⚪' };
+    var rows = items.slice(0, 12).map(function (it) {
+      return '<li class="pl-row pl-' + esc(it.prio) + '">' +
+        '<span class="pl-ico">' + (ICON[it.prio] || '•') + '</span>' +
+        '<span class="pl-body"><strong>' + esc(it.thema || '') + '</strong> — ' + esc(it.hinweis || '') + '</span></li>';
+    }).join('');
+    el.innerHTML = '<div class="pl-title">🔎 Vor der Bestellung prüfen <span class="pl-count">' + items.length + '</span></div>' +
+      '<ul class="pl-list">' + rows + '</ul>' +
+      (items.length > 12 ? '<div class="pl-more">… und ' + (items.length - 12) + ' weitere im Chat/Detail.</div>' : '');
+  }
+
   // STATUS-BANNER: nur Hinweise, bei denen der Nutzer etwas tun kann/sollte
   function renderStatusBanner(data) {
     var statusEl = document.getElementById('ergebnis-status-banner');
@@ -558,6 +577,7 @@
     renderFactStrip(data);
     renderGeoBox(data);
     renderKennzahlen(data);
+    renderPruefliste(data);
     renderStatusBanner(data);
     renderKalibrierungStatus(data.kalibrierung);
 
@@ -1274,6 +1294,7 @@
       }),
       fenster_anzahl: d.fenster_count, tueren_anzahl: d.tueren_count,
       doppelcheck: d.doppelcheck,
+      pruefliste: d.pruefliste,
       plausibilitaets_hinweise: (d.konsistenz && d.konsistenz.findings) || [],
       schlusspruefung: d.opus_pruefung,
       kalibrierung_aktiv: d.kalibrierung,
