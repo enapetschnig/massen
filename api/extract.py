@@ -3752,7 +3752,10 @@ async def projekt_massen(body: ProjektMassenRequest):
         slab_est = None
         if ueberdacht_flaeche > 4 and bp_flaeche:
             faktor = ((bp_flaeche + ueberdacht_flaeche) / bp_flaeche) ** 0.5
-            slab_est = round(min(aussenumfang_m * faktor, aussenumfang_m * 1.5), 2)
+            # Basis = ORIGINAL-Hülle (vor Garage-Zusatz): der Garage-/Anbau-Effekt
+            # auf die Platten-Kante steckt SCHON im Flächen-Faktor (überdachte Fläche).
+            # Sonst doppelt — die Hülle ist um die Garage erhöht UND der Faktor zählt sie.
+            slab_est = round(min(aussenumfang_m_basis * faktor, aussenumfang_m_basis * 1.5), 2)
         # OPUS: Bereiche, die laut Bauingenieur auf der DURCHGEHENDEN Platte stehen
         # → ihren Platten-Rand-Zusatz als eigenen (gegroundeten) Slab-Kandidaten.
         # Basis = ORIGINAL-Hülle (vor Garage-Zusatz), damit die interne 60%-Schwelle

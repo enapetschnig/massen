@@ -766,8 +766,10 @@
       }
       html += '<div class="pv-gw-head">🏗 ÖNORM-Massenermittlung nach Gewerk' + headSuffix + '</div>';
 
-      // Baudaten-Zeile (Wandstärken etc.)
-      var bd = gwData.baudaten || {};
+      // Baudaten-Zeile (Wandstärken etc.) — die GEMERGTE Projekt-Baudaten haben
+      // Vorrang (byte-exakt aus Legende, z.B. 50/25), sonst diese Plan-Baudaten.
+      // Sonst zeigt die ÖNORM-Zeile andere Werte als die Materialliste → Verwirrung.
+      var bd = (window.projektMassenData && window.projektMassenData.baudaten) || gwData.baudaten || {};
       var bq = bd._quellen || {};
       function bdItem(label, key, einheit) {
         if (bd[key] == null) return '';
