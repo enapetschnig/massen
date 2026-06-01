@@ -276,4 +276,13 @@ def wand_verteilung_aus_counts(leg: dict) -> dict:
             aussen[v["dicke_cm"]] = aussen.get(v["dicke_cm"], 0) + c / sum_a * 100
         elif v["art"] == "innen" and sum_i:
             innen[v["dicke_cm"]] = innen.get(v["dicke_cm"], 0) + c / sum_i * 100
-    return {"aussen": aussen, "innen": innen}
+    result = {"aussen": aussen, "innen": innen}
+    # EHRLICHKEIT: im Grundriss GEZÄHLTE Wand-Codes ohne Legende-Aufbau-Eintrag
+    # (z.B. eine Wandstärke, die nur als Schraffur definiert ist) fallen sonst
+    # STILL aus der Verteilung. Wir RATEN keine Dicke (das wäre Überanpassung),
+    # aber melden sie als Prüf-Hinweis — der Baubetrieb prüft die Stärke am Plan.
+    unbekannt = sorted(code for code in counts
+                       if code not in wt and (counts.get(code) or 0) > 0)
+    if unbekannt:
+        result["unbekannte_codes"] = unbekannt
+    return result

@@ -3667,6 +3667,12 @@ async def projekt_massen(body: ProjektMassenRequest):
             best_baudaten["konfidenz"] = max(float(best_baudaten.get("konfidenz") or 0),
                                              leg_bd.get("konfidenz", 0.9))
         wand_verteilung = _wand_verteilung(best_legende)
+        # Gezählte Wand-Codes ohne Legende-Eintrag → ehrlicher Prüf-Hinweis
+        _unbek = (wand_verteilung or {}).get("unbekannte_codes") if wand_verteilung else None
+        if _unbek:
+            best_baudaten.setdefault("_warnungen", []).append(
+                f"{len(_unbek)} Wand-Code(s) im Plan ohne Legende-Aufbau "
+                f"({', '.join(_unbek)}) — Stärke am Plan prüfen")
         # Flachdach aus Legende erkannt → Attika automatisch aktivieren
         # (wie ein Polier: Sarnafil/Abdichtung im Dachaufbau ⇒ Attika).
         # User-Override via materialliste_override hat Vorrang.
@@ -3911,6 +3917,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     return {
         "status": "ok",
         "projekt_id": projekt_id,
+        "legende_warnungen": (best_baudaten or {}).get("_warnungen") or [],
         "plaene_count": len(plaene),
         "plaene_total": len(plaene_all),
         "plaene": plaene_manifest,

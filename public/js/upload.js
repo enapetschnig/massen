@@ -460,6 +460,10 @@
       hints.push('<div class="status-info">🧹 ' + data.halluzinationen.length + ' Vision-Halluzination(en) automatisch gefiltert: ' +
         data.halluzinationen.map(function (h) { return esc(h.name); }).join(', ') + '</div>');
     }
+    (data.legende_warnungen || []).forEach(function (w) {
+      hints.push('<div class="status-warn">⚠ <strong>Wandstärke prüfen</strong> — ' + esc(w) +
+        '. Diese Wand ist in der Legende nicht definiert; ihre Menge wird konservativ behandelt.</div>');
+    });
     var konsistenz = data.konsistenz;
     if (konsistenz && konsistenz.findings && konsistenz.findings.length) {
       var sw = (konsistenz.summary || {}).schweren || {};
