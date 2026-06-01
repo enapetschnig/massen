@@ -3298,7 +3298,13 @@ async def projekt_massen(body: ProjektMassenRequest):
                 if not _raum_match(raum, c["raum"]):
                     continue
                 if has_dims and c["breite_m"] and c["hoehe_m"]:
-                    if abs(b - c["breite_m"]) <= TOL and abs(h - c["hoehe_m"]) <= TOL:
+                    # Toleranz: präzise×präzise ENG (8cm, trennt echte Nachbarn);
+                    # präzise×Vision-unscharf WEIT (20cm), denn dieselbe Öffnung wird
+                    # oft als grober Vision-Fund UND exakter STUK/FPH-Text gelesen —
+                    # bei 10-15cm Differenz sind das KEINE zwei Fenster, sondern eins.
+                    mixed = _is_stuk(i) != _is_stuk(c["rep"])
+                    tol = 0.20 if mixed else TOL
+                    if abs(b - c["breite_m"]) <= tol and abs(h - c["hoehe_m"]) <= tol:
                         match = c
                         break
                 elif not has_dims and not (c["breite_m"] and c["hoehe_m"]):

@@ -11,6 +11,10 @@ verworfen statt geraten.
 """
 
 KONF_MIN = 0.6   # Feld-Gate: unter dieser Konfidenz wird ein Opus-Wert verworfen
+# Garage-als-Mauerwerk ist eine HOCH-WIRKSAME, mehrdeutige Entscheidung (offen vs
+# gemauert schwankt zwischen Läufen) → höhere Schwelle, damit nur sehr sichere
+# Urteile die Mauerwerks-Hülle erweitern. Sonst springt der Umfang lauf-zu-lauf.
+GARAGE_KONF_MIN = 0.75
 
 
 def _f(v, default=0.0):
@@ -38,7 +42,7 @@ def mauerwerk_zusatz(best_opus, aussenumfang_m):
     for b in (best_opus.get("ueberdachte_bereiche") or []):
         if b.get("geschlossen_typ") != "gemauert":
             continue
-        if _f(b.get("konfidenz")) < KONF_MIN:
+        if _f(b.get("konfidenz")) < GARAGE_KONF_MIN:   # höhere Schwelle = stabiler
             continue
         mz = _f(b.get("mauerwerk_umfang_zusatz_m"))
         if 0 < mz <= aussenumfang_m * 0.6:

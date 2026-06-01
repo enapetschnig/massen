@@ -39,6 +39,13 @@ print("1) Geschlossene gemauerte Garage → Mauerwerks-Hülle (Linie A):")
 mw, namen = ok.mauerwerk_zusatz(OPUS_GARAGE, HUELLE)
 check("nur die GEMAUERTE Garage zählt (14m), Terrasse nicht", mw == 14.0, f"got {mw}")
 check("Garagen-Name geliefert", namen == ["Parkplatz überdacht"], f"got {namen}")
+# STABILITÄT: eine nur mittel-sichere Garage (0.65 < 0.75) erweitert die Hülle NICHT
+# (offen-vs-gemauert schwankt; nur sehr sichere Urteile zählen).
+_wackel = {"ueberdachte_bereiche": [{"name": "Parkplatz", "geschlossen_typ": "gemauert",
+           "auf_slab": True, "mauerwerk_umfang_zusatz_m": 14.0, "konfidenz": 0.65}],
+           "gesamtkonfidenz": 0.7}
+check("wackelige Garage (Konf 0.65) → KEIN Mauerwerk-Zusatz (stabil)",
+      ok.mauerwerk_zusatz(_wackel, HUELLE) == (0.0, []), f"got {ok.mauerwerk_zusatz(_wackel, HUELLE)}")
 
 print("2) Bereiche auf durchgehender Platte → Slab-Kante (Linie B):")
 slab = ok.slab_zusatz(OPUS_GARAGE, HUELLE)
