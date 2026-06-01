@@ -4461,6 +4461,70 @@ async def projekt_export(body: ProjektMassenRequest):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PROJEKT-CHATBOT — read-only Erklärschicht über der FERTIGEN Auswertung.
+# Prinzip (bewusst eng): der Bot RECHNET und ÄNDERT NICHTS, er erklärt nur die
+# bereits berechneten, vom Frontend mitgeschickten Zahlen + ihre Belege. So bleibt
+# die mühsam erkämpfte Konstanz erhalten (keine neue Vision/Opus-Stochastik) und
+# Halluzination ist hart eingegrenzt (nur Kontext, sonst „steht nicht in den Daten").
+# ═══════════════════════════════════════════════════════════════════════════
+PROJEKT_CHAT_SYSTEM = """Du bist der Bau-Assistent einer KI-Massenermittlung für einen österreichischen
+Baubetrieb (Polier/Bauleiter). Du bekommst die FERTIGE Auswertung EINES Projekts als JSON-Kontext
+(Räume, Bau-Kenndaten, Materialliste je Bauteil mit Formel/Konfidenz, Kennzahlen, Öffnungen,
+Doppelcheck, Plausibilitäts-Hinweise, Kalibrierung).
+
+REGELN — strikt:
+- Antworte AUSSCHLIESSLICH auf Basis des mitgelieferten Kontextes. Erfinde KEINE Zahlen.
+- Du RECHNEST die Mengen NICHT neu und ÄNDERST NICHTS. Du erklärst die vorhandenen Werte und ihre
+  Formel/Herkunft. Kleine Hilfsrechnungen aus gegebenen Zahlen (z.B. Summen, „pro m²") sind ok,
+  müssen aber klar als Ableitung gekennzeichnet sein.
+- Steht etwas NICHT in den Daten, sage das offen („Das steht nicht in dieser Auswertung — am Plan prüfen.").
+- Antworte knapp, konkret, auf Deutsch, in der Sprache eines Baubetriebs (nicht akademisch).
+- Wenn nach Verlässlichkeit gefragt: nenne Konfidenz + Quelle/Formel der Position und ob sie
+  doppelt bestätigt ist. Verweise bei Unsicherheit auf den Polierplan.
+- Nenne bei Mengen IMMER die Einheit. Keine Floskeln, keine Wiederholung der Frage."""
+
+
+class ProjektChatRequest(BaseModel):
+    frage: str
+    kontext: dict                       # kompakte, bereits berechnete Auswertung (vom Frontend)
+    verlauf: list[dict] | None = None   # [{role:'user'|'assistant', text:str}] optional
+
+
+@app.post("/api/projekt-chat")
+async def projekt_chat(body: ProjektChatRequest):
+    """Beantwortet Fragen zu EINER fertigen Projekt-Auswertung — gegroundet, read-only,
+    deterministisch (temperature=0). Kein DB-Schreibzugriff, keine Re-Analyse."""
+    frage = (body.frage or "").strip()
+    if not frage:
+        raise HTTPException(400, "Keine Frage übergeben")
+    cfg = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data if sb else None
+    api_key = (cfg[0]["value"] if cfg else os.environ.get("ANTHROPIC_API_KEY", "")).strip()
+    if not api_key:
+        raise HTTPException(500, "API Key nicht konfiguriert")
+    import anthropic, json as _json
+    client = anthropic.Anthropic(api_key=api_key, timeout=60.0, max_retries=2)
+
+    kontext_json = _json.dumps(body.kontext or {}, ensure_ascii=False)[:60000]
+    msgs = []
+    for m in (body.verlauf or [])[-8:]:
+        rolle = "assistant" if m.get("role") == "assistant" else "user"
+        txt = (m.get("text") or "").strip()
+        if txt:
+            msgs.append({"role": rolle, "content": txt})
+    msgs.append({"role": "user", "content":
+                 "AUSWERTUNG (JSON, deine einzige Wahrheitsquelle):\n" + kontext_json +
+                 "\n\nFRAGE DES BAUBETRIEBS:\n" + frage})
+    try:
+        resp = client.messages.create(
+            model="claude-sonnet-4-20250514", max_tokens=900, temperature=0,
+            system=PROJEKT_CHAT_SYSTEM, messages=msgs)
+        antwort = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    except Exception as exc:
+        raise HTTPException(502, f"Chat fehlgeschlagen: {exc}")
+    return {"antwort": antwort or "Dazu finde ich nichts in dieser Auswertung."}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SELBST-KALIBRIERUNG (MOAT) — Firma lädt Polier-Soll-Liste, System lernt
 # firmenspezifische Faktoren (mit harten Guards). Auflösung: User > Firma >
 # Global > Default. Tabellen: kalibrierungen, soll_listen (siehe db/kalibrierung.sql).

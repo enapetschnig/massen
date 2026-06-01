@@ -119,6 +119,18 @@
         <a class="btn btn-primary" href="kalibrierung.html">Zur Kalibrierung →</a>
       </div>
 
+      <!-- CHATBOT: Fragen zur fertigen Auswertung (read-only, gegroundet) -->
+      <div class="projekt-chat" id="projekt-chat">
+        <div class="chat-head">💬 Fragen zur Auswertung</div>
+        <div class="chat-sub">Frag zu diesem Projekt — der Assistent erklärt Mengen, Formeln und wo du prüfen solltest. Er greift nur auf diese Auswertung zu und rechnet nichts neu.</div>
+        <div class="chat-log" id="chat-log"></div>
+        <div class="chat-suggest" id="chat-suggest"></div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" class="form-control" placeholder="z.B. Wie viel Beton brauche ich für die Decke — und warum?">
+          <button class="btn btn-accent" id="chat-send">Fragen</button>
+        </div>
+      </div>
+
       <!-- ERWEITERT: alles Optionale in EINEM Drawer, standardmäßig zu -->
       <details class="advanced-drawer">
         <summary>&#9881;&#65039; Erweitert &mdash; Annahmen anpassen &middot; ÖNORM-Gewerke &middot; gelesene Räume</summary>

@@ -1261,6 +1261,75 @@
   }
   wireKalibrierung();
 
+  // ── PROJEKT-CHATBOT: Fragen zur fertigen Auswertung (read-only, gegroundet) ──
+  function buildChatContext(d) {
+    if (!d) return {};
+    var ml = d.materialliste || {};
+    return {
+      bau_kenndaten: d.baudaten,
+      kennzahlen: ml.kennzahlen,
+      materialliste_je_bauteil: ml.bauteile,
+      raeume: (d.raeume || []).map(function (r) {
+        return { name: r.name, flaeche_m2: r.flaeche_m2, umfang_m: r.umfang_m, hoehe_m: r.hoehe_m, bodenbelag: r.bodenbelag };
+      }),
+      fenster_anzahl: d.fenster_count, tueren_anzahl: d.tueren_count,
+      doppelcheck: d.doppelcheck,
+      plausibilitaets_hinweise: (d.konsistenz && d.konsistenz.findings) || [],
+      schlusspruefung: d.opus_pruefung,
+      kalibrierung_aktiv: d.kalibrierung,
+      bauteil_legende: d.legende
+    };
+  }
+  function wireChat() {
+    var sendBtn = document.getElementById('chat-send');
+    var input = document.getElementById('chat-input');
+    var log = document.getElementById('chat-log');
+    var suggest = document.getElementById('chat-suggest');
+    if (!sendBtn || !input || !log) return;
+    var verlauf = [];
+    var SUGGEST = ['Wie viel Beton für die Decke — und warum?', 'Welche Positionen soll ich am Plan prüfen?',
+      'Wie verlässlich ist die Außenwand-Menge?', 'Was steckt hinter den HLZ-Paletten?'];
+    function renderSuggest() {
+      if (!suggest) return;
+      suggest.innerHTML = SUGGEST.map(function (s) { return '<button class="chat-chip" type="button">' + esc(s) + '</button>'; }).join('');
+      Array.prototype.forEach.call(suggest.querySelectorAll('.chat-chip'), function (b) {
+        b.addEventListener('click', function () { input.value = b.textContent; send(); });
+      });
+    }
+    function addMsg(role, text) {
+      var div = document.createElement('div');
+      div.className = 'chat-msg chat-' + role;
+      div.innerHTML = esc(text).replace(/\n/g, '<br>');
+      log.appendChild(div); log.scrollTop = log.scrollHeight;
+      return div;
+    }
+    function send() {
+      var q = (input.value || '').trim();
+      if (!q) return;
+      if (!window.projektMassenData) { addMsg('assistant', 'Die Auswertung ist noch nicht geladen.'); return; }
+      addMsg('user', q); input.value = ''; if (suggest) suggest.innerHTML = '';
+      sendBtn.disabled = true;
+      var pending = addMsg('assistant', '…'); pending.classList.add('chat-pending');
+      fetch('/api/projekt-chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frage: q, kontext: buildChatContext(window.projektMassenData), verlauf: verlauf.slice(-8) })
+      })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (o) {
+          var ans = o.ok ? (o.j.antwort || '') : ('Fehler: ' + ((o.j && o.j.detail) || 'Chat nicht verfügbar'));
+          pending.classList.remove('chat-pending'); pending.innerHTML = esc(ans).replace(/\n/g, '<br>');
+          log.scrollTop = log.scrollHeight;
+          verlauf.push({ role: 'user', text: q }); verlauf.push({ role: 'assistant', text: ans });
+        })
+        .catch(function (e) { pending.classList.remove('chat-pending'); pending.textContent = 'Fehler: ' + e.message; })
+        .finally(function () { sendBtn.disabled = false; });
+    }
+    sendBtn.addEventListener('click', send);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+    renderSuggest();
+  }
+  wireChat();
+
   window.loadPlans = loadPlans;
   window.projectId = projectId;
   loadPlans();
