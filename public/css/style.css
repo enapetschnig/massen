@@ -2675,3 +2675,16 @@ img {
 .kalib-ref-titel { font-size: .9rem; font-weight: 600; color: var(--text); }
 .kalib-ref-meta { font-size: .77rem; color: var(--text-light); margin-top: .15rem; }
 .kalib-ref-del { position: static; flex-shrink: 0; }
+
+/* ===== Kennzahlen-Block (immer sichtbar am Ende der Auswertung) ===== */
+.auswertung-kennzahlen { margin: 1.4rem 0 0.5rem; }
+.kz-title { font-size: .82rem; font-weight: 700; color: var(--text); letter-spacing: .01em;
+  text-transform: uppercase; margin-bottom: .6rem; }
+.kz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; }
+.kz-tile { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .8rem .9rem; }
+.kz-head { display: flex; align-items: center; gap: .4rem; margin-bottom: .35rem; }
+.kz-ico { font-size: 1rem; }
+.kz-label { font-size: .76rem; color: var(--text-light); font-weight: 600; }
+.kz-val { font-size: 1.4rem; font-weight: 700; color: var(--primary); line-height: 1.1; }
+.kz-sub { font-size: .72rem; color: var(--text-faint); margin-top: .2rem; }

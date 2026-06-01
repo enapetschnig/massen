@@ -377,6 +377,36 @@
     el.innerHTML = t.join('');
   }
 
+  // KENNZAHLEN: immer sichtbar am Ende der Auswertung — Höhe + Wandflächen.
+  // Werte kommen EXAKT aus der Materialliste (kennzahlen), damit Anzeige und
+  // berechnete Mengen garantiert übereinstimmen (Konstanz).
+  function renderKennzahlen(data) {
+    var el = document.getElementById('auswertung-kennzahlen');
+    if (!el) return;
+    var k = (data.materialliste && data.materialliste.kennzahlen) || {};
+    // Fallback (falls Backend-Kennzahlen fehlen): Höhe aus baudaten, Wandfläche = Umfang×Höhe
+    var h = k.geschosshoehe_m || (data.baudaten && data.baudaten.geschosshoehe_m);
+    var awf = k.aussenwand_flaeche_m2;
+    if (awf == null && data.gemessen && data.gemessen.aussenumfang_m && h) {
+      awf = Math.round(data.gemessen.aussenumfang_m * h * 100) / 100;
+    }
+    if (h == null && awf == null) { el.innerHTML = ''; return; }
+    function kz(icon, label, value, sub) {
+      return '<div class="kz-tile"><div class="kz-head"><span class="kz-ico">' + icon + '</span>' +
+        '<span class="kz-label">' + label + '</span></div>' +
+        '<div class="kz-val">' + value + '</div>' +
+        (sub ? '<div class="kz-sub">' + sub + '</div>' : '') + '</div>';
+    }
+    var tiles = [];
+    if (h != null) tiles.push(kz('📏', 'Geschoss-Höhe', fmtNum(h) + ' m', 'Rohbau (FBOK→Rohdecke)'));
+    if (awf != null) tiles.push(kz('🧱', 'Außenwand-Fläche', fmtNum(awf) + ' m²', 'Umfang × Höhe (brutto)'));
+    if (k.innenwand_flaeche_m2 != null && k.innenwand_flaeche_m2 > 0)
+      tiles.push(kz('🧱', 'Innenwand-Fläche', fmtNum(k.innenwand_flaeche_m2) + ' m²', 'tragend + nichttragend (brutto)'));
+    if (k.decke_flaeche_m2 != null)
+      tiles.push(kz('▦', 'Deckenfläche', fmtNum(k.decke_flaeche_m2) + ' m²', 'EG-Decke inkl. Auskragung'));
+    el.innerHTML = '<div class="kz-title">Kennzahlen auf einen Blick</div><div class="kz-grid">' + tiles.join('') + '</div>';
+  }
+
   // STATUS-BANNER: nur Hinweise, bei denen der Nutzer etwas tun kann/sollte
   function renderStatusBanner(data) {
     var statusEl = document.getElementById('ergebnis-status-banner');
@@ -527,6 +557,7 @@
     if (data.plaene) renderPlanFilter(data.plaene);
     renderFactStrip(data);
     renderGeoBox(data);
+    renderKennzahlen(data);
     renderStatusBanner(data);
     renderKalibrierungStatus(data.kalibrierung);
 

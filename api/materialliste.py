@@ -146,7 +146,8 @@ class MaterialPos:
 # BAUTEIL-BERECHNUNGEN
 # ────────────────────────────────────────────────────────────────────
 def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG",
-                            tueren=None, gemessen=None, wand_verteilung=None, legende=None):
+                            tueren=None, gemessen=None, wand_verteilung=None, legende=None,
+                            kennzahlen_out=None):
     """Erzeugt eine flache Liste von MaterialPos über alle Bauteile.
 
     rooms:    gemergte Räume aus /api/projekt-massen
@@ -652,6 +653,20 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         elif b == "Mauerwerk EG":
             p.konfidenz = round(min(K_GEO, K_UMF + 0.05), 2) if umf else round(K_GEO * 0.88, 2)
 
+    # ── Kennzahlen (immer-sichtbar in der Auswertung) — EXAKT dieselben Werte, die
+    # die Mengen treiben, damit Anzeige und Materialliste garantiert konsistent sind.
+    if kennzahlen_out is not None:
+        kennzahlen_out.update({
+            "geschosshoehe_m": round(h, 2),
+            "aussenwand_flaeche_m2": round(aw_m2_aussen, 2),
+            "innenwand_flaeche_m2": round(iw_m2_innen_rohbau, 2),
+            "wandflaeche_gesamt_m2": round(aw_m2_aussen + iw_m2_innen_rohbau, 2),
+            "decke_flaeche_m2": round(decke_m2, 2),
+            "bodenplatte_flaeche_m2": round(bodenplatte_m2, 2),
+            "aussenumfang_m": round(aussenumfang_m, 2),
+            "fundament_umfang_m": round(fundament_umfang_m, 2),
+        })
+
     return out
 
 
@@ -673,9 +688,11 @@ def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
     """
     if kalibrierung:
         override = {**kalibrierung, **(override or {})}
+    kennzahlen = {}
     positionen = materialliste_bauteile(rooms, windows, baudaten, override, geschoss,
                                          tueren=tueren, gemessen=gemessen,
-                                         wand_verteilung=wand_verteilung, legende=legende)
+                                         wand_verteilung=wand_verteilung, legende=legende,
+                                         kennzahlen_out=kennzahlen)
     # Gruppiere nach Bauteil
     by_bauteil = {}
     for p in positionen:
@@ -684,6 +701,7 @@ def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
     return {
         "label": "Rohbau-Materialliste (Phase 1 — Faustformel-basiert)",
         "bauteile": by_bauteil,
+        "kennzahlen": kennzahlen,
         "annahmen": {
             "bodenplatte_aufschlag": f("bodenplatte_aufschlag", override),
             "decke_aufschlag": f("decke_aufschlag", override),
