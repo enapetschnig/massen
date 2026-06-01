@@ -35,6 +35,11 @@ create table if not exists soll_listen (
 );
 -- (Migration für bestehende DB:)
 alter table soll_listen add column if not exists wand_verteilung jsonb;
+-- Dedizierter Kalibrierungs-Bereich: Referenz-Paare (Plan + Ermittlung) brauchen
+-- einen Anzeige-Titel + optionalen Plan-Bezug (Ist-Quelle des Referenz-Paars).
+alter table soll_listen add column if not exists titel text;
+alter table soll_listen add column if not exists plan_id uuid;
+alter table soll_listen add column if not exists dateiname text;
 
 create index if not exists idx_soll_listen_firma on soll_listen(firma_id);
 

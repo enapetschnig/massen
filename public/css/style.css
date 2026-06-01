@@ -2636,3 +2636,42 @@ img {
 .ergebnis-warte .spinner { flex: none; }
 .export-group { display: flex; flex-direction: column; gap: .35rem; align-items: stretch; }
 .export-group .btn-sm { font-size: .74rem; padding: .3rem .5rem; }
+
+/* ===== Dedizierter Kalibrierungs-Bereich ===== */
+.kalib-page { max-width: 880px; }
+.kalib-sub { font-size: .9rem; color: var(--text-light); line-height: 1.5; margin: .35rem 0 0; max-width: 64ch; }
+.kalib-card { margin-bottom: 1.25rem; }
+.kalib-card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.kalib-card-head .section-title { margin: 0; }
+.kalib-empty { font-size: .85rem; color: var(--text-light); line-height: 1.5; margin: .2rem 0; }
+.kalib-opt { font-weight: 400; color: var(--text-faint); font-size: .8rem; }
+
+/* Lernstand */
+.kalib-stand-block { margin-bottom: .9rem; }
+.kalib-stand-titel { font-size: .8rem; font-weight: 600; color: var(--text); margin-bottom: .4rem; }
+.kalib-chips { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.kalib-chip { display: inline-flex; align-items: center; background: var(--accent-soft); color: var(--accent-hover);
+  border: 1px solid #f6d9b8; border-radius: 999px; padding: .22rem .6rem; font-size: .78rem; font-weight: 600; }
+.kalib-chip-label { font-size: .76rem; color: var(--text-light); margin-left: .3rem; }
+.kalib-chip-label:first-child { margin-left: 0; }
+.kalib-foot { margin-top: .8rem; padding-top: .7rem; border-top: 1px solid var(--border);
+  font-size: .76rem; color: var(--text-light); line-height: 1.45; }
+
+/* Formular */
+.kalib-form .form-group { margin-bottom: 1rem; }
+.kalib-form label { display: block; font-size: .82rem; font-weight: 600; color: var(--text); margin-bottom: .35rem; }
+.kalib-or { text-align: center; font-size: .74rem; color: var(--text-faint); margin: .45rem 0; }
+.kalib-progress { display: flex; align-items: center; gap: .55rem; margin-top: .8rem;
+  font-size: .85rem; color: var(--primary-light); font-weight: 500; }
+.kalib-result-ok { margin-top: .8rem; padding: .7rem .9rem; border-radius: var(--radius); line-height: 1.5;
+  background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: .84rem; }
+.kalib-result-err { margin-top: .8rem; padding: .7rem .9rem; border-radius: var(--radius); line-height: 1.5;
+  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: .84rem; }
+
+/* Referenzliste */
+.kalib-ref-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: .7rem .1rem; border-bottom: 1px solid var(--border); }
+.kalib-ref-row:last-child { border-bottom: none; }
+.kalib-ref-titel { font-size: .9rem; font-weight: 600; color: var(--text); }
+.kalib-ref-meta { font-size: .77rem; color: var(--text-light); margin-top: .15rem; }
+.kalib-ref-del { position: static; flex-shrink: 0; }

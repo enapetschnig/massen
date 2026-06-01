@@ -7,6 +7,11 @@
   var firma = requireAuth();
   if (!firma) return;
 
+  // Versteckter System-Projektkontext für den Kalibrierungs-Bereich — nie im
+  // Dashboard/Statistiken zeigen (Referenz-Pläne sind keine Kundenprojekte).
+  var KALIB_NAME = '__Kalibrierung__';
+  function istKalib(p) { return p && p.name === KALIB_NAME; }
+
   var companyNameEl = document.getElementById('company-name');
   var logoutBtn = document.getElementById('logout-btn');
   var newProjectBtn = document.getElementById('new-project-btn');
@@ -56,7 +61,7 @@
     _sb.from('projekte').select('*').eq('firma_id', firma.id).order('erstellt_am', { ascending: false })
       .then(function (res) {
         if (projectsLoading) projectsLoading.style.display = 'none';
-        var list = res.data || [];
+        var list = (res.data || []).filter(function (p) { return !istKalib(p); });
         if (list.length === 0) {
           projectGrid.innerHTML = '';
           emptyState.classList.remove('hidden');
@@ -121,17 +126,18 @@
   var activityList = document.getElementById('activity-list');
 
   function loadStats() {
-    // Count projects
-    _sb.from('projekte').select('id', { count: 'exact', head: true }).eq('firma_id', firma.id)
+    // Count projects (ohne den versteckten Kalibrierungs-Kontext)
+    _sb.from('projekte').select('id, name').eq('firma_id', firma.id)
       .then(function (res) {
-        statProjects.textContent = res.count != null ? res.count : 0;
+        var n = (res.data || []).filter(function (p) { return !istKalib(p); }).length;
+        statProjects.textContent = n;
       });
 
     // Count all plans and analysed plans, plus average confidence
-    _sb.from('plaene').select('id, verarbeitet, gesamt_konfidenz, projekte!inner(firma_id)')
+    _sb.from('plaene').select('id, verarbeitet, gesamt_konfidenz, projekte!inner(firma_id, name)')
       .eq('projekte.firma_id', firma.id)
       .then(function (res) {
-        var list = res.data || [];
+        var list = (res.data || []).filter(function (p) { return !p.projekte || p.projekte.name !== KALIB_NAME; });
         statPlans.textContent = list.length;
 
         var analysed = list.filter(function (p) { return p.verarbeitet === true; });
@@ -162,9 +168,9 @@
       .eq('projekte.firma_id', firma.id)
       .eq('verarbeitet', true)
       .order('hochgeladen_am', { ascending: false })
-      .limit(5)
+      .limit(8)
       .then(function (res) {
-        var list = res.data || [];
+        var list = (res.data || []).filter(function (p) { return !p.projekte || p.projekte.name !== KALIB_NAME; }).slice(0, 5);
         if (list.length === 0) {
           activitySection.style.display = 'none';
           return;

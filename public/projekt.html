@@ -14,6 +14,7 @@
       KI-Massenermittlung
     </a>
     <div class="navbar-right">
+      <a href="kalibrierung.html" class="navbar-link">⚙ Kalibrierung</a>
       <span class="navbar-company" id="company-name"></span>
       <button class="navbar-link" id="logout-btn">Abmelden</button>
     </div>
@@ -106,13 +107,13 @@
       </div>
       <div class="ml-board" id="ml-board"></div>
 
-      <!-- REFERENZ-UPLOAD: prominent, damit jeder Betrieb es sofort findet -->
+      <!-- Verweis auf den dedizierten Kalibrierungs-Bereich (Referenzen leben außerhalb der Projekte) -->
       <div class="referenz-cta" id="referenz-cta">
         <div class="referenz-cta-text">
           <strong>📋 Mach es genauer für deinen Betrieb</strong>
-          <span id="referenz-cta-sub">Lade eine fertige Polier-Materialliste hoch — die KI lernt deine Bauweise und rechnet ab dann genauer.</span>
+          <span id="referenz-cta-sub">Im Bereich <strong>⚙ Kalibrierung</strong> lädst du fertige Polier-Pläne samt Ermittlung hoch — die KI lernt deine Bauweise und rechnet ab dann auch dieses Projekt genauer.</span>
         </div>
-        <button class="btn btn-primary" id="referenz-cta-btn">Referenz-Liste hochladen</button>
+        <a class="btn btn-primary" href="kalibrierung.html">Zur Kalibrierung →</a>
       </div>
 
       <!-- ERWEITERT: alles Optionale in EINEM Drawer, standardmäßig zu -->
@@ -212,21 +213,13 @@
             <div id="projekt-massen-rooms"></div>
           </div>
 
-          <!-- Block 4: Selbst-Kalibrierung (Moat) -->
+          <!-- Block 4: Aktive Kalibrierung dieses Projekts (Verwaltung im eigenen Bereich) -->
           <div class="advanced-block">
-            <h4 class="advanced-h">&#127919; Selbst-Kalibrierung &mdash; lernt aus deinen Polier-Listen</h4>
+            <h4 class="advanced-h">&#9881; Kalibrierung &mdash; was gerade auf dieses Projekt wirkt</h4>
             <div id="kalibrierung-status" class="kalib-status"></div>
-            <p class="kalib-hint">Lade eine fertige Polier-Materialliste (Soll) hoch. Das System vergleicht sie
-              mit seiner Berechnung und lernt firmenspezifische Korrektur-Faktoren &mdash; <strong>je mehr Listen,
-              desto genauer f&uuml;r genau deine Bauweise</strong>. Byte-exakte Werte bleiben unangetastet; ein Faktor
-              wird erst ab <strong>2 Listen</strong> gelernt (Schutz vor &Uuml;beranpassung). CSV (Bezeichnung;Menge;Einheit)
-              oder Freitext.</p>
-            <textarea id="kalibrierung-soll" class="kalib-textarea" rows="6"
-              placeholder="Bodenplatte Beton C25/30;48,5;m³&#10;Frostsch&uuml;rze XPS;62,0;lfm&#10;Au&szlig;enwand HLZ 50;145,8;m²"></textarea>
-            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
-              <button class="btn btn-sm btn-primary" id="kalibrierung-upload">Soll-Liste abgleichen &amp; lernen</button>
-              <button class="btn btn-sm btn-outline" id="kalibrierung-reset">Kalibrierung zur&uuml;cksetzen</button>
-            </div>
+            <p class="kalib-hint">Diese Werte hat die KI aus deinen Polier-Referenzen gelernt und auf dieses
+              Projekt angewendet. Referenzen (Plan + Ermittlung) verwaltest du zentral unter
+              <a href="kalibrierung.html"><strong>⚙ Kalibrierung</strong></a>.</p>
             <div id="kalibrierung-result" class="kalib-result"></div>
           </div>
 

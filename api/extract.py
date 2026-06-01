@@ -4419,7 +4419,11 @@ async def projekt_export(body: ProjektMassenRequest):
 class KalibrierungUploadRequest(BaseModel):
     projekt_id: str | None = None
     plan_id: str | None = None
-    soll_text: str                      # Polier-Soll-Liste (CSV oder Freitext)
+    soll_text: str | None = None        # Polier-Soll-Liste (CSV/Freitext) — ODER:
+    soll_storage_path: str | None = None  # PDF im 'plaene'-Bucket → Text server-seitig
+    plan_ids: list[str] | None = None   # Ist nur aus DIESEN Plänen (Referenz-Paar)
+    firma_id: str | None = None         # direkter Firma-Bezug (dedizierter Kalib-Bereich)
+    titel: str | None = None            # Anzeigename des Referenz-Paars
 
 
 class KalibrierungMerkenRequest(BaseModel):
@@ -4474,10 +4478,23 @@ def _firma_faktoren_neu_lernen(firma_id):
     return {**gelernt, **({"_wandverteilung": wandvert} if wandvert else {})}
 
 
+def _soll_text_aus_storage(storage_path):
+    """Lädt ein Polier-Listen-PDF aus dem 'plaene'-Bucket und extrahiert den Text-
+    Layer (byte-exakt, dasselbe Format, für das parse_soll_liste getunt ist)."""
+    import fitz
+    raw = sb.storage.from_("plaene").download(storage_path)
+    doc = fitz.open(stream=raw, filetype="pdf")
+    try:
+        return "\n".join(p.get_text() for p in doc)
+    finally:
+        doc.close()
+
+
 @app.post("/api/kalibrierung-upload")
 async def kalibrierung_upload(body: KalibrierungUploadRequest):
-    """Polier-Soll-Liste hochladen → Ist↔Soll-Vergleich → Belege speichern →
-    Firma-Faktoren neu lernen. Liefert Abweichungen + gelernte Faktoren transparent."""
+    """Polier-Soll-Liste (Text ODER PDF) hochladen → Ist↔Soll-Vergleich → Belege
+    speichern → Firma-Faktoren neu lernen. Funktioniert sowohl projekt-intern als
+    auch im dedizierten Kalibrierungs-Bereich (firma_id direkt, optional Plan-Paar)."""
     if not sb:
         raise HTTPException(500, "Supabase nicht konfiguriert")
     if not _KALIB_OK:
@@ -4486,27 +4503,39 @@ async def kalibrierung_upload(body: KalibrierungUploadRequest):
     if not projekt_id and body.plan_id:
         pl = sb.table("plaene").select("projekt_id").eq("id", body.plan_id).single().execute()
         projekt_id = (pl.data or {}).get("projekt_id")
-    if not projekt_id:
-        raise HTTPException(400, "projekt_id oder plan_id erforderlich")
-    firma_id = _firma_id_von_projekt(projekt_id)
+    # Firma: aus Projekt, ODER direkt mitgegeben (dedizierter Kalib-Bereich)
+    firma_id = _firma_id_von_projekt(projekt_id) if projekt_id else body.firma_id
     if not firma_id:
-        raise HTTPException(404, "Firma zum Projekt nicht gefunden")
+        raise HTTPException(400, "firma_id, projekt_id oder plan_id erforderlich")
 
-    # Ist bei DEFAULT-Faktoren (NICHT kalibriert) — sonst kalibrieren wir gegen
-    # schon korrigierte Werte. Wir nutzen die volle Pipeline mit ohne_kalibrierung.
-    ist = await projekt_massen(ProjektMassenRequest(projekt_id=projekt_id, ohne_kalibrierung=True))
-    ist_bauteile = ((ist or {}).get("materialliste") or {}).get("bauteile") or {}
-
-    soll = _kalib.parse_soll_liste(body.soll_text)
+    # Soll-Text: direkt ODER aus einem hochgeladenen PDF extrahiert
+    soll_text = body.soll_text or ""
+    if not soll_text and body.soll_storage_path:
+        try:
+            soll_text = _soll_text_aus_storage(body.soll_storage_path)
+        except Exception as _exc:
+            raise HTTPException(400, f"Polier-PDF nicht lesbar: {_exc}")
+    soll = _kalib.parse_soll_liste(soll_text)
     if not soll:
         raise HTTPException(400, "Keine Positionen in der Soll-Liste erkannt")
-    belege = _kalib.belege_aus_vergleich(ist_bauteile, soll)
+
+    # Ist bei DEFAULT-Faktoren (NICHT kalibriert) — sonst kalibrieren wir gegen
+    # schon korrigierte Werte. Nur wenn ein Plan-Kontext vorliegt; ohne Plan
+    # lernen wir die Wandverteilung direkt aus der Soll-Liste (Belege brauchen Ist).
+    ist_bauteile, belege = {}, []
+    if projekt_id:
+        ist = await projekt_massen(ProjektMassenRequest(
+            projekt_id=projekt_id, plan_ids=body.plan_ids, ohne_kalibrierung=True))
+        ist_bauteile = ((ist or {}).get("materialliste") or {}).get("bauteile") or {}
+        belege = _kalib.belege_aus_vergleich(ist_bauteile, soll)
     # Wandstärken-Verteilung aus den HLZ-Paletten lernen (die Schraffur-Größe)
     wandvert = _kalib.hlz_verteilung_aus_soll(soll)
 
     sb.table("soll_listen").insert({
         "firma_id": firma_id, "projekt_id": projekt_id,
-        "rohtext": body.soll_text[:20000], "positionen": len(soll),
+        "plan_id": (body.plan_ids or [None])[0] or body.plan_id,
+        "titel": (body.titel or "")[:200] or None,
+        "rohtext": soll_text[:20000], "positionen": len(soll),
         "belege": belege, "wand_verteilung": wandvert,
     }).execute()
     gelernt = _firma_faktoren_neu_lernen(firma_id)
@@ -4563,6 +4592,48 @@ async def kalibrierung_status(projekt_id: str | None = None, firma_id: str | Non
     }
 
 
+@app.get("/api/kalibrierung-referenzen")
+async def kalibrierung_referenzen(firma_id: str | None = None, projekt_id: str | None = None):
+    """Listet die hochgeladenen Referenz-Paare (Polier-Listen) einer Firma — für den
+    dedizierten Kalibrierungs-Bereich. Je Eintrag: Titel, Positionen, Belege-Anzahl,
+    gelernte Wandverteilung, Datum."""
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    if not firma_id and projekt_id:
+        firma_id = _firma_id_von_projekt(projekt_id)
+    if not firma_id:
+        raise HTTPException(400, "firma_id erforderlich")
+    rows = sb.table("soll_listen").select(
+        "id, titel, dateiname, positionen, belege, wand_verteilung, erstellt_am, plan_id"
+    ).eq("firma_id", firma_id).order("erstellt_am", desc=True).execute().data or []
+    refs = [{
+        "id": r["id"],
+        "titel": r.get("titel") or r.get("dateiname") or "Referenz-Liste",
+        "positionen": r.get("positionen") or 0,
+        "belege_anzahl": len(r.get("belege") or []),
+        "wand_verteilung": r.get("wand_verteilung"),
+        "erstellt_am": r.get("erstellt_am"),
+    } for r in rows]
+    return {"firma_id": firma_id, "referenzen": refs, "anzahl": len(refs)}
+
+
+class KalibrierungLoeschenRequest(BaseModel):
+    firma_id: str
+    soll_liste_id: str
+
+
+@app.post("/api/kalibrierung-referenz-loeschen")
+async def kalibrierung_referenz_loeschen(body: KalibrierungLoeschenRequest):
+    """Löscht ein einzelnes Referenz-Paar und lernt die Firma-Faktoren neu."""
+    if not sb or not _KALIB_OK:
+        raise HTTPException(500, "Kalibrierung nicht verfügbar")
+    sb.table("soll_listen").delete().eq("id", body.soll_liste_id).eq(
+        "firma_id", body.firma_id).execute()
+    _firma_faktoren_neu_lernen(body.firma_id)
+    n = len(sb.table("soll_listen").select("id").eq("firma_id", body.firma_id).execute().data or [])
+    return {"status": "ok", "anzahl_soll_listen": n}
+
+
 @app.post("/api/kalibrierung-reset")
 async def kalibrierung_reset(body: KalibrierungUploadRequest):
     """Setzt die Firma-Kalibrierung zurück (löscht Soll-Listen + gelernte Faktoren).
@@ -4573,7 +4644,7 @@ async def kalibrierung_reset(body: KalibrierungUploadRequest):
     if not projekt_id and body.plan_id:
         pl = sb.table("plaene").select("projekt_id").eq("id", body.plan_id).single().execute()
         projekt_id = (pl.data or {}).get("projekt_id")
-    firma_id = _firma_id_von_projekt(projekt_id) if projekt_id else None
+    firma_id = _firma_id_von_projekt(projekt_id) if projekt_id else body.firma_id
     if not firma_id:
         raise HTTPException(404, "Firma nicht gefunden")
     sb.table("kalibrierungen").delete().eq("firma_id", firma_id).execute()
