@@ -807,10 +807,14 @@
     if (!plans.length) { plansEmpty.classList.remove('hidden'); return; }
     plansEmpty.classList.add('hidden');
 
+    // Planansicht/Ergebnis ERST wenn ALLE Pläne fertig analysiert sind — sonst
+    // ändern sich Räume/Mengen noch. Einzelne fertige Pläne werden noch nicht geöffnet.
+    var alleFertig = plans.every(function (p) { return p.verarbeitet === true; });
     plans.forEach(function (plan) {
       var card = document.createElement('div');
       card.className = 'card plan-card';
-      var done = plan.verarbeitet === true;
+      var done = plan.verarbeitet === true;       // dieser Plan ist analysiert
+      var darfOeffnen = done && alleFertig;        // Öffnen erst wenn ALLE fertig
       var konfBadge = '';
       if (done && plan.gesamt_konfidenz != null) {
         var kVal = Math.round(plan.gesamt_konfidenz);
@@ -818,20 +822,22 @@
         konfBadge = ' <span class="confidence ' + kClass + '"><span class="confidence-dot dot-red"></span><span class="confidence-dot dot-yellow"></span><span class="confidence-dot dot-green"></span><span class="confidence-value">' + kVal + '%</span></span>';
       }
 
-      // Done-Karten sind komplett klickbar - direkt zur Planansicht
-      if (done) {
+      // Karten erst klickbar (→ Planansicht/Ergebnis), wenn ALLE Pläne fertig sind
+      if (darfOeffnen) {
         card.classList.add('plan-card-clickable');
         card.setAttribute('data-plan-id', plan.id);
         card.title = 'Klicken um Ergebnisse und Korrektur-Ansicht zu öffnen';
       }
+      var statusTxt = done ? (darfOeffnen ? ' · klicken zum Öffnen'
+          : ' · analysiert — Ergebnis erscheint, sobald alle Pläne fertig sind') : '';
       card.innerHTML =
         '<div class="plan-info"><div class="plan-icon">&#128196;</div><div>' +
           '<div class="plan-name">' + esc(plan.dateiname || '') + '</div>' +
-          '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Fertig' : 'Hochgeladen') + '</span>' + konfBadge + (done ? ' <span style="font-size:0.75rem;color:#6c757d">· klicken zum Öffnen</span>' : '') + '</div>' +
+          '<div class="plan-status"><span class="badge ' + (done ? 'badge-fertig' : 'badge-neu') + '">' + (done ? 'Analysiert' : 'Hochgeladen') + '</span>' + konfBadge + '<span style="font-size:0.75rem;color:#6c757d">' + statusTxt + '</span></div>' +
         '</div></div>' +
         '<div class="plan-actions">' +
           (done
-            ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">&Ouml;ffnen</button>' +
+            ? (darfOeffnen ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">&Ouml;ffnen</button>' : '') +
               '<button class="btn btn-outline btn-sm reana-btn" data-id="' + plan.id + '" title="Erneut analysieren">&#8635;</button>'
             : '<button class="btn btn-accent btn-sm ana-btn" data-id="' + plan.id + '">Analyse starten</button>') +
           '<button class="btn-delete-plan" data-id="' + plan.id + '">&times;</button>' +
