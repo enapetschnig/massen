@@ -328,6 +328,85 @@ def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
         return {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# OPUS-SCHLUSSPRÜFUNG (#3) — der erfahrene Polier schaut am ENDE auf die fertige
+# Mengenliste + den SCHARFEN Plan und flaggt, was nicht zusammenpasst. Er MELDET
+# (mit Beleg), er KORRIGIERT NICHT automatisch — der Mensch/die Kalibrierung
+# entscheidet. Fängt grobe Fehler (fehlende Garage, unplausible Decke/Beton-Menge,
+# fehlende Position), bevor die Liste rausgeht. Env OPUS_REVIEW=0 schaltet ab.
+# ═══════════════════════════════════════════════════════════════════════════
+OPUS_REVIEW_PROMPT = """Du bist ein erfahrener österreichischer Polier/Bauingenieur und prüfst die von
+einem Lehrling erstellte ROHBAU-MENGENLISTE gegen den Plan — wie eine Endkontrolle.
+
+Du bekommst: byte-exakte Plan-Fakten, die berechnete Mengenliste (Bauteil/Position/
+Menge), das Gesamtblatt + SCHARFE Grundriss-Kacheln. Deine Aufgabe: finde NUR, was
+NICHT zum Plan passt — fehlende Positionen, unplausible Mengen, übersehene Bauteile
+(z.B. eine im Schnitt gemauerte Garage, die im Mauerwerk fehlt; eine zu hohe/niedrige
+Beton-/Decken-Menge; fehlende Stützen/Attika). Rechne KEINE exakten Zahlen neu — flagge
+PLAUSIBILITÄT, die ein Mensch prüfen sollte. Jeder Befund mit kurzer "evidenz" (was du
+WO siehst) + "schwere". KEIN Beleg → nicht flaggen. NIEMALS raten/erfinden.
+
+Antworte NUR mit JSON, kein Markdown:
+{
+  "pruefung": [
+    {"bauteil": "Mauerwerk EG", "position": "HLZ 50cm", "problem": "zu niedrig — Garage gemauert, fehlt",
+     "schwere": "hoch", "evidenz": "Schnitt zeigt HLZ-Wände um den Parkplatz", "vorschlag": "Garage-Wände ergänzen"}
+  ],
+  "gesamturteil": "pruefen",
+  "konfidenz": 0.7
+}"""
+
+
+def _materialliste_kompakt(materialliste):
+    """Verdichtet die Materialliste auf {bauteil: [{material, menge, einheit}]} für die
+    Schlussprüfung (kompakt, nur das Nötige)."""
+    out = {}
+    for bauteil, positionen in ((materialliste or {}).get("bauteile") or {}).items():
+        out[bauteil] = [{"m": p.get("material"), "menge": p.get("menge"), "e": p.get("einheit")}
+                        for p in (positionen or [])]
+    return out
+
+
+def _run_opus_review(pdf_bytes: bytes, fakten: dict, materialliste: dict, api_key: str) -> dict:
+    """Opus-Schlussprüfung: fertige Liste + scharfer Plan → Plausibilitäts-Befunde.
+    Liefert {pruefung: [...], gesamturteil, konfidenz} ODER {"_fehler": ...}."""
+    import anthropic
+    import base64
+    try:
+        bilder = _render_plan_bilder(pdf_bytes)
+        if not bilder:
+            return {"_fehler": "kein Bild gerendert", "_quelle": "fallback"}
+        tiles = _render_grundriss_tiles(pdf_bytes)
+        client = anthropic.Anthropic(api_key=api_key, timeout=120.0, max_retries=3)
+        content = [{"type": "text", "text": "BYTE-EXAKTE PLAN-FAKTEN:\n" +
+                    json.dumps(fakten, ensure_ascii=False)},
+                   {"type": "text", "text": "BERECHNETE MENGENLISTE (prüfen):\n" +
+                    json.dumps(_materialliste_kompakt(materialliste), ensure_ascii=False)[:8000]},
+                   {"type": "text", "text": "GESAMTBLATT:"}]
+        for ib in bilder:
+            content.append({"type": "image", "source": {"type": "base64",
+                "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
+        if tiles:
+            content.append({"type": "text", "text": f"SCHARFE GRUNDRISS-KACHELN ({len(tiles)}):"})
+            for ib in tiles:
+                content.append({"type": "image", "source": {"type": "base64",
+                    "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
+        content.append({"type": "text", "text": "Prüfe die Liste gegen den Plan (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
+        resp = client.messages.create(model="claude-opus-4-8", max_tokens=2000, temperature=0,
+            system=OPUS_REVIEW_PROMPT, messages=[{"role": "user", "content": content}])
+        raw = resp.content[0].text if resp.content else "{}"
+        try:
+            urteil = json.loads(raw)
+        except Exception:
+            mjs = re.search(r"\{[\s\S]*\}", raw)
+            urteil = json.loads(mjs.group()) if mjs else {}
+        print(f"[opus-review] befunde={len(urteil.get('pruefung') or [])}, urteil={urteil.get('gesamturteil')}")
+        return urteil
+    except Exception as _exc:
+        print(f"[opus-review] failed: {_exc!r}")
+        return {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
+
+
 def _lade_kalibrierung(sb, firma_id):
     """Lädt die gelernten Faktoren für eine Firma + die globale Basis (firma_id=NULL)
     aus der kalibrierungen-Tabelle und löst sie auf (Firma > Global). Liefert ein
@@ -3427,6 +3506,9 @@ async def projekt_massen(body: ProjektMassenRequest):
     # unberührt. Übersprungen, wenn schon ein Pro-Plan-Urteil existiert
     # (OPUS_PER_PLAN=1) oder kein Blatt einen Schnitt trägt.
     opus_projekt_plan = None
+    _opus_review_pdf = None       # für die Schlussprüfung (#3) wiederverwenden
+    _opus_review_api_key = None
+    _opus_review_fakten = None
     if os.environ.get("OPUS_PASS", "1") != "0" and best_opus is None and best_schnitt_plan:
         try:
             _cfg = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data
@@ -3437,6 +3519,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                 _mk = (best_schnitt_plan.get("agent_log") or {}).get("massketten_bbox")
                 _fakten = _opus_fakten(merged_rooms, best_legende, _mk,
                                        len(alle_fenster), len(alle_tueren))
+                _opus_review_pdf, _opus_review_api_key, _opus_review_fakten = _pdf, _api_key, _fakten
                 _urteil = _run_opus_pass(_pdf, _fakten, _api_key)
                 opus_versuche += 1
                 if _urteil.get("_fehler"):
@@ -3962,6 +4045,24 @@ async def projekt_massen(body: ProjektMassenRequest):
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
 
+    # 7b2) OPUS-SCHLUSSPRÜFUNG (#3): der Polier prüft die fertige Liste gegen den
+    # scharfen Plan und flaggt Unstimmigkeiten (meldet, korrigiert nicht). Nutzt das
+    # schon geladene PDF + den api_key der Projekt-Opus-Phase. Env OPUS_REVIEW=0 = aus.
+    opus_pruefung = None
+    if (os.environ.get("OPUS_REVIEW", "1") != "0" and _opus_review_pdf and _opus_review_api_key
+            and materialliste_result and not materialliste_result.get("error")):
+        try:
+            _rev = _run_opus_review(_opus_review_pdf, _opus_review_fakten or {},
+                                    materialliste_result, _opus_review_api_key)
+            if _rev and not _rev.get("_fehler"):
+                opus_pruefung = {
+                    "befunde": _rev.get("pruefung") or [],
+                    "gesamturteil": _rev.get("gesamturteil"),
+                    "konfidenz": _rev.get("konfidenz"),
+                }
+        except Exception as _exc:
+            print(f"[opus-review] consume failed: {_exc!r}")
+
     # 7c) Konsistenz-Engine: bauphysikalische Plausibilitätschecks
     konsistenz_findings = []
     konsistenz_summary = None
@@ -4012,6 +4113,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                         else "fehler" if (opus_fehler >= opus_versuche)
                         else "ok"),       # ehrlich: lief der Pass / ist er abgestürzt?
         "opus_quelle_plan": opus_projekt_plan,  # welches Blatt Opus gelesen hat
+        "opus_pruefung": opus_pruefung,         # Schlussprüfung: Plausibilitäts-Befunde
         "kalibrierung": {                        # firmenspezifische Selbst-Kalibrierung
             "aktiv": bool(kalibrierung_faktoren),
             "faktoren": kalibrierung_faktoren,

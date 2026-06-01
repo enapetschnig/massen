@@ -464,6 +464,20 @@
         'Schnitt-Lesung (Garage/Höhe/Dach) ist diesmal ausgefallen (API-Fehler). Die byte-exakten Werte und die ' +
         'übrigen Lesungen sind davon unberührt; nur die Garage-/Anbau-Erkennung fehlt ggf.</div>');
     }
+    // OPUS-SCHLUSSPRÜFUNG: der Polier hat die fertige Liste gegen den Plan geprüft
+    var pruef = data.opus_pruefung;
+    if (pruef && (pruef.befunde || []).length) {
+      var sevcls = function (s) { return s === 'hoch' ? 'status-warn' : 'status-info'; };
+      pruef.befunde.forEach(function (b) {
+        hints.push('<div class="' + sevcls(b.schwere) + '">🔍 <strong>Schlussprüfung: ' +
+          esc(b.bauteil || '') + (b.position ? ' · ' + esc(b.position) : '') + '</strong> — ' +
+          esc(b.problem || '') + (b.evidenz ? ' <em>(' + esc(b.evidenz) + ')</em>' : '') +
+          (b.vorschlag ? ' → ' + esc(b.vorschlag) : '') + '</div>');
+      });
+    } else if (pruef && pruef.gesamturteil === 'plausibel') {
+      hints.push('<div class="status-ok">🔍 <strong>Schlussprüfung bestanden</strong> — der Bauingenieur-Pass ' +
+        'hat die Liste gegen den Plan geprüft und nichts Auffälliges gefunden.</div>');
+    }
     var fen = data.fenster_count || 0, tur = data.tueren_count || 0;
     if (fen === 0 && tur === 0) {
       hints.push('<div class="status-warn">⚠ <strong>0 Öffnungen erkannt</strong> — Laibungen, Rolladenkästen und Überlagen werden pauschal geschätzt.</div>');
