@@ -3253,6 +3253,13 @@ async def projekt_massen(body: ProjektMassenRequest):
         # Räume mit mind. einer bemaßten Öffnung (für Maßlos-Verwerfung)
         raeume_mit_massen = {_rn(i) for i in items if i.get("breite_m") and i.get("hoehe_m")}
         raeume_mit_massen.discard("")
+        # STABILITÄT: der STUK/FPH-Text-Layer ist byte-exakt + deterministisch, reine
+        # Vision-Funde schwanken jedem Lauf. Räume mit Text-Öffnungen merken — dort
+        # werden reine Vision-Funde (kein STUK/FPH) verworfen (siehe Loop).
+        def _ist_text(i):
+            return bool(i.get("stuk_m") or i.get("fph_m") or _is_stuk(i))
+        raeume_mit_text = {_rn(i) for i in items if _ist_text(i)}
+        raeume_mit_text.discard("")
 
         # Reihenfolge: bemaßte zuerst (Cluster-Seed), STUK vor Vision, höhere Konf zuerst
         def _sortkey(i):
@@ -3292,6 +3299,11 @@ async def projekt_massen(body: ProjektMassenRequest):
             has_dims = bool(b and h)
             # maßloser Fund in einem Raum mit bereits bemaßten Öffnungen → redundant
             if not has_dims and any(_raum_match(raum, rm) for rm in raeume_mit_massen):
+                continue
+            # reiner Vision-Fund (kein STUK/FPH) in einem Raum, der Text-Öffnungen
+            # hat → fast immer ein instabiler Doppel-/Fehlfund → verwerfen, damit das
+            # Ergebnis lauf-zu-lauf STABIL bleibt (Text ist byte-exakt, Vision schwankt).
+            if not _ist_text(i) and any(_raum_match(raum, rm) for rm in raeume_mit_text):
                 continue
             match = None
             for c in clusters:

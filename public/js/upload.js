@@ -738,9 +738,12 @@
     var statusEl = document.getElementById('result-hero-status');
     if (statusEl) {
       statusEl.classList.remove('st-green', 'st-yellow', 'st-red');
-      if (pct >= 75) { statusEl.textContent = '✓ Material bereit zum Bestellen'; statusEl.classList.add('st-green'); }
-      else if (pct >= 50) { statusEl.textContent = '⚠ Vor Bestellung Geometrie prüfen'; statusEl.classList.add('st-yellow'); }
-      else { statusEl.textContent = '⛔ Plan nachprüfen — Daten noch unsicher'; statusEl.classList.add('st-red'); }
+      // EHRLICH: das ist eine Mengenermittlung (Schätzung aus dem Plan), KEINE
+      // Bestellgarantie — der Polier prüft/gegenrechnet immer. Darum nicht
+      // "bereit zum Bestellen", sondern Mengenermittlungs-Sprache.
+      if (pct >= 75) { statusEl.textContent = '✓ Mengenermittlung abgeschlossen'; statusEl.classList.add('st-green'); }
+      else if (pct >= 50) { statusEl.textContent = '⚠ Mengen ermittelt — Geometrie noch prüfen'; statusEl.classList.add('st-yellow'); }
+      else { statusEl.textContent = '⛔ Mengen unsicher — am Plan nachprüfen'; statusEl.classList.add('st-red'); }
     }
   }
 
