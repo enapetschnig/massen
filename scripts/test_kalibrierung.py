@@ -29,6 +29,31 @@ frei = "Decke Beton ........... 1.234,56 m³\nKamin   2 Stk"
 pf = kal.parse_soll_liste(frei)
 check("Freitext Tausender-Punkt 1.234,56 → 1234.56", any(abs(x["menge"] - 1234.56) < 0.01 for x in pf), f"got {pf}")
 
+# ALTERNIERENDES PDF-Layout (Bezeichnung-Zeile → Mengen-Zeile getrennt) — das reale
+# Format, in dem ein Polier-PDF extrahiert wird. War vorher unlesbar (Moat-Bug).
+pdf_alt = """Mauerwek EG:
+HLZ 50cm H.I. Plan
+48 Paletten
+HLZ 38cm H.I. Plan
+4 Paletten
+HLZ 25cm Plan
+7 Paletten
+Noppenfolie 1m
+75 lfm.
+KV-Eco 25
+10 Paletten"""
+pa = kal.parse_soll_liste(pdf_alt)
+pam = {p["bezeichnung"]: (p["menge"], p["einheit"]) for p in pa}
+check("alternierend: HLZ 50cm → 48 Paletten", pam.get("HLZ 50cm H.I. Plan", (0,))[0] == 48, f"got {pam}")
+check("alternierend: HLZ 38cm erkannt (war komplett verloren)", "HLZ 38cm H.I. Plan" in pam, f"got {list(pam)}")
+check("alternierend: 'Noppenfolie 1m' NICHT als Menge 1 fehlgelesen → 75 lfm",
+      pam.get("Noppenfolie 1m", (0,))[0] == 75, f"got {pam.get('Noppenfolie 1m')}")
+check("alternierend: 'KV-Eco 25' (Name endet auf Zahl) → 10 Paletten, nicht 25",
+      pam.get("KV-Eco 25", (0,))[0] == 10, f"got {pam.get('KV-Eco 25')}")
+check("alternierend: HLZ-Verteilung lernt 38cm-Bucket",
+      (kal.hlz_verteilung_aus_soll(pa) or {}).get("wand_anteil_38cm", 0) > 0,
+      f"got {kal.hlz_verteilung_aus_soll(pa)}")
+
 print("\n2) Belege aus Ist↔Soll-Vergleich (ratio = soll/ist):")
 ist = {"Bodenplatte": [{"material": "Beton C25/30", "menge": 40.0}],
        "Frostschürze": [{"material": "XPS-SF G30", "menge": 50.0}],

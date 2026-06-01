@@ -46,6 +46,16 @@ FAKTOR_REGELN = [
 ]
 
 
+# MENGEN-Einheiten (stark) — eine Zeile/Spalte mit GENAU diesen Einheiten ist eine
+# echte Menge. Bewusst OHNE bloßes "m"/"mm"/"cm": die stecken in Produktnamen
+# ("Noppenfolie 1m", "XPS 140mm", "Mauersperrbahn 25cm") und sind KEINE Mengen.
+STARK_EINHEIT = (r"(?:m²|m2|m³|m3|lfm|stk|dtk|kg|paletten?|rollen?|bund|kanister|"
+                 r"s[aä]cke?|kartons?|pakete?|pack|stück)")
+_PURE_MENGE_RX = re.compile(r"^([\d][\d.,]*)\s*" + STARK_EINHEIT + r"\.?$", re.I)
+_INLINE_MENGE_RX = re.compile(r"(.+?)\s+([\d][\d.,]*)\s*" + STARK_EINHEIT + r"\.?\s*$", re.I)
+_EINHEIT_RX = re.compile(STARK_EINHEIT, re.I)
+
+
 def _to_float(s):
     """Deutsche Dezimalzahl ('1.234,56' / '123,4' / '123.4') → float|None."""
     if s is None:
@@ -67,50 +77,79 @@ def _to_float(s):
 
 
 def parse_soll_liste(text):
-    """Parst eine Polier-Soll-Liste (CSV ';'/',' ODER Freitext) → Liste von
-    {bezeichnung, menge, einheit}. Robust gegen Spalten-Reihenfolge und deutsche
-    Dezimalkommas. Zeilen ohne erkennbare Menge werden übersprungen."""
+    """Parst eine Polier-Soll-Liste → Liste von {bezeichnung, menge, einheit}.
+
+    Beherrscht DREI reale Formate robust:
+      1. CSV/TSV  ('Bodenplatte Beton;48,5;m³')
+      2. einzeilig ('Decke Beton ......... 1.234,56 m³')
+      3. ALTERNIEREND — das übliche PDF-Layout, bei dem Bezeichnung und Menge in
+         getrennten Zeilen extrahiert werden:
+             'HLZ 50cm H.I. Plan'
+             '48 Paletten'
+         Hier wird die Bezeichnung gepuffert, bis eine reine Mengen-Zeile folgt.
+
+    Schlüssel zur Unterscheidung: eine Menge endet auf einer STARKEN Einheit
+    (Stk/Palette/m²/m³/lfm/…), NICHT auf bloßem m/mm/cm — sonst würde
+    'Noppenfolie 1m' fälschlich als Menge 1 gelesen. Zeilen ohne erkennbare Menge
+    werden übersprungen (bzw. als Bezeichnung gepuffert)."""
     if not text:
         return []
     positionen = []
+    puffer = []   # gesammelte Bezeichnungs-Zeilen, die auf ihre Menge warten
+
+    def _einheit(s):
+        m = _EINHEIT_RX.search(s)
+        return m.group(0).lower() if m else ""
+
     for raw in str(text).splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        # CSV?
+        if line.endswith(":"):          # Abschnitts-Überschrift ("Frostschürze:")
+            puffer = []
+            continue
+        # 1) CSV / TSV
+        teile = None
         for sep in (";", "\t", "|"):
             if sep in line:
                 teile = [t.strip() for t in line.split(sep)]
                 break
-        else:
-            teile = None
         if teile and len(teile) >= 2:
-            # Menge = erste Spalte, die GANZ eine Zahl (+ optionale Einheit) ist —
-            # nicht bloß "enthält eine Ziffer" (sonst frisst "C25/30" die Menge).
-            _unit = r"(m²|m2|m³|m3|lfm|stk|kg|t|palette|rolle|m)"
             menge, einheit, bez = None, "", []
             for t in teile:
                 tt = t.strip()
-                if menge is None and re.fullmatch(r"[\d.][\d.,]*\s*" + _unit + r"?", tt, re.I):
+                if menge is None and re.fullmatch(r"[\d.][\d.,]*\s*" + STARK_EINHEIT + r"?\.?", tt, re.I):
                     menge = _to_float(tt)
-                    mu = re.search(_unit, tt, re.I)
-                    if mu:
-                        einheit = mu.group(1)
-                elif re.fullmatch(_unit, tt, re.I) and not einheit:
-                    einheit = tt   # reine Einheiten-Spalte
+                    einheit = _einheit(tt)
+                elif re.fullmatch(STARK_EINHEIT + r"\.?", tt, re.I) and not einheit:
+                    einheit = tt.rstrip(".").lower()   # reine Einheiten-Spalte
                 else:
                     bez.append(t)
             if menge is not None:
                 positionen.append({"bezeichnung": " ".join([b for b in bez if b]).strip(),
                                    "menge": menge, "einheit": einheit})
+                puffer = []
                 continue
-        # Freitext: "Bezeichnung ............ 123,45 m²"
-        m = re.search(r"(.+?)\s+([\d.,]+)\s*(m²|m2|m³|m3|lfm|stk|kg|t|palette|rolle|m)?\s*$", line, re.I)
-        if m:
-            menge = _to_float(m.group(2))
+        # 2) reine Mengen-Zeile ('48 Paletten') → schließt die gepufferte Bezeichnung ab
+        mq = _PURE_MENGE_RX.match(line)
+        if mq:
+            menge = _to_float(mq.group(1))
+            if puffer and menge is not None:
+                positionen.append({"bezeichnung": " ".join(puffer).strip(),
+                                   "menge": menge, "einheit": _einheit(line)})
+            puffer = []
+            continue
+        # 3) einzeilig ('Bezeichnung … 123 m²' mit STARKER Einheit am Ende)
+        mi = _INLINE_MENGE_RX.match(line)
+        if mi:
+            menge = _to_float(mi.group(2))
             if menge is not None:
-                positionen.append({"bezeichnung": m.group(1).strip(),
-                                   "menge": menge, "einheit": (m.group(3) or "").lower()})
+                positionen.append({"bezeichnung": mi.group(1).strip(),
+                                   "menge": menge, "einheit": _einheit(line[mi.start(2):])})
+                puffer = []
+                continue
+        # sonst: Bezeichnungs-Zeile → puffern (alternierendes Layout)
+        puffer.append(line)
     return positionen
 
 
