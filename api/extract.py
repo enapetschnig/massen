@@ -4508,6 +4508,18 @@ async def projekt_massen(body: ProjektMassenRequest):
         pruefliste.append({"prio": "niedrig", "thema": _bt,
                            "hinweis": f"{len(_mats)} Position(en) als Faustformel geschätzt "
                                       f"(z.B. {_mats[0]}) — am Polierplan gegenprüfen."})
+    # ÖNORM-LV: unsichere Positionen (Konfidenz < 60%) ebenfalls ehrlich flaggen
+    for _gk, _g in ((gewerke_result or {}).get("gewerke") or {}).items():
+        for _p in (_g.get("positionen") or []):
+            if (_p.get("konfidenz") or 1) >= 0.6 or (_p.get("endsumme") or 0) <= 0:
+                continue
+            if saeulen_geschaetzt and "Stütze" in (_p.get("beschreibung") or ""):
+                continue   # schon über die spezifische Säulen-Flagge abgedeckt
+            pruefliste.append({
+                "prio": "niedrig",
+                "thema": (_g.get("label") or _gk) + " · " + (_p.get("posnr") or ""),
+                "hinweis": (_p.get("beschreibung") or "") + " geschätzt (Konfidenz "
+                           + str(int((_p.get("konfidenz") or 0) * 100)) + "%) — am Plan prüfen."})
     if saeulen_geschaetzt and saeulen_erkannt:
         pruefliste.append({"prio": "mittel", "thema": "Säulen / Stützen",
                            "hinweis": f"{saeulen_erkannt} Stützen aus der überdachten Fläche GESCHÄTZT "
