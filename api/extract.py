@@ -1696,7 +1696,11 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
             existing_t_keys.add(k)
             all_tueren.append(rec)
 
-    # Clean old results
+    # Clean old results. ZUERST input_hash leeren: bricht dieser Lauf nach dem
+    # Löschen ab (z.B. Vercel-Timeout), darf der nächste Aufruf NICHT auf einem
+    # alten agent_log + altem (zufällig passenden) Hash einfrieren, während die
+    # elemente weg sind. Geleerter Hash → nächster Aufruf rechnet sauber neu.
+    sb.table("plaene").update({"input_hash": None}).eq("id", body.plan_id).execute()
     sb.table("massen").delete().eq("plan_id", body.plan_id).execute()
     sb.table("elemente").delete().eq("plan_id", body.plan_id).execute()
 
