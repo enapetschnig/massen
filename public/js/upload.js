@@ -309,8 +309,13 @@
       fen + ' F · ' + tur + ' T</span><span class="fact-src read">aus Text</span></div>');
     // Schnitt-/Ansichts-Lesung: Säulen + Dachtyp
     var sv = data.schnitt || {};
-    if (data.saeulen_erkannt) facts.push('<div class="fact" title="aus Schnitt/Ansicht erkannt — in der Materialliste berücksichtigt"><span class="fact-ico">🏛️</span><span class="fact-k">Säulen</span><span class="fact-v">' +
-      data.saeulen_erkannt + '</span><span class="fact-src measured">aus Schnitt</span></div>');
+    if (data.saeulen_erkannt) {
+      var _saeQ = data.saeulen_geschaetzt
+        ? '<span class="fact-src assumed" title="aus der überdachten Fläche geschätzt — am Plan/in der Statik prüfen">geschätzt</span>'
+        : '<span class="fact-src measured" title="aus Schnitt/Ansicht erkannt">aus Schnitt</span>';
+      facts.push('<div class="fact" title="in der Materialliste berücksichtigt"><span class="fact-ico">🏛️</span><span class="fact-k">Säulen</span><span class="fact-v">' +
+        data.saeulen_erkannt + '</span>' + _saeQ + '</div>');
+    }
     if (sv.dachtyp) facts.push('<div class="fact"><span class="fact-ico">🏠</span><span class="fact-k">Dach</span><span class="fact-v">' +
       esc(sv.dachtyp) + (sv.attika_hoehe_m ? ' · Attika ' + fmtNum(sv.attika_hoehe_m) + 'm' : '') + '</span><span class="fact-src measured">aus Schnitt</span></div>');
     el.innerHTML = facts.join('');
@@ -529,16 +534,12 @@
         (data.opus_fehler_grund ? ' <span style="opacity:.7">(Grund: ' + esc(String(data.opus_fehler_grund)) + ')</span>' : '') +
         '</div>');
     }
-    // OPUS-SCHLUSSPRÜFUNG: der Polier hat die fertige Liste gegen den Plan geprüft
+    // OPUS-SCHLUSSPRÜFUNG: nur EINE Zusammenfassungszeile — die einzelnen Befunde
+    // stehen gebündelt unten in der Prüf-Liste (keine doppelte Text-Wand mehr).
     var pruef = data.opus_pruefung;
     if (pruef && (pruef.befunde || []).length) {
-      var sevcls = function (s) { return s === 'hoch' ? 'status-warn' : 'status-info'; };
-      pruef.befunde.forEach(function (b) {
-        hints.push('<div class="' + sevcls(b.schwere) + '">🔍 <strong>Schlussprüfung: ' +
-          esc(b.bauteil || '') + (b.position ? ' · ' + esc(b.position) : '') + '</strong> — ' +
-          esc(b.problem || '') + (b.evidenz ? ' <em>(' + esc(b.evidenz) + ')</em>' : '') +
-          (b.vorschlag ? ' → ' + esc(b.vorschlag) : '') + '</div>');
-      });
+      hints.push('<div class="status-info">🔍 <strong>Schlussprüfung: ' + pruef.befunde.length +
+        ' Punkt(e) zu prüfen</strong> — gebündelt unten unter „Vor der Bestellung prüfen".</div>');
     } else if (pruef && pruef.gesamturteil === 'plausibel') {
       hints.push('<div class="status-ok">🔍 <strong>Schlussprüfung bestanden</strong> — der Bauingenieur-Pass ' +
         'hat die Liste gegen den Plan geprüft und nichts Auffälliges gefunden.</div>');

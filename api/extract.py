@@ -4396,7 +4396,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                                "thema": _f.get("check") or "Plausibilität",
                                "hinweis": _f.get("botschaft") or ""})
     if isinstance(opus_pruefung, dict):
-        for _b in (opus_pruefung.get("pruefung") or []):
+        for _b in (opus_pruefung.get("befunde") or opus_pruefung.get("pruefung") or []):
             _s = (_b.get("schwere") or "").lower()
             _prio = "hoch" if _s in ("hoch", "fehler") else ("niedrig" if _s in ("niedrig", "info") else "mittel")
             _thema = " · ".join(x for x in (_b.get("bauteil"), _b.get("position")) if x) or "Schlussprüfung"
@@ -4483,6 +4483,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             "anzahl": len(kalibrierung_faktoren),
         },
         "saeulen_erkannt": saeulen_erkannt,
+        "saeulen_geschaetzt": saeulen_geschaetzt,
         "doppelcheck": doppelcheck,
         "geschoss": geschoss,
         "raeume": merged_rooms,
