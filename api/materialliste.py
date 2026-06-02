@@ -381,6 +381,26 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     _WAND_ANTEIL_KEYS = ("wand_anteil_50cm", "wand_anteil_38cm", "wand_anteil_25cm_aussen",
                          "wand_anteil_25cm_innen", "wand_anteil_20cm", "wand_anteil_12cm")
     _explizite_verteilung = bool(override and any(k in override for k in _WAND_ANTEIL_KEYS))
+    # SELBST-SCHUTZ gegen „erfundene" Wandstärken (z.B. HLZ 38cm, das die Legende gar
+    # nicht kennt): kennt die byte-exakte Legende explizite Wandtypen, bestimmt SIE die
+    # Stärken — direkt hier abgeleitet (Vorkommen je Code → Anteil), damit keine
+    # upstream-Vision-Verteilung eine fremde Stärke einschmuggelt. User-Override/
+    # Kalibrierung (explizite Anteile) schlagen weiterhin alles.
+    _leg_wt = (legende or {}).get("wand_typen") or {}
+    if _leg_wt and not _explizite_verteilung:
+        _leg_counts = (legende or {}).get("wand_counts") or {}
+        _la, _li = {}, {}
+        _sa = sum((_leg_counts.get(k) or 1) for k, v in _leg_wt.items() if v.get("art") == "aussen")
+        _si = sum((_leg_counts.get(k) or 1) for k, v in _leg_wt.items() if v.get("art") == "innen")
+        for _code, _v in _leg_wt.items():
+            _c = _leg_counts.get(_code) or 1
+            _dk = _v.get("dicke_cm")
+            if _dk and _v.get("art") == "aussen" and _sa:
+                _la[_dk] = _la.get(_dk, 0) + _c / _sa * 100.0
+            elif _dk and _v.get("art") == "innen" and _si:
+                _li[_dk] = _li.get(_dk, 0) + _c / _si * 100.0
+        if _la or _li:
+            wand_verteilung = {"aussen": _la, "innen": _li}
     if (wand_verteilung and (wand_verteilung.get("aussen") or wand_verteilung.get("innen"))
             and not _explizite_verteilung):
         # LEGENDE-basiert: echte Wandstärken + Verteilung aus dem Plan gelesen

@@ -3120,9 +3120,10 @@ async def projekt_massen(body: ProjektMassenRequest):
             # beschrifteten Plan → sehr wahrscheinlich Fehl-Lesung (z.B. ein als
             # „Wohnzimmer" gelesener Anriss neben „Wohnraum Küche"). Echte Räume sind
             # hier text-first ODER haben einen lesbaren Belag. Eng gefasst + reversibel.
-            elif (sn and not _is_text_room(r) and not r.get("_hallucination")
-                  and not (r.get("bodenbelag") or "").strip()):
-                r["_hallucination"] = "Vision-Raum ohne lesbaren Bodenbelag (vermutl. Fehl-Lesung)"
+            elif sn and not _is_text_room(r) and not r.get("_hallucination"):
+                _bb = (r.get("bodenbelag") or "").strip().lower()
+                if not _bb or _bb in ("nicht erkennbar", "unbekannt", "unklar", "n/a"):
+                    r["_hallucination"] = "Vision-Raum ohne lesbaren Bodenbelag (vermutl. Fehl-Lesung)"
 
     cleaned_rooms = []
     for idx, r in enumerate(merged_rooms):
