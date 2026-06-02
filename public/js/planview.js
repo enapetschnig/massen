@@ -414,10 +414,15 @@
         var sw = cluster.w * scale + 16;
         var sh = cluster.h * scale + 16;
         var isActive = cluster === activeCluster;
+        // SICHERHEIT FARBLICH: den zum Cluster gehörenden gemergten Raum finden und
+        // nach Tier einfärben — grün=byte-exakt aus Text, blau=KI+Text verifiziert,
+        // orange=nur Vision. So sieht der Polier AM PLAN, worauf er sich verlassen kann.
+        var room = _clusterRoom(cluster);
+        var col = TIER_COL[room ? getTier(room) : 'text'] || TIER_COL.text;
 
-        overlayCtx.fillStyle = isActive ? 'rgba(15,118,110,0.16)' : 'rgba(15,118,110,0.06)';
+        overlayCtx.fillStyle = isActive ? col.fillA : col.fill;
         overlayCtx.fillRect(sx, sy, sw, sh);
-        overlayCtx.strokeStyle = isActive ? '#0f766e' : 'rgba(15,118,110,0.55)';
+        overlayCtx.strokeStyle = col.stroke;
         overlayCtx.lineWidth = isActive ? 2.5 : 1.5;
         overlayCtx.setLineDash([]);
         overlayCtx.strokeRect(sx, sy, sw, sh);
@@ -428,14 +433,32 @@
           var tw = overlayCtx.measureText(labelText).width;
           overlayCtx.fillStyle = '#fff';
           overlayCtx.fillRect(sx, sy - 20, tw + 12, 20);
-          overlayCtx.strokeStyle = '#0f766e';
+          overlayCtx.strokeStyle = col.stroke;
           overlayCtx.lineWidth = 1;
           overlayCtx.strokeRect(sx, sy - 20, tw + 12, 20);
-          overlayCtx.fillStyle = '#0f766e';
+          overlayCtx.fillStyle = col.stroke;
           overlayCtx.fillText(labelText, sx + 6, sy - 6);
         }
       });
     }
+  }
+
+  // Tier-Farben für das Plan-Overlay (decken sich mit den Sidebar-Punkten).
+  var TIER_COL = {   // decken sich mit den Legende-Punkten (trust-dot text/matched/inferred)
+    text:     { fill: 'rgba(15,118,110,0.08)', fillA: 'rgba(15,118,110,0.18)', stroke: '#0f766e' },
+    matched:  { fill: 'rgba(26,58,92,0.08)',   fillA: 'rgba(26,58,92,0.18)',   stroke: '#1a3a5c' },
+    inferred: { fill: 'rgba(243,147,1,0.10)',  fillA: 'rgba(243,147,1,0.22)',  stroke: '#f39301' },
+    manual:   { fill: 'rgba(124,58,237,0.08)', fillA: 'rgba(124,58,237,0.18)', stroke: '#7c3aed' },
+  };
+  function _normNm(s) { return (s || '').toLowerCase().replace(/[\s\-_/]+/g, ''); }
+  function _clusterRoom(cluster) {
+    var nm = _normNm(cluster && cluster.name);
+    if (!nm) return null;
+    for (var i = 0; i < _stateRaeume.length; i++) {
+      var rn = _normNm(_stateRaeume[i].name);
+      if (rn && (rn === nm || rn.indexOf(nm) >= 0 || nm.indexOf(rn) >= 0)) return _stateRaeume[i];
+    }
+    return null;
   }
 
   function handleClick(cx, cy) {
