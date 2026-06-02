@@ -49,11 +49,12 @@ def run():
         if not cond:
             fails.append(name)
 
-    # ── Default-Schwelle festnageln ──
-    check("Default-Öffnungsschwelle = 5,0 m²", ML.OEFFNUNG_ABZUG_SCHWELLE_M2 == 5.0)
-    check("oeffnung_abzug: 6,0 m² wird abgezogen", ML.oeffnung_abzug(3.0, 2.0) is True)
-    check("oeffnung_abzug: 4,4 m² wird übermessen", ML.oeffnung_abzug(2.2, 2.0) is False)
-    check("oeffnung_abzug: 1,0 m² wird übermessen", ML.oeffnung_abzug(1.0, 1.0) is False)
+    # ── Default-Schwelle festnageln (ÖNORM B 2204 §5.5.1.3: 4,0 m²) ──
+    check("Default-Öffnungsschwelle = 4,0 m²", ML.OEFFNUNG_ABZUG_SCHWELLE_M2 == 4.0)
+    check("oeffnung_abzug: 6,0 m² wird abgezogen (>4)", ML.oeffnung_abzug(3.0, 2.0) is True)
+    check("oeffnung_abzug: 4,4 m² wird abgezogen (>4)", ML.oeffnung_abzug(2.2, 2.0) is True)
+    check("oeffnung_abzug: 3,0 m² wird übermessen (<4)", ML.oeffnung_abzug(1.5, 2.0) is False)
+    check("oeffnung_abzug: 1,0 m² wird übermessen (<4)", ML.oeffnung_abzug(1.0, 1.0) is False)
 
     # ── PUTZ (ÖNORM B 2210): nur > 5 m² abziehen + Laibung ──
     putz = gewerk_putz(ROOMS, WINDOWS, BAUDATEN)
@@ -85,7 +86,7 @@ def run():
     if fails:
         print(f"FEHLER: {len(fails)} Zusage(n) verletzt: {fails}")
         return 1
-    print("OK — ÖNORM-Öffnungsverhalten festgenagelt (Putz >5m²+Laibung, Maler >5m², Estrich neutral).")
+    print("OK — ÖNORM-Öffnungsverhalten festgenagelt (Putz >4m²+Laibung, Maler >4m², Estrich neutral).")
     return 0
 
 

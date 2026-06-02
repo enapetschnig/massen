@@ -17,12 +17,13 @@ import re
 # ════════════════════════════════════════════════════════════════════════
 # ÖNORM-Konstanten & Standard-Annahmen
 # ════════════════════════════════════════════════════════════════════════
-OEFFNUNG_ABZUG_SCHWELLE_M2 = 5.0  # Praxis-Regel: bis 5 m² übermessen,
-                                  # darüber abziehen + Laibung. (ÖNORM B 2210
-                                  # nennt 0,5 m² Schwelle, VOB/DIN 18350 2,5 m²
-                                  # — bei Einfamilienhäusern üblich 5 m² für
-                                  # einfachere Kalkulation und weil Innentüren
-                                  # & Standard-Fenster sowieso <5 m² sind.)
+OEFFNUNG_ABZUG_SCHWELLE_M2 = 4.0  # ÖNORM B 2204:2019 §5.5.1.3: sind KEINE eigenen
+                                  # Laibungs-Positionen vorgesehen, werden Öffnungen
+                                  # BIS 4,0 m² durchgemessen (übermessen, keine eigene
+                                  # Laibung); ÜBER 4,0 m² abziehen + Laibung verrechnen.
+                                  # Konsistent mit B 2210 (Putz: Fenster <4 m² = Putzfläche)
+                                  # & B 2215. Strenges Mauerwerks-Ausmaß (B 2206) nennt
+                                  # 0,5 m² als Untergrenze — daher je Firma/Gewerk einstellbar.
 
 DEFAULT_BAUDATEN = {
     "aussenwand_cm": 38,
