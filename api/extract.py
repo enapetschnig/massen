@@ -4698,6 +4698,29 @@ async def projekt_export(body: ProjektMassenRequest):
         return Response(content=csv_r, media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{fn_r}"'})
 
+    # CLEAN "OENORM"-FORMAT: nur die ÖNORM-Massenermittlung als prüfbares LV
+    # (Gewerk → Positionen mit ÖNORM-Bezug + Aufmaß-Zeilen). Ohne Bestell-Einheiten.
+    if (body.export_format or "").lower() in ("oenorm", "önorm", "massen"):
+        rl = ["Gewerk;Pos;Beschreibung;Menge;Einheit;ÖNORM-Bezug;Konfidenz %"]
+        for gk, ginfo in (data.get("gewerke") or {}).items():
+            label = (ginfo.get("label") or gk)
+            for p in ginfo.get("positionen") or []:
+                rl.append(";".join([esc(label), esc(p.get("posnr")), esc(p.get("beschreibung")),
+                                    fmt(p.get("endsumme")), esc(p.get("einheit")),
+                                    esc(p.get("quelle")), fmt((p.get("konfidenz") or 0) * 100, 0)]))
+                for z in p.get("zeilen") or []:
+                    masse = " ".join([s for s in [
+                        (str(z["anzahl"]) + "×") if z.get("anzahl") else "",
+                        fmt(z.get("laenge")) if z.get("laenge") else "",
+                        ("×" + fmt(z["breite"])) if z.get("breite") else "",
+                        ("×" + fmt(z["hoehe"])) if z.get("hoehe") else ""] if s])
+                    rl.append(";".join(["", "", "  " + esc(z.get("text")), fmt(z.get("wert")), "",
+                                        esc((masse + "  " + (z.get("quelle") or "")).strip()), ""]))
+        csv_o = "﻿" + "\r\n".join(rl) + "\r\n"
+        fn_o = f"oenorm-massenermittlung-{(data.get('projekt_id') or 'export')[:8]}.csv"
+        return Response(content=csv_o, media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{fn_o}"'})
+
     lines = []
 
     # Plan-Header

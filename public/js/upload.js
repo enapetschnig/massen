@@ -906,7 +906,9 @@
       .then(function (blob) {
         var url = window.URL.createObjectURL(blob);
         var a = document.createElement('a'); a.href = url;
-        a.download = (format === 'rohbau' ? 'materialliste-' : 'projekt-massenermittlung-') +
+        a.download = (format === 'rohbau' ? 'materialliste-' :
+                      format === 'oenorm' ? 'oenorm-massenermittlung-' :
+                      'projekt-massenermittlung-') +
           (projectId || 'export').slice(0, 8) + '.csv';
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
@@ -918,6 +920,9 @@
     var btn = document.getElementById('projekt-export-btn');       // saubere Materialliste (Polier)
     if (btn && !btn.dataset.bound) { btn.dataset.bound = '1';
       btn.addEventListener('click', function () { doExport('rohbau', btn); }); }
+    var btnOe = document.getElementById('projekt-export-oenorm-btn'); // nur ÖNORM-Massenermittlung
+    if (btnOe && !btnOe.dataset.bound) { btnOe.dataset.bound = '1';
+      btnOe.addEventListener('click', function () { doExport('oenorm', btnOe); }); }
     var btnFull = document.getElementById('projekt-export-voll-btn'); // voller Dump
     if (btnFull && !btnFull.dataset.bound) { btnFull.dataset.bound = '1';
       btnFull.addEventListener('click', function () { doExport(null, btnFull); }); }
