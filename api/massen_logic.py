@@ -252,7 +252,21 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG"):
         if u:
             pos.add_zeile(_room_name(r), laenge=u, hoehe=hh, summe=u * hh,
                           quelle=f"U={u} × H={hh}")
-    pos.konfidenz = 0.6
+    # Σ(U×H) ist byte-exakt: Raum-Umfänge kommen aus dem Text-Layer, die Höhe je Raum
+    # aus dem Text oder — uniform — aus der verifizierten Geschoss-Höhe. Das ist ein
+    # exakter Kontrollwert, kein wackeliger Schätzwert. Konfidenz nach Höhen-Herkunft:
+    #   • genug Räume mit eigener (byte-exakter) Höhe → 0.88
+    #   • Geschoss-Höhe aus Schnitt/Legende verifiziert → 0.85 (U exakt × verifizierte H)
+    #   • nur Default-Höhe geraten → 0.72
+    _h_text = sum(1 for r in innen if _room_value(r, "hoehe_m"))
+    _ghq = (baudaten.get("_quellen", {}).get("geschosshoehe_m") or "").lower()
+    _gh_verifiziert = any(k in _ghq for k in ("schnitt", "legende", "doppelcheck", "raumhoehen"))
+    if _h_text >= max(1, len(innen) * 0.5):
+        pos.konfidenz = 0.88
+    elif _gh_verifiziert:
+        pos.konfidenz = 0.85
+    else:
+        pos.konfidenz = 0.72
     positionen.append(pos)
 
     # Pos 2: Stahlbeton-Decke m³
@@ -264,7 +278,11 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG"):
         if f:
             pos.add_zeile(_room_name(r), laenge=f, hoehe=decke_m, summe=f * decke_m,
                           quelle=f"F={f} × d={decke_m:.2f}")
-    pos.konfidenz = 0.85 if baudaten.get("_quellen", {}).get("decke_cm") == "vision" else 0.6
+    # Fläche byte-exakt (Σ Raumfläche) × Dicke. Konfidenz nach DICKE-Quelle:
+    # Legende/Doppelcheck = byte-exakt (hoch), Schnitt/Vision = mittel, sonst Default.
+    _dq = (baudaten.get("_quellen", {}).get("decke_cm") or "").lower()
+    pos.konfidenz = (0.92 if ("legende" in _dq or "doppelcheck" in _dq)
+                     else 0.82 if ("schnitt" in _dq or "vision" in _dq) else 0.65)
     positionen.append(pos)
 
     # Pos 3: Bodenplatte m³ (nur EG/KG/UG)
@@ -276,7 +294,10 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG"):
         pos.add_zeile("Bodenplatte gesamt", laenge=grundflaeche, hoehe=bopl_m,
                       summe=grundflaeche * bopl_m,
                       quelle=f"ΣF={grundflaeche:.2f} × d={bopl_m:.2f}")
-        pos.konfidenz = 0.8 if baudaten.get("_quellen", {}).get("bodenplatte_cm") == "vision" else 0.55
+        # Grundfläche byte-exakt × Dicke. Konfidenz nach DICKE-Quelle wie bei der Decke.
+        _bq = (baudaten.get("_quellen", {}).get("bodenplatte_cm") or "").lower()
+        pos.konfidenz = (0.9 if ("legende" in _bq or "doppelcheck" in _bq)
+                         else 0.8 if ("schnitt" in _bq or "vision" in _bq) else 0.62)
         positionen.append(pos)
     return positionen
 
