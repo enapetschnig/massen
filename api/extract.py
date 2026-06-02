@@ -73,6 +73,13 @@ except Exception as _e:  # pragma: no cover
     print(f"[kalibrierung] Import fehlgeschlagen: {_e}")
     _KALIB_OK = False
 
+try:
+    import ensemble as _ens
+    _ENSEMBLE_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[ensemble] Import fehlgeschlagen: {_e}")
+    _ENSEMBLE_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -286,33 +293,38 @@ def _render_grundriss_tiles(pdf_bytes: bytes, max_px=1500, max_tiles=6):
         doc.close()
 
 
-def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
-    """Ruft den Opus-Bauingenieur-Pass 1× auf: rendert das Blatt, schickt die
-    byte-exakten Fakten + Bild(er) an claude-opus-4-8 (temperature=0). Liefert das
-    geparste Urteil ODER {"_fehler": ...} bei API-/Parse-Fehler (fallback-sicher).
-    Zusätzlich opus_hash (sha1 des Roh-JSON) für Determinismus-Audit."""
-    import anthropic
+def _opus_content(pdf_bytes: bytes, fakten: dict):
+    """Rendert Gesamtblatt + scharfe Grundriss-Kacheln EINMAL und baut den Opus-
+    Message-Content (Fakten + Bilder). Returns content-Liste oder None (kein Bild).
+    Getrennt vom API-Call, damit das Ensemble nur 1× rendert (Speicher-schonend)."""
     import base64
-    import hashlib
-    try:
-        bilder = _render_plan_bilder(pdf_bytes)        # Gesamtblatt (Übersicht/Schnitt)
-        if not bilder:
-            return {"_fehler": "kein Bild gerendert", "_quelle": "fallback"}
-        tiles = _render_grundriss_tiles(pdf_bytes)     # SCHARFE Grundriss-/Ansichts-Kacheln
-        client = anthropic.Anthropic(api_key=api_key, timeout=120.0, max_retries=3)
-        content = [{"type": "text", "text": "BYTE-EXAKTE FAKTEN (nicht ändern):\n" +
-                    json.dumps(fakten, ensure_ascii=False)}]
-        content.append({"type": "text", "text": "GESAMTBLATT (Übersicht + Schnitte/Ansichten):"})
-        for ib in bilder:
+    bilder = _render_plan_bilder(pdf_bytes)        # Gesamtblatt (Übersicht/Schnitt)
+    if not bilder:
+        return None
+    tiles = _render_grundriss_tiles(pdf_bytes)     # SCHARFE Grundriss-/Ansichts-Kacheln
+    content = [{"type": "text", "text": "BYTE-EXAKTE FAKTEN (nicht ändern):\n" +
+                json.dumps(fakten, ensure_ascii=False)}]
+    content.append({"type": "text", "text": "GESAMTBLATT (Übersicht + Schnitte/Ansichten):"})
+    for ib in bilder:
+        content.append({"type": "image", "source": {"type": "base64",
+            "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
+    if tiles:
+        content.append({"type": "text", "text": f"SCHARFE GRUNDRISS-KACHELN ({len(tiles)}, "
+            "hohe Auflösung — hier Schraffur/Wandstärken + Fenster-/Tür-Breiten ablesen):"})
+        for ib in tiles:
             content.append({"type": "image", "source": {"type": "base64",
                 "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
-        if tiles:
-            content.append({"type": "text", "text": f"SCHARFE GRUNDRISS-KACHELN ({len(tiles)}, "
-                "hohe Auflösung — hier Schraffur/Wandstärken + Fenster-/Tür-Breiten ablesen):"})
-            for ib in tiles:
-                content.append({"type": "image", "source": {"type": "base64",
-                    "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
-        content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
+    content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
+    return content
+
+
+def _opus_call(content, api_key: str) -> dict:
+    """EIN Opus-API-Call auf vorgerendertem Content + JSON-Parse. Liefert das Urteil
+    ODER {"_fehler": ...} (fallback-sicher). opus_hash für Determinismus-Audit."""
+    import anthropic
+    import hashlib
+    try:
+        client = anthropic.Anthropic(api_key=api_key, timeout=120.0, max_retries=3)
         # claude-opus-4-8 akzeptiert KEIN temperature (deprecated → 400) → weglassen.
         resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000,
             system=OPUS_BAUINGENIEUR_PROMPT, messages=[{"role": "user", "content": content}])
@@ -322,7 +334,6 @@ def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
         except Exception:
             mjs = re.search(r"\{[\s\S]*\}", raw)
             urteil = json.loads(mjs.group()) if mjs else {}
-        # Determinismus-Audit (KEINE Garantie — temperature=0 ist Absicht, nicht Zusage)
         urteil["_opus_hash"] = hashlib.sha1((raw or "").encode("utf-8")).hexdigest()[:16]
         print(f"[opus-bauingenieur] konf={urteil.get('gesamtkonfidenz')}, "
               f"bereiche={len(urteil.get('ueberdachte_bereiche') or [])}, "
@@ -330,8 +341,58 @@ def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
         return urteil
     except Exception as _exc:
         print(f"[opus-bauingenieur] failed: {_exc!r}")
-        # Fehler EHRLICH signalisieren statt stilles {} (Audit-Trail).
         return {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
+
+
+def _run_opus_pass(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
+    """Opus-Bauingenieur-Pass 1×: rendert das Blatt + Kacheln und schickt sie mit den
+    byte-exakten Fakten an claude-opus-4-8. {urteil} oder {"_fehler": ...}."""
+    try:
+        content = _opus_content(pdf_bytes, fakten)
+    except Exception as _exc:
+        print(f"[opus-bauingenieur] render failed: {_exc!r}")
+        return {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
+    if content is None:
+        return {"_fehler": "kein Bild gerendert", "_quelle": "fallback"}
+    return _opus_call(content, api_key)
+
+
+def _run_opus_ensemble(pdf_bytes: bytes, fakten: dict, api_key: str) -> dict:
+    """SELF-CONSISTENCY: ruft den Opus-Pass N× PARALLEL auf (gleiche Latenz wie 1×)
+    und führt die Urteile deterministisch zusammen (Säulen=Modus, Dach=Mehrheit,
+    Höhe=Median). Zwei Effekte: (1) Total-Ausfall-Schutz — scheitert 1 Lauf
+    (Timeout/Parse), zählt ein anderer, statt „Schnitt ausgefallen → keine Säulen";
+    (2) die volatilen Zähl-Werte konvergieren über die Läufe (weniger Streuung).
+    N via env OPUS_ENSEMBLE_N (default 3, 1 = altes Verhalten). FALLBACK-SICHER:
+    ohne ensemble-Modul oder bei nur 1 Lauf identisch zum Einzel-Pass."""
+    try:
+        n = max(1, int(os.environ.get("OPUS_ENSEMBLE_N", "3")))
+    except (TypeError, ValueError):
+        n = 3
+    if n == 1 or not _ENSEMBLE_OK:
+        return _run_opus_pass(pdf_bytes, fakten, api_key)
+    # EINMAL rendern (Speicher!), dann N× nur den API-Call parallel.
+    try:
+        content = _opus_content(pdf_bytes, fakten)
+    except Exception as _exc:
+        print(f"[opus-ensemble] render failed: {_exc!r}")
+        return {"_fehler": str(_exc)[:200], "_quelle": "fallback"}
+    if content is None:
+        return {"_fehler": "kein Bild gerendert", "_quelle": "fallback"}
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        with ThreadPoolExecutor(max_workers=n) as _ex:
+            urteile = list(_ex.map(lambda _: _opus_call(content, api_key), range(n)))
+    except Exception as _exc:
+        print(f"[opus-ensemble] parallel failed, fallback single: {_exc!r}")
+        return _opus_call(content, api_key)
+    merged = _ens.reconcile_opus_urteile(urteile)
+    if merged is None:   # alle N gescheitert → ehrliches Fehler-Signal (wie Einzel-Pass)
+        _fehler = next((u for u in urteile if isinstance(u, dict) and u.get("_fehler")), None)
+        return _fehler or {"_fehler": "alle Opus-Läufe ohne Ergebnis", "_quelle": "ensemble"}
+    print(f"[opus-ensemble] n={merged.get('_ensemble_n')} saeulen={merged.get('_ensemble_saeulen')} "
+          f"→ {merged.get('saeulen_anzahl')}")
+    return merged
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2508,7 +2569,7 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
         opus_bauingenieur = {}
         if _opus_an and _opus_per_plan and _hat_schnitt:
             _leg_facts = _parse_legende(spans_all) if _LEGENDE_OK else {}
-            opus_bauingenieur = _run_opus_pass(
+            opus_bauingenieur = _run_opus_ensemble(
                 pdf_bytes,
                 _opus_fakten(unique_rooms, _leg_facts, massketten_bbox,
                              len(unique_fenster), len(all_tueren)),
@@ -3623,7 +3684,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                 _fakten = _opus_fakten(merged_rooms, best_legende, _mk,
                                        len(alle_fenster), len(alle_tueren))
                 _opus_review_pdf, _opus_review_api_key, _opus_review_fakten = _pdf, _api_key, _fakten
-                _urteil = _run_opus_pass(_pdf, _fakten, _api_key)
+                _urteil = _run_opus_ensemble(_pdf, _fakten, _api_key)
                 opus_versuche += 1
                 if _urteil.get("_fehler"):
                     opus_fehler += 1

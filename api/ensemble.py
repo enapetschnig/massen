@@ -124,6 +124,41 @@ def reconcile_zaehlung(lesungen, text_wert=None, label=""):
             "alternativen": sorted(k for k in c if k != wert)}
 
 
+def reconcile_opus_urteile(urteile):
+    """Führt mehrere Opus-Bauingenieur-Urteile (GLEICHER Plan, N parallele Läufe) zu
+    EINEM robusten zusammen — gegen die Lauf-zu-Lauf-Streuung + gegen Total-Ausfälle
+    (mind. 1 erfolgreicher Lauf reicht).
+
+    Basis = Lauf mit der MEDIAN-Gesamtkonfidenz (repräsentativ, kein Ausreißer). Die
+    VOLATILEN Skalare werden robustifiziert: saeulen_anzahl = Modus, dach_typ =
+    Mehrheit, hoehe.rohbau_m = Median. Strukturen (ueberdachte_bereiche/wand_verteilung)
+    kommen vom Basis-Lauf — der deterministische Namens-Guard schützt den Carport-Fall
+    ohnehin downstream. Erwartet die ROH-Urteile (mit/ohne _fehler); filtert die Fehler.
+    Leere/komplett gescheiterte Liste → None."""
+    us = [u for u in (urteile or []) if isinstance(u, dict) and not u.get("_fehler")]
+    if not us:
+        return None
+    if len(us) == 1:
+        return dict(us[0], _ensemble_n=1)
+    konfs = [(float(u.get("gesamtkonfidenz") or 0), i) for i, u in enumerate(us)]
+    med_k = sorted(k for k, _ in konfs)[len(konfs) // 2]
+    base = dict(us[min(konfs, key=lambda x: abs(x[0] - med_k))[1]])
+    saeulen = [u.get("saeulen_anzahl") for u in us if u.get("saeulen_anzahl") is not None]
+    if saeulen:
+        base["saeulen_anzahl"] = modus_zahl(saeulen)
+    dts = [(u.get("dach") or {}).get("dach_typ") for u in us if (u.get("dach") or {}).get("dach_typ")]
+    if dts:
+        base["dach"] = dict(base.get("dach") or {})
+        base["dach"]["dach_typ"] = Counter(dts).most_common(1)[0][0]
+    hs = [(u.get("hoehe") or {}).get("rohbau_m") for u in us if (u.get("hoehe") or {}).get("rohbau_m")]
+    if hs:
+        base["hoehe"] = dict(base.get("hoehe") or {})
+        base["hoehe"]["rohbau_m"] = median_bucket([float(h) for h in hs], 0.05)
+    base["_ensemble_n"] = len(us)
+    base["_ensemble_saeulen"] = sorted(int(round(float(s))) for s in saeulen) if saeulen else []
+    return base
+
+
 def reconcile_masse(lesungen, bucket=0.05, text_wert=None, label=""):
     """Wie reconcile_zaehlung, aber für ein MASS (Breite/Höhe in m). Median auf
     bucket gerastert; Übereinstimmung im Bucket = Konfidenz."""

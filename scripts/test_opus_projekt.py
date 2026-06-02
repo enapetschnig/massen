@@ -9,6 +9,9 @@ Lauf: python3 scripts/test_opus_projekt.py   (Exit 0 = bestanden)
 import sys, os, asyncio
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "api")); sys.path.insert(0, ROOT)
+# Dieser Test prüft die PROJEKT-Orchestrierung (1× Opus, nicht pro Plan) — NICHT das
+# Self-Consistency-Ensemble. Ensemble auf 1 Lauf → ruft den Mock genau 1× (sonst N×).
+os.environ["OPUS_ENSEMBLE_N"] = "1"
 import api.extract as ex
 ex._MASSEN_OK = ex._MATERIAL_OK = ex._KONSISTENZ_OK = ex._LEGENDE_OK = True
 

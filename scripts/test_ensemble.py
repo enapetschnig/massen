@@ -62,8 +62,31 @@ a = E.reconcile_zaehlung([4, 5, 4, 5, 4])
 b = E.reconcile_zaehlung([5, 4, 5, 4, 4])  # andere Reihenfolge, gleiche Multimenge
 check("reihenfolge-unabhängig identisch", a == b, f"{a} vs {b}")
 
+print("\n9) reconcile_opus_urteile — N Läufe → EIN robustes Urteil:")
+U = [
+    {"saeulen_anzahl": 4, "dach": {"dach_typ": "flach"}, "hoehe": {"rohbau_m": 2.95}, "gesamtkonfidenz": 0.8},
+    {"saeulen_anzahl": 5, "dach": {"dach_typ": "flach"}, "hoehe": {"rohbau_m": 2.93}, "gesamtkonfidenz": 0.7},
+    {"saeulen_anzahl": 5, "dach": {"dach_typ": "pult"}, "hoehe": {"rohbau_m": 2.97}, "gesamtkonfidenz": 0.75},
+]
+r = E.reconcile_opus_urteile(U)
+check("Säulen = Modus (5, nicht 4)", r["saeulen_anzahl"] == 5, f"got {r['saeulen_anzahl']}")
+check("Dachtyp = Mehrheit (flach 2:1)", r["dach"]["dach_typ"] == "flach", f"got {r['dach']}")
+check("Höhe = Median-Bucket (~2.95)", abs(r["hoehe"]["rohbau_m"] - 2.95) < 0.03, f"got {r['hoehe']}")
+check("Ensemble-N protokolliert", r["_ensemble_n"] == 3)
+check("Säulen-Lesungen protokolliert", r["_ensemble_saeulen"] == [4, 5, 5], f"got {r.get('_ensemble_saeulen')}")
+# Total-Ausfall-Schutz: 2 von 3 Läufen scheitern → das 1 gute Urteil zählt
+U2 = [{"_fehler": "timeout"}, {"saeulen_anzahl": 6, "gesamtkonfidenz": 0.8}, {"_fehler": "parse"}]
+r2 = E.reconcile_opus_urteile(U2)
+check("1 erfolgreicher Lauf reicht (Säulen 6)", r2 and r2["saeulen_anzahl"] == 6 and r2["_ensemble_n"] == 1, f"got {r2}")
+check("alle gescheitert → None", E.reconcile_opus_urteile([{"_fehler": "x"}, {"_fehler": "y"}]) is None)
+check("leere Liste → None", E.reconcile_opus_urteile([]) is None)
+# Determinismus: Reihenfolge der Läufe egal fürs robuste Skalar-Ergebnis
+ra = E.reconcile_opus_urteile(U)
+rb = E.reconcile_opus_urteile(list(reversed(U)))
+check("Säulen reihenfolge-stabil", ra["saeulen_anzahl"] == rb["saeulen_anzahl"])
+
 print()
 if fails:
     print(f"FEHLER: {len(fails)} Test(s) gescheitert: {fails}")
     sys.exit(1)
-print("OK — Reconciliation deterministisch, Modus/Median robust, Konfidenz ehrlich, Anker schlägt.")
+print("OK — Reconciliation deterministisch, Modus/Median robust, Konfidenz ehrlich, Anker schlägt, Opus-Ensemble robust.")
