@@ -4173,18 +4173,47 @@ async def projekt_massen(body: ProjektMassenRequest):
     # 7b2) OPUS-SCHLUSSPRÜFUNG (#3): der Polier prüft die fertige Liste gegen den
     # scharfen Plan und flaggt Unstimmigkeiten (meldet, korrigiert nicht). Nutzt das
     # schon geladene PDF + den api_key der Projekt-Opus-Phase. Env OPUS_REVIEW=0 = aus.
+    # Entkoppelt vom Opus-Fallback (sonst lief die Prüfung nur, wenn der Fallback lief)
+    # UND eingefroren: das Ergebnis wird mit einem Hash der Materialliste gespeichert.
+    # Gleiche Materialliste → gespeicherte Prüfung wiederverwenden (KONSTANT + schnell,
+    # kein Opus-Call je Öffnen); ändert sich die Liste (Override/Kalibrierung) → neu.
     opus_pruefung = None
-    if (os.environ.get("OPUS_REVIEW", "1") != "0" and _opus_review_pdf and _opus_review_api_key
+    _rev_plan = best_schnitt_plan or best_content_plan
+    if (os.environ.get("OPUS_REVIEW", "1") != "0" and _rev_plan
             and materialliste_result and not materialliste_result.get("error")):
         try:
-            _rev = _run_opus_review(_opus_review_pdf, _opus_review_fakten or {},
-                                    materialliste_result, _opus_review_api_key)
-            if _rev and not _rev.get("_fehler"):
-                opus_pruefung = {
-                    "befunde": _rev.get("pruefung") or [],
-                    "gesamturteil": _rev.get("gesamturteil"),
-                    "konfidenz": _rev.get("konfidenz"),
-                }
+            import hashlib as _hl2, json as _json2
+            _ml_hash = _hl2.sha256(_json2.dumps(
+                (materialliste_result or {}).get("bauteile") or {}, sort_keys=True,
+                ensure_ascii=False).encode("utf-8")).hexdigest()
+            _cached = (_rev_plan.get("agent_log") or {}).get("opus_review")
+            if isinstance(_cached, dict) and _cached.get("ml_hash") == _ml_hash:
+                opus_pruefung = _cached.get("result")     # eingefroren → konstant + schnell
+            else:
+                _ak = _opus_review_api_key
+                if not _ak:
+                    _c = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data
+                    _ak = (_c[0]["value"] if _c else os.environ.get("ANTHROPIC_API_KEY", "")).strip()
+                _pdf2 = _opus_review_pdf
+                if _pdf2 is None and _rev_plan.get("storage_path"):
+                    _pdf2 = sb.storage.from_("plaene").download(_rev_plan["storage_path"])
+                _fk = _opus_review_fakten or _opus_fakten(
+                    merged_rooms, best_legende, (_rev_plan.get("agent_log") or {}).get("massketten_bbox"),
+                    len(alle_fenster), len(alle_tueren))
+                if _ak and _pdf2:
+                    _rev = _run_opus_review(_pdf2, _fk, materialliste_result, _ak)
+                    if _rev and not _rev.get("_fehler"):
+                        opus_pruefung = {
+                            "befunde": _rev.get("pruefung") or [],
+                            "gesamturteil": _rev.get("gesamturteil"),
+                            "konfidenz": _rev.get("konfidenz"),
+                        }
+                    try:   # Ergebnis (auch None) einfrieren → nächster Aufruf würfelt nicht
+                        _al = dict(_rev_plan.get("agent_log") or {})
+                        _al["opus_review"] = {"ml_hash": _ml_hash, "result": opus_pruefung}
+                        sb.table("plaene").update({"agent_log": _al}).eq("id", _rev_plan["id"]).execute()
+                    except Exception as _we:
+                        print(f"[opus-review] freeze-write failed: {_we!r}")
         except Exception as _exc:
             print(f"[opus-review] consume failed: {_exc!r}")
 
