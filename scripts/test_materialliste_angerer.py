@@ -71,8 +71,8 @@ SOLL = [
     ("Frostschürze", "XPS-SF G30 140", 75, 0.20),
     ("Frostschürze", "Noppenfolie", 75, 0.20),
     ("Frostschürze", "Steckeisen", 125, 0.25),
-    ("Mauerwerk EG", "HLZ 50", 48, 0.30),
-    ("Mauerwerk EG", "HLZ 12", 7, 0.40),
+    ("Mauerwerk EG", "HLZ 50", 48, 0.15),   # erreicht -2% (Verschnitt-Aufschlag) → enger nageln
+    ("Mauerwerk EG", "HLZ 12", 7, 0.22),    # erreicht ±0%; 0.22 absorbiert ±1 Paletten-Rundung auf 7
     ("Decke über EG", "Schaltafel", 250, 0.15),
     ("Decke über EG", "EKV", 340, 0.15),
     ("Decke über EG", "ISO-Korb", 48, 0.20),

@@ -5125,6 +5125,7 @@ async def kalibrierung_reset(body: KalibrierungUploadRequest):
 # (keine beliebigen Keys; byte-exakte cm-Werte gehören nicht hierher).
 _MERKBARE_KEYS = {
     "bodenplatte_aufschlag", "decke_aufschlag", "decke_auskragung", "ekv_decke_aufschlag",
+    "loggia_decke_aufschlag", "hlz_verschnitt",
     "aussenumfang_aufschlag", "frostgraben_aufschlag", "frostschuerze_tiefe_m",
     "frostschuerze_breite_m", "xps_frostschuerze_tiefe_m", "iso_korb_anteil",
     "wand_anteil_50cm", "wand_anteil_38cm", "wand_anteil_25cm_aussen",

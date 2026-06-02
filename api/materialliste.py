@@ -51,6 +51,10 @@ DEFAULTS = {
     "wand_anteil_25cm_innen": 25.0,    # tragend
     "wand_anteil_20cm": 30.0,
     "wand_anteil_12cm": 45.0,
+    # Mauerwerks-Verschnitt: bestellte Ziegel-Paletten liegen über der NETTO-Wandfläche
+    # (Schnittreste an Öffnungen/Ecken, Bruch, Fugengeometrie) — ~5% ist Polier-Standard.
+    # Greift NUR auf die Paletten-Menge, nicht auf Mauermörtel/Voranstrich/EKV (rohes m²).
+    "hlz_verschnitt": 1.05,
     # Decken-Aufbau
     "decke_auskragung": 1.05,          # (Bodenplatte+Loggia) × Faktor = Schalungs-Fläche
     "loggia_decke_aufschlag": 1.15,    # überdachte Loggia/Terrasse-Decke spannt über
@@ -372,6 +376,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             m2 = iw_m2_innen_rohbau * pct / 100.0
             m2_pro_dicke[dd] = m2_pro_dicke.get(dd, 0) + m2
             formel_teile.setdefault(dd, []).append(f"IW {m2:.1f}m²")
+        versch = f("hlz_verschnitt", override)
         pos = []
         gesamt = 0.0
         for dd in sorted(m2_pro_dicke.keys(), reverse=True):
@@ -380,8 +385,8 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             cov = _coverage(dd)
             pos.append(MaterialPos(
                 "Mauerwerk EG", f"HLZ {int(round(dd))}cm Plan", "Paletten",
-                math.ceil(m2 / cov) if cov > 0 else 0,
-                f"{' + '.join(formel_teile[dd])} ÷ {cov}m²/Pal", konfidenz=konf))
+                math.ceil(m2 * versch / cov) if cov > 0 else 0,
+                f"{' + '.join(formel_teile[dd])} ÷ {cov}m²/Pal × {versch} Verschnitt", konfidenz=konf))
         return pos, gesamt
 
     # Verteilungs-Quelle in Reihenfolge: EXPLIZIT gesetzte Anteile (User-Override
@@ -420,6 +425,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         out.extend(hlz_pos)
     else:
         # Fallback: hartcodierte Standard-Verteilung (kein Legende-Fund)
+        versch = f("hlz_verschnitt", override)
         a50 = aw_m2_aussen * f("wand_anteil_50cm", override) / 100.0
         a38 = aw_m2_aussen * f("wand_anteil_38cm", override) / 100.0
         a25a = aw_m2_aussen * f("wand_anteil_25cm_aussen", override) / 100.0
@@ -427,15 +433,15 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         i20 = iw_m2_innen_rohbau * f("wand_anteil_20cm", override) / 100.0
         i12 = iw_m2_innen_rohbau * f("wand_anteil_12cm", override) / 100.0
         out.append(MaterialPos("Mauerwerk EG", "HLZ 50cm H.I. Plan", "Paletten",
-            math.ceil(a50 / _coverage(50)), f"{a50:.1f}m² AW 50cm (Annahme)", konfidenz=0.5))
+            math.ceil(a50 * versch / _coverage(50)), f"{a50:.1f}m² AW 50cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
         out.append(MaterialPos("Mauerwerk EG", "HLZ 38cm H.I. Plan", "Paletten",
-            math.ceil(a38 / _coverage(38)), f"{a38:.1f}m² AW 38cm (Annahme)", konfidenz=0.5))
+            math.ceil(a38 * versch / _coverage(38)), f"{a38:.1f}m² AW 38cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
         out.append(MaterialPos("Mauerwerk EG", "HLZ 25cm Plan", "Paletten",
-            math.ceil((a25a + i25) / _coverage(25)), f"{a25a+i25:.1f}m² 25cm (Annahme)", konfidenz=0.5))
+            math.ceil((a25a + i25) * versch / _coverage(25)), f"{a25a+i25:.1f}m² 25cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
         out.append(MaterialPos("Mauerwerk EG", "HLZ 20cm Plan", "Paletten",
-            math.ceil(i20 / _coverage(20)), f"{i20:.1f}m² IW 20cm (Annahme)", konfidenz=0.5))
+            math.ceil(i20 * versch / _coverage(20)), f"{i20:.1f}m² IW 20cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
         out.append(MaterialPos("Mauerwerk EG", "HLZ 12cm Plan", "Paletten",
-            math.ceil(i12 / _coverage(12)), f"{i12:.1f}m² IW 12cm (Annahme)", konfidenz=0.5))
+            math.ceil(i12 * versch / _coverage(12)), f"{i12:.1f}m² IW 12cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
         gesamt_wand_m2 = a50 + a38 + a25a + i25 + i20 + i12
     out.append(MaterialPos(
         "Mauerwerk EG", "Mauermörtel", "Paletten",
