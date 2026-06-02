@@ -314,7 +314,16 @@ def _opus_content(pdf_bytes: bytes, fakten: dict):
         for ib in tiles:
             content.append({"type": "image", "source": {"type": "base64",
                 "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
-    content.append({"type": "text", "text": "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
+    _schluss = "Beurteile den Plan ganzheitlich (mit Beleg, nichts raten). Antworte NUR mit dem JSON."
+    if os.environ.get("OPUS_INVENTAR", "0") != "0":   # Phase 5: Voll-Inventar (Default AUS)
+        _schluss += (
+            "\n\nZUSÄTZLICH — BAUTEIL-INVENTAR: Liste im Feld \"bauteil_inventar\" ALLE tragenden"
+            " Bauteile, die du im Plan SIEHST, je mit Beleg: Stützen/Säulen, Treppen/Stiegen,"
+            " Kamine, Unterzüge/Überzüge, Schächte/Aufzug, Ringanker, Balkone/Podeste. Format je"
+            " Eintrag: {\"typ\":\"treppe\",\"anzahl\":1,\"position\":\"Mitte Grundriss\",\"beleg\":"
+            "\"Steigungslinie im Schnitt A-A\",\"konfidenz\":0.8}. NUR was du WIRKLICH siehst, IMMER"
+            " mit Beleg, sonst weglassen. Keine Maße/Mengen raten — nur erkennen + verorten.")
+    content.append({"type": "text", "text": _schluss})
     return content
 
 
@@ -4366,6 +4375,24 @@ async def projekt_massen(body: ProjektMassenRequest):
     except Exception as e:
         raise HTTPException(500, f"berechne_gewerke: {e}")
 
+    # 7b1) BAUTEIL-INVENTAR-CROSSCHECK (Phase 5, nur via OPUS_INVENTAR): was Opus im
+    # Plan SIEHT (Säulen/Treppen/Kamine/Unterzüge/Schächte) gegen die Liste/LV prüfen
+    # → „im Plan gesehen, nicht abgebildet" flaggen. FLAG-ONLY (keine Mengen). Dormant
+    # solange das Flag aus ist.
+    inventar_check_result = None
+    inventar_flaggen = []
+    if os.environ.get("OPUS_INVENTAR", "0") != "0" and isinstance(best_opus, dict):
+        _inv = best_opus.get("bauteil_inventar")
+        if _inv:
+            try:
+                from inventar_check import crosscheck_inventar
+                inventar_check_result = crosscheck_inventar(_inv, materialliste_result, gewerke_result)
+                inventar_flaggen = inventar_check_result.get("flaggen") or []
+                print(f"[inventar] erkannt={len(inventar_check_result.get('erkannt') or [])} "
+                      f"fehlend={len(inventar_check_result.get('fehlend') or [])}")
+            except Exception as _ie:
+                print(f"[inventar] crosscheck failed: {_ie!r}")
+
     # 7b2) OPUS-SCHLUSSPRÜFUNG (#3): der Polier prüft die fertige Liste gegen den
     # scharfen Plan und flaggt Unstimmigkeiten (meldet, korrigiert nicht). Nutzt das
     # schon geladene PDF + den api_key der Projekt-Opus-Phase. Env OPUS_REVIEW=0 = aus.
@@ -4534,6 +4561,9 @@ async def projekt_massen(body: ProjektMassenRequest):
             pruefliste.append({"prio": "mittel", "thema": f"{_kk.get('bauteil')} · Opus-Verdacht",
                                "hinweis": f"{_kk.get('material')}: Opus sieht {_kk.get('soll')} statt {_kk.get('alt')} "
                                           f"(Beleg: {_kk.get('beleg')}) — Abweichung zu groß, NICHT angewandt, manuell prüfen."})
+    # Bauteil-Inventar (Phase 5): „im Plan gesehen, nicht abgebildet"-Flaggen einreihen
+    for _if in (inventar_flaggen or []):
+        pruefliste.append(_if)
     _prio_rang = {"hoch": 0, "mittel": 1, "niedrig": 2}
     pruefliste.sort(key=lambda x: _prio_rang.get(x.get("prio"), 3))
 
@@ -4594,6 +4624,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "opus_quelle_plan": opus_projekt_plan,  # welches Blatt Opus gelesen hat
         "opus_pruefung": opus_pruefung,         # Schlussprüfung: Plausibilitäts-Befunde
         "opus_korrekturen": opus_korrekturen_log,  # S1: angewandte/geflaggte Mengen-Korrekturen (leer wenn OPUS_NUDGE aus)
+        "bauteil_inventar": inventar_check_result,  # Phase 5: Plan-Inventar-Crosscheck (None wenn OPUS_INVENTAR aus)
         "kalibrierung": {                        # firmenspezifische Selbst-Kalibrierung
             "aktiv": bool(kalibrierung_faktoren),
             "faktoren": kalibrierung_faktoren,
