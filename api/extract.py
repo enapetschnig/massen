@@ -4243,10 +4243,41 @@ async def projekt_massen(body: ProjektMassenRequest):
     _prio_rang = {"hoch": 0, "mittel": 1, "niedrig": 2}
     pruefliste.sort(key=lambda x: _prio_rang.get(x.get("prio"), 3))
 
+    # ── HERKUNFTS-LEDGER: jede Schlüssel-Zahl mit Quelle + Konfidenz + Doppelcheck-
+    # Status. Deterministische SICHT (ändert keinen Wert) — macht die Auswertung
+    # nachvollziehbar und gibt dem Chatbot eine saubere „woher kommt das"-Basis.
+    _dc_by_key = {d.get("key"): d for d in doppelcheck if d.get("key")}
+    _bq = (best_baudaten or {}).get("_quellen") or {}
+    _g = gemessen or {}
+    _kz = (materialliste_result or {}).get("kennzahlen") or {}
+    def _herk(groesse, wert, einheit, quelle, konf, key=None):
+        if wert in (None, 0, "", 0.0):
+            return None
+        try:
+            konf = round(float(konf), 2) if konf is not None else None
+        except (TypeError, ValueError):
+            konf = None
+        return {"groesse": groesse, "wert": wert, "einheit": einheit, "quelle": quelle,
+                "konfidenz": konf, "status": (_dc_by_key.get(key) or {}).get("status") if key else None}
+    herkunft = [h for h in [
+        _herk("Außenwand-Umfang", _g.get("aussenumfang_m"), "m", _g.get("quelle") or "Vision/Maßketten",
+              _g.get("umfang_konfidenz") or _g.get("konfidenz")),
+        _herk("Grundfläche", _g.get("bodenplatte_flaeche_m2"), "m²", "Σ Raumflächen (byte-exakt)", _g.get("konfidenz")),
+        _herk("Bodenplatten-Kante", _g.get("fundament_umfang_m"), "m", "Vision-Außenkontur", _g.get("konfidenz")),
+        _herk("Geschoss-Höhe", (best_baudaten or {}).get("geschosshoehe_m"), "m",
+              _bq.get("geschosshoehe_m") or "Raumhöhen", (best_baudaten or {}).get("konfidenz"), "geschosshoehe_m"),
+        _herk("Außenwand-Stärke", (best_baudaten or {}).get("aussenwand_cm"), "cm", _bq.get("aussenwand_cm") or "Legende", None),
+        _herk("Decke-Stärke", (best_baudaten or {}).get("decke_cm"), "cm", _bq.get("decke_cm") or "Legende", None, "decke_cm"),
+        _herk("Bodenplatte-Stärke", (best_baudaten or {}).get("bodenplatte_cm"), "cm", _bq.get("bodenplatte_cm") or "Legende", None, "bodenplatte_cm"),
+        _herk("Außenwand-Fläche", _kz.get("aussenwand_flaeche_m2"), "m²", "Umfang × Höhe", None),
+        _herk("Säulen/Stützen", saeulen_erkannt, "Stk", "Schnitt/Opus", None, "anzahl_saeulen"),
+    ] if h]
+
     return {
         "status": "ok",
         "projekt_id": projekt_id,
         "pruefliste": pruefliste,
+        "herkunft": herkunft,
         "legende_warnungen": (best_baudaten or {}).get("_warnungen") or [],
         "plaene_count": len(plaene),
         "plaene_total": len(plaene_all),

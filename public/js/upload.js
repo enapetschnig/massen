@@ -1288,7 +1288,8 @@
     return {
       bau_kenndaten: d.baudaten,
       kennzahlen: ml.kennzahlen,
-      materialliste_je_bauteil: ml.bauteile,
+      herkunft_der_zahlen: d.herkunft,
+      materialliste_je_bauteil: (ml && ml.bauteile) || {},
       raeume: (d.raeume || []).map(function (r) {
         return { name: r.name, flaeche_m2: r.flaeche_m2, umfang_m: r.umfang_m, hoehe_m: r.hoehe_m, bodenbelag: r.bodenbelag };
       }),
