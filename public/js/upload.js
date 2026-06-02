@@ -426,6 +426,27 @@
       (items.length > 12 ? '<div class="pl-more">… und ' + (items.length - 12) + ' weitere im Chat/Detail.</div>' : '');
   }
 
+  // HERKUNFTS-LEDGER: jede Schlüssel-Zahl mit Quelle + Verlässlichkeit (Transparenz).
+  function renderHerkunft(data) {
+    var el = document.getElementById('herkunft-ledger');
+    if (!el) return;
+    var items = (data && data.herkunft) || [];
+    if (!items.length) { el.innerHTML = ''; return; }
+    function konfTxt(it) {
+      if (it.status === 'bestätigt') return '<span class="hk-k hk-ok">doppelt bestätigt</span>';
+      if (it.konfidenz == null) return '';
+      var k = Math.round(it.konfidenz * 100);
+      var c = k >= 90 ? 'hk-ok' : (k >= 70 ? 'hk-mid' : 'hk-low');
+      return '<span class="hk-k ' + c + '">' + k + '%</span>';
+    }
+    el.innerHTML = '<table class="hk-table"><tbody>' + items.map(function (it) {
+      return '<tr><td class="hk-g">' + esc(it.groesse) + '</td>' +
+        '<td class="hk-v">' + esc(it.wert) + ' ' + esc(it.einheit || '') + '</td>' +
+        '<td class="hk-q">' + esc(it.quelle || '') + '</td>' +
+        '<td class="hk-kc">' + konfTxt(it) + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+
   // STATUS-BANNER: nur Hinweise, bei denen der Nutzer etwas tun kann/sollte
   function renderStatusBanner(data) {
     var statusEl = document.getElementById('ergebnis-status-banner');
@@ -578,6 +599,7 @@
     renderGeoBox(data);
     renderKennzahlen(data);
     renderPruefliste(data);
+    renderHerkunft(data);
     renderStatusBanner(data);
     renderKalibrierungStatus(data.kalibrierung);
 

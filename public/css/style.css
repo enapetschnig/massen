@@ -2743,3 +2743,16 @@ img {
 .gen-fill.gen-mid { background: var(--accent); }
 .gen-fill.gen-low { background: #dc2626; }
 .gen-pct { flex: 0 0 3rem; text-align: right; font-size: .78rem; font-weight: 700; color: var(--text); }
+
+/* ===== Herkunfts-Ledger (woher kommen die Zahlen) ===== */
+.hk-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.hk-table td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.hk-table tr:last-child td { border-bottom: none; }
+.hk-g { color: var(--text-light); }
+.hk-v { font-weight: 700; color: var(--text); white-space: nowrap; }
+.hk-q { color: var(--text-light); font-size: .78rem; }
+.hk-kc { text-align: right; white-space: nowrap; }
+.hk-k { font-size: .74rem; font-weight: 700; padding: .12rem .45rem; border-radius: 999px; }
+.hk-k.hk-ok { background: #ecfdf5; color: #047857; }
+.hk-k.hk-mid { background: var(--accent-soft); color: var(--accent-hover); }
+.hk-k.hk-low { background: #fef2f2; color: #b91c1c; }
