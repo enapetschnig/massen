@@ -65,7 +65,7 @@
     var name = document.getElementById('nf-name').value.trim();
     var email = document.getElementById('nf-email').value.trim();
     var pass = document.getElementById('nf-pass').value;
-    if (!TOKEN) { msg('Erst oben den Admin-Token laden.', 'warn'); return; }
+    if (!TOKEN && !(SESSION && SESSION.id)) { msg('Kein Admin-Zugriff — als Super-Admin einloggen oder Token laden.', 'warn'); return; }
     if (!name || !email || pass.length < 8) { msg('Name, E-Mail und Passwort (mind. 8 Zeichen) ausfüllen.', 'warn'); return; }
     btn.disabled = true; btn.textContent = 'Lege an …'; msg('Account wird angelegt …', 'info');
     api('/api/admin/firma-anlegen', { name: name, email: email, passwort: pass }).then(function (o) {
