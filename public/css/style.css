@@ -2756,3 +2756,32 @@ img {
 .hk-k.hk-ok { background: #ecfdf5; color: #047857; }
 .hk-k.hk-mid { background: var(--accent-soft); color: var(--accent-hover); }
 .hk-k.hk-low { background: #fef2f2; color: #b91c1c; }
+
+/* ===== Entschlackte Auswertung: Material-Board Tools + Abdeckung ===== */
+.ml-board-tools { display: flex; gap: .9rem; align-items: center; }
+.ml-tool { display: inline-flex; align-items: center; gap: .3rem; font-size: .78rem; color: var(--text-light); cursor: pointer; }
+/* Tier-Rand je Bauteil-Gruppe: sofort-bestellbar (grün) vs am-Bau-klären (grau) */
+.ml-group { border-top: 3px solid var(--border-strong); }
+.ml-group.tier-hoch { border-top-color: #16a34a; }
+.ml-group.tier-mittel { border-top-color: var(--accent); }
+.ml-group.tier-niedrig { border-top-color: var(--border-strong); }
+.ml-group-head { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
+.ml-group-name { font-weight: 700; }
+.ml-cover { flex: 0 0 84px; height: 7px; border-radius: 999px; overflow: hidden; display: inline-flex;
+  background: var(--border); }
+.ml-cover-seg { display: block; height: 100%; }
+.ml-cover-seg.hoch { background: #16a34a; }
+.ml-cover-seg.mittel { background: var(--accent); }
+.ml-cover-seg.niedrig { background: var(--border-strong); }
+.ml-group-meta { font-size: .74rem; color: var(--text-light); margin-left: auto; }
+.ml-copy { background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  font-size: .85rem; color: var(--text-light); padding: .1rem .4rem; line-height: 1; }
+.ml-copy:hover { background: var(--surface-2); color: var(--primary); }
+.ml-row-empty { color: var(--text-faint); font-size: .8rem; font-style: italic; padding: .3rem .2rem; }
+
+/* Einklappbare Reste (Prüf-Liste + Status-Banner) */
+.pl-rest > summary, .status-rest > summary { cursor: pointer; font-size: .8rem; color: var(--text-light);
+  padding: .35rem 0; list-style: none; font-weight: 600; }
+.pl-rest > summary::before, .status-rest > summary::before { content: '▸ '; }
+.pl-rest[open] > summary::before, .status-rest[open] > summary::before { content: '▾ '; }
+.status-rest { margin-top: .4rem; border-top: 1px dashed var(--border); padding-top: .3rem; }

@@ -421,14 +421,17 @@
     var items = (data && data.pruefliste) || [];
     if (!items.length) { el.innerHTML = ''; return; }
     var ICON = { hoch: '🔴', mittel: '🟡', niedrig: '⚪' };
-    var rows = items.slice(0, 12).map(function (it) {
+    function li(it) {
       return '<li class="pl-row pl-' + esc(it.prio) + '">' +
         '<span class="pl-ico">' + (ICON[it.prio] || '•') + '</span>' +
         '<span class="pl-body"><strong>' + esc(it.thema || '') + '</strong> — ' + esc(it.hinweis || '') + '</span></li>';
-    }).join('');
+    }
+    var TOP = 7;
+    var head = items.slice(0, TOP).map(li).join('');
+    var rest = items.slice(TOP).map(li).join('');
     el.innerHTML = '<div class="pl-title">🔎 Vor der Bestellung prüfen <span class="pl-count">' + items.length + '</span></div>' +
-      '<ul class="pl-list">' + rows + '</ul>' +
-      (items.length > 12 ? '<div class="pl-more">… und ' + (items.length - 12) + ' weitere im Chat/Detail.</div>' : '');
+      '<ul class="pl-list">' + head + '</ul>' +
+      (rest ? '<details class="pl-rest"><summary>Alle ' + items.length + ' Punkte zeigen</summary><ul class="pl-list">' + rest + '</ul></details>' : '');
   }
 
   // HERKUNFTS-LEDGER: jede Schlüssel-Zahl mit Quelle + Verlässlichkeit (Transparenz).
@@ -575,7 +578,13 @@
           '</ul></details></div>');
       }
     }
-    statusEl.innerHTML = hints.join('');
+    // ENTSCHLACKEN: nur handlungsrelevante Warnungen direkt zeigen; OK-/Info-Zeilen
+    // (Bestätigungen, Hinweise) einklappen — der Polier sieht die ~3 wichtigen sofort.
+    var krit = hints.filter(function (h) { return h.indexOf('status-warn') >= 0; });
+    var rest = hints.filter(function (h) { return h.indexOf('status-warn') < 0; });
+    statusEl.innerHTML = krit.join('') +
+      (rest.length ? '<details class="status-rest"><summary>' + rest.length +
+        ' weitere Hinweise</summary>' + rest.join('') + '</details>' : '');
   }
 
   function renderProjektMassen(data, fertigCount, totalCount) {
@@ -718,11 +727,16 @@
     var ringNum = document.getElementById('trust-ring-num');
     if (!board) return;
 
-    // Rechenweg-Toggle einmalig binden → bei Änderung neu rendern
+    // Rechenweg-Toggle + „nur Sichere"-Filter einmalig binden → neu rendern
     var tog = document.getElementById('ml-formel-toggle');
     if (tog && !tog.dataset.bound) {
       tog.dataset.bound = '1';
       tog.addEventListener('change', function () { renderMaterialliste(_lastML, _lastGemessen); });
+    }
+    var onlySure = document.getElementById('ml-only-sure');
+    if (onlySure && !onlySure.dataset.bound) {
+      onlySure.dataset.bound = '1';
+      onlySure.addEventListener('change', function () { renderMaterialliste(_lastML, _lastGemessen); });
     }
 
     if (!ml || ml.error || !ml.bauteile) {
@@ -732,6 +746,7 @@
     }
 
     var showFormel = !!(tog && tog.checked);
+    var nurSicher = !!(onlySure && onlySure.checked);
     var totalPos = 0, sicherPos = 0, sumKonf = 0;
     // Gruppen nach Konfidenz sortieren: sofort-bestellbar (grün) zuerst,
     // dann prüfen (gelb), dann am-Bau-klären (grau) — ein Polier sieht oben,
@@ -746,18 +761,31 @@
     var html = '<div class="ml-legende"><span class="ml-dot hoch"></span> sehr sicher · ' +
       '<span class="ml-dot mittel"></span> Standard-Annahme · ' +
       '<span class="ml-dot niedrig"></span> am Bau klären</div>';
-    groups.forEach(function (grp) {
+    groups.forEach(function (grp, gi) {
       var gtier = grp.avg >= 0.7 ? 'hoch' : (grp.avg >= 0.5 ? 'mittel' : 'niedrig');
+      // Abdeckung der Gruppe: wie viele Positionen sicher / Annahme / am-Bau-klären
+      var nH = 0, nM = 0, nL = 0;
+      grp.rows.forEach(function (p) {
+        var k = p.konfidenz || 0;
+        if (k >= 0.7) nH++; else if (k >= 0.5) nM++; else nL++;
+        totalPos++; sumKonf += k; if (k >= 0.7) sicherPos++;   // Trust-Ring zählt ALLE
+      });
+      var tot = grp.rows.length || 1;
+      var coverLbl = nH + ' von ' + grp.rows.length + ' sicher' + (nL ? ' · ' + nL + ' am Bau klären' : '');
+      var bar = '<span class="ml-cover" title="' + esc(coverLbl) + '">' +
+        '<span class="ml-cover-seg hoch" style="width:' + (nH / tot * 100) + '%"></span>' +
+        '<span class="ml-cover-seg mittel" style="width:' + (nM / tot * 100) + '%"></span>' +
+        '<span class="ml-cover-seg niedrig" style="width:' + (nL / tot * 100) + '%"></span></span>';
+      var rows = nurSicher ? grp.rows.filter(function (p) { return (p.konfidenz || 0) >= 0.7; }) : grp.rows;
+
       html += '<section class="ml-group tier-' + gtier + '">';
       html += '<header class="ml-group-head"><span class="ml-group-ico">' + bauteilIcon(grp.bauteil) + '</span>' +
-        '<span class="ml-group-name">' + esc(grp.bauteil) + '</span>' +
-        '<span class="ml-group-meta">' + grp.rows.length + ' Position' + (grp.rows.length === 1 ? '' : 'en') + '</span></header>';
+        '<span class="ml-group-name">' + esc(grp.bauteil) + '</span>' + bar +
+        '<span class="ml-group-meta">' + esc(coverLbl) + '</span>' +
+        '<button class="ml-copy" data-g="' + gi + '" title="Diese Gruppe in die Zwischenablage (für Excel)">⧉</button></header>';
       html += '<div class="ml-rows">';
-      grp.rows.forEach(function (p) {
-        totalPos++;
+      rows.forEach(function (p) {
         var konf = p.konfidenz || 0;
-        sumKonf += konf;
-        if (konf >= 0.7) sicherPos++;
         var tier = konfTier(konf);
         html += '<div class="ml-row">' +
           '<span class="ml-dot ' + tier.cls + '" title="' + tier.title + ' (' + Math.round(konf * 100) + '%)"></span>' +
@@ -767,9 +795,22 @@
           '<span class="ml-qty">' + fmtNum(p.menge) + ' <em>' + esc(p.einheit || '') + '</em></span>' +
           '</div>';
       });
+      if (nurSicher && !rows.length) html += '<div class="ml-row ml-row-empty">— alle Positionen hier sind Annahmen —</div>';
       html += '</div></section>';
     });
     board.innerHTML = html;
+    // Kopier-Knöpfe je Bauteil-Gruppe (Tab-getrennt → direkt in Excel einfügbar)
+    Array.prototype.forEach.call(board.querySelectorAll('.ml-copy'), function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var g = groups[parseInt(b.getAttribute('data-g'), 10)];
+        if (!g) return;
+        var txt = g.rows.map(function (p) { return (p.material || '') + '\t' + fmtNum(p.menge) + '\t' + (p.einheit || ''); }).join('\n');
+        if (navigator.clipboard) navigator.clipboard.writeText(txt).then(function () {
+          b.textContent = '✓'; setTimeout(function () { b.textContent = '⧉'; }, 1200);
+        });
+      });
+    });
 
     // Trust-Ring: EHRLICH + dynamisch — Mischung aus Anteil sicherer Positionen
     // UND echter Durchschnitts-Konfidenz, minus Abzug für geflaggte Geometrie-

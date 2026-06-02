@@ -100,18 +100,21 @@
       <!-- nur wenn relevant: Warn-/Hinweis-Banner -->
       <div class="ergebnis-status-banner" id="ergebnis-status-banner"></div>
 
+      <!-- PRÜF-LISTE: was VOR der Bestellung zu prüfen ist — steht VOR der Liste -->
+      <div class="pruefliste" id="pruefliste"></div>
+
       <!-- HERZSTÜCK: Materialliste nach Bauteil gruppiert -->
       <div class="ml-board-toolbar">
         <span class="ml-board-title">Material nach Bauteil</span>
-        <label class="ml-formel-toggle"><input type="checkbox" id="ml-formel-toggle"> &#129518; Rechenwege einblenden</label>
+        <div class="ml-board-tools">
+          <label class="ml-tool"><input type="checkbox" id="ml-only-sure"> nur Sichere</label>
+          <label class="ml-tool"><input type="checkbox" id="ml-formel-toggle"> &#129518; Rechenwege</label>
+        </div>
       </div>
       <div class="ml-board" id="ml-board"></div>
 
       <!-- KENNZAHLEN: immer sichtbar am Ende der Auswertung (Höhe + Wandflächen) -->
       <div class="auswertung-kennzahlen" id="auswertung-kennzahlen"></div>
-
-      <!-- PRÜF-LISTE: wo der Polier gezielt nachschauen sollte -->
-      <div class="pruefliste" id="pruefliste"></div>
 
       <!-- Verweis auf den dedizierten Kalibrierungs-Bereich (Referenzen leben außerhalb der Projekte) -->
       <div class="referenz-cta" id="referenz-cta">
