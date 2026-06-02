@@ -4076,6 +4076,27 @@ async def projekt_massen(body: ProjektMassenRequest):
             if "anzahl_saeulen" not in ov:
                 body.materialliste_override = dict(ov, anzahl_saeulen=o_sa)
 
+    # 6c2d) FALLBACK-SCHÄTZUNG für Stützen: ein offener überdachter Bereich
+    # (Carport/Parkplatz/Terrasse überdacht = Loggia) steht auf Stützen. Erkennt
+    # weder Schnitt noch Opus welche (saeulen_erkannt leer), aber es GIBT solche
+    # Flächen, schätzen wir ~1 Stütze je 18 m² Dachfläche (mind. 2) — deterministisch,
+    # NIEDRIGE Konfidenz, klar als Schätzung markiert. Besser als ein offensichtlich
+    # falsches 0 für einen sichtbaren Carport; die Schlussprüfung flaggt es zusätzlich.
+    saeulen_geschaetzt = False
+    if not saeulen_erkannt and "anzahl_saeulen" not in (body.materialliste_override or {}):
+        try:
+            from massen_logic import kategorie_of as _kat_s
+            _logg_f = sum(r.get("flaeche_m2") or 0 for r in merged_rooms
+                          if _kat_s(r.get("name") or "") == "Loggia")
+        except Exception:
+            _logg_f = 0
+        if _logg_f > 8:
+            _n_est = max(2, int(round(_logg_f / 18.0)))
+            saeulen_erkannt = _n_est
+            saeulen_geschaetzt = True
+            ov = body.materialliste_override or {}
+            body.materialliste_override = dict(ov, anzahl_saeulen=_n_est)
+
     # 6c3) DOPPELCHECK: Quellen gegeneinander prüfen. ECHTE Unabhängigkeit zählt:
     # nur QUALITATIV unterschiedliche Methoden (Text-Layer vs Vision) dürfen sich
     # „bestätigen" → 0.97. Zwei Vision-Pässe desselben Bildes (Schnitt + Opus) sind
@@ -4349,6 +4370,10 @@ async def projekt_massen(body: ProjektMassenRequest):
         pruefliste.append({"prio": "niedrig", "thema": _bt,
                            "hinweis": f"{len(_mats)} Position(en) als Faustformel geschätzt "
                                       f"(z.B. {_mats[0]}) — am Polierplan gegenprüfen."})
+    if saeulen_geschaetzt and saeulen_erkannt:
+        pruefliste.append({"prio": "mittel", "thema": "Säulen / Stützen",
+                           "hinweis": f"{saeulen_erkannt} Stützen aus der überdachten Fläche GESCHÄTZT "
+                                      "(Schnitt/Opus hat keine gezählt). Anzahl + Querschnitt am Plan/in der Statik prüfen."})
     _prio_rang = {"hoch": 0, "mittel": 1, "niedrig": 2}
     pruefliste.sort(key=lambda x: _prio_rang.get(x.get("prio"), 3))
 
@@ -4379,7 +4404,9 @@ async def projekt_massen(body: ProjektMassenRequest):
         _herk("Decke-Stärke", (best_baudaten or {}).get("decke_cm"), "cm", _bq.get("decke_cm") or "Legende", None, "decke_cm"),
         _herk("Bodenplatte-Stärke", (best_baudaten or {}).get("bodenplatte_cm"), "cm", _bq.get("bodenplatte_cm") or "Legende", None, "bodenplatte_cm"),
         _herk("Außenwand-Fläche", _kz.get("aussenwand_flaeche_m2"), "m²", "Umfang × Höhe", None),
-        _herk("Säulen/Stützen", saeulen_erkannt, "Stk", "Schnitt/Opus", None, "anzahl_saeulen"),
+        _herk("Säulen/Stützen", saeulen_erkannt, "Stk",
+              "geschätzt aus überdachter Fläche" if saeulen_geschaetzt else "Schnitt/Opus",
+              0.4 if saeulen_geschaetzt else None, "anzahl_saeulen"),
     ] if h]
 
     return {
