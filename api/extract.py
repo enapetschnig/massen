@@ -5219,6 +5219,7 @@ _MERKBARE_KEYS = {
     "wand_anteil_50cm", "wand_anteil_38cm", "wand_anteil_25cm_aussen",
     "wand_anteil_25cm_innen", "wand_anteil_20cm", "wand_anteil_12cm",
     "attika_aktiv", "attika_hoehe_m", "anzahl_saeulen", "anzahl_kamine",
+    "saeule_beton_m3_pro_stk",
     "aq65_m2_pro_matte", "pe_folie_m2_pro_rolle", "mauermoertel_paletten_pro_100m2",
 }
 
