@@ -189,9 +189,14 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     f_sum_innen = sum(r.get("flaeche_m2") or 0 for r in innen)
     f_sum_loggia = sum(r.get("flaeche_m2") or 0 for r in loggia)
     u_sum_innen = sum(r.get("umfang_m") or 0 for r in innen)
+    # KONSISTENZ: EINE Geschoss-Höhe überall. Die kanonische baudaten-Geschoss-Höhe
+    # (median/Schnitt/Opus, doppelcheck-bestätigt — derselbe Wert wie im Geo-Kasten)
+    # treibt die geschoss-weite Wandfläche UND wird in den Kennzahlen gezeigt. Sonst
+    # weicht die angezeigte Höhe (Geo-Kasten) vom Wandflächen-Treiber (Raum-Schnitt)
+    # ab → genau der 2,95-vs-2,89-Widerspruch. Raum-Höhen-Schnitt nur als Fallback.
     h_room = sum((r.get("hoehe_m") or 0) for r in innen if r.get("hoehe_m")) / max(
         1, sum(1 for r in innen if r.get("hoehe_m")))
-    h = h_room if h_room > 0 else baudaten.get("geschosshoehe_m", 2.70)
+    h = baudaten.get("geschosshoehe_m") or (h_room if h_room > 0 else 2.70)
     aw_cm = baudaten.get("aussenwand_cm", 50)
     iw_cm = baudaten.get("innenwand_tragend_cm", 25)
     decke_cm = baudaten.get("decke_cm", 22)

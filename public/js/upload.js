@@ -398,7 +398,7 @@
         (sub ? '<div class="kz-sub">' + sub + '</div>' : '') + '</div>';
     }
     var tiles = [];
-    if (h != null) tiles.push(kz('📏', 'Geschoss-Höhe', fmtNum(h) + ' m', 'Rohbau (FBOK→Rohdecke)'));
+    if (h != null) tiles.push(kz('📏', 'Geschoss-Höhe', fmtNum(h) + ' m', 'wie oben — treibt die Wandfläche'));
     if (awf != null) tiles.push(kz('🧱', 'Außenwand-Fläche', fmtNum(awf) + ' m²', 'Umfang × Höhe (brutto)'));
     if (k.innenwand_flaeche_m2 != null && k.innenwand_flaeche_m2 > 0)
       tiles.push(kz('🧱', 'Innenwand-Fläche', fmtNum(k.innenwand_flaeche_m2) + ' m²', 'tragend + nichttragend (brutto)'));
