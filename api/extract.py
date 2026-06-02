@@ -434,9 +434,12 @@ def _materialliste_kompakt(materialliste):
     return out
 
 
-def _run_opus_review(pdf_bytes: bytes, fakten: dict, materialliste: dict, api_key: str) -> dict:
+def _run_opus_review(pdf_bytes: bytes, fakten: dict, materialliste: dict, api_key: str,
+                     mit_korrektur: bool = False) -> dict:
     """Opus-Schlussprüfung: fertige Liste + scharfer Plan → Plausibilitäts-Befunde.
-    Liefert {pruefung: [...], gesamturteil, konfidenz} ODER {"_fehler": ...}."""
+    Liefert {pruefung: [...], gesamturteil, konfidenz} ODER {"_fehler": ...}.
+    mit_korrektur=True (nur über OPUS_NUDGE-Flag): zusätzlich ein optionales
+    "korrekturen"-Feld für ABZÄHLBARE, geschätzte Positionen mit Plan-Beleg."""
     import anthropic
     import base64
     try:
@@ -458,7 +461,17 @@ def _run_opus_review(pdf_bytes: bytes, fakten: dict, materialliste: dict, api_ke
             for ib in tiles:
                 content.append({"type": "image", "source": {"type": "base64",
                     "media_type": "image/jpeg", "data": base64.standard_b64encode(ib).decode("utf-8")}})
-        content.append({"type": "text", "text": "Prüfe die Liste gegen den Plan (mit Beleg, nichts raten). Antworte NUR mit dem JSON."})
+        _schluss = "Prüfe die Liste gegen den Plan (mit Beleg, nichts raten). Antworte NUR mit dem JSON."
+        if mit_korrektur:
+            _schluss += (
+                "\n\nZUSÄTZLICH — KORREKTUR-MODUS: Wenn eine GESCHÄTZTE Position im Plan"
+                " eindeutig ABZÄHLBAR ist und abweicht (z.B. Fenster-/Tür-Anzahl, Stützen,"
+                " Attika-Bereiche), gib ein optionales Feld \"korrekturen\":"
+                " [{\"bauteil\":\"Öffnungen\",\"material\":\"Rolladenkasten\",\"soll_menge\":5,"
+                "\"beleg\":\"5 Fenster-Symbole im Grundriss\"}]. STRENG: nur mit konkretem"
+                " Plan-Beleg, nur für GESCHÄTZTE Positionen — NIEMALS byte-exakte Maße"
+                " (Bodenplatte, Decken-/Wandstärken aus der Legende). Keine Korrektur ohne Beleg.")
+        content.append({"type": "text", "text": _schluss})
         resp = client.messages.create(model="claude-opus-4-8", max_tokens=2000,
             system=OPUS_REVIEW_PROMPT, messages=[{"role": "user", "content": content}])
         raw = resp.content[0].text if resp.content else "{}"
@@ -4339,6 +4352,8 @@ async def projekt_massen(body: ProjektMassenRequest):
     # Gleiche Materialliste → gespeicherte Prüfung wiederverwenden (KONSTANT + schnell,
     # kein Opus-Call je Öffnen); ändert sich die Liste (Override/Kalibrierung) → neu.
     opus_pruefung = None
+    opus_korrekturen_log = []
+    _nudge_an = os.environ.get("OPUS_NUDGE", "0") != "0"   # S1: Default AUS
     _rev_plan = best_schnitt_plan or best_content_plan
     if (os.environ.get("OPUS_REVIEW", "1") != "0" and _rev_plan
             and materialliste_result and not materialliste_result.get("error")):
@@ -4362,12 +4377,14 @@ async def projekt_massen(body: ProjektMassenRequest):
                     merged_rooms, best_legende, (_rev_plan.get("agent_log") or {}).get("massketten_bbox"),
                     len(alle_fenster), len(alle_tueren))
                 if _ak and _pdf2:
-                    _rev = _run_opus_review(_pdf2, _fk, materialliste_result, _ak)
+                    _rev = _run_opus_review(_pdf2, _fk, materialliste_result, _ak,
+                                            mit_korrektur=_nudge_an)
                     if _rev and not _rev.get("_fehler"):
                         opus_pruefung = {
                             "befunde": _rev.get("pruefung") or [],
                             "gesamturteil": _rev.get("gesamturteil"),
                             "konfidenz": _rev.get("konfidenz"),
+                            "korrekturen": _rev.get("korrekturen") or [],
                         }
                     try:   # Ergebnis (auch None) einfrieren → nächster Aufruf würfelt nicht
                         _al = dict(_rev_plan.get("agent_log") or {})
@@ -4377,6 +4394,22 @@ async def projekt_massen(body: ProjektMassenRequest):
                         print(f"[opus-review] freeze-write failed: {_we!r}")
         except Exception as _exc:
             print(f"[opus-review] consume failed: {_exc!r}")
+
+    # 7b) Opus-Korrektur-Loop (S1, nur via OPUS_NUDGE) — geschätzte Mengen gegen
+    # den Plan nachjustieren. Läuft NACH dem Freeze: ml_hash deckt die Pre-Nudge-
+    # Liste ab, die Korrekturen sind eingefroren (im opus_pruefung-Dict) → jede
+    # Wiederholung wendet dieselben Belege auf dieselbe Basis an = KONSTANT.
+    # Byte-exakte Positionen sind durch die Konfidenz-Schwelle im Modul tabu.
+    if _nudge_an and isinstance(opus_pruefung, dict) and opus_pruefung.get("korrekturen"):
+        try:
+            from opus_nudge import opus_mengen_nudge
+            _bt = (materialliste_result or {}).get("bauteile") or {}
+            _bt, opus_korrekturen_log = opus_mengen_nudge(_bt, opus_pruefung["korrekturen"])
+            materialliste_result["bauteile"] = _bt
+            _ang = sum(1 for e in opus_korrekturen_log if e.get("status") == "angewandt")
+            print(f"[opus-nudge] {_ang}/{len(opus_korrekturen_log)} Korrektur(en) angewandt")
+        except Exception as _ne:
+            print(f"[opus-nudge] failed: {_ne!r}")
 
     # 7c) Konsistenz-Engine: bauphysikalische Plausibilitätschecks
     konsistenz_findings = []
@@ -4457,6 +4490,16 @@ async def projekt_massen(body: ProjektMassenRequest):
         pruefliste.append({"prio": "mittel", "thema": "Säulen / Stützen",
                            "hinweis": f"{saeulen_erkannt} Stützen aus der überdachten Fläche GESCHÄTZT "
                                       "(Schnitt/Opus hat keine gezählt). Anzahl + Querschnitt am Plan/in der Statik prüfen."})
+    # Opus-Korrektur-Loop (S1): angewandte Korrekturen transparent, geflaggte zur Prüfung
+    for _kk in (opus_korrekturen_log or []):
+        if _kk.get("status") == "angewandt":
+            pruefliste.append({"prio": "niedrig", "thema": f"{_kk.get('bauteil')} · Opus-korrigiert",
+                               "hinweis": f"{_kk.get('material')}: {_kk.get('alt')}→{_kk.get('neu')} "
+                                          f"(Beleg: {_kk.get('beleg')}). Konfidenz abgesenkt — am Plan gegenprüfen."})
+        elif _kk.get("status") == "geflaggt":
+            pruefliste.append({"prio": "mittel", "thema": f"{_kk.get('bauteil')} · Opus-Verdacht",
+                               "hinweis": f"{_kk.get('material')}: Opus sieht {_kk.get('soll')} statt {_kk.get('alt')} "
+                                          f"(Beleg: {_kk.get('beleg')}) — Abweichung zu groß, NICHT angewandt, manuell prüfen."})
     _prio_rang = {"hoch": 0, "mittel": 1, "niedrig": 2}
     pruefliste.sort(key=lambda x: _prio_rang.get(x.get("prio"), 3))
 
@@ -4516,6 +4559,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "opus_fehler_grund": _opus_fehler_grund,  # Diagnose: transient (Timeout/429) vs. deterministisch (z.B. Bild zu groß)
         "opus_quelle_plan": opus_projekt_plan,  # welches Blatt Opus gelesen hat
         "opus_pruefung": opus_pruefung,         # Schlussprüfung: Plausibilitäts-Befunde
+        "opus_korrekturen": opus_korrekturen_log,  # S1: angewandte/geflaggte Mengen-Korrekturen (leer wenn OPUS_NUDGE aus)
         "kalibrierung": {                        # firmenspezifische Selbst-Kalibrierung
             "aktiv": bool(kalibrierung_faktoren),
             "faktoren": kalibrierung_faktoren,
