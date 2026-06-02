@@ -2834,16 +2834,23 @@ async def projekt_massen(body: ProjektMassenRequest):
     def _nk(s):
         return re.sub(r"[\s\-_/]+", "", _deumlaut(s))
 
-    # EFH-Erkennung: wenn das Projekt nur 1-2 einzigartige "Wohnungen" hat
-    # (z.B. "Haus" + "TOP 25" wegen Vision-Halluzination eines TOP-Labels),
-    # mergen wir nur über NAME — sonst entstehen Duplikate wie zwei
-    # "Abstellraum"-Einträge, einer mit wohnung="Haus", einer mit wohnung="TOP 25".
-    wohnungen_im_projekt = set()
+    # EFH-Erkennung — ROBUST gegen versprengte Vision-TOP-Phantome: eine ECHTE
+    # Wohnung hat MEHRERE Räume; eine durch ein fehlgelesenes TOP-Label erzeugte
+    # „Wohnung" trägt meist nur 1 Raum (Phantom). Darum NICHT die Anzahl
+    # einzigartiger Wohnungen schwellen (2 Phantome „TOP 1"+„TOP 25" hätten das
+    # Projekt fälschlich auf MFH gekippt → ÖNORM-Einbruch), sondern zählen, wie
+    # viele Wohnungen ≥2 Räume haben. Höchstens EINE → EFH (name-basiert mergen).
+    from collections import Counter as _WCounter
+    _woh_counts = _WCounter()
     for row in raum_rows:
         d = row.get("daten") or {}
-        w = (d.get("wohnung") or "").strip().lower()
-        wohnungen_im_projekt.add(w or "_default_")
-    is_efh = len(wohnungen_im_projekt) <= 2
+        w = (d.get("wohnung") or "").strip().lower() or "_default_"
+        _woh_counts[w] += 1
+    _echte_wohnungen = [w for w, n in _woh_counts.items() if n >= 2]
+    # EFH, wenn höchstens 2 Wohnungen (Haus + Einliegerwohnung) ODER höchstens EINE
+    # Wohnung mehrere Räume trägt (die übrigen sind 1-Raum-TOP-Phantome). Erst echtes
+    # MFH (≥3 Wohnungen mit JE mehreren Räumen) schaltet die wohnung-basierte Logik.
+    is_efh = len(_woh_counts) <= 2 or len(_echte_wohnungen) <= 1
 
     def _tokens(s):
         return [t for t in re.findall(r"[a-z0-9]+", _deumlaut(s)) if t]
