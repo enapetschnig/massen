@@ -2233,11 +2233,19 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
                 spans_mk = _mk_spans(docm[0].get_text("words"))
                 docm.close()
                 from massen_logic import kategorie_of as _kat_mk
-                fp = sum(r.get("flaeche_m2") or 0 for r in unique_rooms
-                         if _kat_mk(r.get("name") or "") == "Innenraum_warm")
+                # KONSTANZ: fp (Footprint, der die Maßketten-Hülle verankert) NUR aus
+                # byte-exakten TEXT-Räumen bilden — nicht aus allen unique_rooms. Sonst
+                # kippt ein lauf-variabler Vision-Zusatzraum den fp (121→125→132) und
+                # damit die Hülle. Text-Räume (gleiches PDF → gleiche words/spans) sind
+                # deterministisch. Fallback auf alle Räume nur bei schwachem Text-Layer.
+                def _innen_mk(r): return _kat_mk(r.get("name") or "") == "Innenraum_warm"
+                fp_text = sum(r.get("flaeche_m2") or 0 for r in unique_rooms
+                              if _innen_mk(r) and (r.get("_text_first") or r.get("_source") == "text"))
+                fp = fp_text if fp_text > 20 else sum(
+                    r.get("flaeche_m2") or 0 for r in unique_rooms if _innen_mk(r))
                 if fp > 20 and spans_mk:
                     massketten_bbox = _mk_bbox(spans_mk, fp)
-                print(f"[massketten] footprint={round(fp,1)} → {massketten_bbox}")
+                print(f"[massketten] footprint={round(fp,1)} (text={round(fp_text,1)}) → {massketten_bbox}")
             except Exception as _exc:
                 print(f"[massketten] failed: {_exc!r}")
                 massketten_bbox = None
@@ -3790,9 +3798,14 @@ async def projekt_massen(body: ProjektMassenRequest):
             ziel = 1.13 + min(0.05, (aw_cm - 30) / 400.0)   # 38cm→1.15, 50cm→1.18
             untergrenze = f_innen_check * 1.04
             obergrenze = f_innen_check * 1.30
-            if not (untergrenze <= bp_flaeche <= obergrenze):
-                bp_flaeche = round(f_innen_check * ziel, 2)
-                bp_korrigiert = True
+            # KONSTANZ: IMMER auf den byte-exakten Anker (Σ Innenraum-Fläche ×
+            # physikalischem Netto-Brutto-Faktor) setzen — nicht nur außerhalb des
+            # Bandes. So ist die Grundfläche über jede Re-Analyse identisch (Text-Layer)
+            # und physikalisch begründet; das lauf-variable Vision-Polygon dient nur
+            # noch als Cross-Check für die Konfidenz, NICHT als Zahl.
+            _vision_konsistent = (untergrenze <= bp_flaeche <= obergrenze)
+            bp_flaeche = round(f_innen_check * ziel, 2)
+            bp_korrigiert = not _vision_konsistent
         bp_flaeche = round(bp_flaeche, 2)
 
         # Physikalische Grenzen (ein Footprint kann keinen Umfang < 4√A haben)
@@ -3804,6 +3817,14 @@ async def projekt_massen(body: ProjektMassenRequest):
         validated_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten
                               if c.get("validiert") and c.get("umfang_m")]
         m_valid = _median(validated_umfaenge)
+        # KONSTANZ: die TEXT-LAYER-Kette (massketten_bbox aus get_text('words') —
+        # byte-exakt + nach der fp-Verankerung deterministisch) gewinnt ALLEIN. Sie
+        # darf NICHT mit der lauf-variablen PASS-4-Vision-Bemaßung in einen Median
+        # geworfen werden — genau das ließ den Außenumfang 44↔46 wackeln, obwohl die
+        # gedruckte Hülle konstant ist. Die übrige Kandidaten-Kette bleibt Fallback.
+        textlayer_umfaenge = [c["umfang_m"] for c in aussenmasse_kandidaten
+                              if c.get("quelle") == "textlayer-kette" and c.get("umfang_m")]
+        m_textlayer = _median(textlayer_umfaenge)
         # GESAMTMASS-Kandidaten (2×(Gesamt-Breite+Tiefe)) — nur die, deren
         # Rechteck-Fläche zur byte-exakten Grundfläche passt (B×T ≥ 0.92×Footprint;
         # sonst wurde ein zu kleines Maß gelesen). Robust gegen L-Form.
@@ -3818,7 +3839,13 @@ async def projekt_massen(body: ProjektMassenRequest):
         umfang_validiert = False
         cross_check_warnung = False
 
-        if m_valid:
+        if m_textlayer:
+            # BYTE-EXAKTE Text-Layer-Hülle → konstant über jede Re-Analyse.
+            aussenumfang_m = round(min(max(m_textlayer, iso_min), umfang_ceil), 2)
+            quelle = "textlayer-kette"
+            konf = 0.97
+            umfang_validiert = True
+        elif m_valid:
             # Byte-exakt aus dem Plan gelesen (Maßkette gegen Gesamtmaß geprüft).
             aussenumfang_m = round(min(max(m_valid, iso_min), umfang_ceil), 2)
             quelle = "kettenbemaßung-validiert"
