@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Regressionsnetz für api/massen_logic.py (ÖNORM-LV-Gewerke) — Phase 0.
+
+Nagelt das HEUTIGE ÖNORM-Öffnungsverhalten fest, BEVOR die Logik erweitert wird
+(Schwelle parametrisieren, Mauerwerk-Abzug, Laibung wandbezogen). Erster Test
+dieses Moduls überhaupt.
+
+Kern-Zusagen:
+  • Putz zieht NUR Öffnungen > 5 m² ab (+ Laibung), kleinere werden übermessen.
+  • Maler zieht > 5 m² ab, OHNE Laibung.
+  • Estrich ignoriert Öffnungen komplett.
+  • Default-Schwelle ist 5,0 m² (Wächter gegen stille Änderung).
+
+Lauf:  python3 scripts/test_massen_logic.py   (Exit 0 = Verhalten festgenagelt)
+"""
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "api"))
+
+import massen_logic as ML
+from massen_logic import gewerk_putz, gewerk_maler, gewerk_estrich
+
+BAUDATEN = {"aussenwand_cm": 50.0, "geschosshoehe_m": 2.70, "decke_cm": 20.0,
+            "bodenplatte_cm": 25.0}
+
+# Ein warmer Innenraum mit zwei Fenstern: eines GROSS (>5 m²), eines KLEIN (<5 m²)
+ROOMS = [{"name": "Zimmer 1", "flaeche_m2": 30.0, "umfang_m": 22.0, "hoehe_m": 2.70}]
+WINDOWS = [
+    {"raum": "Zimmer 1", "breite_m": 3.0, "hoehe_m": 2.0, "code": "GROSS"},   # 6,0 m² → Abzug
+    {"raum": "Zimmer 1", "breite_m": 1.0, "hoehe_m": 1.0, "code": "KLEIN"},   # 1,0 m² → übermessen
+]
+
+
+def _negative_zeilen(pos):
+    return [z for z in pos.zeilen if (z["wert"] or 0) < 0]
+
+
+def _zeilen_mit(pos, stich):
+    return [z for z in pos.zeilen if stich.lower() in (z["text"] or "").lower()]
+
+
+def run():
+    fails = []
+
+    def check(name, cond):
+        print(f"  {'✓' if cond else '✗'} {name}")
+        if not cond:
+            fails.append(name)
+
+    # ── Default-Schwelle festnageln ──
+    check("Default-Öffnungsschwelle = 5,0 m²", ML.OEFFNUNG_ABZUG_SCHWELLE_M2 == 5.0)
+    check("oeffnung_abzug: 6,0 m² wird abgezogen", ML.oeffnung_abzug(3.0, 2.0) is True)
+    check("oeffnung_abzug: 4,4 m² wird übermessen", ML.oeffnung_abzug(2.2, 2.0) is False)
+    check("oeffnung_abzug: 1,0 m² wird übermessen", ML.oeffnung_abzug(1.0, 1.0) is False)
+
+    # ── PUTZ (ÖNORM B 2210): nur > 5 m² abziehen + Laibung ──
+    putz = gewerk_putz(ROOMS, WINDOWS, BAUDATEN)
+    wand = next(p for p in putz if p.posnr == "1.1")
+    neg = _negative_zeilen(wand)
+    check("Putz: genau EIN Abzug (nur das große Fenster)", len(neg) == 1)
+    check("Putz: Abzug = -6,0 m² (3,0×2,0)", neg and abs(neg[0]["wert"] + 6.0) < 0.01)
+    check("Putz: Laibung-Zeile vorhanden (großes Fenster)", len(_zeilen_mit(wand, "laibung")) == 1)
+    check("Putz: kleines Fenster erzeugt KEINEN Abzug (übermessen)",
+          not any("klein" in (z["text"] or "").lower() for z in neg))
+    # Brutto-Wand 22×2,70=59,4 − 6,0 + Laibung(>0) → zwischen 53,4 und 59,4
+    check("Putz: Endsumme = Brutto − Abzug + Laibung plausibel",
+          53.4 < wand.endsumme < 59.4)
+
+    # ── MALER: > 5 m² abziehen, OHNE Laibung ──
+    maler = gewerk_maler(ROOMS, WINDOWS, BAUDATEN)
+    mwand = next(p for p in maler if p.posnr == "1.1")
+    check("Maler: genau EIN Abzug (großes Fenster)", len(_negative_zeilen(mwand)) == 1)
+    check("Maler: KEINE Laibung-Zeile", len(_zeilen_mit(mwand, "laibung")) == 0)
+
+    # ── ESTRICH (ÖNORM B 2232): Öffnungen irrelevant ──
+    estrich = gewerk_estrich(ROOMS, WINDOWS, BAUDATEN)
+    eflaeche = next(p for p in estrich if p.posnr == "1.1")
+    check("Estrich: Fläche = Raumfläche 30,0 (kein Öffnungseinfluss)",
+          abs(eflaeche.endsumme - 30.0) < 0.01)
+    check("Estrich: keine negativen Zeilen", len(_negative_zeilen(eflaeche)) == 0)
+
+    print("-" * 62)
+    if fails:
+        print(f"FEHLER: {len(fails)} Zusage(n) verletzt: {fails}")
+        return 1
+    print("OK — ÖNORM-Öffnungsverhalten festgenagelt (Putz >5m²+Laibung, Maler >5m², Estrich neutral).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())
