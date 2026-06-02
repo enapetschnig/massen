@@ -320,6 +320,11 @@ def genauigkeit_aus_belegen(belege_liste):
     }
 
 
+# m²/Palette je HLZ-Stärke — MUSS mit materialliste.DEFAULTS (hlz_*cm_m2_pro_palette)
+# übereinstimmen, damit die gelernte Flächen-Verteilung self-konsistent zurückrechnet.
+HLZ_DECKUNG_M2_PRO_PALETTE = {50: 3.0, 38: 4.5, 25: 6.5, 20: 8.0, 12: 12.0}
+
+
 def hlz_verteilung_aus_soll(soll_positions):
     """Lernt die Wandstärken-VERTEILUNG aus den HLZ-Paletten einer Soll-Liste —
     die eine Größe, die NICHT byte-exakt aus dem Plan lesbar ist (sie steckt in
@@ -327,8 +332,14 @@ def hlz_verteilung_aus_soll(soll_positions):
     ≥38cm = Außenwand-Bucket, ≤25cm = Innenwand-Bucket (25cm gilt als innere
     tragende Wand — die häufige Konvention). Liefert {wand_anteil_*: pct} oder None.
     Anders als die Ratio-Faktoren ist DAS eine DIREKTE Messung der echten Firma-
-    Bauweise → schon EINE Soll-Liste ist aussagekräftig (Median über mehrere stabilisiert)."""
-    pal = {}
+    Bauweise → schon EINE Soll-Liste ist aussagekräftig (Median über mehrere stabilisiert).
+
+    WICHTIG: Die Verteilung wird über die WANDFLÄCHE (Paletten × m²/Palette) gebildet,
+    nicht über die Paletten-Anzahl. Dünne Wände decken viel mehr m² je Palette (12cm:
+    12,0 vs 50cm: 3,0) — die Anzahl-basierte Verteilung würde die dünnen 12cm-Innenwände
+    sonst massiv unterschätzen. So bleibt die gelernte Verteilung self-konsistent zur
+    Materialliste (die anteil × iw_m2 / Deckung zurückrechnet)."""
+    pal = {}   # je Stärke: WANDFLÄCHE m² (Paletten × Deckung), nicht Paletten-Anzahl
     for p in (soll_positions or []):
         bez = (p.get("bezeichnung") or "").lower()
         einh = (p.get("einheit") or "").lower()
@@ -337,7 +348,7 @@ def hlz_verteilung_aus_soll(soll_positions):
             d = int(m.group(1))
             menge = _to_float(p.get("menge")) or 0
             if menge > 0:
-                pal[d] = pal.get(d, 0) + menge
+                pal[d] = pal.get(d, 0) + menge * HLZ_DECKUNG_M2_PRO_PALETTE.get(d, 150.0 / d)
     if not pal:
         return None
     out = {}

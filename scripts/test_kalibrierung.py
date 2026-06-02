@@ -144,10 +144,15 @@ soll_hlz = [{"bezeichnung": "HLZ 50cm H.I. Plan", "menge": 48, "einheit": "Palet
             {"bezeichnung": "HLZ 20cm Plan", "menge": 9, "einheit": "Paletten"},
             {"bezeichnung": "HLZ 12cm Plan", "menge": 7, "einheit": "Paletten"}]
 wv = kal.hlz_verteilung_aus_soll(soll_hlz)
-check("Innenwand 25/20/12 aus echten Paletten (30/39/30)",
-      wv and round(wv["wand_anteil_25cm_innen"]) == 30 and round(wv["wand_anteil_20cm"]) == 39
-      and round(wv["wand_anteil_12cm"]) == 30, f"got {wv}")
-check("Außenwand 50 dominiert (≈92%)", round(wv["wand_anteil_50cm"]) == 92, f"got {wv}")
+# FLÄCHENGEWICHTET (Paletten × m²/Palette): 25→45.5, 20→72, 12→84 m² → 23/36/42%.
+# 12cm bekommt mehr Gewicht als bei Anzahl-Zählung (war 30%), weil eine 12cm-Palette
+# 12 m² deckt (vs 25cm: 6,5) → behebt die HLZ-12-Unterschätzung an der Wurzel.
+check("Innenwand 25/20/12 flächengewichtet (≈23/36/42)",
+      wv and round(wv["wand_anteil_25cm_innen"]) == 23 and round(wv["wand_anteil_20cm"]) == 36
+      and round(wv["wand_anteil_12cm"]) == 42, f"got {wv}")
+check("12cm bekommt mehr Fläche als 25cm bei gleicher Palettenzahl (7=7 → 42>23)",
+      wv["wand_anteil_12cm"] > wv["wand_anteil_25cm_innen"])
+check("Außenwand 50 dominiert (≈89%)", round(wv["wand_anteil_50cm"]) == 89, f"got {wv}")
 check("keine HLZ in Liste → None", kal.hlz_verteilung_aus_soll([{"bezeichnung": "Beton", "menge": 5}]) is None)
 agg = kal.aggregiere_verteilungen([{"wand_anteil_12cm": 30.0}, {"wand_anteil_12cm": 40.0}, {"wand_anteil_12cm": 50.0}])
 check("Aggregation = Median über Listen", agg["wand_anteil_12cm"] == 40.0, f"got {agg}")
