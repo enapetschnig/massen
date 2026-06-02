@@ -4051,7 +4051,22 @@ async def projekt_massen(body: ProjektMassenRequest):
         if _OPUS_KONSUM_OK:
             _opus_wv = _ok.wand_verteilung_aus_opus(best_opus)
             if _opus_wv and (_opus_wv.get("aussen") or _opus_wv.get("innen")):
-                wand_verteilung = _opus_wv
+                # Opus-Vision darf die ANTEILE verfeinern, aber KEINE Wandstärke
+                # einführen, die nicht in der byte-exakten Legende steht — sonst
+                # „erfindet" es z.B. HLZ 38cm, das die Legende (50/20/25/12) gar nicht
+                # kennt (genau der Schlussprüfungs-Befund). Auf Legende-Dicken einschränken.
+                _leg_dicken = {round(float(t.get("dicke_cm")))
+                               for t in (best_legende.get("wand_typen") or {}).values()
+                               if t.get("dicke_cm")}
+                if _leg_dicken:
+                    for _seite in ("aussen", "innen"):
+                        _d = _opus_wv.get(_seite) or {}
+                        _opus_wv[_seite] = {k: v for k, v in _d.items()
+                                            if round(float(k)) in _leg_dicken}
+                # Nur übernehmen, wenn nach dem Filter noch etwas übrig ist; sonst
+                # bleibt die byte-exakte Legende-Verteilung (kein erfundenes 38cm).
+                if _opus_wv.get("aussen") or _opus_wv.get("innen"):
+                    wand_verteilung = _opus_wv
         # Gezählte Wand-Codes ohne Legende-Eintrag → ehrlicher Prüf-Hinweis
         _unbek = (wand_verteilung or {}).get("unbekannte_codes") if wand_verteilung else None
         if _unbek:

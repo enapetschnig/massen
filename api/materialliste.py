@@ -470,13 +470,17 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # 200cm (~150-180cm Öffnung), 250cm (~200-230cm Öffnung).
     if tueren:
         tuer_breiten = [b for b in (_breite_of(t) for t in _breiten_quelle(tueren)) if b]
-        n_125 = sum(1 for b in tuer_breiten if b <= 1.10)        # 60-100cm Türen
+        # Jede ERKANNTE Tür braucht einen Sturz — eine ohne lesbare Breite zählt als
+        # Standard-Innentür (125cm) statt herauszufallen (sonst „9 Türen, nur 7 Stürze").
+        n_ohne_breite = max(0, len(tueren) - len(tuer_breiten))
+        n_125 = sum(1 for b in tuer_breiten if b <= 1.10) + n_ohne_breite  # ≤110cm + ohne Maß
         n_200 = sum(1 for b in tuer_breiten if 1.10 < b <= 1.80)  # 110-180cm
         n_250 = sum(1 for b in tuer_breiten if b > 1.80)         # Schiebe/Terrasse
         if n_125:
+            _txt125 = (f"{n_125} Innentüren (≤110cm" + (f" + {n_ohne_breite} ohne Maß)" if n_ohne_breite else ")"))
             out.append(MaterialPos(
                 "Öffnungen", "Ziegelüberlage 12cm 125cm", "Stk",
-                n_125, f"{n_125} Türen ≤110cm Breite", konfidenz=0.85))
+                n_125, _txt125, konfidenz=0.85 if not n_ohne_breite else 0.7))
         if n_200:
             out.append(MaterialPos(
                 "Öffnungen", "Ziegelüberlage 12cm 200cm", "Stk",
