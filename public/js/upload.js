@@ -34,6 +34,20 @@
   if (firma.name && companyNameEl) companyNameEl.textContent = firma.name;
   if (logoutBtn) logoutBtn.addEventListener('click', function () { clearSession(); window.location.href = 'index.html'; });
 
+  // Druck: Aufmaß-Details (LV-Buchform) vor dem Drucken aufklappen, danach zurück —
+  // damit die gedruckte Massenermittlung alle Σ-Zeilen prüfbar zeigt.
+  var _printOpened = [];
+  window.addEventListener('beforeprint', function () {
+    _printOpened = [];
+    document.querySelectorAll('.lv-aufmass:not([open])').forEach(function (d) {
+      d.setAttribute('open', ''); _printOpened.push(d);
+    });
+  });
+  window.addEventListener('afterprint', function () {
+    _printOpened.forEach(function (d) { d.removeAttribute('open'); });
+    _printOpened = [];
+  });
+
   // Projekt laden
   _sb.from('projekte').select('*').eq('id', projectId).single().then(function (res) {
     if (res.data) {
@@ -622,7 +636,7 @@
       var g = gw[gk];
       var label = (g.label || gk).replace(/\s*\(.*\)/, '');
       (g.positionen || []).forEach(function (p) {
-        if (p.posnr === '1.1' || p.posnr === '1.2' || p.posnr === '1.3') {
+        if ((p.endsumme || 0) !== 0) {   // alle ermittelten Positionen (inkl. 1.0 Mauerwerk + Beton)
           var konf = Math.round((p.konfidenz || 0) * 100);
           cards.push({ gewerk: label, text: p.beschreibung || '', wert: p.endsumme || 0, einheit: p.einheit || '', konf: konf, warn: konf < 65 });
         }
@@ -641,18 +655,44 @@
     }
     if (detail && detailWrap) {
       detailWrap.style.display = '';
-      var html = '<table><thead><tr><th>Gewerk</th><th>Pos</th><th>Beschreibung</th><th class="num">Wert</th><th>Einheit</th><th class="num">Konf</th></tr></thead><tbody>';
+      // Prüfbare LV-Buchform: je Gewerk → Positionen mit Pos-Nr, Beschreibung,
+      // Endsumme, Konfidenz, ÖNORM-Quelle + ausklappbarem Aufmaß (Σ-Zeilen je Raum).
+      var html = '';
       Object.keys(gw).forEach(function (gk) {
         var g = gw[gk];
-        var label = (g.label || gk).replace(/\s*\(.*\)/, '');
-        (g.positionen || []).forEach(function (p) {
-          html += '<tr><td>' + esc(label) + '</td><td>' + esc(p.posnr || '') + '</td><td>' + esc(p.beschreibung || '') +
-            '</td><td class="num">' + fmtNum(p.endsumme) + '</td><td>' + esc(p.einheit || '') + '</td><td class="num">' +
-            Math.round((p.konfidenz || 0) * 100) + '%</td></tr>';
+        var poss = (g.positionen || []);
+        if (!poss.length) return;
+        html += '<div class="lv-gewerk"><div class="lv-gewerk-titel">' + esc(g.label || gk) + '</div>';
+        poss.forEach(function (p) {
+          var konf = Math.round((p.konfidenz || 0) * 100);
+          var tier = konf >= 80 ? 'sicher' : (konf >= 60 ? 'mittel' : 'unsicher');
+          var zeilen = p.zeilen || [];
+          html += '<div class="lv-pos">' +
+            '<div class="lv-pos-kopf">' +
+              '<span class="lv-pos-nr">' + esc(p.posnr || '') + '</span>' +
+              '<span class="lv-pos-text">' + esc(p.beschreibung || '') + '</span>' +
+              '<span class="lv-pos-summe">' + fmtNum(p.endsumme) + ' <em>' + esc(p.einheit || '') + '</em></span>' +
+              '<span class="lv-pos-konf ' + tier + '" title="Konfidenz">' + konf + '%</span>' +
+            '</div>' +
+            (p.quelle ? '<div class="lv-pos-quelle">' + esc(p.quelle) + '</div>' : '');
+          if (zeilen.length) {
+            html += '<details class="lv-aufmass"><summary>Aufmaß · ' + zeilen.length + ' Zeile' + (zeilen.length === 1 ? '' : 'n') + '</summary><table class="lv-aufmass-tab"><tbody>';
+            zeilen.forEach(function (z) {
+              var masse = [];
+              if (z.anzahl) masse.push(z.anzahl + '×');
+              if (z.laenge) masse.push(fmtNum(z.laenge));
+              if (z.breite) masse.push('×' + fmtNum(z.breite));
+              if (z.hoehe) masse.push('×' + fmtNum(z.hoehe));
+              html += '<tr><td>' + esc(z.text || '') + '</td><td class="num">' + esc(masse.join(' ')) + '</td>' +
+                '<td class="num">' + fmtNum(z.wert) + '</td><td class="lv-z-quelle">' + esc(z.quelle || '') + '</td></tr>';
+            });
+            html += '</tbody></table></details>';
+          }
+          html += '</div>';
         });
+        html += '</div>';
       });
-      html += '</tbody></table>';
-      detail.innerHTML = html;
+      detail.innerHTML = html || '<p style="color:#92400e">Keine ÖNORM-Massen ermittelt.</p>';
     }
 
     renderReadData(data);

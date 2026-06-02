@@ -2797,3 +2797,34 @@ img {
   border-radius: 999px; background: var(--primary); color: #fff; font-weight: 700; font-size: .72rem; margin-right: .35rem; }
 .kalib-add { border: 2px solid var(--accent-soft); }
 .btn-lg { padding: .7rem 1.4rem; font-size: .95rem; font-weight: 700; }
+
+/* ── ÖNORM-LV Buchform (prüfbare Massenermittlung — Phase 3) ── */
+.lv-gewerk { margin-bottom: 1.1rem; }
+.lv-gewerk-titel { font-weight: 700; font-size: .95rem; color: #1a3a5c;
+  border-bottom: 2px solid #e2e8f0; padding-bottom: .3rem; margin-bottom: .5rem; }
+.lv-pos { padding: .45rem 0; border-bottom: 1px solid #f1f5f9; }
+.lv-pos-kopf { display: flex; align-items: baseline; gap: .6rem; }
+.lv-pos-nr { font-variant-numeric: tabular-nums; color: #64748b; font-size: .82rem; min-width: 2.2rem; }
+.lv-pos-text { flex: 1; font-size: .9rem; color: #1e293b; }
+.lv-pos-summe { font-weight: 700; font-variant-numeric: tabular-nums; color: #0f172a; white-space: nowrap; }
+.lv-pos-summe em { font-style: normal; font-weight: 500; color: #64748b; font-size: .8rem; }
+.lv-pos-konf { font-size: .72rem; font-weight: 600; padding: .05rem .4rem; border-radius: 999px; white-space: nowrap; }
+.lv-pos-konf.sicher { background: #dcfce7; color: #166534; }
+.lv-pos-konf.mittel { background: #fef9c3; color: #854d0e; }
+.lv-pos-konf.unsicher { background: #fee2e2; color: #991b1b; }
+.lv-pos-quelle { font-size: .74rem; color: #94a3b8; margin: .15rem 0 0 2.8rem; }
+.lv-aufmass { margin: .3rem 0 0 2.8rem; }
+.lv-aufmass > summary { font-size: .76rem; color: #2563eb; cursor: pointer; }
+.lv-aufmass-tab { width: 100%; margin-top: .3rem; font-size: .78rem; border-collapse: collapse; }
+.lv-aufmass-tab td { padding: .18rem .4rem; border-bottom: 1px solid #f1f5f9; color: #475569; }
+.lv-aufmass-tab td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.lv-z-quelle { color: #94a3b8; font-size: .72rem; }
+
+/* Druck: nur die Massenermittlung sauber; Aufmaß-Zeilen werden per beforeprint
+   (JS) aufgeklappt — robuster als CSS-Tricks gegen <details>. */
+@media print {
+  .navbar, .btn, .ml-board-tools { display: none !important; }
+  #projekt-massen-detail-wrap { display: block !important; }
+  .lv-aufmass > summary { display: none; }
+  .lv-pos, .lv-gewerk { break-inside: avoid; }
+}
