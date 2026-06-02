@@ -129,11 +129,27 @@ class LVPosition:
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Öffnungs-Logik (ÖNORM B 2210)
+# Öffnungs-Logik (ÖNORM B 2204 §5.5.1.3 / B 2210)
 # ════════════════════════════════════════════════════════════════════════
-def oeffnung_abzug(breite_m, hoehe_m):
-    """Öffnung wird abgezogen, wenn Einzelfläche > 5 m² (sonst übermessen)."""
-    return (breite_m * hoehe_m) > OEFFNUNG_ABZUG_SCHWELLE_M2
+RAHMEN_RUECKSPRUNG_CM = 6.0   # Stock/Rahmen springt ggü. Wandflucht zurück → Laibungstiefe
+
+
+def _schwelle_fuer(baudaten, gewerk=None):
+    """Öffnungs-Abzugsschwelle (m²): je Gewerk überschreibbar, sonst global, sonst
+    Default. So kann eine Firma z.B. strenges Mauerwerks-Ausmaß (B 2206, 0,5 m²)
+    setzen, ohne den Putz-Default (4,0 m²) anzutasten."""
+    bd = baudaten or {}
+    if gewerk is not None and bd.get(f"oeffnung_schwelle_{gewerk}") is not None:
+        return float(bd[f"oeffnung_schwelle_{gewerk}"])
+    if bd.get("oeffnung_schwelle") is not None:
+        return float(bd["oeffnung_schwelle"])
+    return OEFFNUNG_ABZUG_SCHWELLE_M2
+
+
+def oeffnung_abzug(breite_m, hoehe_m, schwelle=None):
+    """Öffnung wird abgezogen, wenn Einzelfläche > Schwelle (sonst übermessen)."""
+    s = OEFFNUNG_ABZUG_SCHWELLE_M2 if schwelle is None else schwelle
+    return (breite_m * hoehe_m) > s
 
 
 def laibungsflaeche(breite_m, hoehe_m, tiefe_m, mit_sohlbank=False):
@@ -142,6 +158,49 @@ def laibungsflaeche(breite_m, hoehe_m, tiefe_m, mit_sohlbank=False):
     if mit_sohlbank:
         umfang += breite_m
     return tiefe_m * umfang
+
+
+def _wand_cm_of(w, baudaten):
+    """Wandstärke einer Öffnung: aus wand_typ (AW/IW), sonst Fallback per Art
+    (Fenster→Außenwand, Tür→Innenwand). wand_typ tragen nur Text-Layer-Öffnungen."""
+    bd = baudaten or {}
+    aw = bd.get("aussenwand_cm") or 50.0
+    iw = bd.get("innenwand_tragend_cm") or 25.0
+    wt = (w.get("wand_typ") or "").lower()
+    if wt:
+        return aw if wt.startswith("a") else iw
+    return iw if (w.get("_art") == "tuer") else aw
+
+
+def oeffnung_netto(breite_m, hoehe_m, wand_cm, fph_m=0.0, schwelle=None,
+                   rahmen_cm=RAHMEN_RUECKSPRUNG_CM):
+    """ÖNORM B 2204 §5.5.1.3: Öffnung ≤ Schwelle → übermessen (kein Abzug, KEINE
+    Laibung — die Laibungsarbeit gleicht den nicht abgezogenen Wandanteil aus);
+    > Schwelle → Fläche abziehen + abgewickelte Laibung verrechnen. Laibungstiefe
+    wandbezogen (Wandstärke − Rahmenrücksprung). Liefert
+    {flaeche, abzug, laibung, uebermessen, tiefe, sohlbank}."""
+    s = OEFFNUNG_ABZUG_SCHWELLE_M2 if schwelle is None else schwelle
+    flaeche = (breite_m or 0) * (hoehe_m or 0)
+    if flaeche <= 0:
+        return {"flaeche": 0.0, "abzug": 0.0, "laibung": 0.0,
+                "uebermessen": False, "tiefe": 0.0, "sohlbank": False}
+    if flaeche <= s:
+        return {"flaeche": round(flaeche, 3), "abzug": 0.0, "laibung": 0.0,
+                "uebermessen": True, "tiefe": 0.0, "sohlbank": False}
+    tiefe = max(0.04, (wand_cm or 0) / 100.0 - rahmen_cm / 100.0)
+    mit_sohlbank = (fph_m or 0) > 0.15   # Fenster mit Parapet/Brüstung → Sohlbank-Abwicklung
+    laib = laibungsflaeche(breite_m, hoehe_m, tiefe, mit_sohlbank=mit_sohlbank)
+    return {"flaeche": round(flaeche, 3), "abzug": round(flaeche, 3),
+            "laibung": round(laib, 3), "uebermessen": False,
+            "tiefe": round(tiefe, 3), "sohlbank": mit_sohlbank}
+
+
+def _oeffnungen_kombi(windows, tueren):
+    """Fenster + Türen zu EINER getaggten Öffnungs-Liste (_art) für den ÖNORM-Abzug.
+    Türen ohne explizites _art werden als 'tuer' markiert (→ Innenwand-Fallback)."""
+    out = [dict(w, _art=(w.get("_art") or "fenster")) for w in (windows or [])]
+    out += [dict(t, _art=(t.get("_art") or "tuer")) for t in (tueren or [])]
+    return out
 
 
 def _nk(s):
@@ -200,14 +259,15 @@ def _room_name(r):
 # ════════════════════════════════════════════════════════════════════════
 # GEWERKE
 # ════════════════════════════════════════════════════════════════════════
-def gewerk_putz(rooms, windows, baudaten, geschoss="EG"):
+def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     positionen = []
-    laibung_t = baudaten["aussenwand_cm"] / 100.0 * 0.33
-    fzuord = fenster_pro_raum(rooms, windows)
+    schwelle = _schwelle_fuer(baudaten, "putz")
+    oeffnungen = _oeffnungen_kombi(windows, tueren)
+    fzuord = fenster_pro_raum(rooms, oeffnungen)
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
 
     pos = LVPosition("1.1", f"Innenputz Wände — {geschoss}", "m²")
-    pos.quelle = f"ÖNORM B 2210 · Σ(U×H) − Öffnungen>{OEFFNUNG_ABZUG_SCHWELLE_M2:.0f}m² + Laibungen"
+    pos.quelle = f"ÖNORM B 2210/B 2204 · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
@@ -217,13 +277,17 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG"):
                       summe=u * h, quelle=f"U={u} × H={h}")
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m", 0), w.get("hoehe_m", 0)
-            if bw and hw and oeffnung_abzug(bw, hw):
-                pos.add_zeile(f"  Abzug Fenster {w.get('code','')}",
-                              laenge=bw, hoehe=-hw, summe=-(bw * hw),
-                              quelle=f"Öffnung >{OEFFNUNG_ABZUG_SCHWELLE_M2:.0f} m²")
-                lb = laibungsflaeche(bw, hw, laibung_t)
-                pos.add_zeile(f"  Laibung Fenster {w.get('code','')}", summe=lb,
-                              quelle=f"Tiefe {laibung_t:.2f}m × Abwicklung")
+            netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
+                                   w.get("fph_m", 0), schwelle)
+            if netto["uebermessen"] or netto["abzug"] <= 0:
+                continue
+            _art = (w.get("_art") or "Öffnung").capitalize()
+            pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
+                          laenge=bw, hoehe=-hw, summe=-netto["abzug"],
+                          quelle=f"Öffnung >{schwelle:.1f} m²")
+            pos.add_zeile(f"  Laibung {w.get('code','')}".rstrip(), summe=netto["laibung"],
+                          quelle=(f"Tiefe {netto['tiefe']:.2f}m × Abwicklung"
+                                  + (" +Sohlbank" if netto["sohlbank"] else "")))
     pos.konfidenz = 0.9
     positionen.append(pos)
 
@@ -238,7 +302,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG"):
     return positionen
 
 
-def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG"):
+def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
     positionen = []
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
     h_def = baudaten["geschosshoehe_m"]
@@ -303,7 +367,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG"):
     return positionen
 
 
-def gewerk_estrich(rooms, windows, baudaten, geschoss="EG"):
+def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
     positionen = []
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
 
@@ -327,13 +391,15 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG"):
     return positionen
 
 
-def gewerk_maler(rooms, windows, baudaten, geschoss="EG"):
+def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
     positionen = []
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
-    fzuord = fenster_pro_raum(rooms, windows)
+    schwelle = _schwelle_fuer(baudaten, "maler")
+    oeffnungen = _oeffnungen_kombi(windows, tueren)
+    fzuord = fenster_pro_raum(rooms, oeffnungen)
 
     pos = LVPosition("1.1", f"Anstrich Wände — {geschoss}", "m²")
-    pos.quelle = f"Σ(U×H) − Öffnungen >{OEFFNUNG_ABZUG_SCHWELLE_M2:.0f} m²"
+    pos.quelle = f"ÖNORM B 2204 · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
@@ -343,9 +409,15 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG"):
                       quelle=f"U={u} × H={h}")
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m", 0), w.get("hoehe_m", 0)
-            if bw and hw and oeffnung_abzug(bw, hw):
-                pos.add_zeile(f"  Abzug Fenster {w.get('code','')}",
-                              laenge=bw, hoehe=-hw, summe=-(bw * hw))
+            netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
+                                   w.get("fph_m", 0), schwelle)
+            if netto["uebermessen"] or netto["abzug"] <= 0:
+                continue
+            _art = (w.get("_art") or "Öffnung").capitalize()
+            pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
+                          laenge=bw, hoehe=-hw, summe=-netto["abzug"])
+            pos.add_zeile(f"  Laibung {w.get('code','')}".rstrip(), summe=netto["laibung"],
+                          quelle=f"Tiefe {netto['tiefe']:.2f}m × Abwicklung")
     pos.konfidenz = 0.88
     positionen.append(pos)
 
@@ -368,9 +440,10 @@ GEWERKE = {
 }
 
 
-def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None):
+def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None, tueren=None):
     """Erzeugt pro gewähltem Gewerk die LV-Positionen.
     rooms: Liste von Raum-dicts (name/flaeche_m2/umfang_m/hoehe_m/cx/cy).
+    windows/tueren: Öffnungen (für ÖNORM-Abzug + Laibung).
     baudaten: dict mit Wandstärken/Decke/Geschosshöhe (+ optional _quellen).
     gewerke: Liste der Gewerk-Keys; None = alle."""
     if gewerke is None:
@@ -396,7 +469,7 @@ def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None):
             continue
         label, fn = GEWERKE[g]
         try:
-            positionen = fn(rooms, windows or [], bd, geschoss)
+            positionen = fn(rooms, windows or [], bd, geschoss, tueren=tueren)
             result["gewerke"][g] = {
                 "label": label,
                 "positionen": [p.to_dict() for p in positionen],

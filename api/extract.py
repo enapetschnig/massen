@@ -2602,7 +2602,8 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
 
         try:
             gewerke_result = _berechne_gewerke(
-                rooms_fg, alle_fenster, baudaten, geschoss or "EG", None)
+                rooms_fg, alle_fenster, baudaten, geschoss or "EG", None,
+                tueren=all_tueren)
         except Exception as _exc:
             print(f"[gewerke] Berechnung fehlgeschlagen: {_exc!r}")
             gewerke_result = None
@@ -4323,7 +4324,8 @@ async def projekt_massen(body: ProjektMassenRequest):
     gewerke_keys = body.gewerke_filter if body.gewerke_filter else None
     try:
         gewerke_result = _berechne_gewerke(
-            merged_rooms, alle_fenster, best_baudaten, geschoss, gewerke_keys
+            merged_rooms, alle_fenster, best_baudaten, geschoss, gewerke_keys,
+            tueren=alle_tueren
         )
     except Exception as e:
         raise HTTPException(500, f"berechne_gewerke: {e}")

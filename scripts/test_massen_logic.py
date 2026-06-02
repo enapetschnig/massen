@@ -69,11 +69,11 @@ def run():
     check("Putz: Endsumme = Brutto − Abzug + Laibung plausibel",
           53.4 < wand.endsumme < 59.4)
 
-    # ── MALER: > 5 m² abziehen, OHNE Laibung ──
+    # ── MALER: > 4 m² abziehen, MIT Laibung (ÖNORM-konsistent zum Putz, Phase 1) ──
     maler = gewerk_maler(ROOMS, WINDOWS, BAUDATEN)
     mwand = next(p for p in maler if p.posnr == "1.1")
     check("Maler: genau EIN Abzug (großes Fenster)", len(_negative_zeilen(mwand)) == 1)
-    check("Maler: KEINE Laibung-Zeile", len(_zeilen_mit(mwand, "laibung")) == 0)
+    check("Maler: Laibung-Zeile vorhanden (konsistent mit Putz)", len(_zeilen_mit(mwand, "laibung")) == 1)
 
     # ── ESTRICH (ÖNORM B 2232): Öffnungen irrelevant ──
     estrich = gewerk_estrich(ROOMS, WINDOWS, BAUDATEN)
@@ -82,11 +82,49 @@ def run():
           abs(eflaeche.endsumme - 30.0) < 0.01)
     check("Estrich: keine negativen Zeilen", len(_negative_zeilen(eflaeche)) == 0)
 
+    # ── PHASE 1: zentraler Helfer oeffnung_netto (ÖNORM B 2204) ──
+    n_klein = ML.oeffnung_netto(1.5, 2.0, wand_cm=50, schwelle=4.0)   # 3,0 m²
+    check("netto: 3,0 m² übermessen → kein Abzug", n_klein["uebermessen"] and n_klein["abzug"] == 0)
+    check("netto: übermessen → keine Laibung", n_klein["laibung"] == 0)
+    n_aw = ML.oeffnung_netto(3.0, 2.0, wand_cm=50, schwelle=4.0)      # 6,0 m², Außenwand
+    n_iw = ML.oeffnung_netto(3.0, 2.0, wand_cm=12, schwelle=4.0)      # gleiche Öffnung, dünne Innenwand
+    check("netto: >Schwelle → Abzug = Fläche", abs(n_aw["abzug"] - 6.0) < 0.01)
+    check("netto: dickere Wand → tiefere Laibung", n_aw["laibung"] > n_iw["laibung"] > 0)
+    n_ohne = ML.oeffnung_netto(3.0, 2.0, wand_cm=50, fph_m=0.0, schwelle=4.0)
+    n_mit = ML.oeffnung_netto(3.0, 2.0, wand_cm=50, fph_m=0.90, schwelle=4.0)
+    check("netto: fph>0,15 → Sohlbank + größere Laibung",
+          n_mit["sohlbank"] and n_mit["laibung"] > n_ohne["laibung"])
+
+    # ── Wandstärke je Öffnung: wand_typ schlägt Art-Fallback ──
+    check("_wand_cm: Fenster (Fallback) → Außenwand 50",
+          ML._wand_cm_of({"_art": "fenster"}, BAUDATEN) == 50.0)
+    check("_wand_cm: Tür (Fallback) → Innenwand 25",
+          ML._wand_cm_of({"_art": "tuer"}, BAUDATEN) == 25.0)
+    check("_wand_cm: wand_typ='IW' schlägt Art",
+          ML._wand_cm_of({"_art": "fenster", "wand_typ": "IW"}, BAUDATEN) == 25.0)
+
+    # ── Türen werden jetzt durchgereicht + nach ÖNORM behandelt ──
+    putz_gt = gewerk_putz(ROOMS, [], BAUDATEN,
+                          tueren=[{"raum": "Zimmer 1", "breite_m": 2.5, "hoehe_m": 2.0, "code": "T-GROSS"}])  # 5,0 m²
+    check("Türen: große Tür (5 m²) wird abgezogen",
+          len(_negative_zeilen(next(p for p in putz_gt if p.posnr == "1.1"))) == 1)
+    putz_kt = gewerk_putz(ROOMS, [], BAUDATEN,
+                          tueren=[{"raum": "Zimmer 1", "breite_m": 0.9, "hoehe_m": 2.1, "code": "T-KLEIN"}])  # 1,89 m²
+    check("Türen: normale Tür (1,9 m²) wird übermessen",
+          len(_negative_zeilen(next(p for p in putz_kt if p.posnr == "1.1"))) == 0)
+
+    # ── Schwelle je Gewerk überschreibbar (z.B. strenges Mauerwerks-Ausmaß 0,5) ──
+    check("Schwelle: Default 4,0", ML._schwelle_fuer(BAUDATEN) == 4.0)
+    check("Schwelle: global überschrieben", ML._schwelle_fuer({"oeffnung_schwelle": 0.5}) == 0.5)
+    check("Schwelle: je Gewerk überschrieben",
+          ML._schwelle_fuer({"oeffnung_schwelle_putz": 2.5}, "putz") == 2.5)
+
     print("-" * 62)
     if fails:
         print(f"FEHLER: {len(fails)} Zusage(n) verletzt: {fails}")
         return 1
-    print("OK — ÖNORM-Öffnungsverhalten festgenagelt (Putz >4m²+Laibung, Maler >4m², Estrich neutral).")
+    print("OK — ÖNORM-Öffnungslogik (B 2204): >4m²→Abzug+Laibung wandbezogen, ≤4m²→übermessen, "
+          "Türen durchgereicht, Schwelle je Gewerk.")
     return 0
 
 
