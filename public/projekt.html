@@ -35,12 +35,15 @@
 
     <!-- Upload Section -->
     <div class="section" id="upload-section">
-      <h3 class="section-title">&#128196; Plan hochladen &ndash; Rest l&auml;uft automatisch</h3>
+      <h3 class="section-title">&#128196; Pl&auml;ne hochladen &ndash; Rest l&auml;uft automatisch</h3>
       <div class="upload-zone" id="upload-zone">
         <div class="upload-icon">&#128193;</div>
-        <h3>PDF hierher ziehen</h3>
-        <p>Sobald der Plan hochgeladen ist, wird er <strong>automatisch analysiert</strong> &ndash; Sie m&uuml;ssen nichts weiter klicken.</p>
-        <p class="mt-1 text-light" style="font-size:0.8rem">Bauplan als PDF (max. 50 MB) &middot; mehrere Pl&auml;ne gleichzeitig m&ouml;glich</p>
+        <h3>PDF-Pl&auml;ne hierher ziehen &ndash; mehrere gleichzeitig</h3>
+        <p>Lade ruhig <strong>alle Ansichten eines Bauvorhabens auf einmal</strong> hoch
+          (Grundriss, Schnitt, Ansicht &hellip;). Sie werden automatisch analysiert und
+          <strong>gemeinsam ausgewertet</strong> &ndash; das Ergebnis erscheint, sobald
+          <strong>alle Pl&auml;ne fertig</strong> sind.</p>
+        <p class="mt-1 text-light" style="font-size:0.8rem">Bauplan-PDFs (max. 50 MB) &middot; mehrere Dateien gleichzeitig ausw&auml;hlbar</p>
         <input type="file" id="file-input" accept=".pdf" multiple>
       </div>
       <div id="upload-progress" class="hidden mt-2">
@@ -80,10 +83,6 @@
           <div class="result-hero-sub"><span id="projekt-massen-badge"></span></div>
         </div>
         <div class="result-hero-side">
-          <div class="trust-ring" id="trust-ring" title="Anteil der Positionen, die byte-exakt aus Plan + Bauteil-Legende oder gemessener Geometrie stammen">
-            <span class="trust-ring-num" id="trust-ring-num">&ndash;</span>
-            <span class="trust-ring-cap">verl&auml;sslich</span>
-          </div>
           <div class="export-group">
             <button class="btn btn-accent btn-export" id="projekt-export-btn" title="Saubere Bestell-Materialliste (Bauteil · Material · Menge · Einheit) — für Excel/Polier">&#128203; Materialliste</button>
             <button class="btn btn-outline btn-sm" id="projekt-export-oenorm-btn" title="Prüfbare ÖNORM-Massenermittlung (Gewerk · Position · Menge · ÖNORM-Bezug · Aufmaß-Zeilen)">&#128208; ÖNORM-Massen</button>
