@@ -225,8 +225,12 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         geometrie_konfidenz = float(gemessen.get("konfidenz") or 0.85)
     else:
         bodenplatte_m2 = round(f_bp_base * bp_faktor, 2)
-        # Auch im Schätz-Fall die Loggia für die Decke mitzählen
-        decke_m2 = round((f_sum_innen + f_sum_loggia) * dk_faktor, 2)
+        # KONSTANZ + GENAUIGKEIT: dieselbe Decken-Formel wie im gemessen-Zweig —
+        # Footprint-Basis (bodenplatte_m2, schon inkl. Wand-Band) + Loggia ×
+        # Auskragung. Vorher nahm der Fallback die LICHTE Σ-Raumfläche × anderem
+        # Faktor → unterschätzte die Rohbau-Decke um die Wand-Querschnitte und
+        # flackerte mit dem gemessen-vorhanden/-nicht-vorhanden-Zustand.
+        decke_m2 = round((bodenplatte_m2 + f_sum_loggia) * f("decke_auskragung", override), 2)
         geometrie_quelle = f"Σ Raum-F × {bp_faktor:.2f}-Aufschlag"
         geometrie_konfidenz = 0.65
 

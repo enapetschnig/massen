@@ -1467,7 +1467,7 @@ REGELN:
         for fld in ("flaeche_m2", "umfang_m", "hoehe_m"):
             vals = sorted([float(o.get(fld)) for o in obs_list if o.get(fld)])
             if vals:
-                merged[fld] = vals[len(vals)//2]
+                merged[fld] = vals[(len(vals) - 1) // 2]   # unteres Mittel (gleiche Konvention)
         # KONSTANZ: Konfidenz deterministisch aus der Konsens-Anzahl ableiten —
         # NICHT max() über die lauf-variablen Einzel-Tile-Konfidenzen (das ließ den
         # Wert springen). F/U/H bleiben Median (unverändert). Text-verifizierte
@@ -3742,8 +3742,11 @@ async def projekt_massen(body: ProjektMassenRequest):
         s = sorted(x for x in xs if x and x > 0)
         if not s:
             return None
-        n = len(s)
-        return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+        # KONSTANZ: bei gerader Anzahl das UNTERE Mittel (real gemessener Wert)
+        # statt des Interpolats (s[n/2-1]+s[n/2])/2 — ein Interpolat sitzt zwischen
+        # zwei Kandidaten und kann beim Erscheinen/Verschwinden eines einzelnen
+        # Vision-Werts über eine Bucket-Grenze (z.B. Rolladen-Breite) kippen.
+        return s[(len(s) - 1) // 2]
 
     def _mad_filter(xs, iso_floor):
         """Verteilungsrobuste Outlier-Entfernung (MAD) statt blindem Median.
