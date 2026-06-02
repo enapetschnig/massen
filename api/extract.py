@@ -4320,19 +4320,10 @@ async def projekt_massen(body: ProjektMassenRequest):
                        "umfang_validiert": True, "umfang_verdacht_niedrig": False,
                        "cross_check_warnung": False})
 
-    # 7) Gewerk-Berechnung neu mit gemergten Räumen — nur ausgewählte Gewerke
-    gewerke_keys = body.gewerke_filter if body.gewerke_filter else None
-    try:
-        gewerke_result = _berechne_gewerke(
-            merged_rooms, alle_fenster, best_baudaten, geschoss, gewerke_keys,
-            tueren=alle_tueren
-        )
-    except Exception as e:
-        raise HTTPException(500, f"berechne_gewerke: {e}")
-
-    # 7b) Rohbau-Materialliste (Phase 1, Faustformel-basiert).
-    # Standalone, weil andere Einheiten als ÖNORM-LV (Paletten/Kanister/Stk).
-    # Wird immer berechnet, aber UI kann sie ausblenden.
+    # 7) Rohbau-Materialliste ZUERST (Phase 1, Faustformel-basiert). Sie liefert die
+    # maßgebliche, kalibrierte Geometrie (Decke/Bodenplatte/Außenwand-Fläche), die
+    # anschließend als GEMEINSAME BASIS in die ÖNORM-LV fließt → beide Ansichten
+    # zeigen dieselbe Zahl für dasselbe Bauteil (keine Widersprüche).
     materialliste_result = None
     if _MATERIAL_OK:
         try:
@@ -4345,6 +4336,35 @@ async def projekt_massen(body: ProjektMassenRequest):
             )
         except Exception as e:
             materialliste_result = {"error": f"{type(e).__name__}: {e}"}
+
+    # 7a) Gemeinsame Basis + Inventar-Zählungen NUR in best_baudaten spiegeln (NIE in
+    # materialliste_override → Bestell-Liste/Angerer 13/13 bleiben unangetastet).
+    if isinstance(materialliste_result, dict) and not materialliste_result.get("error"):
+        _kz = materialliste_result.get("kennzahlen") or {}
+        for _src, _dst in (("aussenwand_flaeche_m2", "_basis_aussenwand_flaeche_m2"),
+                           ("innenwand_flaeche_m2", "_basis_innenwand_flaeche_m2"),
+                           ("decke_flaeche_m2", "_basis_decke_m2"),
+                           ("bodenplatte_flaeche_m2", "_basis_bodenplatte_m2"),
+                           ("aussenumfang_m", "_basis_aussenumfang_m")):
+            if _kz.get(_src):
+                best_baudaten[_dst] = _kz[_src]
+    if saeulen_erkannt:
+        best_baudaten["anzahl_saeulen"] = saeulen_erkannt
+        best_baudaten.setdefault("_quellen", {})["anzahl_saeulen"] = (
+            "geschaetzt" if saeulen_geschaetzt else "schnitt-opus")
+    _kamin_n = (best_legende or {}).get("kamin_anzahl") or 0
+    if _kamin_n:
+        best_baudaten["anzahl_kamine"] = int(_kamin_n)
+
+    # 7b) ÖNORM-Gewerke mit der gemeinsamen Basis — nur ausgewählte Gewerke
+    gewerke_keys = body.gewerke_filter if body.gewerke_filter else None
+    try:
+        gewerke_result = _berechne_gewerke(
+            merged_rooms, alle_fenster, best_baudaten, geschoss, gewerke_keys,
+            tueren=alle_tueren
+        )
+    except Exception as e:
+        raise HTTPException(500, f"berechne_gewerke: {e}")
 
     # 7b2) OPUS-SCHLUSSPRÜFUNG (#3): der Polier prüft die fertige Liste gegen den
     # scharfen Plan und flaggt Unstimmigkeiten (meldet, korrigiert nicht). Nutzt das

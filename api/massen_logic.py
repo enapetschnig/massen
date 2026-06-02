@@ -203,6 +203,15 @@ def _oeffnungen_kombi(windows, tueren):
     return out
 
 
+def _ist_aussenwand(w):
+    """Sitzt die Öffnung in einer Außenwand? wand_typ schlägt den Art-Fallback
+    (Fenster→außen, Tür→innen)."""
+    wt = (w.get("wand_typ") or "").lower()
+    if wt:
+        return wt.startswith("a")
+    return w.get("_art") != "tuer"
+
+
 def _nk(s):
     return re.sub(r"[\s\-_/]+", "", (s or "").lower())
 
@@ -307,6 +316,31 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
     h_def = baudaten["geschosshoehe_m"]
 
+    # Pos 1.0: Mauerwerk Außenwand — Ansichtsfläche netto (ÖNORM B 2206 mit
+    # Öffnungs-Abzug). Nutzt die GEMEINSAME Basis: dieselbe gemessene Außenwand-
+    # Fläche, die auch die Bestell-Liste treibt → beide Ansichten zeigen dieselbe
+    # Wand (keine widersprüchlichen Zahlen). Nur aktiv, wenn die Basis durchgereicht
+    # ist (sonst keine Wand-Geometrie → Position wird ausgelassen).
+    _aw_brutto = baudaten.get("_basis_aussenwand_flaeche_m2")
+    if _aw_brutto:
+        _schw = _schwelle_fuer(baudaten, "rohbau")
+        _abzug = 0.0
+        for w in _oeffnungen_kombi(windows, tueren):
+            if not _ist_aussenwand(w):
+                continue
+            _abzug += oeffnung_netto(w.get("breite_m", 0), w.get("hoehe_m", 0),
+                                     baudaten.get("aussenwand_cm", 50),
+                                     w.get("fph_m", 0), _schw)["abzug"]
+        pos = LVPosition("1.0", f"Mauerwerk Außenwand Ansichtsfläche — {geschoss}", "m²")
+        pos.quelle = f"ÖNORM B 2206 · Außenwand brutto − Öffnungen>{_schw:.1f}m²"
+        pos.add_zeile("Außenwand brutto", summe=round(_aw_brutto, 2),
+                      quelle="Umfang × Höhe (gemeinsame Basis)")
+        if _abzug > 0:
+            pos.add_zeile("  Abzug große Öffnungen", summe=-round(_abzug, 2),
+                          quelle=f"Einzelfläche >{_schw:.1f} m²")
+        pos.konfidenz = 0.8
+        positionen.append(pos)
+
     # Pos 1: Wand-Abwicklung (Kontrollwert — kein Mauerwerks-Aufmaß)
     pos = LVPosition("1.1", f"Wand-Abwicklung Raum-Innenseiten — {geschoss}", "m²")
     pos.quelle = ("Σ(U×H) aller Räume — Innenwände doppelt gezählt. "
@@ -334,15 +368,23 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
         pos.konfidenz = 0.72
     positionen.append(pos)
 
-    # Pos 2: Stahlbeton-Decke m³
+    # Pos 2: Stahlbeton-Decke m³ — GEMEINSAME Basis mit der Bestell-Liste: wenn die
+    # gemessene Decken-Fläche (Footprint+Auskragung) durchgereicht ist, dieselbe
+    # nutzen → identische m³ in beiden Ansichten. Sonst lichte Σ-Raumfläche.
     decke_m = baudaten["decke_cm"] / 100.0
     pos = LVPosition("1.2", f"Stahlbeton-Decke über {geschoss}", "m³")
-    pos.quelle = f"ÖNORM B 2208 · Σ Fläche × Deckendicke {decke_m:.2f}m"
-    for r in innen:
-        f = _room_value(r, "flaeche_m2")
-        if f:
-            pos.add_zeile(_room_name(r), laenge=f, hoehe=decke_m, summe=f * decke_m,
-                          quelle=f"F={f} × d={decke_m:.2f}")
+    _basis_decke = baudaten.get("_basis_decke_m2")
+    if _basis_decke:
+        pos.quelle = f"ÖNORM B 2208 · Decken-Fläche × Dicke {decke_m:.2f}m (gemeinsame Basis)"
+        pos.add_zeile("Decke gesamt", laenge=round(_basis_decke, 2), hoehe=decke_m,
+                      summe=_basis_decke * decke_m, quelle=f"F={_basis_decke:.2f} × d={decke_m:.2f}")
+    else:
+        pos.quelle = f"ÖNORM B 2208 · Σ Fläche × Deckendicke {decke_m:.2f}m"
+        for r in innen:
+            f = _room_value(r, "flaeche_m2")
+            if f:
+                pos.add_zeile(_room_name(r), laenge=f, hoehe=decke_m, summe=f * decke_m,
+                              quelle=f"F={f} × d={decke_m:.2f}")
     # Fläche byte-exakt (Σ Raumfläche) × Dicke. Konfidenz nach DICKE-Quelle:
     # Legende/Doppelcheck = byte-exakt (hoch), Schnitt/Vision = mittel, sonst Default.
     _dq = (baudaten.get("_quellen", {}).get("decke_cm") or "").lower()
@@ -350,13 +392,17 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
                      else 0.82 if ("schnitt" in _dq or "vision" in _dq) else 0.65)
     positionen.append(pos)
 
-    # Pos 3: Bodenplatte m³ (nur EG/KG/UG)
+    # Pos 3: Bodenplatte m³ (nur EG/KG/UG) — GEMEINSAME Basis: gemessene
+    # Bodenplatten-Fläche wenn durchgereicht, sonst Σ Grundfläche.
     if geschoss.upper() in ("EG", "KG", "UG"):
         bopl_m = baudaten["bodenplatte_cm"] / 100.0
-        grundflaeche = sum((_room_value(r, "flaeche_m2") or 0) for r in innen)
+        _basis_bopl = baudaten.get("_basis_bodenplatte_m2")
+        grundflaeche = (_basis_bopl if _basis_bopl
+                        else sum((_room_value(r, "flaeche_m2") or 0) for r in innen))
         pos = LVPosition("1.3", f"Bodenplatte Stahlbeton — {geschoss}", "m³")
-        pos.quelle = f"Grundfläche × Plattendicke {bopl_m:.2f}m"
-        pos.add_zeile("Bodenplatte gesamt", laenge=grundflaeche, hoehe=bopl_m,
+        _gb = " (gemeinsame Basis)" if _basis_bopl else ""
+        pos.quelle = f"Grundfläche × Plattendicke {bopl_m:.2f}m{_gb}"
+        pos.add_zeile("Bodenplatte gesamt", laenge=round(grundflaeche, 2), hoehe=bopl_m,
                       summe=grundflaeche * bopl_m,
                       quelle=f"ΣF={grundflaeche:.2f} × d={bopl_m:.2f}")
         # Grundfläche byte-exakt × Dicke. Konfidenz nach DICKE-Quelle wie bei der Decke.
@@ -432,9 +478,35 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
     return positionen
 
 
+def gewerk_beton(rooms, windows, baudaten, geschoss="EG", tueren=None):
+    """Stahlbeton-Bauteile außer Decke/Bodenplatte (die liegen im Rohbau): freistehende
+    Stützen/Säulen + Kamin. Säulen-m³ mit DEMSELBEN Faktor wie die Bestell-Liste
+    (gemeinsame Basis) → beide Ansichten rechnen gleich. Leer, wenn nichts erkannt."""
+    positionen = []
+    n_saeulen = int(baudaten.get("anzahl_saeulen") or 0)
+    if n_saeulen > 0:
+        m3_pro = float(baudaten.get("saeule_beton_m3_pro_stk") or 0.5)
+        pos = LVPosition("1.1", f"Stahlbeton-Stützen — {geschoss}", "m³")
+        pos.quelle = f"{n_saeulen} Stk × {m3_pro:.2f} m³/Stk (inkl. Fundament)"
+        pos.add_zeile(f"{n_saeulen} Stützen", anzahl=n_saeulen, summe=n_saeulen * m3_pro,
+                      quelle=f"{n_saeulen} × {m3_pro:.2f}")
+        _sq = (baudaten.get("_quellen", {}).get("anzahl_saeulen") or "").lower()
+        pos.konfidenz = 0.75 if any(k in _sq for k in ("schnitt", "opus", "vision")) else 0.5
+        positionen.append(pos)
+    n_kamine = int(baudaten.get("anzahl_kamine") or 0)
+    if n_kamine > 0:
+        pos = LVPosition("1.2", f"Kamin / Schornstein — {geschoss}", "Stk")
+        pos.quelle = "Anzahl aus Plan/Legende"
+        pos.add_zeile(f"{n_kamine} Kamin(e)", anzahl=n_kamine, summe=n_kamine, quelle=f"{n_kamine} Stk")
+        pos.konfidenz = 0.6
+        positionen.append(pos)
+    return positionen
+
+
 GEWERKE = {
     "putz":    ("Verputzer (ÖNORM B 2210)", gewerk_putz),
     "rohbau":  ("Maurer / Rohbau (ÖNORM B 2208)", gewerk_rohbau),
+    "beton":   ("Stahlbeton-Bauteile (Stützen / Kamin)", gewerk_beton),
     "estrich": ("Estrich / Boden (ÖNORM B 2232)", gewerk_estrich),
     "maler":   ("Maler / Anstrich", gewerk_maler),
 }
@@ -458,10 +530,24 @@ def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None, tuer
             bd["_quellen"][k] = (baudaten or {}).get("_quellen", {}).get(k, "vision")
         else:
             bd["_quellen"][k] = "default"
-    for extra in ("anzahl_fenster", "anzahl_tueren_innen", "anzahl_tueren_aussen",
-                  "wandmaterial", "konfidenz"):
+    # Durchreich-Keys: Zähl-/Material-Infos + Phase-2-Größen (gemeinsame Basis aus der
+    # Bestell-Liste, Inventar-Zählungen, je-Gewerk-Öffnungsschwellen). Werden nicht
+    # auf DEFAULT_BAUDATEN gefiltert, sondern 1:1 übernommen.
+    _DURCHREICH = ("anzahl_fenster", "anzahl_tueren_innen", "anzahl_tueren_aussen",
+                   "wandmaterial", "konfidenz",
+                   "_basis_aussenwand_flaeche_m2", "_basis_innenwand_flaeche_m2",
+                   "_basis_decke_m2", "_basis_bodenplatte_m2", "_basis_aussenumfang_m",
+                   "anzahl_saeulen", "anzahl_kamine", "saeule_beton_m3_pro_stk",
+                   "oeffnung_schwelle", "oeffnung_schwelle_putz", "oeffnung_schwelle_maler",
+                   "oeffnung_schwelle_rohbau")
+    for extra in _DURCHREICH:
         if (baudaten or {}).get(extra) is not None:
             bd[extra] = baudaten[extra]
+    # Herkunft der Inventar-Zählung für die Konfidenz im Beton-Gewerk
+    for qk in ("anzahl_saeulen", "anzahl_kamine"):
+        _q = (baudaten or {}).get("_quellen", {}).get(qk)
+        if _q:
+            bd["_quellen"][qk] = _q
 
     result = {"baudaten": bd, "gewerke": {}}
     for g in gewerke:
@@ -470,6 +556,8 @@ def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None, tuer
         label, fn = GEWERKE[g]
         try:
             positionen = fn(rooms, windows or [], bd, geschoss, tueren=tueren)
+            if not positionen and g == "beton":
+                continue   # kein Säulen/Kamin erkannt → leeres Beton-Gewerk auslassen
             result["gewerke"][g] = {
                 "label": label,
                 "positionen": [p.to_dict() for p in positionen],

@@ -20,7 +20,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "api"))
 
 import massen_logic as ML
-from massen_logic import gewerk_putz, gewerk_maler, gewerk_estrich
+from massen_logic import (gewerk_putz, gewerk_maler, gewerk_estrich,
+                          gewerk_rohbau, gewerk_beton, berechne_gewerke)
 
 BAUDATEN = {"aussenwand_cm": 50.0, "geschosshoehe_m": 2.70, "decke_cm": 20.0,
             "bodenplatte_cm": 25.0}
@@ -118,6 +119,42 @@ def run():
     check("Schwelle: global überschrieben", ML._schwelle_fuer({"oeffnung_schwelle": 0.5}) == 0.5)
     check("Schwelle: je Gewerk überschrieben",
           ML._schwelle_fuer({"oeffnung_schwelle_putz": 2.5}, "putz") == 2.5)
+
+    # ── PHASE 2: Mauerwerk-Netto + gemeinsame Basis (Decke/Bodenplatte) ──
+    basis = dict(BAUDATEN, _basis_aussenwand_flaeche_m2=180.0,
+                 _basis_decke_m2=240.0, _basis_bodenplatte_m2=125.0)
+    roh = gewerk_rohbau(ROOMS, WINDOWS, basis)   # WINDOWS: 6,0 m² (Abzug) + 1,0 m² (übermessen)
+    mw = next((p for p in roh if p.posnr == "1.0"), None)
+    check("Rohbau: Mauerwerk-Netto-Position (1.0) bei vorhandener Basis", mw is not None)
+    check("Rohbau: Außenwand netto = 180 − 6 (große Öffnung) = 174",
+          mw and abs(mw.endsumme - 174.0) < 0.1)
+    decke = next(p for p in roh if p.posnr == "1.2")
+    check("Rohbau: Decke = gemeinsame Basis 240 × 0,20",
+          abs(decke.endsumme - 240.0 * basis["decke_cm"] / 100.0) < 0.01)
+    bopl = next(p for p in roh if p.posnr == "1.3")
+    check("Rohbau: Bodenplatte = gemeinsame Basis 125 × 0,25",
+          abs(bopl.endsumme - 125.0 * basis["bodenplatte_cm"] / 100.0) < 0.01)
+    roh0 = gewerk_rohbau(ROOMS, WINDOWS, BAUDATEN)
+    check("Rohbau: ohne Basis KEINE Mauerwerk-Netto-Position (keine Wand-Geometrie)",
+          not any(p.posnr == "1.0" for p in roh0))
+
+    # ── PHASE 2: Beton-Gewerk (Stützen mit Faktor wie Bestell-Liste + Kamin) ──
+    beton = gewerk_beton(ROOMS, WINDOWS, dict(BAUDATEN, anzahl_saeulen=4, anzahl_kamine=1))
+    saeule = next(p for p in beton if "Stützen" in p.beschreibung)
+    check("Beton: 4 Stützen × 0,5 = 2,0 m³ (Faktor wie Bestell-Liste)",
+          abs(saeule.endsumme - 2.0) < 0.01)
+    check("Beton: Kamin als Stk-Position", any("Kamin" in p.beschreibung for p in beton))
+    check("Beton: leer wenn nichts erkannt", gewerk_beton(ROOMS, WINDOWS, BAUDATEN) == [])
+
+    # ── berechne_gewerke: Durchreich-Keys + leeres Beton ausgelassen ──
+    res = berechne_gewerke(ROOMS, WINDOWS, basis)
+    check("berechne_gewerke: _basis_* erreichen das Rohbau-Gewerk (Pos 1.0 da)",
+          any(p["posnr"] == "1.0" for p in res["gewerke"]["rohbau"]["positionen"]))
+    check("berechne_gewerke: leeres Beton-Gewerk wird ausgelassen",
+          "beton" not in res["gewerke"])
+    res2 = berechne_gewerke(ROOMS, WINDOWS, dict(BAUDATEN, anzahl_saeulen=3))
+    check("berechne_gewerke: Beton-Gewerk erscheint mit Säulen",
+          "beton" in res2["gewerke"] and res2["gewerke"]["beton"]["positionen"])
 
     print("-" * 62)
     if fails:
