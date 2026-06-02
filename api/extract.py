@@ -3456,6 +3456,10 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_opus = None      # Opus-Bauingenieur-Urteil (geschlossene Garage, Slab, Höhe)
     opus_versuche = 0     # wie oft der Opus-Pass lief (über alle Pläne)
     opus_fehler = 0       # davon mit Crash/Timeout (ehrliches Fehler-Signal)
+    _opus_im_log = False  # KONSTANZ: hat analyse-zoom Opus schon versucht (Erfolg ODER
+                          # Fehler)? Dann NICHT in projekt-massen neu würfeln (sonst
+                          # schwanken Säulen/Garage bei jedem Öffnen, wenn der gespeicherte
+                          # Opus fehlschlug). „Neu auslesen" liefert einen frischen Versuch.
     best_schnitt_plan = None  # Plan-Datensatz mit dem besten Schnitt (für Projekt-Opus)
     best_content_plan = None  # Plan mit den meisten Räumen (Haupt-Grundriss-Blatt)
     best_content_n = -1
@@ -3496,6 +3500,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         # ("nichts raten"); die Feld-Gates ≥0.6 sind die zweite Sicherung.
         ov = log.get("opus_bauingenieur")
         if ov:                       # nicht-leer → der Pass lief tatsächlich
+            _opus_im_log = True      # analyse-zoom hat Opus versucht → eingefroren
             if ov.get("_fehler"):    # Crash/Timeout → zählt als Versuch UND Fehler
                 opus_versuche += 1; opus_fehler += 1
                 ov = None
@@ -3606,7 +3611,8 @@ async def projekt_massen(body: ProjektMassenRequest):
     # Blatt (meiste Räume). Opus liest den Schnitt selbst aus dem Bild → es darf NICHT
     # daran scheitern, dass der separate Schnitt-Pass leer blieb.
     _opus_plan = best_schnitt_plan or best_content_plan
-    if os.environ.get("OPUS_PASS", "1") != "0" and best_opus is None and _opus_plan:
+    if (os.environ.get("OPUS_PASS", "1") != "0" and best_opus is None
+            and _opus_plan and not _opus_im_log):
         try:
             _cfg = sb.table("app_config").select("value").eq("key", "ANTHROPIC_API_KEY").execute().data
             _api_key = (_cfg[0]["value"] if _cfg else os.environ.get("ANTHROPIC_API_KEY", "")).strip()
@@ -3626,6 +3632,16 @@ async def projekt_massen(body: ProjektMassenRequest):
                         _urteil = dict(_urteil, unsicherheit_flag=True)
                     best_opus = _urteil
                     opus_projekt_plan = _opus_plan.get("dateiname")
+                # KONSTANZ: Fallback-Ergebnis (Erfolg ODER Fehler) in den Plan
+                # einfrieren → der nächste projekt-massen-Aufruf liest es aus dem
+                # Log und würfelt NICHT erneut (Säulen/Garage bleiben stabil).
+                try:
+                    _alog = dict(_opus_plan.get("agent_log") or {})
+                    _alog["opus_bauingenieur"] = _urteil
+                    sb.table("plaene").update({"agent_log": _alog}).eq(
+                        "id", _opus_plan["id"]).execute()
+                except Exception as _wexc:
+                    print(f"[opus-projekt] freeze-write failed: {_wexc!r}")
         except Exception as _exc:
             print(f"[opus-projekt] failed: {_exc!r}")
             opus_versuche += 1
