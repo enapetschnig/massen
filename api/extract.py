@@ -5263,7 +5263,8 @@ async def kalibrierung_merken(body: KalibrierungMerkenRequest):
 # normale Auth client-seitig läuft, ist das die pragmatische, sichere MVP-Schranke.
 # ═══════════════════════════════════════════════════════════════════════════
 class AdminRequest(BaseModel):
-    admin_token: str
+    admin_token: str | None = None     # klassischer Token (Fallback)
+    auth_firma_id: str | None = None   # eingeloggter Super-Admin → token-freier Zugang
     name: str | None = None
     email: str | None = None
     passwort: str | None = None
@@ -5272,19 +5273,56 @@ class AdminRequest(BaseModel):
     faktoren: dict | None = None       # für globale Basis-Kalibrierung
 
 
-def _admin_ok(token):
+def _super_admin_emails():
+    """Konfigurierte Super-Admin-E-Mails (app_config['SUPER_ADMIN_EMAILS'] oder Env),
+    komma-/semikolon-getrennt, lower-case."""
+    try:
+        cfg = sb.table("app_config").select("value").eq("key", "SUPER_ADMIN_EMAILS").execute().data
+        raw = cfg[0]["value"] if cfg else os.environ.get("SUPER_ADMIN_EMAILS", "")
+    except Exception:
+        raw = os.environ.get("SUPER_ADMIN_EMAILS", "")
+    return {e.strip().lower() for e in (raw or "").replace(";", ",").split(",") if e.strip()}
+
+
+def _ist_super_admin_firma(firma_id):
+    """Gehört die eingeloggte firma_id zu einer Super-Admin-E-Mail? (Server prüft die
+    DB — die UUID aus der passwort-verifizierten Login-Session ist das Credential.)"""
+    if not (sb and firma_id):
+        return False
+    try:
+        rows = sb.table("firmen").select("email").eq("id", firma_id).execute().data
+        if not rows:
+            return False
+        email = (rows[0].get("email") or "").strip().lower()
+        return bool(email) and email in _super_admin_emails()
+    except Exception:
+        return False
+
+
+def _admin_ok(token, auth_firma_id=None):
+    # 1) Klassischer Admin-Token (Fallback / Erst-Einrichtung)
     try:
         cfg = sb.table("app_config").select("value").eq("key", "ADMIN_TOKEN").execute().data
         erwartet = (cfg[0]["value"] if cfg else os.environ.get("ADMIN_TOKEN", "")).strip()
     except Exception:
         erwartet = os.environ.get("ADMIN_TOKEN", "").strip()
-    return bool(erwartet) and token == erwartet
+    if erwartet and token and token == erwartet:
+        return True
+    # 2) Eingeloggter Super-Admin (firma_id gegen SUPER_ADMIN_EMAILS) — TOKEN-FREI
+    return _ist_super_admin_firma(auth_firma_id)
+
+
+@app.post("/api/admin/ist-admin")
+async def admin_ist_admin(body: AdminRequest):
+    """Prüft, ob die eingeloggte Firma Super-Admin ist — steuert nur, ob das Dashboard
+    den Admin-Button zeigt. Kein Geheimnis, daher leichtgewichtig."""
+    return {"admin": _ist_super_admin_firma(body.auth_firma_id)}
 
 
 @app.post("/api/admin/firmen")
 async def admin_firmen(body: AdminRequest):
     """Alle Kunden-Accounts + Nutzungszahlen (Projekte, Soll-Listen)."""
-    if not sb or not _admin_ok(body.admin_token):
+    if not sb or not _admin_ok(body.admin_token, body.auth_firma_id):
         raise HTTPException(403, "Kein Admin-Zugriff")
     firmen = sb.table("firmen").select("id, name, email, gesperrt, erstellt_am").execute().data or []
     for f_ in firmen:
@@ -5298,7 +5336,7 @@ async def admin_firmen(body: AdminRequest):
 async def admin_firma_anlegen(body: AdminRequest):
     """Legt einen Kunden-Account an (e-power steuert, wer das Produkt nutzt).
     Passwort wird über die bestehende register_firma-RPC gehasht."""
-    if not sb or not _admin_ok(body.admin_token):
+    if not sb or not _admin_ok(body.admin_token, body.auth_firma_id):
         raise HTTPException(403, "Kein Admin-Zugriff")
     if not (body.name and body.email and body.passwort):
         raise HTTPException(400, "name, email, passwort erforderlich")
@@ -5313,7 +5351,7 @@ async def admin_firma_anlegen(body: AdminRequest):
 @app.post("/api/admin/firma-sperren")
 async def admin_firma_sperren(body: AdminRequest):
     """Account sperren/entsperren."""
-    if not sb or not _admin_ok(body.admin_token):
+    if not sb or not _admin_ok(body.admin_token, body.auth_firma_id):
         raise HTTPException(403, "Kein Admin-Zugriff")
     if not body.firma_id:
         raise HTTPException(400, "firma_id erforderlich")
@@ -5325,7 +5363,7 @@ async def admin_firma_sperren(body: AdminRequest):
 async def admin_global_kalibrierung(body: AdminRequest):
     """Globale Basis-Kalibrierung setzen — neue Accounts starten damit besser.
     faktoren = {faktor_key: wert}. Nur bekannte Faktor-Keys werden übernommen."""
-    if not sb or not _admin_ok(body.admin_token):
+    if not sb or not _admin_ok(body.admin_token, body.auth_firma_id):
         raise HTTPException(403, "Kein Admin-Zugriff")
     erlaubt = {r["faktor"] for r in _kalib.FAKTOR_REGELN} if _KALIB_OK else set()
     sb.table("kalibrierungen").delete().is_("firma_id", "null").execute()

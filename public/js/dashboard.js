@@ -25,6 +25,19 @@
 
   if (firma.name && companyNameEl) companyNameEl.textContent = firma.name;
 
+  // Super-Admin (e-power): Admin-Button einblenden, sobald die eingeloggte Firma
+  // berechtigt ist — der Server prüft die firma_id gegen SUPER_ADMIN_EMAILS.
+  if (firma.id) {
+    fetch('/api/admin/ist-admin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auth_firma_id: firma.id })
+    }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        var na = document.getElementById('nav-admin');
+        if (j && j.admin && na) na.classList.remove('hidden');
+      }).catch(function () { /* still: kein Button, kein Fehler */ });
+  }
+
   logoutBtn.addEventListener('click', function () {
     clearSession();
     window.location.href = 'index.html';

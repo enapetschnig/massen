@@ -3,6 +3,8 @@
 (function () {
   'use strict';
   var TOKEN = sessionStorage.getItem('admin_token') || '';
+  var SESSION = null;   // eingeloggte Firma (localStorage) → token-freier Super-Admin-Zugang
+  try { SESSION = JSON.parse(localStorage.getItem('firma') || 'null'); } catch (e) { SESSION = null; }
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -15,7 +17,7 @@
   function api(path, body) {
     return fetch(path, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.assign({ admin_token: TOKEN }, body || {}))
+      body: JSON.stringify(Object.assign({ admin_token: TOKEN, auth_firma_id: SESSION && SESSION.id }, body || {}))
     }).then(function (r) {
       return r.text().then(function (txt) {
         var j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) { j = { detail: txt || ('HTTP ' + r.status) }; }
@@ -27,7 +29,10 @@
   function loadFirmen() {
     msg('Lade Accounts …', 'info');
     api('/api/admin/firmen').then(function (o) {
-      if (!o.ok) { msg('Kein Zugriff (' + o.status + '): ' + ((o.j && o.j.detail) || 'Token prüfen'), 'warn'); return; }
+      if (!o.ok) {
+        var tc = document.getElementById('admin-token-card'); if (tc) tc.style.display = '';
+        msg('Kein automatischer Admin-Zugriff (' + o.status + ') — bitte Token eingeben.', 'warn'); return;
+      }
       document.getElementById('admin-firmen-card').style.display = '';
       document.getElementById('admin-global-card').style.display = '';
       msg('Angemeldet — ' + (o.j.anzahl || 0) + ' Account(s).', 'ok');
@@ -84,5 +89,8 @@
     });
   });
 
-  if (TOKEN) { document.getElementById('admin-token').value = TOKEN; loadFirmen(); }
+  // Auto-Login: als eingeloggter Super-Admin token-frei laden; sonst Token-Karte zeigen.
+  if (SESSION && SESSION.id) { loadFirmen(); }
+  else if (TOKEN) { document.getElementById('admin-token').value = TOKEN; loadFirmen(); }
+  else { var tc0 = document.getElementById('admin-token-card'); if (tc0) tc0.style.display = ''; }
 })();

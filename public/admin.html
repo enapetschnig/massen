@@ -23,15 +23,17 @@
 <body>
   <div class="admin-wrap">
     <h1 style="font-size:1.3rem;margin-bottom:.3rem">⚙️ e-power Admin</h1>
-    <p class="admin-note">Kunden-Accounts verwalten &amp; globale Basis-Kalibrierung. Zugriff über Admin-Token.</p>
+    <p class="admin-note">Kunden-Accounts verwalten &amp; globale Basis-Kalibrierung.</p>
+    <p><a href="dashboard.html" class="admin-note">← zurück zum Dashboard</a></p>
+    <div id="admin-msg"></div>
 
-    <div class="admin-card">
+    <div class="admin-card" id="admin-token-card" style="display:none">
       <h2>Admin-Token</h2>
+      <p class="admin-note">Nur nötig, wenn du nicht als Super-Admin eingeloggt bist.</p>
       <div class="admin-row">
         <label>Token <input type="password" id="admin-token" placeholder="ADMIN_TOKEN" style="min-width:280px"></label>
         <button class="btn btn-sm btn-primary" id="admin-login">Laden</button>
       </div>
-      <div id="admin-msg"></div>
     </div>
 
     <div class="admin-card" id="admin-firmen-card" style="display:none">
