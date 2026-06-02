@@ -53,6 +53,9 @@ DEFAULTS = {
     "wand_anteil_12cm": 45.0,
     # Decken-Aufbau
     "decke_auskragung": 1.05,          # (Bodenplatte+Loggia) × Faktor = Schalungs-Fläche
+    "loggia_decke_aufschlag": 1.15,    # überdachte Loggia/Terrasse-Decke spannt über
+                                       # Auflager/Dachüberstand → ~15% mehr als die lichte
+                                       # Raumfläche (das Wand-Band hat der Footprint schon)
     "ekv_decke_aufschlag": 1.35,       # Dachabdichtung läuft über ALLES inkl Terrassen-
                                        # dach + Aufkantungen → größer als Schalung
     "iso_korb_anteil": 0.80,           # ISO-Korb (Thermo-Trennung) läuft entlang der
@@ -220,7 +223,8 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         # Parkplatz, Loggia). Diese sind im Bodenplatten-Footprint NICHT
         # enthalten (eigene Fundamente), aber die EG-Decke kragt darüber.
         # Decke = Bodenplatte + überdachte Loggia + Auskragungs-Aufschlag.
-        decke_m2 = round((bodenplatte_m2 + f_sum_loggia) * f("decke_auskragung", override), 2)
+        decke_m2 = round((bodenplatte_m2 + f_sum_loggia * f("loggia_decke_aufschlag", override))
+                         * f("decke_auskragung", override), 2)
         geometrie_quelle = gemessen.get("quelle", "gemessen")
         geometrie_konfidenz = float(gemessen.get("konfidenz") or 0.85)
     else:
@@ -230,7 +234,8 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         # Auskragung. Vorher nahm der Fallback die LICHTE Σ-Raumfläche × anderem
         # Faktor → unterschätzte die Rohbau-Decke um die Wand-Querschnitte und
         # flackerte mit dem gemessen-vorhanden/-nicht-vorhanden-Zustand.
-        decke_m2 = round((bodenplatte_m2 + f_sum_loggia) * f("decke_auskragung", override), 2)
+        decke_m2 = round((bodenplatte_m2 + f_sum_loggia * f("loggia_decke_aufschlag", override))
+                         * f("decke_auskragung", override), 2)
         geometrie_quelle = f"Σ Raum-F × {bp_faktor:.2f}-Aufschlag"
         geometrie_konfidenz = 0.65
 
@@ -259,7 +264,13 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     #   Σ U_innen = Außenumfang + 2 × Innenwand-Länge
     #   → Innenwand-Länge = (Σ U_innen − Außenumfang) / 2
     # (ein Bautechniker sieht jede Wand genau einmal — kein Doppelzählen).
-    iw_laenge = max(0.0, (u_sum_innen - aussenumfang_m) / 2.0)
+    # BEZUGSRAHMEN: aussenumfang_m ist die AUSSENkante der Hülle, u_sum_innen aber
+    # lichte Innenmaße. Vor der Subtraktion die Hülle auf die Innenkante bringen
+    # (konservativ 4 Ecken × 2 Wandstärken — echtes EFH hat mehr konvexe Ecken,
+    # also unterkorrigiert der Fix eher), sonst wird die Innenwand-Länge
+    # systematisch zu kurz (HLZ 12 war dadurch -14%).
+    aussen_innenkante = max(0.0, aussenumfang_m - 4 * 2 * aw_cm / 100.0)
+    iw_laenge = max(0.0, (u_sum_innen - aussen_innenkante) / 2.0)
     iw_m2_innen_rohbau = round(iw_laenge * h, 2)
 
     out = []
@@ -488,11 +499,13 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Ziegelüberlagen aus den ERKANNTEN Türen (statt Pauschal).
     # Ziegelüberlage-Standard-Längen: 125cm (für Türöffnungen bis ~100cm),
     # 200cm (~150-180cm Öffnung), 250cm (~200-230cm Öffnung).
+    oeffnung_unscharf = False   # ≥1 Tür ohne lesbares Breitenmaß → Sturz geschätzt
     if tueren:
         tuer_breiten = [b for b in (_breite_of(t) for t in _breiten_quelle(tueren)) if b]
         # Jede ERKANNTE Tür braucht einen Sturz — eine ohne lesbare Breite zählt als
         # Standard-Innentür (125cm) statt herauszufallen (sonst „9 Türen, nur 7 Stürze").
         n_ohne_breite = max(0, len(tueren) - len(tuer_breiten))
+        oeffnung_unscharf = n_ohne_breite > 0
         n_125 = sum(1 for b in tuer_breiten if b <= 1.10) + n_ohne_breite  # ≤110cm + ohne Maß
         n_200 = sum(1 for b in tuer_breiten if 1.10 < b <= 1.80)  # 110-180cm
         n_250 = sum(1 for b in tuer_breiten if b > 1.80)         # Schiebe/Terrasse
@@ -676,17 +689,30 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             # → ein zu kompakt gelesener Umfang bläht die Innenwand-Länge auf. Darum
             # KEINE Schein-Sicherheit: min(K_BEIDE, K_UMF) für beide (sinkt bei L-Form).
             p.konfidenz = round(min(K_BEIDE, K_UMF), 2)
+        elif b == "Öffnungen":
+            # Öffnungen werden in PROD nachweislich UNTERERFASST: gelesen werden nur
+            # annotierte STUK/FPH-Maße — reine Symbol-Fenster/-Türen ohne Bemaßung
+            # fehlen. Darum ehrlicher Cap (raus aus dem grünen „verlässlich"-Tier),
+            # zusätzlich gesenkt wenn Türen ohne lesbares Maß (Sturz nur geschätzt).
+            # Der Pauschal-Fallback (schon 0.40-0.45) bleibt via min() unberührt.
+            p.konfidenz = round(min(p.konfidenz, 0.55 if oeffnung_unscharf else 0.62), 2)
         elif b in ("Attika", "Säulen"):
             p.konfidenz = round(K_GEO * 0.6, 2)         # parametrische Schätzung
         elif b in ("Kamin", "Infrastruktur"):
             p.konfidenz = 0.7                           # Text-Zählung
         elif b == "Frostschürze":
             p.konfidenz = K_UMF if "noppenfolie" in mat else round(K_UMF * 0.9, 2)
-        elif b in ("Bodenplatte", "Decke über EG"):
+        elif b == "Bodenplatte":
+            # Footprint-Fläche byte-exakt gemessen → volle Geometrie-Konfidenz.
+            p.konfidenz = K_UMF if umf else K_GEO
+        elif b == "Decke über EG":
             if umf:
                 p.konfidenz = K_UMF                     # Rand/Umfang-getrieben
             else:
-                p.konfidenz = round(K_GEO * 0.85, 2) if ("iso-korb" in mat or "voranstrich" in mat) else K_GEO
+                # Decke = byte-exakter Footprint × Auskragungs-/Loggia-FAKTOR
+                # (kalibrierte Schätzung) → ehrlich etwas unter der reinen
+                # Footprint-Sicherheit der Bodenplatte.
+                p.konfidenz = round(K_GEO * (0.85 if ("iso-korb" in mat or "voranstrich" in mat) else 0.92), 2)
         elif b == "Mauerwerk EG":
             p.konfidenz = round(min(K_GEO, K_UMF + 0.05), 2) if umf else round(K_GEO * 0.88, 2)
 

@@ -3502,9 +3502,16 @@ async def projekt_massen(body: ProjektMassenRequest):
         return max(vals) if vals else None  # ein Plan = ganzes Geschoss → max, nicht Summe
     def _cap_liste(liste, symbol_n, label, key):
         if symbol_n is None or symbol_n <= 0 or len(liste) <= symbol_n:
+            if symbol_n == len(liste):
+                _st = "bestätigt"
+            elif symbol_n and symbol_n > len(liste):
+                # Plan zeigt MEHR Öffnungs-Symbole als wir bemaßt (STUK/FPH) lesen
+                # konnten → ehrliche Untererfassung, nicht stilles "info" schlucken.
+                _st = "unter_symbol"
+            else:
+                _st = "info"
             oeff_cap.append({"groesse": label, "key": key, "wert": len(liste),
-                             "symbol": symbol_n,
-                             "status": "bestätigt" if (symbol_n == len(liste)) else "info"})
+                             "symbol": symbol_n, "status": _st})
             return liste
         # unsicherste zuerst entfernen: maßlos vor bemaßt, Vision vor STUK, niedrige Konf
         def _certain(o):
@@ -3538,6 +3545,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_legende = None  # Legende mit höchster Konfidenz (byte-exakt > Vision)
     best_schnitt = None   # Schnitt-/Ansichts-Lesung (Säulen, Geschoss-H, Dach)
     best_opus = None      # Opus-Bauingenieur-Urteil (geschlossene Garage, Slab, Höhe)
+    best_opus_rang = None # deterministischer Auswahl-Schlüssel (s.u.) — Konstanz über Läufe
     opus_versuche = 0     # wie oft der Opus-Pass lief (über alle Pläne)
     opus_fehler = 0       # davon mit Crash/Timeout (ehrliches Fehler-Signal)
     _opus_fehler_grund = None   # letzter Fehlertext (für Diagnose: transient vs. deterministisch)
@@ -3596,9 +3604,17 @@ async def projekt_massen(body: ProjektMassenRequest):
                 ov = None            # bewusst übersprungen → kein Urteil, kein Fehler
         if ov and float(ov.get("gesamtkonfidenz") or 0) < 0.45:
             ov = dict(ov, unsicherheit_flag=True)
-        if ov and (best_opus is None or
-                (ov.get("gesamtkonfidenz") or 0) > (best_opus.get("gesamtkonfidenz") or 0)):
-            best_opus = ov
+        if ov:
+            # DETERMINISTISCHE Wahl statt rohes max(gesamtkonfidenz): die Opus-Zahl
+            # jittert leicht zwischen Läufen → auf 2 Stellen runden, Gleichstand über
+            # mehr Belege und zuletzt den stabilen storage_path brechen. So fällt bei
+            # identischem Input garantiert immer derselbe Plan als Sieger.
+            _rang = (round(float(ov.get("gesamtkonfidenz") or 0), 2),
+                     len(ov.get("belege") or []),
+                     p.get("storage_path") or "")
+            if best_opus is None or _rang > best_opus_rang:
+                best_opus = ov
+                best_opus_rang = _rang
         # Geschoss aus dem ersten Plan, der eines hat
         if not geschoss or geschoss == "EG":
             g = (log.get("geo") or {}).get("geschoss") or log.get("geschoss")
@@ -4242,9 +4258,9 @@ async def projekt_massen(body: ProjektMassenRequest):
         if best_legende and bestaetigt_keys & {"decke_cm", "bodenplatte_cm", "estrich_cm"}:
             best_legende["konfidenz"] = max(float(best_legende.get("konfidenz") or 0), 0.97)
 
-    # Öffnungs-Cap-Ergebnisse in den Doppelcheck aufnehmen (gekappt + bestätigt)
+    # Öffnungs-Cap-Ergebnisse in den Doppelcheck aufnehmen (gekappt + bestätigt + Untererfassung)
     for c in oeff_cap:
-        if c.get("status") in ("gekappt", "bestätigt"):
+        if c.get("status") in ("gekappt", "bestätigt", "unter_symbol"):
             doppelcheck.append(c)
 
     # 6.5) Baudaten-Override: User-Werte schlagen Vision-Werte 1:1
@@ -4405,6 +4421,13 @@ async def projekt_massen(body: ProjektMassenRequest):
                               for q in (_d.get("quellen") or []))
             pruefliste.append({"prio": "hoch", "thema": _d.get("groesse"),
                                "hinweis": f"Quellen widersprechen sich ({_qs}) — am Plan prüfen."})
+        elif _d.get("status") == "unter_symbol":
+            _w, _sy = (_d.get("wert") or 0), (_d.get("symbol") or 0)
+            _fehlt = max(0, _sy - _w)
+            pruefliste.append({"prio": "mittel", "thema": f"Öffnungen · {_d.get('groesse')}",
+                               "hinweis": f"Im Plan sind ~{_sy} Öffnungs-Symbole erkennbar, aber nur {_w} "
+                                          f"mit Maß (STUK/FPH) lesbar — {_fehlt} ohne Bemaßung nicht erfasst. "
+                                          "Fehlende Fenster/Türen am Plan ergänzen."})
     for _f in (konsistenz_findings or []):
         _s = (_f.get("schwere") or "").lower()
         if _s in ("warnung", "fehler"):
