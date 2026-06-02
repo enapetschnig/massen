@@ -206,7 +206,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG"):
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
 
     pos = LVPosition("1.1", f"Innenputz Wände — {geschoss}", "m²")
-    pos.quelle = "ÖNORM B 2210 · Σ(U×H) − Öffnungen>2,5m² + Laibungen"
+    pos.quelle = f"ÖNORM B 2210 · Σ(U×H) − Öffnungen>{OEFFNUNG_ABZUG_SCHWELLE_M2:.0f}m² + Laibungen"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
@@ -219,7 +219,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG"):
             if bw and hw and oeffnung_abzug(bw, hw):
                 pos.add_zeile(f"  Abzug Fenster {w.get('code','')}",
                               laenge=bw, hoehe=-hw, summe=-(bw * hw),
-                              quelle="Öffnung >2,5 m²")
+                              quelle=f"Öffnung >{OEFFNUNG_ABZUG_SCHWELLE_M2:.0f} m²")
                 lb = laibungsflaeche(bw, hw, laibung_t)
                 pos.add_zeile(f"  Laibung Fenster {w.get('code','')}", summe=lb,
                               quelle=f"Tiefe {laibung_t:.2f}m × Abwicklung")
@@ -332,7 +332,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG"):
     fzuord = fenster_pro_raum(rooms, windows)
 
     pos = LVPosition("1.1", f"Anstrich Wände — {geschoss}", "m²")
-    pos.quelle = "Σ(U×H) − Öffnungen >2,5 m²"
+    pos.quelle = f"Σ(U×H) − Öffnungen >{OEFFNUNG_ABZUG_SCHWELLE_M2:.0f} m²"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
