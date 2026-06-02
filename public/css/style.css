@@ -2785,3 +2785,15 @@ img {
 .pl-rest > summary::before, .status-rest > summary::before { content: '▸ '; }
 .pl-rest[open] > summary::before, .status-rest[open] > summary::before { content: '▾ '; }
 .status-rest { margin-top: .4rem; border-top: 1px dashed var(--border); padding-top: .3rem; }
+
+/* ===== Kalibrierung kinderleicht ===== */
+.kalib-steps { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
+.kalib-step { flex: 1; min-width: 160px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: .6rem .8rem; font-size: .82rem; color: var(--text);
+  display: flex; align-items: center; gap: .5rem; font-weight: 500; }
+.kalib-step-n { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 999px; background: var(--accent); color: #fff; font-weight: 800; font-size: .8rem; flex-shrink: 0; }
+.kalib-step-dot { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+  border-radius: 999px; background: var(--primary); color: #fff; font-weight: 700; font-size: .72rem; margin-right: .35rem; }
+.kalib-add { border: 2px solid var(--accent-soft); }
+.btn-lg { padding: .7rem 1.4rem; font-size: .95rem; font-weight: 700; }

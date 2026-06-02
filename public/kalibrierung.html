@@ -24,50 +24,54 @@
 
     <div class="page-header">
       <div>
-        <h2>⚙ Kalibrierung — die KI für deinen Betrieb</h2>
-        <p class="kalib-sub">Lade fertige Polier-Pläne samt Material-Ermittlung hoch. Die KI vergleicht
-          ihre eigene Rechnung mit deiner echten Liste und lernt deine Bauweise — ab dann rechnet sie
-          jeden neuen Plan genauer für dich.</p>
+        <h2>⚙ Genauer für deinen Betrieb</h2>
+        <p class="kalib-sub">Die KI rechnet erst mit <strong>Durchschnittswerten</strong>. Lade ein fertig
+          abgerechnetes Projekt hoch — sie vergleicht mit deiner echten Liste und rechnet ab dann für
+          <strong>deine Bauweise</strong>. Je mehr Projekte, desto genauer.</p>
+      </div>
+    </div>
+
+    <!-- So geht's: 3 Schritte -->
+    <div class="kalib-steps">
+      <div class="kalib-step"><span class="kalib-step-n">1</span> Plan-PDF dazu (empfohlen)</div>
+      <div class="kalib-step"><span class="kalib-step-n">2</span> Deine fertige Material-Liste rein</div>
+      <div class="kalib-step"><span class="kalib-step-n">3</span> Fertig — KI rechnet genauer</div>
+    </div>
+
+    <!-- Referenz hinzufügen — die Aktion zuerst, prominent -->
+    <div class="card kalib-card kalib-add">
+      <h3 class="section-title">Projekt hochladen</h3>
+
+      <div class="kalib-form">
+        <div class="form-group">
+          <label><span class="kalib-step-dot">1</span> Plan (PDF) <span class="kalib-opt">– empfohlen</span></label>
+          <input type="file" id="kalib-plan" class="form-control" accept="application/pdf">
+        </div>
+
+        <div class="form-group">
+          <label><span class="kalib-step-dot">2</span> Deine fertige Material-Liste</label>
+          <input type="file" id="kalib-soll-pdf" class="form-control" accept="application/pdf">
+          <div class="kalib-or">— oder Liste hier einfügen —</div>
+          <textarea id="kalib-soll-text" class="form-control" rows="4"
+            placeholder="z.B.&#10;HLZ 50cm H.I. Plan    48 Paletten&#10;HLZ 25cm Plan    7 Paletten&#10;EKV-5    125 m²&#10;…"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Name (optional)</label>
+          <input type="text" id="kalib-titel" class="form-control" placeholder="z.B. EFH Angerer, Mühldorf">
+        </div>
+
+        <button class="btn btn-accent btn-lg" id="kalib-lernen-btn">Hochladen &amp; genauer machen</button>
+        <div id="kalib-progress" class="kalib-progress hidden"></div>
+        <div id="kalib-result" class="kalib-result hidden"></div>
       </div>
     </div>
 
     <!-- Aktueller Stand -->
     <div class="card kalib-card">
-      <h3 class="section-title">Aktueller Lernstand</h3>
+      <h3 class="section-title">Was die KI schon gelernt hat</h3>
       <div id="kalib-stand" class="kalib-stand">
         <div class="loading"><div class="spinner"></div>wird geladen…</div>
-      </div>
-    </div>
-
-    <!-- Referenz hinzufügen -->
-    <div class="card kalib-card">
-      <h3 class="section-title">Referenz hinzufügen</h3>
-      <p class="kalib-hint">Ideal: ein <strong>fertig gerechnetes Projekt</strong> — der Plan (PDF) plus
-        die zugehörige <strong>Polier-Material-Ermittlung</strong> (PDF oder eingefügt). Auch nur die
-        Material-Liste alleine bringt schon die Wandstärken-Aufteilung.</p>
-
-      <div class="kalib-form">
-        <div class="form-group">
-          <label>1) Plan (PDF) <span class="kalib-opt">– empfohlen</span></label>
-          <input type="file" id="kalib-plan" class="form-control" accept="application/pdf">
-        </div>
-
-        <div class="form-group">
-          <label>2) Polier-Material-Ermittlung</label>
-          <input type="file" id="kalib-soll-pdf" class="form-control" accept="application/pdf">
-          <div class="kalib-or">— oder hier einfügen —</div>
-          <textarea id="kalib-soll-text" class="form-control" rows="5"
-            placeholder="z.B.&#10;HLZ 50cm H.I. Plan    48 Paletten&#10;HLZ 25cm Plan    7 Paletten&#10;EKV-5    125 m²&#10;…"></textarea>
-        </div>
-
-        <div class="form-group">
-          <label>Bezeichnung (optional)</label>
-          <input type="text" id="kalib-titel" class="form-control" placeholder="z.B. EFH Angerer, Mühldorf">
-        </div>
-
-        <button class="btn btn-accent" id="kalib-lernen-btn">Hochladen &amp; lernen</button>
-        <div id="kalib-progress" class="kalib-progress hidden"></div>
-        <div id="kalib-result" class="kalib-result hidden"></div>
       </div>
     </div>
 
