@@ -55,6 +55,8 @@ DEFAULTS = {
     # (Schnittreste an Öffnungen/Ecken, Bruch, Fugengeometrie) — ~5% ist Polier-Standard.
     # Greift NUR auf die Paletten-Menge, nicht auf Mauermörtel/Voranstrich/EKV (rohes m²).
     "hlz_verschnitt": 1.05,
+    "innenwand_aufschlag": 1.0,        # Nutzer-Korrektur für kurze/unbemaßte Trennwände,
+                                       # die die Geometrie nicht voll erfasst (1.0 = neutral)
     # Decken-Aufbau
     "decke_auskragung": 1.05,          # (Bodenplatte+Loggia) × Faktor = Schalungs-Fläche
     "loggia_decke_aufschlag": 1.15,    # überdachte Loggia/Terrasse-Decke spannt über
@@ -275,7 +277,10 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # systematisch zu kurz (HLZ 12 war dadurch -14%).
     aussen_innenkante = max(0.0, aussenumfang_m - 4 * 2 * aw_cm / 100.0)
     iw_laenge = max(0.0, (u_sum_innen - aussen_innenkante) / 2.0)
-    iw_m2_innen_rohbau = round(iw_laenge * h, 2)
+    # Innenwand-Aufschlag: kurze/unbemaßte Trennwände erfasst die (ΣU−Außenkante)/2-
+    # Geometrie nicht voll → der Polier kann hier hochkorrigieren (Default 1.0 = neutral,
+    # kein Effekt auf Bestandsläufe). Skaliert HLZ-Innen + Mörtel + Innenwand-Kennzahl.
+    iw_m2_innen_rohbau = round(iw_laenge * h * f("innenwand_aufschlag", override), 2)
 
     out = []
 
