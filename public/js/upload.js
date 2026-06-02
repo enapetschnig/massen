@@ -525,7 +525,9 @@
     }
     if (data.opus_status === 'fehler') {
       hints.push('<div class="status-info">ℹ <strong>Schnitt-Auswertung diesmal nicht verfügbar</strong> — ' +
-        'die Garage-/Höhen-/Dach-Erkennung aus dem Schnitt ist ausgefallen. Die übrigen Werte sind davon nicht betroffen.</div>');
+        'die Garage-/Höhen-/Dach-Erkennung aus dem Schnitt ist ausgefallen. Die übrigen Werte sind davon nicht betroffen.' +
+        (data.opus_fehler_grund ? ' <span style="opacity:.7">(Grund: ' + esc(String(data.opus_fehler_grund)) + ')</span>' : '') +
+        '</div>');
     }
     // OPUS-SCHLUSSPRÜFUNG: der Polier hat die fertige Liste gegen den Plan geprüft
     var pruef = data.opus_pruefung;

@@ -3517,6 +3517,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_opus = None      # Opus-Bauingenieur-Urteil (geschlossene Garage, Slab, Höhe)
     opus_versuche = 0     # wie oft der Opus-Pass lief (über alle Pläne)
     opus_fehler = 0       # davon mit Crash/Timeout (ehrliches Fehler-Signal)
+    _opus_fehler_grund = None   # letzter Fehlertext (für Diagnose: transient vs. deterministisch)
     _opus_im_log = False  # KONSTANZ: hat analyse-zoom Opus schon versucht (Erfolg ODER
                           # Fehler)? Dann NICHT in projekt-massen neu würfeln (sonst
                           # schwanken Säulen/Garage bei jedem Öffnen, wenn der gespeicherte
@@ -3564,6 +3565,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             _opus_im_log = True      # analyse-zoom hat Opus versucht → eingefroren
             if ov.get("_fehler"):    # Crash/Timeout → zählt als Versuch UND Fehler
                 opus_versuche += 1; opus_fehler += 1
+                _opus_fehler_grund = ov.get("_fehler")
                 ov = None
             elif not ov.get("_skipped"):   # echtes Urteil (kein „kein Schnitt"-Skip)
                 opus_versuche += 1
@@ -3688,6 +3690,7 @@ async def projekt_massen(body: ProjektMassenRequest):
                 opus_versuche += 1
                 if _urteil.get("_fehler"):
                     opus_fehler += 1
+                    _opus_fehler_grund = _urteil.get("_fehler")
                 else:
                     if float(_urteil.get("gesamtkonfidenz") or 0) < 0.45:
                         _urteil = dict(_urteil, unsicherheit_flag=True)
@@ -4400,6 +4403,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "opus_status": ("aus" if opus_versuche == 0
                         else "fehler" if (opus_fehler >= opus_versuche)
                         else "ok"),       # ehrlich: lief der Pass / ist er abgestürzt?
+        "opus_fehler_grund": _opus_fehler_grund,  # Diagnose: transient (Timeout/429) vs. deterministisch (z.B. Bild zu groß)
         "opus_quelle_plan": opus_projekt_plan,  # welches Blatt Opus gelesen hat
         "opus_pruefung": opus_pruefung,         # Schlussprüfung: Plausibilitäts-Befunde
         "kalibrierung": {                        # firmenspezifische Selbst-Kalibrierung
