@@ -428,12 +428,20 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         math.ceil(fundament_umfang_m / 25) or 1,
         f"Gebäude-Außenkante {fundament_umfang_m}m ÷ 25m/Rolle", konfidenz=0.65))
 
-    # ═══ Öffnungen — Ziegelüberlagen + Rolladenkästen aus Vision-Fenster ═══
-    fenster_breiten = []
-    for w in (windows or []):
-        bw = w.get("breite_m") or (w.get("breite_cm", 0) / 100.0 if w.get("breite_cm") else None)
-        if bw:
-            fenster_breiten.append(bw)
+    # ═══ Öffnungen — Ziegelüberlagen + Rolladenkästen ═══
+    # KONSTANZ: Breiten bevorzugt aus dem byte-exakten STUK/FPH-Text-Layer (über jede
+    # Re-Analyse identisch). Nur wenn KEINE Text-Öffnung eine Breite liefert, auf
+    # Vision-Breiten zurückfallen — die wackeln zwischen Läufen um Bucket-Grenzen und
+    # ließen die Rolladen-/Sturz-Anzahl springen.
+    def _breite_of(o):
+        return o.get("breite_m") or (o.get("breite_cm", 0) / 100.0 if o.get("breite_cm") else None)
+    def _ist_text(o):
+        q = (o.get("quelle") or "").lower()
+        return "stuk" in q or "fph" in q or "text" in q
+    def _breiten_quelle(items):
+        text_items = [o for o in (items or []) if _ist_text(o) and _breite_of(o)]
+        return text_items if text_items else (items or [])
+    fenster_breiten = [b for b in (_breite_of(w) for w in _breiten_quelle(windows)) if b]
 
     rolladen_125 = sum(1 for b in fenster_breiten if 1.0 <= b <= 1.4)
     rolladen_180 = sum(1 for b in fenster_breiten if 1.4 < b <= 2.0)
@@ -461,11 +469,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Ziegelüberlage-Standard-Längen: 125cm (für Türöffnungen bis ~100cm),
     # 200cm (~150-180cm Öffnung), 250cm (~200-230cm Öffnung).
     if tueren:
-        tuer_breiten = []
-        for t in tueren:
-            bw = t.get("breite_m") or (t.get("breite_cm", 0) / 100.0 if t.get("breite_cm") else None)
-            if bw:
-                tuer_breiten.append(bw)
+        tuer_breiten = [b for b in (_breite_of(t) for t in _breiten_quelle(tueren)) if b]
         n_125 = sum(1 for b in tuer_breiten if b <= 1.10)        # 60-100cm Türen
         n_200 = sum(1 for b in tuer_breiten if 1.10 < b <= 1.80)  # 110-180cm
         n_250 = sum(1 for b in tuer_breiten if b > 1.80)         # Schiebe/Terrasse
