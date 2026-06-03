@@ -189,6 +189,136 @@ def kalibriere(words, massstab_label=None):
             "label_match": label_match, "tragfaehig": tragfaehig}
 
 
+# ── Wand-Paare aus parallelen Linien (Phase 1/2) ─────────────────────────────
+def _faces(segmente, achse, pos_tol=1.0):
+    """Kollineare achsparallele Segmente → Wand-Flächen. achse='v': vertikale Linien,
+    Face=[pos_x, lo_y, hi_y]. Bucket nach gerundeter pos, dann Intervalle mergen."""
+    buckets = defaultdict(list)
+    for s in segmente:
+        if _achse(s) != achse:
+            continue
+        if achse == "v":
+            pos = (s[0] + s[2]) / 2.0
+            lo, hi = sorted((s[1], s[3]))
+        else:
+            pos = (s[1] + s[3]) / 2.0
+            lo, hi = sorted((s[0], s[2]))
+        buckets[round(pos / pos_tol) * pos_tol].append((pos, lo, hi))
+    faces = []
+    for items in buckets.values():
+        items.sort(key=lambda t: t[1])
+        cur = None
+        for pos, lo, hi in items:
+            if cur and lo <= cur[2] + pos_tol:
+                cur[2] = max(cur[2], hi)
+                cur[0] = (cur[0] + pos) / 2.0
+            else:
+                if cur:
+                    faces.append(cur)
+                cur = [pos, lo, hi]
+        if cur:
+            faces.append(cur)
+    return faces
+
+
+def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_m=0.3):
+    """Parallele Flächen-Paare = Wände. Constraints (aus dem Design-Workflow):
+    Normalabstand in Wandstärken-Bereich, y-Überlappung >70% der kürzeren, genau EIN
+    Partner (greedy nach kleinstem Abstand → überspringt nie einen dritten Face dazwischen).
+    Liefert [(laenge_m, dicke_cm, achse)]."""
+    out = []
+    for achse in ("v", "h"):
+        faces = sorted(_faces(segmente, achse))
+        dmin = dicke_min_cm / 100.0 * pt_per_m
+        dmax = dicke_max_cm / 100.0 * pt_per_m
+        used = set()
+        for i, fa in enumerate(faces):
+            if i in used:
+                continue
+            best = None
+            for j in range(i + 1, len(faces)):
+                if j in used:
+                    continue
+                fb = faces[j]
+                d = abs(fb[0] - fa[0])
+                if d > dmax:
+                    break                      # sortiert → kein weiterer in Reichweite
+                if d < dmin:
+                    continue
+                ov = min(fa[2], fb[2]) - max(fa[1], fb[1])
+                if ov <= 0:
+                    continue
+                shorter = min(fa[2] - fa[1], fb[2] - fb[1])
+                if shorter <= 0 or ov / shorter < 0.70:
+                    continue
+                if best is None or d < best[1]:
+                    best = (j, d, ov)
+            if best:
+                j, d, ov = best
+                used.add(i); used.add(j)
+                laenge_m = ov / pt_per_m
+                if laenge_m >= min_len_m:
+                    out.append((round(laenge_m, 2), round(d / pt_per_m * 100, 1), achse))
+    return out
+
+
+def _snap_legende(dicke_cm, legende_dicken, tol_cm=3.0):
+    """Gemessene Dicke auf nächsten Legende-Wert snappen (sonst None)."""
+    if not legende_dicken:
+        return None
+    best = min(legende_dicken, key=lambda d: abs(d - dicke_cm))
+    return best if abs(best - dicke_cm) <= tol_cm else None
+
+
+def _view_bbox(label_pos, pt_per_m, marge_m=4.0, radius_m=12.0):
+    """Grundriss-Ansicht (EIN Geschoss) aus Raum-Label-Positionen eingrenzen — robust
+    gegen Mehr-Ansichten-Blatt: nimmt den DICHTESTEN Label-Cluster (das Label mit den
+    meisten Nachbarn im Gebäude-Radius = Geschoss-Mitte), behält nur Labels darum.
+    Trennt so EG von OG/Schnitt/Lageplan auf demselben A0-Blatt."""
+    if len(label_pos) < 3:
+        return None
+    R = radius_m * pt_per_m
+    best_c, best_n = None, -1
+    for cx, cy in label_pos:
+        n = sum(1 for x, y in label_pos if (x - cx) ** 2 + (y - cy) ** 2 <= R * R)
+        if n > best_n:
+            best_n, best_c = n, (cx, cy)
+    cx, cy = best_c
+    nah = [(x, y) for x, y in label_pos if (x - cx) ** 2 + (y - cy) ** 2 <= R * R]
+    m = marge_m * pt_per_m
+    return (min(x for x, _ in nah) - m, max(x for x, _ in nah) + m,
+            min(y for _, y in nah) - m, max(y for _, y in nah) + m)
+
+
+def messe_waende(page, label_pos, pt_per_m, legende_dicken, geschosshoehe_m=2.95):
+    """Wand-Längen je Stärke aus den Vektoren, eingegrenzt auf die Grundriss-Ansicht
+    (per Raum-Labels). Liefert {dicke_cm: {laenge_m, n}} + abgeleitete Flächen.
+    LOG-Größe — Konsum nur nach Kreuzvalidierung (gegen Außenumfang/Legende)."""
+    bbox = _view_bbox(label_pos, pt_per_m)
+    if not bbox:
+        return None
+    bx0, bx1, by0, by1 = bbox
+    segs, _f, _n = _drawings(page)
+    arch = [s for s in segs
+            if (s[5] is None or s[5] < 0.45)
+            and _laenge(s) / pt_per_m > 0.8
+            and bx0 <= (s[0] + s[2]) / 2 <= bx1 and by0 <= (s[1] + s[3]) / 2 <= by1]
+    paare = wand_paare(arch, pt_per_m, min_len_m=0.8)
+    je = {}
+    for L, dk, _ac in paare:
+        snap = _snap_legende(dk, legende_dicken, tol_cm=2.5)
+        if snap is None:
+            continue
+        e = je.setdefault(snap, {"laenge_m": 0.0, "n": 0})
+        e["laenge_m"] += L
+        e["n"] += 1
+    for dk, e in je.items():
+        e["laenge_m"] = round(e["laenge_m"], 1)
+        e["flaeche_m2"] = round(e["laenge_m"] * geschosshoehe_m, 1)
+    return {"bbox_m": [round((bx1 - bx0) / pt_per_m, 1), round((by1 - by0) / pt_per_m, 1)],
+            "je_staerke": je, "n_arch_segmente": len(arch), "n_paare": len(paare)}
+
+
 # ── Phase-0-Gesamtreport (ein Plan) ──────────────────────────────────────────
 def analysiere_seite(page, massstab_label=None):
     segmente, fills, n_pfade = _drawings(page)
