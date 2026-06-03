@@ -5,9 +5,9 @@ extrahierte Räume + (per Vision gemessene) Baudaten und erzeugt pro Gewerk
 eine buchmäßige Massenermittlung (LV in Buchform).
 
 Wird von api/extract.py importiert. Gewerke:
-  - putz    (ÖNORM B 2210): Wandflächen, Öffnungsabzüge, Laibungen, Decken
-  - rohbau  (ÖNORM B 2208): Wand-Abwicklung, Decke/Bodenplatte Stahlbeton m³
-  - estrich (ÖNORM B 2232): Bodenflächen, Randdämmstreifen
+  - putz    (in Anlehnung an ÖNORM B 2210): Wandflächen, Öffnungsabzüge, Laibungen, Decken
+  - rohbau  (in Anlehnung an ÖNORM B 2208): Wand-Abwicklung, Decke/Bodenplatte Stahlbeton m³
+  - estrich (in Anlehnung an ÖNORM B 2232): Bodenflächen, Randdämmstreifen
   - maler                 : Wand-/Deckenflächen mit Öffnungsabzug
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ import re
 # ════════════════════════════════════════════════════════════════════════
 # ÖNORM-Konstanten & Standard-Annahmen
 # ════════════════════════════════════════════════════════════════════════
-OEFFNUNG_ABZUG_SCHWELLE_M2 = 4.0  # ÖNORM B 2204:2019 §5.5.1.3: sind KEINE eigenen
+OEFFNUNG_ABZUG_SCHWELLE_M2 = 4.0  # in Anlehnung an ÖNORM B 2204:2019 §5.5.1.3: sind KEINE eigenen
                                   # Laibungs-Positionen vorgesehen, werden Öffnungen
                                   # BIS 4,0 m² durchgemessen (übermessen, keine eigene
                                   # Laibung); ÜBER 4,0 m² abziehen + Laibung verrechnen.
@@ -129,7 +129,7 @@ class LVPosition:
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Öffnungs-Logik (ÖNORM B 2204 §5.5.1.3 / B 2210)
+# Öffnungs-Logik (in Anlehnung an ÖNORM B 2204 §5.5.1.3 / B 2210)
 # ════════════════════════════════════════════════════════════════════════
 RAHMEN_RUECKSPRUNG_CM = 6.0   # Stock/Rahmen springt ggü. Wandflucht zurück → Laibungstiefe
 
@@ -174,7 +174,7 @@ def _wand_cm_of(w, baudaten):
 
 def oeffnung_netto(breite_m, hoehe_m, wand_cm, fph_m=0.0, schwelle=None,
                    rahmen_cm=RAHMEN_RUECKSPRUNG_CM):
-    """ÖNORM B 2204 §5.5.1.3: Öffnung ≤ Schwelle → übermessen (kein Abzug, KEINE
+    """in Anlehnung an ÖNORM B 2204 §5.5.1.3: Öffnung ≤ Schwelle → übermessen (kein Abzug, KEINE
     Laibung — die Laibungsarbeit gleicht den nicht abgezogenen Wandanteil aus);
     > Schwelle → Fläche abziehen + abgewickelte Laibung verrechnen. Laibungstiefe
     wandbezogen (Wandstärke − Rahmenrücksprung). Liefert
@@ -276,7 +276,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
 
     pos = LVPosition("1.1", f"Innenputz Wände — {geschoss}", "m²")
-    pos.quelle = f"ÖNORM B 2210/B 2204 · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
+    pos.quelle = f"in Anlehnung an ÖNORM B 2210/B 2204 · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
@@ -301,7 +301,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     positionen.append(pos)
 
     pos = LVPosition("1.2", f"Innenputz Decken — {geschoss}", "m²")
-    pos.quelle = "ÖNORM B 2210 · Σ Raumfläche"
+    pos.quelle = "in Anlehnung an ÖNORM B 2210 · Σ Raumfläche"
     for r in innen:
         f = _room_value(r, "flaeche_m2")
         if f:
@@ -316,7 +316,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
     h_def = baudaten["geschosshoehe_m"]
 
-    # Pos 1.0: Mauerwerk Außenwand — Ansichtsfläche netto (ÖNORM B 2206 mit
+    # Pos 1.0: Mauerwerk Außenwand — Ansichtsfläche netto (in Anlehnung an ÖNORM B 2206 mit
     # Öffnungs-Abzug). Nutzt die GEMEINSAME Basis: dieselbe gemessene Außenwand-
     # Fläche, die auch die Bestell-Liste treibt → beide Ansichten zeigen dieselbe
     # Wand (keine widersprüchlichen Zahlen). Nur aktiv, wenn die Basis durchgereicht
@@ -332,7 +332,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
                                      baudaten.get("aussenwand_cm", 50),
                                      w.get("fph_m", 0), _schw)["abzug"]
         pos = LVPosition("1.0", f"Mauerwerk Außenwand Ansichtsfläche — {geschoss}", "m²")
-        pos.quelle = f"ÖNORM B 2206 · Außenwand brutto − Öffnungen>{_schw:.1f}m²"
+        pos.quelle = f"in Anlehnung an ÖNORM B 2206 · Außenwand brutto − Öffnungen>{_schw:.1f}m²"
         pos.add_zeile("Außenwand brutto", summe=round(_aw_brutto, 2),
                       quelle="Umfang × Höhe (gemeinsame Basis)")
         if _abzug > 0:
@@ -375,11 +375,11 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
     pos = LVPosition("1.2", f"Stahlbeton-Decke über {geschoss}", "m³")
     _basis_decke = baudaten.get("_basis_decke_m2")
     if _basis_decke:
-        pos.quelle = f"ÖNORM B 2208 · Decken-Fläche × Dicke {decke_m:.2f}m (gemeinsame Basis)"
+        pos.quelle = f"in Anlehnung an ÖNORM B 2208 · Decken-Fläche × Dicke {decke_m:.2f}m (gemeinsame Basis)"
         pos.add_zeile("Decke gesamt", laenge=round(_basis_decke, 2), hoehe=decke_m,
                       summe=_basis_decke * decke_m, quelle=f"F={_basis_decke:.2f} × d={decke_m:.2f}")
     else:
-        pos.quelle = f"ÖNORM B 2208 · Σ Fläche × Deckendicke {decke_m:.2f}m"
+        pos.quelle = f"in Anlehnung an ÖNORM B 2208 · Σ Fläche × Deckendicke {decke_m:.2f}m"
         for r in innen:
             f = _room_value(r, "flaeche_m2")
             if f:
@@ -418,7 +418,7 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
 
     pos = LVPosition("1.1", f"Estrich-Fläche — {geschoss}", "m²")
-    pos.quelle = "ÖNORM B 2232 · Σ Raumfläche"
+    pos.quelle = "in Anlehnung an ÖNORM B 2232 · Σ Raumfläche"
     for r in innen:
         f = _room_value(r, "flaeche_m2")
         if f:
@@ -427,7 +427,7 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
     positionen.append(pos)
 
     pos = LVPosition("1.2", f"Randdämmstreifen — {geschoss}", "lfm")
-    pos.quelle = "ÖNORM B 2232 · Σ Raumumfang"
+    pos.quelle = "in Anlehnung an ÖNORM B 2232 · Σ Raumumfang"
     for r in innen:
         u = _room_value(r, "umfang_m")
         if u:
@@ -445,7 +445,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
     fzuord = fenster_pro_raum(rooms, oeffnungen)
 
     pos = LVPosition("1.1", f"Anstrich Wände — {geschoss}", "m²")
-    pos.quelle = f"ÖNORM B 2204 · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
+    pos.quelle = f"in Anlehnung an ÖNORM B 2204 · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
@@ -504,10 +504,10 @@ def gewerk_beton(rooms, windows, baudaten, geschoss="EG", tueren=None):
 
 
 GEWERKE = {
-    "putz":    ("Verputzer (ÖNORM B 2210)", gewerk_putz),
-    "rohbau":  ("Maurer / Rohbau (ÖNORM B 2208)", gewerk_rohbau),
+    "putz":    ("Verputzer (in Anlehnung an ÖNORM B 2210)", gewerk_putz),
+    "rohbau":  ("Maurer / Rohbau (in Anlehnung an ÖNORM B 2208)", gewerk_rohbau),
     "beton":   ("Stahlbeton-Bauteile (Stützen / Kamin)", gewerk_beton),
-    "estrich": ("Estrich / Boden (ÖNORM B 2232)", gewerk_estrich),
+    "estrich": ("Estrich / Boden (in Anlehnung an ÖNORM B 2232)", gewerk_estrich),
     "maler":   ("Maler / Anstrich", gewerk_maler),
 }
 

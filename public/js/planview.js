@@ -574,7 +574,7 @@
     // ÖNORM A 2063 LV-Sektion
     if (_stateLV && _stateLV.length > 0) {
       rows.push([]);
-      rows.push(['== ÖNORM A 2063 LV pro Wohnung ==']);
+      rows.push(['== LV pro Wohnung (in Anlehnung an ÖNORM A 2063) ==']);
       rows.push(['Top', 'Position', 'Menge', 'Einheit', 'Konfidenz %']);
       _stateLV.forEach(function(pos){
         var conf = pos.konfidenz_aggregation != null ? Math.round(pos.konfidenz_aggregation * 100) : 92;
@@ -787,7 +787,7 @@
           (mergeInfo.enrichments ? ' · ' + mergeInfo.enrichments + ' Lücken gefüllt' : '') +
           '</span>';
       }
-      html += '<div class="pv-gw-head">🏗 ÖNORM-Massenermittlung nach Gewerk' + headSuffix + '</div>';
+      html += '<div class="pv-gw-head">🏗 Massenermittlung nach Gewerk (in Anlehnung an ÖNORM)' + headSuffix + '</div>';
 
       // Baudaten-Zeile (Wandstärken etc.) — die GEMERGTE Projekt-Baudaten haben
       // Vorrang (byte-exakt aus Legende, z.B. 50/25), sonst diese Plan-Baudaten.

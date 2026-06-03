@@ -293,7 +293,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     fs_breite = f("frostschuerze_breite_m", override)
     fs_m3 = fg_umfang * fs_tiefe * fs_breite
     out.append(MaterialPos(
-        "Frostschürze", "Lieferbeton C25/30, XC1, F52, GK 22", "m³",
+        "Frostschürze", "Beton C25/30, XC1, F52, GK 22", "m³",
         fs_m3, f"Frostgraben-Umfang {fg_umfang}m × {fs_tiefe}m × {fs_breite}m",
         konfidenz=0.55))
     xps_tiefe = f("xps_frostschuerze_tiefe_m", override)
@@ -318,13 +318,13 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # ═══ Bodenplatte ═══
     bp_m3 = bodenplatte_m2 * (bopl_cm / 100.0)
     out.append(MaterialPos(
-        "Bodenplatte", "Lieferbeton C25/30, B2, GK 22, F52", "m³",
+        "Bodenplatte", "Beton C25/30, B2, GK 22, F52", "m³",
         bp_m3, f"{bodenplatte_m2}m² × {bopl_cm}cm Dicke",
         konfidenz=0.7))
     # Sauberkeitsschicht: Legende (byte-exakt in baudaten) > Override > Default
     sauber_cm = baudaten.get("sauberkeitsschicht_cm") or f("sauberkeitsschicht_cm", override)
     out.append(MaterialPos(
-        "Bodenplatte", "Lieferbeton C16/20 (Sauberkeitsschicht)", "m³",
+        "Bodenplatte", "Beton C16/20 (Sauberkeitsschicht)", "m³",
         bodenplatte_m2 * (sauber_cm / 100.0),
         f"{bodenplatte_m2}m² × {sauber_cm}cm",
         konfidenz=0.5))
@@ -546,7 +546,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # ═══ Decke über EG ═══
     decke_m3 = decke_m2 * (decke_cm / 100.0)
     out.append(MaterialPos(
-        "Decke über EG", "Lieferbeton C25/30, XC1, GK 22, F52", "m³",
+        "Decke über EG", "Beton C25/30, XC1, GK 22, F52", "m³",
         decke_m3, f"{decke_m2}m² × {decke_cm}cm", konfidenz=0.7))
     out.append(MaterialPos(
         "Decke über EG", "Schaltafel 200/50", "m²",
@@ -596,7 +596,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             "Attika", "XPS 6cm Oberfläche rau", "m²",
             attika_m2, f"Außenumfang {aussenumfang_m}m × {att_h}m Höhe", konfidenz=0.45))
         out.append(MaterialPos(
-            "Attika", "Lieferbeton C25/30", "m³",
+            "Attika", "Beton C25/30", "m³",
             attika_m2 * 0.15, f"{round(attika_m2,1)}m² × 0.15m Stärke", konfidenz=0.4))
         out.append(MaterialPos(
             "Attika", "Steckeisen 10mm a 1m gekröpft", "Stk",
@@ -607,7 +607,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     if n_saeulen > 0:
         beton_pro = f("saeule_beton_m3_pro_stk", override)
         out.append(MaterialPos(
-            "Säulen", "Lieferbeton C25/30 (Fundamente + Säulen)", "m³",
+            "Säulen", "Beton C25/30 (Fundamente + Säulen)", "m³",
             n_saeulen * beton_pro, f"{n_saeulen} Säulen × {beton_pro}m³", konfidenz=0.45))
         out.append(MaterialPos(
             "Säulen", "Bügel geschlossen 18/18 12mm", "Stk",
