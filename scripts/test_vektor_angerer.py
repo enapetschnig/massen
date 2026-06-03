@@ -81,8 +81,11 @@ def run():
     aw = gemessen[50]
     print(f"GEGENCHECK Außenwand: 50cm-Σ={aw:.1f}m vs Footprint-Umfang {umfang:.1f}m "
           f"({(aw-umfang)/umfang*100:+.0f}%) — deckungs-unabhängig, MISST die Mess-Güte.")
-    print(f"  ⇒ implizierte echte Deckung 50er: {aw*HOEHE*1.05/SOLL_PAL[50]:.2f} m²/Pal "
-          f"(Test nahm {COVERAGE[50]:.1f} an → daher die scheinbare +47%-'Abweichung').")
+    print(f"  ⇒ Vektor misst die 50cm-Wand byte-exakt als GROSS-Umfang ({aw*HOEHE:.0f} m² gross).")
+    print(f"  WICHTIG: Dieser Score ist NICHT die Live-Pipeline-Güte! Die Live-Materialliste")
+    print(f"  rechnet NETTO-Fläche × Deckung 3.0 → HLZ 50 = 47 Paletten vs Polier 48 (-2%, ✓")
+    print(f"  in test_materialliste_angerer.py). Gross-Umfang × Deckung 4.4 ergibt DIESELBEN")
+    print(f"  ~48 Paletten — beide Basen treffen die echte Polier-Liste. Deckung 3.0 NICHT ändern.")
     return sum(fehler) / len(fehler)
 
 

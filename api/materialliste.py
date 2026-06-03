@@ -87,6 +87,14 @@ DEFAULTS = {
     "hlz_25cm_m2_pro_palette": 6.5,
     "hlz_20cm_m2_pro_palette": 8.0,
     "hlz_12cm_m2_pro_palette": 12.0,
+    # Stück pro Palette je HLZ-Stärke (Polier-Angaben Angerer; 20er interpoliert).
+    # Rein für die Stück-Anzeige neben den Paletten — der Polier bestellt/zählt in Stück.
+    # Calibrierbar pro Firma (wie die m²/Palette-Deckung).
+    "hlz_50cm_stk_pro_palette": 40,
+    "hlz_38cm_stk_pro_palette": 45,
+    "hlz_25cm_stk_pro_palette": 55,
+    "hlz_20cm_stk_pro_palette": 60,   # interpoliert (Polier gab 25er=55, 12er=70)
+    "hlz_12cm_stk_pro_palette": 70,
     # Mörtel / Voranstrich
     # Üblich: bei Plansteinen reicht 1 Palette pro ~150-200 m² Wand
     "mauermoertel_paletten_pro_100m2": 0.6,
@@ -388,10 +396,16 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             m2 = m2_pro_dicke[dd]
             gesamt += m2
             cov = _coverage(dd)
+            paletten = math.ceil(m2 * versch / cov) if cov > 0 else 0
+            formel = f"{' + '.join(formel_teile[dd])} ÷ {cov}m²/Pal × {versch} Verschnitt"
+            # Stück-Anzeige (der Polier bestellt/zählt in Stück): Paletten × Stk/Palette
+            stk_key = f"hlz_{int(round(dd))}cm_stk_pro_palette"
+            if (stk_key in DEFAULTS or (override and stk_key in override)) and paletten:
+                stk = int(round(paletten * f(stk_key, override)))
+                formel += f"  ·  ≈ {stk} Stück ({int(round(f(stk_key, override)))}/Pal)"
             pos.append(MaterialPos(
                 "Mauerwerk EG", f"HLZ {int(round(dd))}cm Plan", "Paletten",
-                math.ceil(m2 * versch / cov) if cov > 0 else 0,
-                f"{' + '.join(formel_teile[dd])} ÷ {cov}m²/Pal × {versch} Verschnitt", konfidenz=konf))
+                paletten, formel, konfidenz=konf))
         return pos, gesamt
 
     # Verteilungs-Quelle in Reihenfolge: EXPLIZIT gesetzte Anteile (User-Override
