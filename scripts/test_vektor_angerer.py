@@ -47,8 +47,8 @@ def run():
     inb = lambda s: bx0 <= (s[0] + s[2]) / 2 <= bx1 and by0 <= (s[1] + s[3]) / 2 <= by1
     arch = [s for s in segs if (s[5] is None or s[5] < 0.45)
             and vektor._laenge(s) / ptm > 0.5 and inb(s)]
-    paare = vektor.wand_paare(arch, ptm, min_len_m=0.5)
     LEG = [50, 38, 25, 20, 12]
+    paare = vektor.wand_paare(arch, ptm, min_len_m=0.5, legende_dicken=LEG)
     gemessen = {t: 0.0 for t in LEG}
     for L, dk, _ac in paare:
         sn = vektor._snap_legende(dk, LEG, 2.0)

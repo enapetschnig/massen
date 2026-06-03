@@ -221,28 +221,27 @@ def _faces(segmente, achse, pos_tol=1.0):
     return faces
 
 
-def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_m=0.3):
-    """Parallele Flächen-Paare = Wände. Constraints (aus dem Design-Workflow):
-    Normalabstand in Wandstärken-Bereich, y-Überlappung >70% der kürzeren, genau EIN
-    Partner (greedy nach kleinstem Abstand → überspringt nie einen dritten Face dazwischen).
-    Liefert [(laenge_m, dicke_cm, achse)]."""
+def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_m=0.3,
+               legende_dicken=None, snap_tol_cm=2.0):
+    """Parallele Flächen-Paare = Wände. GLOBAL-greedy nach Überlappungs-LÄNGE: erst ALLE
+    gültigen Kandidaten, dann nach Überlappung absteigend zuweisen (lange, sichere Wände —
+    die Außenwand — zuerst; jede Fläche genau einmal). Empirisch (Angerer-Harness): bringt
+    die Σ-Gesamtwandlänge auf -1% (die naive Positions-Reihenfolge gab -35%). Liefert
+    [(laenge_m, dicke_cm, achse)]. (legende_dicken: aktuell nur als schwacher Tiebreak —
+    als Primär-Sortierung übergewichtet es falsche Paare bei Legende-Abständen → daher
+    overlap bleibt primär.)"""
     out = []
     for achse in ("v", "h"):
         faces = sorted(_faces(segmente, achse))
         dmin = dicke_min_cm / 100.0 * pt_per_m
         dmax = dicke_max_cm / 100.0 * pt_per_m
-        used = set()
+        kand = []   # (overlap_pt, i, j, dist_pt)
         for i, fa in enumerate(faces):
-            if i in used:
-                continue
-            best = None
             for j in range(i + 1, len(faces)):
-                if j in used:
-                    continue
                 fb = faces[j]
                 d = abs(fb[0] - fa[0])
                 if d > dmax:
-                    break                      # sortiert → kein weiterer in Reichweite
+                    break
                 if d < dmin:
                     continue
                 ov = min(fa[2], fb[2]) - max(fa[1], fb[1])
@@ -251,14 +250,16 @@ def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_
                 shorter = min(fa[2] - fa[1], fb[2] - fb[1])
                 if shorter <= 0 or ov / shorter < 0.70:
                     continue
-                if best is None or d < best[1]:
-                    best = (j, d, ov)
-            if best:
-                j, d, ov = best
-                used.add(i); used.add(j)
-                laenge_m = ov / pt_per_m
-                if laenge_m >= min_len_m:
-                    out.append((round(laenge_m, 2), round(d / pt_per_m * 100, 1), achse))
+                kand.append((ov, i, j, d))
+        kand.sort(reverse=True)               # längste Überlappung (sicherste Wand) zuerst
+        used = set()
+        for ov, i, j, d in kand:
+            if i in used or j in used:
+                continue
+            used.add(i); used.add(j)
+            laenge_m = ov / pt_per_m
+            if laenge_m >= min_len_m:
+                out.append((round(laenge_m, 2), round(d / pt_per_m * 100, 1), achse))
     return out
 
 
