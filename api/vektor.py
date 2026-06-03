@@ -222,7 +222,7 @@ def _faces(segmente, achse, pos_tol=1.0):
 
 
 def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_m=0.3,
-               legende_dicken=None, snap_tol_cm=2.0):
+               legende_dicken=None, snap_tol_cm=2.0, band_tol_cm=4.0):
     """Parallele Flächen-Paare = Wände. GLOBAL-greedy nach Überlappungs-LÄNGE: erst ALLE
     gültigen Kandidaten, dann nach Überlappung absteigend zuweisen (lange, sichere Wände —
     die Außenwand — zuerst; jede Fläche genau einmal). Empirisch (Angerer-Harness): bringt
@@ -253,10 +253,32 @@ def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_
                 kand.append((ov, i, j, d))
         kand.sort(reverse=True)               # längste Überlappung (sicherste Wand) zuerst
         used = set()
+        roh = []   # (center_pos, lo, hi, ov_pt, dist_pt)
         for ov, i, j, d in kand:
             if i in used or j in used:
                 continue
             used.add(i); used.add(j)
+            fa, fb = faces[i], faces[j]
+            center = (fa[0] + fb[0]) / 2.0
+            lo, hi = max(fa[1], fb[1]), min(fa[2], fb[2])
+            roh.append([center, lo, hi, ov, d])
+        # Doppel-Zeichnung dedup: dieselbe Wand 2× gezeichnet (Ziegel- + Putzlinie, Doppel-
+        # Layer) ergibt zwei Paare mit ~gleicher Mitte, gleicher Stärke, überlappendem
+        # Extent. Stärke als Diskriminator ⇒ 20cm-Wand wird NIE mit 25cm-Wand verschmolzen
+        # (anders als reine Positions-Toleranz, die dünne Klassen frisst). Längeres behalten.
+        roh.sort(key=lambda r: -r[3])          # längstes zuerst (Anker)
+        keep = []
+        for r in roh:
+            dup = False
+            for k in keep:
+                if abs(r[0] - k[0]) <= band_tol_cm / 100.0 * pt_per_m \
+                        and abs(r[4] - k[4]) <= 3.0 / 100.0 * pt_per_m \
+                        and min(r[2], k[2]) - max(r[1], k[1]) > 0.5 * (r[2] - r[1]):
+                    dup = True
+                    break
+            if not dup:
+                keep.append(r)
+        for center, lo, hi, ov, d in keep:
             laenge_m = ov / pt_per_m
             if laenge_m >= min_len_m:
                 out.append((round(laenge_m, 2), round(d / pt_per_m * 100, 1), achse))

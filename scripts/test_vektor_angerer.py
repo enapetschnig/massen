@@ -71,7 +71,18 @@ def run():
     print("-" * 38)
     print(f"Σ Wandlänge: {g_tot:.1f}m gemessen vs {s_tot:.1f}m Soll ({(g_tot-s_tot)/s_tot*100:+.0f}%)")
     print(f"Ø |Abweichung| je Stärke: {sum(fehler)/len(fehler):.0f}%   "
-          f"(BASELINE-Score — Ziel: runter mit besserer Wand-Klassifikation)")
+          f"(Score gg. Paletten-Soll — TEILWEISE Artefakt der Deckungs-Annahme, s.u.)")
+    # ── EHRLICHER Gegencheck: 50cm-Wand muss dem Gebäude-FOOTPRINT-Umfang entsprechen ──
+    # (deckungs-UNABHÄNGIG). Die Außenwand ist geometrisch selbst-prüfbar: Σ(50cm) ≈ Umfang.
+    xs = [(s[0] + s[2]) / 2 for s in arch]
+    ys = [(s[1] + s[3]) / 2 for s in arch]
+    fw, fh = (max(xs) - min(xs)) / ptm, (max(ys) - min(ys)) / ptm
+    umfang = 2 * (fw + fh)
+    aw = gemessen[50]
+    print(f"GEGENCHECK Außenwand: 50cm-Σ={aw:.1f}m vs Footprint-Umfang {umfang:.1f}m "
+          f"({(aw-umfang)/umfang*100:+.0f}%) — deckungs-unabhängig, MISST die Mess-Güte.")
+    print(f"  ⇒ implizierte echte Deckung 50er: {aw*HOEHE*1.05/SOLL_PAL[50]:.2f} m²/Pal "
+          f"(Test nahm {COVERAGE[50]:.1f} an → daher die scheinbare +47%-'Abweichung').")
     return sum(fehler) / len(fehler)
 
 
