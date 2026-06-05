@@ -474,6 +474,18 @@
     var statusEl = document.getElementById('ergebnis-status-banner');
     if (!statusEl) return;
     var hints = [];
+    // FARB-LEGENDE: enthält der Plan Bestand/Abbruch-Bauteile? Dann beziehen sich die
+    // Massen auf den Neubau und Bestand/Abbruch sind NICHT herausgerechnet — wichtigste
+    // Warnung zuerst (sonst zählt der Polier bei einem Umbau-Plan Bestandswände mit).
+    if (data.farben && (data.farben.hat_bestand || data.farben.hat_abbruch)) {
+      var baTeile = [];
+      if (data.farben.hat_bestand) baTeile.push('Bestand');
+      if (data.farben.hat_abbruch) baTeile.push('Abbruch');
+      hints.push('<div class="status-warn">🎨 <strong>' + baTeile.join(' + ') +
+        ' im Plan erkannt</strong> — ' + esc(data.farben.hinweis ||
+        ('laut Legende. Die Massen beziehen sich auf den NEUBAU; ' + baTeile.join('/') +
+         ' ist nicht automatisch herausgerechnet, bitte separat prüfen.')) + '</div>');
+    }
     // Nur INNENRÄUME ohne Höhe sind ein Problem — überdachte Außenflächen
     // (Terrasse/Parkplatz/Loggia) haben korrekt keine Raumhöhe.
     var innenOhneH = (data.raeume || []).filter(function (r) {

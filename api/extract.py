@@ -80,6 +80,14 @@ except Exception as _e:  # pragma: no cover
     print(f"[ensemble] Import fehlgeschlagen: {_e}")
     _ENSEMBLE_OK = False
 
+# Farb-Legende (Neubau/Bestand/Abbruch byte-exakt aus dem Plan; read-only, best-effort)
+try:
+    import farben as _farben
+    _FARBEN_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[farben] Import fehlgeschlagen: {_e}")
+    _FARBEN_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -726,6 +734,24 @@ async def extract(body: ExtractRequest):
     log = plan.get("agent_log") or {}
     log["pdf_text"] = result
     log["extraction_method"] = "pdfplumber_server"
+
+    # Farb-Legende (Neubau/Bestand/Abbruch) — byte-exakt aus dem Plan, einmal cachen.
+    # Read-only/best-effort: darf die Analyse NIE brechen (degradiert auf neutral).
+    if _FARBEN_OK:
+        try:
+            import fitz
+            _fdoc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            _fr = _farben.analysiere_dokument(_fdoc)
+            _fdoc.close()
+            log["farben"] = {
+                "hat_bestand": bool(_fr.get("hat_bestand")),
+                "hat_abbruch": bool(_fr.get("hat_abbruch")),
+                "hinweis": _fr.get("hinweis"),
+                "mapping": _fr.get("mapping") or {},
+            }
+        except Exception as _fe:  # pragma: no cover
+            print(f"[farben] Analyse fehlgeschlagen: {_fe}")
+
     sb.table("plaene").update({"agent_log": log}).eq("id", body.plan_id).execute()
 
     return {
@@ -3566,6 +3592,9 @@ async def projekt_massen(body: ProjektMassenRequest):
     best_konf = -1.0
     geschoss = "EG"
     best_legende = None  # Legende mit höchster Konfidenz (byte-exakt > Vision)
+    farb_hat_bestand = False   # Farb-Legende: enthält der Plan ECHTE Bestand-Bauteile?
+    farb_hat_abbruch = False   # … bzw. Abbruch-Bauteile (Präzisions-Gate in farben.py)
+    farb_hinweis = None        # nutzer-lesbarer Hinweis (Massen = Neubau, Rest separat)
     best_schnitt = None   # Schnitt-/Ansichts-Lesung (Säulen, Geschoss-H, Dach)
     best_opus = None      # Opus-Bauingenieur-Urteil (geschlossene Garage, Slab, Höhe)
     best_opus_rang = None # deterministischer Auswahl-Schlüssel (s.u.) — Konstanz über Läufe
@@ -3593,6 +3622,29 @@ async def projekt_massen(body: ProjektMassenRequest):
             if k > best_konf:
                 best_konf = k
                 best_baudaten = bd
+        # Farb-Legende (Neubau/Bestand/Abbruch) aus dem Cache; fehlt sie (alte Pläne),
+        # best-effort einmal nachrechnen. Read-only, bricht nie (degradiert auf nichts).
+        _fa = log.get("farben")
+        if _fa is None and _FARBEN_OK and p.get("storage_path"):
+            try:
+                import fitz
+                _fb = sb.storage.from_("plaene").download(p["storage_path"])
+                _fdoc = fitz.open(stream=_fb, filetype="pdf")
+                _fr = _farben.analysiere_dokument(_fdoc)
+                _fdoc.close()
+                _fa = {"hat_bestand": bool(_fr.get("hat_bestand")),
+                       "hat_abbruch": bool(_fr.get("hat_abbruch")),
+                       "hinweis": _fr.get("hinweis")}
+            except Exception as _fe:  # pragma: no cover
+                print(f"[farben] Fallback-Analyse fehlgeschlagen: {_fe}")
+                _fa = None
+        if _fa:
+            if _fa.get("hat_bestand"):
+                farb_hat_bestand = True
+            if _fa.get("hat_abbruch"):
+                farb_hat_abbruch = True
+            if _fa.get("hinweis") and not farb_hinweis:
+                farb_hinweis = _fa.get("hinweis")
         # Haupt-Grundriss-Blatt = das mit den meisten Räumen (Fallback für Opus,
         # falls der separate Schnitt-Pass nicht anschlägt — Opus liest den Schnitt
         # ohnehin selbst aus dem Bild; er darf nicht an best_schnitt_plan hängen).
@@ -4647,6 +4699,11 @@ async def projekt_massen(body: ProjektMassenRequest):
         } if _KONSISTENZ_OK else None,
         "gemessen": gemessen,
         "legende": best_legende,
+        "farben": {                              # Neubau/Bestand/Abbruch-Erkennung (byte-exakt)
+            "hat_bestand": farb_hat_bestand,     # nur True bei ECHTEN Bauteilen (Präzisions-Gate)
+            "hat_abbruch": farb_hat_abbruch,
+            "hinweis": farb_hinweis,             # Massen = Neubau; Bestand/Abbruch separat prüfen
+        },
         "ausgeschlossene_einheiten": ausgeschlossene_einheiten,
         "materialliste": materialliste_result,
         **gewerke_result,
