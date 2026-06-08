@@ -266,6 +266,7 @@
           return;
         }
         renderProjektMassen(data, fertigCount, totalCount);
+        renderNachzeichnen();   // Planansicht automatisch nachzeichnen (einmal, danach via Guard)
       })
       .catch(function () {
         if (badge) badge.textContent = '';
@@ -1517,7 +1518,8 @@
   function _nzPaint() {
     if (!_nzData) return;
     var W = _nzData.bild_w, H = _nzData.bild_h, meta = _nzData.meta || {};
-    var lines = '';
+    var fs = Math.max(13, Math.round(W / 78));   // Label-Schriftgröße relativ zur Bildbreite
+    var lines = '', labels = '';
     (_nzData.waende || []).forEach(function (w) {
       var cm = _nzCm(w), rm = !!_nzEdit.removed[w.id], sel = (_nzSel === w.id);
       var col = rm ? '#b8c0cc' : (NZ_FARBE[cm] || '#888');
@@ -1528,6 +1530,14 @@
         ' stroke-opacity="' + (rm ? 0.3 : 0.82) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
         ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
         (cm ? 'HLZ ' + cm + 'cm' : '~' + w.dicke_cm + 'cm') + ' · ' + w.laenge_m + ' m — klicken zum Korrigieren</title></line>';
+      // Sichtbares Längen-/Stärke-Label auf der Wand (1:1 zum Plan vergleichbar)
+      if (!rm && cm && w.laenge_m >= 1.2) {
+        var mx = (p[0] + p[2]) / 2, my = (p[1] + p[3]) / 2;
+        var txt = 'HLZ' + cm + ' · ' + fmtNum(w.laenge_m) + 'm';
+        labels += '<text x="' + mx + '" y="' + my + '" font-size="' + fs + '" text-anchor="middle" dy="' +
+          (w.achse === 'h' ? -fs * 0.5 : fs * 0.35) + '" paint-order="stroke" stroke="#fff" stroke-width="' +
+          Math.round(fs / 3.5) + '" fill="' + col + '" style="font-weight:600;pointer-events:none">' + txt + '</text>';
+      }
     });
     var s = _nzSplit(), ges = s.ges;
     var legend = '';
@@ -1570,7 +1580,7 @@
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan">' +
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
       'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
-      '<g style="pointer-events:auto">' + lines + '</g></svg></div>';
+      '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g></svg></div>';
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
       ln.addEventListener('click', function () { _nzSel = parseInt(ln.getAttribute('data-wid'), 10); _nzPaint(); });
@@ -1642,14 +1652,9 @@
     });
   }
 
-  (function wireNachzeichnen() {
-    var dr = document.getElementById('nachzeichnen-drawer');
-    if (!dr) return;
-    dr.addEventListener('toggle', function () { if (dr.open) renderNachzeichnen(); });
-  })();
-  // Bei jeder neuen Auswertung den Cache zurücksetzen (anderer Plan-Filter etc.)
-  window._nzReset = function () { _nzGeladen = false; _nzData = null;
-    var dr = document.getElementById('nachzeichnen-drawer'); if (dr && dr.open) renderNachzeichnen(); };
+  // Die Planansicht lädt automatisch nach der ersten Auswertung (renderNachzeichnen()
+  // wird im Lade-Flow aufgerufen, der _nzGeladen-Guard hält es bei einem Fetch).
+  window._nzReset = function () { _nzGeladen = false; _nzData = null; renderNachzeichnen(); };
 
   window.loadPlans = loadPlans;
   window.projectId = projectId;

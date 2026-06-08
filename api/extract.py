@@ -4761,7 +4761,7 @@ async def plan_nachzeichnen(body: NachzeichnenRequest):
             import fitz
             pdf_bytes = sb.storage.from_("plaene").download(sp)
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            r = _nachzeichnen.analysiere_doc(doc, max_px=1400)
+            r = _nachzeichnen.analysiere_doc(doc, max_px=1800)
             doc.close()
         except Exception as e:  # pragma: no cover
             letzter_grund = f"Render fehlgeschlagen: {e}"

@@ -2545,8 +2545,13 @@ img {
 .advanced-block { margin-top: 1.1rem; }
 .advanced-h { font-size: 0.92rem; color: var(--primary); margin-bottom: 0.5rem; }
 
-/* Nachzeichnen-Overlay */
-.nachzeichnen-container { padding: 0.5rem 1rem 1.1rem; border-top: 1px solid var(--border); }
+/* Nachzeichnen-Planansicht */
+.nachzeichnen-section { margin: 1.2rem 0; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--white); overflow: hidden; }
+.nachzeichnen-head { padding: 0.7rem 1rem; font-weight: 600; color: var(--primary);
+  border-bottom: 1px solid var(--border); background: #f8fafc; }
+.nachzeichnen-sub { font-weight: 400; font-size: 0.8rem; color: var(--text-light); margin-left: 0.4rem; }
+.nachzeichnen-container { padding: 0.5rem 1rem 1.1rem; }
 .nachzeichnen-hint { font-size: 0.82rem; color: var(--text-light); margin: 0.4rem 0 0.7rem; line-height: 1.4; }
 .nz-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.1rem; margin-bottom: 0.7rem; }
 .nz-leg-item { font-size: 0.82rem; color: var(--text); display: inline-flex; align-items: center; }

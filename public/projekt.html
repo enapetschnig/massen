@@ -103,6 +103,16 @@
       <!-- PRÜF-LISTE: was VOR der Bestellung zu prüfen ist — steht VOR der Liste -->
       <div class="pruefliste" id="pruefliste"></div>
 
+      <!-- NACHZEICHNEN: Plan-Ansicht mit erkannten Wänden — führt die Auswertung an,
+           automatisch geladen, Wände anklickbar zum Korrigieren -->
+      <section class="nachzeichnen-section" id="nachzeichnen-section">
+        <div class="nachzeichnen-head">&#128208; Planansicht &mdash; nachgezeichnete W&auml;nde
+          <span class="nachzeichnen-sub">(W&auml;nde anklicken zum Pr&uuml;fen/Korrigieren)</span></div>
+        <div class="nachzeichnen-container" id="nachzeichnen-container">
+          <p class="nachzeichnen-hint">Plan wird geladen &hellip;</p>
+        </div>
+      </section>
+
       <!-- HERZSTÜCK: Materialliste nach Bauteil gruppiert -->
       <div class="ml-board-toolbar">
         <span class="ml-board-title">Material nach Bauteil</span>
@@ -112,14 +122,6 @@
         </div>
       </div>
       <div class="ml-board" id="ml-board"></div>
-
-      <!-- NACHZEICHNEN: Plan + erkannte Wände (lazy beim Aufklappen geladen) -->
-      <details class="advanced-drawer" id="nachzeichnen-drawer">
-        <summary>&#128208; Nachzeichnen &mdash; Plan + erkannte W&auml;nde pr&uuml;fen</summary>
-        <div class="nachzeichnen-container" id="nachzeichnen-container">
-          <p class="nachzeichnen-hint">Aufklappen, um den Plan mit den automatisch erkannten W&auml;nden zu sehen.</p>
-        </div>
-      </details>
 
       <!-- KENNZAHLEN: immer sichtbar am Ende der Auswertung (Höhe + Wandflächen) -->
       <div class="auswertung-kennzahlen" id="auswertung-kennzahlen"></div>
