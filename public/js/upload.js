@@ -1475,6 +1475,73 @@
   }
   wireChat();
 
+  // ── NACHZEICHNEN-OVERLAY (read-only): Plan + erkannte Wände, lazy beim Aufklappen ──
+  var NZ_FARBE = { 50: '#dc1e1e', 38: '#f08c00', 25: '#1e50dc', 20: '#14a03c', 12: '#9628c8' };
+  var _nzGeladen = false, _nzLaeuft = false;
+
+  function renderNachzeichnen() {
+    var cont = document.getElementById('nachzeichnen-container');
+    if (!cont || _nzGeladen || _nzLaeuft) return;
+    _nzLaeuft = true;
+    cont.innerHTML = '<p class="nachzeichnen-hint">Plan wird nachgezeichnet &hellip; (einen Moment, die Wände werden aus den Vektoren gelesen)</p>';
+    fetch('/api/plan-nachzeichnen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projekt_id: projectId })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      _nzGeladen = true; _nzLaeuft = false;
+      if (!d || !d.ok) {
+        cont.innerHTML = '<p class="nachzeichnen-hint">Nachzeichnen für diesen Plan nicht verfügbar' +
+          (d && d.grund ? ' — ' + esc(d.grund) : '') + '. (Funktioniert bei klar bemaßten Grundriss-Blättern.)</p>';
+        return;
+      }
+      var W = d.bild_w, H = d.bild_h, meta = d.meta || {};
+      var lines = '', labels = '', ges = d.summe_m || {};
+      (d.waende || []).forEach(function (w) {
+        var col = NZ_FARBE[w.snap_cm] || '#888';
+        var unsicher = !w.snap_cm || (w.hatch_dichte != null && w.hatch_dichte < 1.5);
+        var p = w.px;
+        lines += '<line x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
+          '" stroke="' + col + '" stroke-width="' + Math.max(2, w.staerke_px) + '" stroke-linecap="round"' +
+          ' stroke-opacity="0.82"' + (unsicher ? ' stroke-dasharray="6 5"' : '') + '><title>' +
+          (w.snap_cm ? 'HLZ ' + w.snap_cm + 'cm' : '~' + w.dicke_cm + 'cm') + ' · ' + w.laenge_m + ' m' +
+          (w.hatch_dichte != null ? ' · Schraffur ' + w.hatch_dichte + '/m' : '') + '</title></line>';
+      });
+      var legend = '';
+      [50, 38, 25, 20, 12].forEach(function (t) {
+        if (ges[t] == null) return;
+        legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + NZ_FARBE[t] + '"></span>' +
+          'HLZ ' + t + 'cm: <strong>' + fmtNum(ges[t]) + ' m</strong></span>';
+      });
+      var warn = meta.tragfaehig ? '' :
+        '<div class="nachzeichnen-hint" style="color:#92400e">⚠ Maßstab unsicher (Streuung ' +
+        (meta.streuung_pct != null ? meta.streuung_pct + '%' : '?') + ') — Längen nur als Sichthilfe, nicht als Maß.</div>';
+      cont.innerHTML =
+        '<p class="nachzeichnen-hint">Aus den Plan-Vektoren erkannte Wände, farbcodiert nach Stärke. ' +
+        'Damit siehst du, was die KI als Wand gelesen hat — gestrichelt = unsicher. ' +
+        'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
+        ' · ' + (d.dateiname ? esc(d.dateiname) : '') + '</p>' +
+        warn +
+        '<div class="nz-legend">' + legend + '</div>' +
+        '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:auto;border:1px solid #e2e8f0;border-radius:8px">' +
+        '<img src="' + d.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan">' +
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
+        'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
+        '<g style="pointer-events:auto">' + lines + '</g></svg></div>';
+    }).catch(function (e) {
+      _nzGeladen = false; _nzLaeuft = false;
+      cont.innerHTML = '<p class="nachzeichnen-hint">Nachzeichnen fehlgeschlagen: ' + esc(e.message) + '</p>';
+    });
+  }
+
+  (function wireNachzeichnen() {
+    var dr = document.getElementById('nachzeichnen-drawer');
+    if (!dr) return;
+    dr.addEventListener('toggle', function () { if (dr.open) renderNachzeichnen(); });
+  })();
+  // Bei jeder neuen Auswertung den Cache zurücksetzen (anderer Plan-Filter etc.)
+  window._nzReset = function () { _nzGeladen = false; var c = document.getElementById('nachzeichnen-container');
+    var dr = document.getElementById('nachzeichnen-drawer'); if (dr && dr.open && c) renderNachzeichnen(); };
+
   window.loadPlans = loadPlans;
   window.projectId = projectId;
   loadPlans();

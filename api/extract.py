@@ -88,6 +88,14 @@ except Exception as _e:  # pragma: no cover
     print(f"[farben] Import fehlgeschlagen: {_e}")
     _FARBEN_OK = False
 
+# Nachzeichnen (Vektor-Wand-Rekonstruktion fürs visuelle Overlay; read-only, best-effort)
+try:
+    import nachzeichnen as _nachzeichnen
+    _NACHZEICHNEN_OK = True
+except Exception as _e:  # pragma: no cover
+    print(f"[nachzeichnen] Import fehlgeschlagen: {_e}")
+    _NACHZEICHNEN_OK = False
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -4708,6 +4716,66 @@ async def projekt_massen(body: ProjektMassenRequest):
         "materialliste": materialliste_result,
         **gewerke_result,
     }
+
+
+class NachzeichnenRequest(BaseModel):
+    projekt_id: str | None = None
+    plan_id: str | None = None
+
+
+@app.post("/api/plan-nachzeichnen")
+async def plan_nachzeichnen(body: NachzeichnenRequest):
+    """NACHZEICHNEN-OVERLAY (read-only): rendert das EG-Grundriss-Bild eines Plans +
+    die aus den Vektoren erkannten Wände (Pixel-Koords fürs SVG-Overlay). Probiert die
+    Pläne des Projekts durch und liefert das erste nachzeichenbare Grundriss-Blatt.
+    Best-effort: scheitert alles → {ok:False, grund} (nie 500). Ändert KEINE Mengen."""
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    if not _NACHZEICHNEN_OK:
+        return {"ok": False, "grund": "Nachzeichnen-Modul nicht verfügbar"}
+
+    # Kandidaten-Pläne sammeln (ein Plan ODER alle des Projekts)
+    try:
+        if body.plan_id:
+            res = sb.table("plaene").select("id, dateiname, storage_path").eq(
+                "id", body.plan_id).execute()
+            plaene = res.data or []
+        elif body.projekt_id:
+            res = sb.table("plaene").select("id, dateiname, storage_path").eq(
+                "projekt_id", body.projekt_id).execute()
+            plaene = res.data or []
+        else:
+            raise HTTPException(400, "projekt_id oder plan_id erforderlich")
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"ok": False, "grund": f"Pläne nicht ladbar: {e}"}
+
+    import base64
+    letzter_grund = "kein Grundriss-Blatt gefunden"
+    for plan in plaene:
+        sp = plan.get("storage_path")
+        if not sp:
+            continue
+        try:
+            import fitz
+            pdf_bytes = sb.storage.from_("plaene").download(sp)
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            r = _nachzeichnen.analysiere_doc(doc, max_px=1400)
+            doc.close()
+        except Exception as e:  # pragma: no cover
+            letzter_grund = f"Render fehlgeschlagen: {e}"
+            continue
+        if not r.get("ok"):
+            letzter_grund = r.get("grund") or letzter_grund
+            continue
+        png = r.pop("basis_png", None)
+        if png:
+            r["basis_png_b64"] = "data:image/png;base64," + base64.b64encode(png).decode()
+        r["plan_id"] = plan.get("id")
+        r["dateiname"] = plan.get("dateiname")
+        return r
+    return {"ok": False, "grund": letzter_grund}
 
 
 @app.post("/api/projekt-export")

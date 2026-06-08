@@ -35,7 +35,8 @@ def _eg_box(page, ptm):
 
 def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     """Eine Grundriss-Seite → {ok, basis_png(bytes), waende[], summe_m, meta}."""
-    ptm = vektor.kalibriere(page.get_text("words"), _massstab(page)).get("ptm_konsens")
+    kal = vektor.kalibriere(page.get_text("words"), _massstab(page))
+    ptm = kal.get("ptm_konsens")
     if not ptm:
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     box = _eg_box(page, ptm)
@@ -117,6 +118,11 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             "scale": round(scale, 4),
             "n_waende": len(waende),
             "box_m": [round(breite_pt / ptm, 1), round(hoehe_pt / ptm, 1)],
+            # Kalibrier-Güte: trägt das Maß? (Read-only-Ansicht zeigt es nur an; ein
+            # späterer Mengen-Export muss tragfaehig==True + kleine Streuung verlangen.)
+            "tragfaehig": bool(kal.get("tragfaehig")),
+            "streuung_pct": kal.get("streuung_pct"),
+            "massstab": _massstab(page),
         },
     }
 
