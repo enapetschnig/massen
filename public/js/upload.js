@@ -1475,15 +1475,148 @@
   }
   wireChat();
 
-  // ── NACHZEICHNEN-OVERLAY (read-only): Plan + erkannte Wände, lazy beim Aufklappen ──
+  // ── NACHZEICHNEN-OVERLAY: Plan + erkannte Wände — anklickbar korrigieren ──
   var NZ_FARBE = { 50: '#dc1e1e', 38: '#f08c00', 25: '#1e50dc', 20: '#14a03c', 12: '#9628c8' };
   var _nzGeladen = false, _nzLaeuft = false;
+  var _nzData = null;
+  var _nzEdit = { removed: {}, thick: {}, aussen: {} };  // id → bool / cm / bool
+  var _nzSel = null;
+
+  function _nzCm(w) { return _nzEdit.thick[w.id] != null ? _nzEdit.thick[w.id] : w.snap_cm; }
+  function _nzAussenDefault(cm) { return cm === 50 || cm === 38; }  // 20/12 immer innen, 25 default innen
+  function _nzIstAussen(w, cm) {
+    if (cm === 20 || cm === 12) return false;
+    if (cm === 50 || cm === 38) return true;
+    return _nzEdit.aussen[w.id] != null ? _nzEdit.aussen[w.id] : false;  // 25cm: default innen
+  }
+
+  function _nzSplit() {
+    // Summen je Stärke + außen/innen-Split aus dem KORRIGIERTEN Zustand.
+    var o = { 50: 0, 38: 0, 25: 0 }, i = { 25: 0, 20: 0, 12: 0 }, ges = {};
+    (_nzData.waende || []).forEach(function (w) {
+      if (_nzEdit.removed[w.id]) return;
+      var cm = _nzCm(w);
+      if ([50, 38, 25, 20, 12].indexOf(cm) < 0) return;
+      ges[cm] = (ges[cm] || 0) + w.laenge_m;
+      if (_nzIstAussen(w, cm)) o[cm] = (o[cm] || 0) + w.laenge_m;
+      else i[cm] = (i[cm] || 0) + w.laenge_m;
+    });
+    var ot = o[50] + o[38] + o[25], it = i[25] + i[20] + i[12];
+    var anteile = null;
+    if (ot > 0 && it > 0) {
+      var pct = function (x, t) { return Math.round(x / t * 1000) / 10; };
+      anteile = {
+        wand_anteil_50cm: pct(o[50], ot), wand_anteil_38cm: pct(o[38], ot),
+        wand_anteil_25cm_aussen: pct(o[25], ot), wand_anteil_25cm_innen: pct(i[25], it),
+        wand_anteil_20cm: pct(i[20], it), wand_anteil_12cm: pct(i[12], it)
+      };
+    }
+    return { ges: ges, o: o, i: i, ot: ot, it: it, anteile: anteile };
+  }
+
+  function _nzPaint() {
+    if (!_nzData) return;
+    var W = _nzData.bild_w, H = _nzData.bild_h, meta = _nzData.meta || {};
+    var lines = '';
+    (_nzData.waende || []).forEach(function (w) {
+      var cm = _nzCm(w), rm = !!_nzEdit.removed[w.id], sel = (_nzSel === w.id);
+      var col = rm ? '#b8c0cc' : (NZ_FARBE[cm] || '#888');
+      var unsicher = !cm || (w.hatch_dichte != null && w.hatch_dichte < 1.5);
+      var p = w.px;
+      lines += '<line data-wid="' + w.id + '" x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
+        '" stroke="' + col + '" stroke-width="' + Math.max(2, w.staerke_px) + '" stroke-linecap="round"' +
+        ' stroke-opacity="' + (rm ? 0.3 : 0.82) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
+        ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
+        (cm ? 'HLZ ' + cm + 'cm' : '~' + w.dicke_cm + 'cm') + ' · ' + w.laenge_m + ' m — klicken zum Korrigieren</title></line>';
+    });
+    var s = _nzSplit(), ges = s.ges;
+    var legend = '';
+    [50, 38, 25, 20, 12].forEach(function (t) {
+      if (!ges[t]) return;
+      legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + NZ_FARBE[t] + '"></span>' +
+        'HLZ ' + t + 'cm: <strong>' + fmtNum(ges[t]) + ' m</strong></span>';
+    });
+    // Auswahl-Toolbar
+    var tb = '';
+    if (_nzSel != null) {
+      var w = _nzData.waende[_nzSel], cm = _nzCm(w), rm = !!_nzEdit.removed[w.id];
+      var btn = function (lab, act, on) {
+        return '<button type="button" class="nz-btn' + (on ? ' nz-btn-on' : '') + '" data-act="' + act + '">' + lab + '</button>';
+      };
+      tb = '<div class="nz-toolbar"><span class="nz-tb-info">Wand: ' + (cm ? 'HLZ ' + cm : '~' + w.dicke_cm) + 'cm · ' +
+        fmtNum(w.laenge_m) + ' m</span>' +
+        btn(rm ? '↩ wiederherstellen' : '✕ keine Wand', 'rm', rm) +
+        '<span class="nz-tb-sep">Stärke:</span>' +
+        [50, 38, 25, 20, 12].map(function (t) { return btn(String(t), 'cm' + t, cm === t); }).join('') +
+        (cm === 25 ? '<span class="nz-tb-sep"></span>' + btn(_nzIstAussen(w, 25) ? 'außen' : 'innen', 'ai', false) : '') +
+        '</div>';
+    }
+    // Übernehmen-Bereich
+    var apply = '';
+    var exportierbar = meta.tragfaehig && s.anteile;
+    if (s.anteile) {
+      apply = '<div class="nz-apply"><div class="nz-apply-pct">Abgeleitete Verteilung — Außen: ' +
+        '50cm ' + s.anteile.wand_anteil_50cm + '% · 38cm ' + s.anteile.wand_anteil_38cm + '% · 25cm ' + s.anteile.wand_anteil_25cm_aussen + '%' +
+        ' | Innen: 25cm ' + s.anteile.wand_anteil_25cm_innen + '% · 20cm ' + s.anteile.wand_anteil_20cm + '% · 12cm ' + s.anteile.wand_anteil_12cm + '%</div>' +
+        (exportierbar
+          ? '<button type="button" class="btn btn-sm btn-primary" id="nz-apply">Verteilung in Materialliste übernehmen</button>'
+          : '<span class="nachzeichnen-hint" style="color:#92400e">⚠ Maßstab unsicher — Verteilung nur als Sichthilfe, nicht übernehmbar.</span>') +
+        ' <button type="button" class="btn btn-sm btn-outline" id="nz-reset">Korrektur zurücksetzen</button></div>';
+    }
+    var cont = document.getElementById('nachzeichnen-container');
+    cont.querySelector('.nz-dynamic').innerHTML =
+      '<div class="nz-legend">' + legend + '</div>' + tb + apply +
+      '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:auto;border:1px solid #e2e8f0;border-radius:8px">' +
+      '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan">' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
+      'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
+      '<g style="pointer-events:auto">' + lines + '</g></svg></div>';
+    // Events neu binden
+    cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
+      ln.addEventListener('click', function () { _nzSel = parseInt(ln.getAttribute('data-wid'), 10); _nzPaint(); });
+    });
+    cont.querySelectorAll('.nz-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var act = b.getAttribute('data-act'), id = _nzSel;
+        if (act === 'rm') _nzEdit.removed[id] = !_nzEdit.removed[id];
+        else if (act === 'ai') _nzEdit.aussen[id] = !_nzIstAussen(_nzData.waende[id], 25);
+        else if (act.indexOf('cm') === 0) _nzEdit.thick[id] = parseInt(act.slice(2), 10);
+        _nzPaint();
+      });
+    });
+    var ap = document.getElementById('nz-apply');
+    if (ap) ap.addEventListener('click', function () { _nzUebernehmen(s.anteile); });
+    var rs = document.getElementById('nz-reset');
+    if (rs) rs.addEventListener('click', function () {
+      _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
+      _filterState.materialliste_override = _nzStripAnteile(_filterState.materialliste_override);
+      _nzPaint(); refreshProjektMassen();
+    });
+  }
+
+  function _nzStripAnteile(ov) {
+    if (!ov) return null;
+    var keys = ['wand_anteil_50cm', 'wand_anteil_38cm', 'wand_anteil_25cm_aussen',
+      'wand_anteil_25cm_innen', 'wand_anteil_20cm', 'wand_anteil_12cm'];
+    var out = {}; Object.keys(ov).forEach(function (k) { if (keys.indexOf(k) < 0) out[k] = ov[k]; });
+    return Object.keys(out).length ? out : null;
+  }
+
+  function _nzUebernehmen(anteile) {
+    if (!anteile) return;
+    var ov = _filterState.materialliste_override || {};
+    Object.keys(anteile).forEach(function (k) { ov[k] = anteile[k]; });
+    _filterState.materialliste_override = ov;
+    refreshProjektMassen();
+    var ap = document.getElementById('nz-apply');
+    if (ap) { ap.textContent = '✓ übernommen — Materialliste neu gerechnet'; ap.disabled = true; }
+  }
 
   function renderNachzeichnen() {
     var cont = document.getElementById('nachzeichnen-container');
     if (!cont || _nzGeladen || _nzLaeuft) return;
     _nzLaeuft = true;
-    cont.innerHTML = '<p class="nachzeichnen-hint">Plan wird nachgezeichnet &hellip; (einen Moment, die Wände werden aus den Vektoren gelesen)</p>';
+    cont.innerHTML = '<p class="nachzeichnen-hint">Plan wird nachgezeichnet &hellip; (die Wände werden aus den Vektoren gelesen)</p>';
     fetch('/api/plan-nachzeichnen', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projekt_id: projectId })
@@ -1494,39 +1627,15 @@
           (d && d.grund ? ' — ' + esc(d.grund) : '') + '. (Funktioniert bei klar bemaßten Grundriss-Blättern.)</p>';
         return;
       }
-      var W = d.bild_w, H = d.bild_h, meta = d.meta || {};
-      var lines = '', labels = '', ges = d.summe_m || {};
-      (d.waende || []).forEach(function (w) {
-        var col = NZ_FARBE[w.snap_cm] || '#888';
-        var unsicher = !w.snap_cm || (w.hatch_dichte != null && w.hatch_dichte < 1.5);
-        var p = w.px;
-        lines += '<line x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
-          '" stroke="' + col + '" stroke-width="' + Math.max(2, w.staerke_px) + '" stroke-linecap="round"' +
-          ' stroke-opacity="0.82"' + (unsicher ? ' stroke-dasharray="6 5"' : '') + '><title>' +
-          (w.snap_cm ? 'HLZ ' + w.snap_cm + 'cm' : '~' + w.dicke_cm + 'cm') + ' · ' + w.laenge_m + ' m' +
-          (w.hatch_dichte != null ? ' · Schraffur ' + w.hatch_dichte + '/m' : '') + '</title></line>';
-      });
-      var legend = '';
-      [50, 38, 25, 20, 12].forEach(function (t) {
-        if (ges[t] == null) return;
-        legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + NZ_FARBE[t] + '"></span>' +
-          'HLZ ' + t + 'cm: <strong>' + fmtNum(ges[t]) + ' m</strong></span>';
-      });
-      var warn = meta.tragfaehig ? '' :
-        '<div class="nachzeichnen-hint" style="color:#92400e">⚠ Maßstab unsicher (Streuung ' +
-        (meta.streuung_pct != null ? meta.streuung_pct + '%' : '?') + ') — Längen nur als Sichthilfe, nicht als Maß.</div>';
+      _nzData = d; _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
+      var meta = d.meta || {};
       cont.innerHTML =
-        '<p class="nachzeichnen-hint">Aus den Plan-Vektoren erkannte Wände, farbcodiert nach Stärke. ' +
-        'Damit siehst du, was die KI als Wand gelesen hat — gestrichelt = unsicher. ' +
+        '<p class="nachzeichnen-hint">Erkannte Wände, farbcodiert nach Stärke (gestrichelt = unsicher). ' +
+        '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +
         'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
         ' · ' + (d.dateiname ? esc(d.dateiname) : '') + '</p>' +
-        warn +
-        '<div class="nz-legend">' + legend + '</div>' +
-        '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:auto;border:1px solid #e2e8f0;border-radius:8px">' +
-        '<img src="' + d.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan">' +
-        '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
-        'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
-        '<g style="pointer-events:auto">' + lines + '</g></svg></div>';
+        '<div class="nz-dynamic"></div>';
+      _nzPaint();
     }).catch(function (e) {
       _nzGeladen = false; _nzLaeuft = false;
       cont.innerHTML = '<p class="nachzeichnen-hint">Nachzeichnen fehlgeschlagen: ' + esc(e.message) + '</p>';
@@ -1539,8 +1648,8 @@
     dr.addEventListener('toggle', function () { if (dr.open) renderNachzeichnen(); });
   })();
   // Bei jeder neuen Auswertung den Cache zurücksetzen (anderer Plan-Filter etc.)
-  window._nzReset = function () { _nzGeladen = false; var c = document.getElementById('nachzeichnen-container');
-    var dr = document.getElementById('nachzeichnen-drawer'); if (dr && dr.open && c) renderNachzeichnen(); };
+  window._nzReset = function () { _nzGeladen = false; _nzData = null;
+    var dr = document.getElementById('nachzeichnen-drawer'); if (dr && dr.open) renderNachzeichnen(); };
 
   window.loadPlans = loadPlans;
   window.projectId = projectId;
