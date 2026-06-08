@@ -221,15 +221,44 @@ def _faces(segmente, achse, pos_tol=1.0):
     return faces
 
 
+def hatch_segmente(segmente):
+    """Diagonale (weder h noch v) Segmente = Poché-Schraffur-Kandidaten. Echte Maurer-
+    Wände sind innen schraffiert; Bemaßungs-/Terrassen-/Grundstücks-Kanten NICHT."""
+    return [s for s in segmente
+            if abs(s[0] - s[2]) > 0.5 and abs(s[1] - s[3]) > 0.5]
+
+
+def _hatch_dichte(hatch, achse, center, dist, lo, hi, laenge_m):
+    """Schraffur-Linien pro Meter Wandlänge im Band der Wand (zwischen den 2 Flächen)."""
+    if not hatch or laenge_m <= 0:
+        return 0.0
+    plo, phi = center - dist / 2.0, center + dist / 2.0
+    n = 0
+    for s in hatch:
+        mx, my = (s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0
+        if achse == "v":
+            if plo <= mx <= phi and lo <= my <= hi:
+                n += 1
+        else:
+            if plo <= my <= phi and lo <= mx <= hi:
+                n += 1
+    return n / laenge_m
+
+
 def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_m=0.3,
-               legende_dicken=None, snap_tol_cm=2.0, band_tol_cm=4.0):
+               legende_dicken=None, snap_tol_cm=2.0, band_tol_cm=4.0,
+               hatch=None, min_hatch_dichte=1.0, mit_geometrie=False):
     """Parallele Flächen-Paare = Wände. GLOBAL-greedy nach Überlappungs-LÄNGE: erst ALLE
     gültigen Kandidaten, dann nach Überlappung absteigend zuweisen (lange, sichere Wände —
     die Außenwand — zuerst; jede Fläche genau einmal). Empirisch (Angerer-Harness): bringt
     die Σ-Gesamtwandlänge auf -1% (die naive Positions-Reihenfolge gab -35%). Liefert
-    [(laenge_m, dicke_cm, achse)]. (legende_dicken: aktuell nur als schwacher Tiebreak —
-    als Primär-Sortierung übergewichtet es falsche Paare bei Legende-Abständen → daher
-    overlap bleibt primär.)"""
+    [(laenge_m, dicke_cm, achse)].
+
+    SCHRAFFUR-GATE (hatch übergeben): echte Maurer-Wände sind innen POCHÉ-schraffiert,
+    Geister-Paare (Bemaßungslinien, Terrassen-/Grundstücks-Kanten, zufällige Parallelen)
+    nicht. Paare mit Schraffur-Dichte < min_hatch_dichte/m fallen raus. Empirisch
+    (Angerer): trennt echte Maurer-Hülle (~45m, Dichte 3-15/m) von ~9m Geister-50cm
+    (Dichte 0-0.7/m) → die Außenwand nähert sich der echten Hülle statt des Footprints."""
     out = []
     for achse in ("v", "h"):
         faces = sorted(_faces(segmente, achse))
@@ -280,7 +309,25 @@ def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_
                 keep.append(r)
         for center, lo, hi, ov, d in keep:
             laenge_m = ov / pt_per_m
-            if laenge_m >= min_len_m:
+            if laenge_m < min_len_m:
+                continue
+            dichte = None
+            if hatch is not None:
+                dichte = _hatch_dichte(hatch, achse, center, d, lo, hi, laenge_m)
+                if dichte < min_hatch_dichte:
+                    continue   # Geister-Paar (keine Poché): Bemaßung/Terrasse/Grundstück
+            if mit_geometrie:
+                # Endpunkte in PDF-Koordinaten (für visuelles Overlay): achse 'v' →
+                # vertikale Wand bei x=center, y von lo..hi; 'h' → horizontal bei y=center.
+                if achse == "v":
+                    x0 = x1 = center; y0, y1 = lo, hi
+                else:
+                    y0 = y1 = center; x0, x1 = lo, hi
+                out.append({"achse": achse, "x0": x0, "y0": y0, "x1": x1, "y1": y1,
+                            "dist_pt": d, "laenge_m": round(laenge_m, 2),
+                            "dicke_cm": round(d / pt_per_m * 100, 1),
+                            "hatch_dichte": round(dichte, 1) if dichte is not None else None})
+            else:
                 out.append((round(laenge_m, 2), round(d / pt_per_m * 100, 1), achse))
     return out
 
