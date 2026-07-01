@@ -4737,14 +4737,15 @@ async def plan_nachzeichnen(body: NachzeichnenRequest):
     if not _NACHZEICHNEN_OK:
         return {"ok": False, "grund": "Nachzeichnen-Modul nicht verfügbar"}
 
-    # Kandidaten-Pläne sammeln (ein Plan ODER alle des Projekts)
+    # Kandidaten-Pläne sammeln (ein Plan ODER alle des Projekts); agent_log für
+    # gespeicherte Nachzeichnen-Korrekturen (überleben den Reload).
     try:
         if body.plan_id:
-            res = sb.table("plaene").select("id, dateiname, storage_path").eq(
+            res = sb.table("plaene").select("id, dateiname, storage_path, agent_log").eq(
                 "id", body.plan_id).execute()
             plaene = res.data or []
         elif body.projekt_id:
-            res = sb.table("plaene").select("id, dateiname, storage_path").eq(
+            res = sb.table("plaene").select("id, dateiname, storage_path, agent_log").eq(
                 "projekt_id", body.projekt_id).execute()
             plaene = res.data or []
         else:
@@ -4777,8 +4778,33 @@ async def plan_nachzeichnen(body: NachzeichnenRequest):
             r["basis_png_b64"] = "data:image/png;base64," + base64.b64encode(png).decode()
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
+        r["korrekturen"] = (plan.get("agent_log") or {}).get("nachzeichnen_korrekturen")
         return r
     return {"ok": False, "grund": letzter_grund}
+
+
+class NachzeichnenKorrekturRequest(BaseModel):
+    plan_id: str
+    korrekturen: dict | None = None
+
+
+@app.post("/api/nachzeichnen-korrektur")
+async def nachzeichnen_korrektur(body: NachzeichnenKorrekturRequest):
+    """Speichert die Wand-Korrekturen eines Plans (entfernt/Stärke/außen-innen + abgeleitete
+    Verteilung) in plaene.agent_log['nachzeichnen_korrekturen'] — read-modify-write, damit
+    andere agent_log-Keys nicht verloren gehen. So überleben Korrekturen den Reload."""
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    if not body.plan_id:
+        raise HTTPException(400, "plan_id erforderlich")
+    try:
+        res = sb.table("plaene").select("agent_log").eq("id", body.plan_id).single().execute()
+        log = (res.data or {}).get("agent_log") or {}
+        log["nachzeichnen_korrekturen"] = body.korrekturen or None
+        sb.table("plaene").update({"agent_log": log}).eq("id", body.plan_id).execute()
+        return {"ok": True}
+    except Exception as e:  # pragma: no cover
+        return {"ok": False, "grund": str(e)[:200]}
 
 
 @app.post("/api/projekt-export")

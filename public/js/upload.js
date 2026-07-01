@@ -1497,7 +1497,7 @@
     if (rs) rs.addEventListener('click', function () {
       _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
       _filterState.materialliste_override = _nzStripAnteile(_filterState.materialliste_override);
-      _nzPaint(); refreshProjektMassen();
+      _nzPaint(); refreshProjektMassen(); _nzSave(null);
     });
   }
 
@@ -1515,8 +1515,21 @@
     Object.keys(anteile).forEach(function (k) { ov[k] = anteile[k]; });
     _filterState.materialliste_override = ov;
     refreshProjektMassen();
+    _nzSave(anteile);   // Korrektur dauerhaft am Plan speichern (überlebt Reload)
     var ap = document.getElementById('nz-apply');
-    if (ap) { ap.textContent = '✓ übernommen — Materialliste neu gerechnet'; ap.disabled = true; }
+    if (ap) { ap.textContent = '✓ übernommen & gespeichert — Materialliste neu gerechnet'; ap.disabled = true; }
+  }
+
+  // Speichert den Korrektur-Zustand (Edits + angewandte Verteilung) am Plan.
+  function _nzSave(anteile) {
+    if (!_nzData || !_nzData.plan_id) return;
+    var leer = !Object.keys(_nzEdit.removed).length && !Object.keys(_nzEdit.thick).length &&
+      !Object.keys(_nzEdit.aussen).length && !anteile;
+    fetch('/api/nachzeichnen-korrektur', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan_id: _nzData.plan_id,
+        korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null } })
+    }).catch(function () { /* Speichern ist best-effort */ });
   }
 
   function renderNachzeichnen() {
@@ -1535,10 +1548,22 @@
         return;
       }
       _nzData = d; _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
+      // Gespeicherte Korrekturen wiederherstellen (überleben den Reload)
+      var k = d.korrekturen;
+      if (k && k.edit) {
+        _nzEdit = { removed: k.edit.removed || {}, thick: k.edit.thick || {}, aussen: k.edit.aussen || {} };
+        if (k.anteile) {   // angewandte Verteilung zurück in den Override → Mengen stimmen wieder
+          var ov = _filterState.materialliste_override || {}, changed = false;
+          Object.keys(k.anteile).forEach(function (kk) { if (ov[kk] !== k.anteile[kk]) { ov[kk] = k.anteile[kk]; changed = true; } });
+          if (changed) { _filterState.materialliste_override = ov; refreshProjektMassen(); }
+        }
+      }
       var meta = d.meta || {};
+      var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
       cont.innerHTML =
         '<p class="nachzeichnen-hint">Erkannte Wände, farbcodiert nach Stärke (gestrichelt = unsicher). ' +
         '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +
+        (hatK ? '<strong style="color:#166534">✓ deine gespeicherten Korrekturen sind angewandt.</strong> ' : '') +
         'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
         ' · ' + (d.dateiname ? esc(d.dateiname) : '') + '</p>' +
         '<div class="nz-dynamic"></div>';
