@@ -1379,6 +1379,8 @@
   var _nzData = null;
   var _nzEdit = { removed: {}, thick: {}, aussen: {} };  // id → bool / cm / bool
   var _nzSel = null;
+  var _nzZoom = { s: 1, x: 0, y: 0 }, _nzMoved = false;   // Zoom/Pan-Zustand + Drag-Erkennung
+  var _nzWrap = null, _nzPan = null, _nzZoomWinBound = false;
 
   function _nzCm(w) { return _nzEdit.thick[w.id] != null ? _nzEdit.thick[w.id] : w.snap_cm; }
   function _nzAussenDefault(cm) { return cm === 50 || cm === 38; }  // 20/12 immer innen, 25 default innen
@@ -1473,14 +1475,23 @@
     var cont = document.getElementById('nachzeichnen-container');
     cont.querySelector('.nz-dynamic').innerHTML =
       '<div class="nz-legend">' + legend + '</div>' + tb + apply +
-      '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:auto;border:1px solid #e2e8f0;border-radius:8px">' +
-      '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan">' +
+      '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
+      '<button type="button" class="nz-btn" data-z="out">－</button>' +
+      '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
+      '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem">Mausrad = zoomen · ziehen = verschieben</span></div>' +
+      '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:grab;touch-action:none">' +
+      '<div class="nz-zoom" style="transform-origin:0 0;position:relative;width:100%">' +
+      '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
       'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
-      '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g></svg></div>';
+      '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g></svg></div></div>';
+    _nzWireZoom(cont);
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
-      ln.addEventListener('click', function () { _nzSel = parseInt(ln.getAttribute('data-wid'), 10); _nzPaint(); });
+      ln.addEventListener('click', function () {
+        if (_nzMoved) return;   // war ein Pan, kein Klick
+        _nzSel = parseInt(ln.getAttribute('data-wid'), 10); _nzPaint();
+      });
     });
     cont.querySelectorAll('.nz-btn').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -1499,6 +1510,55 @@
       _filterState.materialliste_override = _nzStripAnteile(_filterState.materialliste_override);
       _nzPaint(); refreshProjektMassen(); _nzSave(null);
     });
+  }
+
+  function _nzApplyZoom() {
+    if (!_nzWrap || !_nzData) return;
+    var zoom = _nzWrap.querySelector('.nz-zoom'); if (!zoom) return;
+    var Wv = _nzWrap.clientWidth, Hv = _nzWrap.clientHeight || (Wv * _nzData.bild_h / _nzData.bild_w), s = _nzZoom.s;
+    _nzZoom.x = Math.min(0, Math.max(Wv * (1 - s), _nzZoom.x));
+    _nzZoom.y = Math.min(0, Math.max(Hv * (1 - s), _nzZoom.y));
+    zoom.style.transform = 'translate(' + _nzZoom.x + 'px,' + _nzZoom.y + 'px) scale(' + s + ')';
+  }
+
+  function _nzZoomAt(cx, cy, faktor) {
+    var s0 = _nzZoom.s, s1 = Math.min(8, Math.max(1, s0 * faktor));
+    _nzZoom.x = cx - (cx - _nzZoom.x) * (s1 / s0);
+    _nzZoom.y = cy - (cy - _nzZoom.y) * (s1 / s0);
+    _nzZoom.s = s1; _nzApplyZoom();
+  }
+
+  function _nzWireZoom(cont) {
+    _nzWrap = cont.querySelector('.nz-wrap'); if (!_nzWrap) return;
+    _nzApplyZoom();
+    _nzWrap.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var rect = _nzWrap.getBoundingClientRect();
+      _nzZoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+    }, { passive: false });
+    _nzWrap.addEventListener('mousedown', function (e) {
+      _nzPan = { sx: e.clientX, sy: e.clientY, ox: _nzZoom.x, oy: _nzZoom.y };
+      _nzMoved = false; _nzWrap.style.cursor = 'grabbing';
+    });
+    cont.querySelectorAll('.nz-zoomctl [data-z]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var z = b.getAttribute('data-z');
+        if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
+        else _nzZoomAt(_nzWrap.clientWidth / 2, _nzWrap.clientHeight / 2, z === 'in' ? 1.3 : 1 / 1.3);
+      });
+    });
+    if (!_nzZoomWinBound) {   // Window-Listener nur EINMAL binden (sonst Leak je Repaint)
+      _nzZoomWinBound = true;
+      window.addEventListener('mousemove', function (e) {
+        if (!_nzPan || !_nzWrap) return;
+        var dx = e.clientX - _nzPan.sx, dy = e.clientY - _nzPan.sy;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _nzMoved = true;
+        _nzZoom.x = _nzPan.ox + dx; _nzZoom.y = _nzPan.oy + dy; _nzApplyZoom();
+      });
+      window.addEventListener('mouseup', function () {
+        if (_nzPan) { _nzPan = null; if (_nzWrap) _nzWrap.style.cursor = 'grab'; }
+      });
+    }
   }
 
   function _nzStripAnteile(ov) {

@@ -2566,6 +2566,8 @@ img {
 .nz-btn-on { background: var(--primary); color: #fff; border-color: var(--primary); }
 .nz-apply { margin: 0.2rem 0 0.8rem; }
 .nz-apply-pct { font-size: 0.8rem; color: var(--text-light); margin-bottom: 0.45rem; }
+.nz-zoomctl { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem; }
+.nz-zoomctl .nz-btn { min-width: 2rem; font-weight: 700; }
 
 @media (max-width: 640px) {
   .result-hero { padding: 1.1rem 1.2rem; }
