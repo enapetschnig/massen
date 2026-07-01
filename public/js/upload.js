@@ -1381,6 +1381,7 @@
   var _nzSel = null;
   var _nzZoom = { s: 1, x: 0, y: 0 }, _nzMoved = false;   // Zoom/Pan-Zustand + Drag-Erkennung
   var _nzWrap = null, _nzPan = null, _nzZoomWinBound = false;
+  var _nzAddMode = false, _nzDraw = null;   // "Wand hinzufügen"-Modus + laufende Zeichnung
 
   function _nzCm(w) { return _nzEdit.thick[w.id] != null ? _nzEdit.thick[w.id] : w.snap_cm; }
   function _nzAussenDefault(cm) { return cm === 50 || cm === 38; }  // 20/12 immer innen, 25 default innen
@@ -1478,8 +1479,10 @@
       '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
-      '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem">Mausrad = zoomen · ziehen = verschieben</span></div>' +
-      '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:grab;touch-action:none">' +
+      '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
+      '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem">' +
+      (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>' : 'Mausrad = zoomen · ziehen = verschieben') + '</span></div>' +
+      '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
       '<div class="nz-zoom" style="transform-origin:0 0;position:relative;width:100%">' +
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
@@ -1506,7 +1509,9 @@
     if (ap) ap.addEventListener('click', function () { _nzUebernehmen(s.anteile); });
     var rs = document.getElementById('nz-reset');
     if (rs) rs.addEventListener('click', function () {
-      _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
+      // auch manuell hinzugefügte Wände wieder entfernen
+      _nzData.waende = (_nzData.waende || []).filter(function (w) { return !w.manuell; });
+      _nzEdit = { removed: {}, thick: {}, aussen: {}, added: [] }; _nzSel = null;
       _filterState.materialliste_override = _nzStripAnteile(_filterState.materialliste_override);
       _nzPaint(); refreshProjektMassen(); _nzSave(null);
     });
@@ -1537,28 +1542,77 @@
       _nzZoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
     }, { passive: false });
     _nzWrap.addEventListener('mousedown', function (e) {
+      if (_nzAddMode) { _nzDraw = { p0: _nzScreenToImg(e), p1: null }; e.preventDefault(); return; }
       _nzPan = { sx: e.clientX, sy: e.clientY, ox: _nzZoom.x, oy: _nzZoom.y };
       _nzMoved = false; _nzWrap.style.cursor = 'grabbing';
     });
     cont.querySelectorAll('.nz-zoomctl [data-z]').forEach(function (b) {
       b.addEventListener('click', function () {
         var z = b.getAttribute('data-z');
-        if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
+        if (z === 'add') { _nzAddMode = !_nzAddMode; _nzSel = null; _nzPaint(); }
+        else if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
         else _nzZoomAt(_nzWrap.clientWidth / 2, _nzWrap.clientHeight / 2, z === 'in' ? 1.3 : 1 / 1.3);
       });
     });
     if (!_nzZoomWinBound) {   // Window-Listener nur EINMAL binden (sonst Leak je Repaint)
       _nzZoomWinBound = true;
       window.addEventListener('mousemove', function (e) {
+        if (_nzDraw && _nzWrap) { _nzDraw.p1 = _nzScreenToImg(e); _nzDrawPreview(); return; }
         if (!_nzPan || !_nzWrap) return;
         var dx = e.clientX - _nzPan.sx, dy = e.clientY - _nzPan.sy;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _nzMoved = true;
         _nzZoom.x = _nzPan.ox + dx; _nzZoom.y = _nzPan.oy + dy; _nzApplyZoom();
       });
       window.addEventListener('mouseup', function () {
+        if (_nzDraw) { if (_nzDraw.p1) _nzAddWall(_nzDraw.p0, _nzDraw.p1); _nzDraw = null; return; }
         if (_nzPan) { _nzPan = null; if (_nzWrap) _nzWrap.style.cursor = 'grab'; }
       });
     }
+  }
+
+  // Bildschirm-Punkt → Bild-Pixel (berücksichtigt Zoom-Transform + img-Skalierung)
+  function _nzScreenToImg(e) {
+    var rect = _nzWrap.getBoundingClientRect();
+    var cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    var contentX = (cx - _nzZoom.x) / _nzZoom.s, contentY = (cy - _nzZoom.y) / _nzZoom.s;
+    var f = _nzData.bild_w / _nzWrap.clientWidth;   // content-px → Bild-px
+    return [contentX * f, contentY * f];
+  }
+
+  function _nzDrawPreview() {
+    if (!_nzDraw || !_nzDraw.p1) return;
+    var svg = _nzWrap.querySelector('svg'); if (!svg) return;
+    var g = svg.firstChild;
+    var pv = svg.querySelector('#nz-prev');
+    if (!pv) {
+      pv = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      pv.setAttribute('id', 'nz-prev'); pv.setAttribute('stroke', '#1d4ed8');
+      pv.setAttribute('stroke-width', '6'); pv.setAttribute('stroke-dasharray', '8 6');
+      pv.setAttribute('stroke-linecap', 'round'); g.appendChild(pv);
+    }
+    var a = _nzDraw.p0, b = _nzDraw.p1;
+    pv.setAttribute('x1', a[0]); pv.setAttribute('y1', a[1]);
+    pv.setAttribute('x2', b[0]); pv.setAttribute('y2', b[1]);
+  }
+
+  function _nzNextId() { var m = 0; (_nzData.waende || []).forEach(function (w) { if (w.id > m) m = w.id; }); return m + 1; }
+
+  function _nzAddWall(p0, p1) {
+    var dx = Math.abs(p1[0] - p0[0]), dy = Math.abs(p1[1] - p0[1]);
+    if (Math.max(dx, dy) < 8) { _nzPaint(); return; }   // zu kurz → verwerfen
+    var m = _nzData.meta || {}, scale = m.scale || 1, ptm = m.ptm || 1;
+    var px, achse, lenpx;
+    if (dx >= dy) { var ym = (p0[1] + p1[1]) / 2; px = [Math.min(p0[0], p1[0]), ym, Math.max(p0[0], p1[0]), ym]; achse = 'h'; lenpx = dx; }
+    else { var xm = (p0[0] + p1[0]) / 2; px = [xm, Math.min(p0[1], p1[1]), xm, Math.max(p0[1], p1[1])]; achse = 'v'; lenpx = dy; }
+    var laenge_m = Math.round(lenpx / (scale * ptm) * 100) / 100;
+    if (laenge_m < 0.3) { _nzPaint(); return; }
+    var cm = 12;   // Default 12cm — Nutzer korrigiert die Stärke gleich in der Auswahl-Leiste
+    var w = { id: _nzNextId(), achse: achse, px: px, dicke_cm: cm, snap_cm: cm, laenge_m: laenge_m,
+      staerke_px: Math.round(cm / 100 * ptm * scale * 10) / 10, hatch_dichte: null, manuell: true };
+    _nzData.waende.push(w);
+    _nzEdit.added = _nzEdit.added || []; _nzEdit.added.push(w);
+    _nzSel = w.id; _nzAddMode = false;
+    _nzPaint();
   }
 
   function _nzStripAnteile(ov) {
@@ -1584,7 +1638,7 @@
   function _nzSave(anteile) {
     if (!_nzData || !_nzData.plan_id) return;
     var leer = !Object.keys(_nzEdit.removed).length && !Object.keys(_nzEdit.thick).length &&
-      !Object.keys(_nzEdit.aussen).length && !anteile;
+      !Object.keys(_nzEdit.aussen).length && !(_nzEdit.added && _nzEdit.added.length) && !anteile;
     fetch('/api/nachzeichnen-korrektur', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan_id: _nzData.plan_id,
@@ -1611,7 +1665,9 @@
       // Gespeicherte Korrekturen wiederherstellen (überleben den Reload)
       var k = d.korrekturen;
       if (k && k.edit) {
-        _nzEdit = { removed: k.edit.removed || {}, thick: k.edit.thick || {}, aussen: k.edit.aussen || {} };
+        _nzEdit = { removed: k.edit.removed || {}, thick: k.edit.thick || {}, aussen: k.edit.aussen || {}, added: k.edit.added || [] };
+        // manuell hinzugefügte Wände wieder in die Geometrie einspielen
+        (_nzEdit.added || []).forEach(function (w) { _nzData.waende.push(w); });
         if (k.anteile) {   // angewandte Verteilung zurück in den Override → Mengen stimmen wieder
           var ov = _filterState.materialliste_override || {}, changed = false;
           Object.keys(k.anteile).forEach(function (kk) { if (ov[kk] !== k.anteile[kk]) { ov[kk] = k.anteile[kk]; changed = true; } });
