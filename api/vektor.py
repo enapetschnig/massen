@@ -183,10 +183,19 @@ def kalibriere(words, massstab_label=None):
     label_match = bool(label_ptm and ptm and abs(ptm - label_ptm) / label_ptm <= 0.15)
     # Tragfähig: genug Maßketten einig ODER kleiner Cluster, der das Label bestätigt
     tragfaehig = bool(ptm and (support >= 5 or (support >= 2 and label_match)))
+    # LABEL-FALLBACK: zu wenige verwertbare Ketten (0-1), aber klarer Maßstab-Label
+    # ("1:50" → 2835/50 pt/m) → das Label-ptm nutzen. Ehrlich UNBESTÄTIGT (tragfaehig
+    # bleibt False) — erlaubt die Planansicht (Wände sichtbar), sperrt aber den
+    # Mengen-Export. Erweitert die Abdeckung von "nur saubere CAD-Ketten" auf jeden
+    # Plan mit lesbarem Maßstab.
+    quelle = "ketten" if ptm else None
+    if label_ptm and support < 2:
+        ptm = label_ptm
+        quelle = "label"
     return {"ptm_konsens": round(ptm, 2) if ptm else None,
             "streuung_pct": streuung, "n_ketten_tragfaehig": support,
             "n_ketten_gesamt": len(slopes), "label_ptm": label_ptm,
-            "label_match": label_match, "tragfaehig": tragfaehig}
+            "label_match": label_match, "tragfaehig": tragfaehig, "quelle": quelle}
 
 
 # ── Wand-Paare aus parallelen Linien (Phase 1/2) ─────────────────────────────

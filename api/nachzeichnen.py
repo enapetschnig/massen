@@ -33,6 +33,29 @@ def _eg_box(page, ptm):
     return vektor._view_bbox(pos, ptm, marge_m=4.0, radius_m=13.0)
 
 
+def _wandbox(page, ptm):
+    """Fallback-Box aus der Bounding-Box der dunklen Wand-Linien (für Grundriss-Pläne
+    ohne Raumnamen). Nur wenn die Größe plausibel ist (4-45 m/Seite) → Schnitte/Lagepläne
+    fallen raus. Perzentil-Box (2-98%) trimmt Streu-Linien am Blattrand."""
+    segs, _f, _n = vektor._drawings(page)
+    dark = [s for s in segs if (s[5] is None or s[5] < 0.45) and vektor._laenge(s) / ptm > 1.0]
+    if len(dark) < 50:
+        return None
+    xs = sorted((s[0] + s[2]) / 2.0 for s in dark)
+    ys = sorted((s[1] + s[3]) / 2.0 for s in dark)
+
+    def pct(a, p):
+        return a[min(len(a) - 1, max(0, int(p * (len(a) - 1))))]
+
+    bx0, bx1 = pct(xs, 0.02), pct(xs, 0.98)
+    by0, by1 = pct(ys, 0.02), pct(ys, 0.98)
+    bm, hm = (bx1 - bx0) / ptm, (by1 - by0) / ptm
+    if 4.0 <= bm <= 45.0 and 4.0 <= hm <= 45.0:
+        marge = 1.0 * ptm   # 1 m Rand
+        return (bx0 - marge, bx1 + marge, by0 - marge, by1 + marge)
+    return None
+
+
 def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     """Eine Grundriss-Seite → {ok, basis_png(bytes), waende[], summe_m, meta}."""
     kal = vektor.kalibriere(page.get_text("words"), _massstab(page))
@@ -41,7 +64,12 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     box = _eg_box(page, ptm)
     if not box:
-        return {"ok": False, "grund": "Kein Grundriss-Bereich gefunden (zu wenig Raum-Labels)"}
+        # FALLBACK für Grundriss-Pläne OHNE Raumnamen (z.B. reine Wand-Grundrisse):
+        # die Bounding-Box der dunklen Wand-Linien nehmen — aber nur, wenn sie eine
+        # PLAUSIBLE Gebäude-Größe hat (4-45 m/Seite). Schließt Schnitte/Lagepläne aus.
+        box = _wandbox(page, ptm)
+    if not box:
+        return {"ok": False, "grund": "Kein Grundriss-Bereich gefunden (weder Raum-Labels noch plausible Wand-Kontur)"}
     bx0, bx1, by0, by1 = box
     breite_pt, hoehe_pt = (bx1 - bx0), (by1 - by0)
     if breite_pt <= 0 or hoehe_pt <= 0:
