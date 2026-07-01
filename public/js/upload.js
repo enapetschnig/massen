@@ -175,18 +175,6 @@
         });
         _filterState.materialliste_override = Object.keys(ov).length ? ov : null;
         refreshProjektMassen();
-        // KI lernt mit: wenn angehakt, die Korrekturen dauerhaft für die Firma merken
-        var merken = document.getElementById('ml-merken-check');
-        var mst = document.getElementById('ml-merken-status');
-        if (merken && merken.checked && Object.keys(ov).length) {
-          if (mst) mst.textContent = ' merke …';
-          fetch('/api/kalibrierung-merken', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projekt_id: projectId, overrides: ov })
-          }).then(function (r) { return r.json(); }).then(function (j) {
-            if (mst) mst.textContent = j && j.anzahl ? ' ✓ ' + j.anzahl + ' Korrektur(en) gemerkt' : ' (nichts merkbar)';
-          }).catch(function () { if (mst) mst.textContent = ' ✗ Merken fehlgeschlagen'; });
-        }
       });
     }
     var mlReset = document.getElementById('materialliste-reset');
@@ -1310,100 +1298,9 @@
     });
   }
 
-  // ── SELBST-KALIBRIERUNG (Moat) ──────────────────────────────────────────
-  function renderKalibrierungStatus(kal) {
-    var el = document.getElementById('kalibrierung-status');
-    if (!el) return;
-    var n = (kal && kal.anzahl) || 0;
-    if (n > 0) {
-      el.innerHTML = '<span class="kalib-badge kalib-on">&#10003; kalibriert &mdash; ' + n +
-        ' firmenspezifische' + (n === 1 ? 'r Faktor' : ' Faktoren') + ' aktiv</span>';
-    } else {
-      el.innerHTML = '<span class="kalib-badge kalib-off">noch nicht kalibriert &mdash; Standard-Faktoren</span>';
-    }
-  }
-
-  function kalibFaktorLabel(k) {
-    var m = { bodenplatte_aufschlag: 'Bodenplatte-Aufschlag', decke_aufschlag: 'Decke-Aufschlag',
-      frostgraben_aufschlag: 'Frostschürze-Aufschlag', aussenumfang_aufschlag: 'Außenumfang-Aufschlag',
-      ekv_decke_aufschlag: 'Dachabdichtung-Aufschlag' };
-    return m[k] || k;
-  }
-
-  function renderKalibrierungResult(r) {
-    var el = document.getElementById('kalibrierung-result');
-    if (!el) return;
-    if (r.error) { el.innerHTML = '<div class="status-warn">⚠ ' + esc(r.error) + '</div>'; return; }
-    var html = '<div class="status-ok">✓ ' + (r.soll_positionen || 0) + ' Soll-Positionen abgeglichen · ' +
-      (r.anzahl_soll_listen || 0) + ' Liste(n) gesamt.</div>';
-    var bel = r.belege || [];
-    if (bel.length) {
-      html += '<table class="kalib-table"><thead><tr><th>Faktor</th><th>Ist</th><th>Soll</th><th>Verhältnis</th></tr></thead><tbody>';
-      bel.forEach(function (b) {
-        var pct = Math.round((b.ratio - 1) * 100);
-        var sign = pct > 0 ? '+' : '';
-        html += '<tr><td>' + esc(kalibFaktorLabel(b.faktor)) + '</td><td>' + fmtNum(b.ist) +
-          '</td><td>' + fmtNum(b.soll) + '</td><td>' + sign + pct + '%</td></tr>';
-      });
-      html += '</tbody></table>';
-    }
-    var wv = r.gelernte_wandverteilung;
-    if (wv && wv.wand_anteil_25cm_innen != null) {
-      html += '<div class="status-ok" style="margin-top:.4rem">🧱 <strong>Innenwand-Aufteilung gelernt</strong> ' +
-        '(die Schraffur-Größe, die im Plan-Text nicht steht): 25cm ' + fmtNum(wv.wand_anteil_25cm_innen) +
-        '% · 20cm ' + fmtNum(wv.wand_anteil_20cm) + '% · 12cm ' + fmtNum(wv.wand_anteil_12cm) +
-        '% — gilt ab jetzt automatisch für deine Projekte.</div>';
-    }
-    var gl = r.gelernte_faktoren || {};
-    var keys = Object.keys(gl);
-    if (keys.length) {
-      html += '<div class="status-ok" style="margin-top:.4rem"><strong>Gelernte Faktoren (≥2 Listen):</strong> ' +
-        keys.map(function (k) { return esc(kalibFaktorLabel(k)) + ' = ' + fmtNum(gl[k].wert) + ' (aus ' + gl[k].n_belege + ')'; }).join(' · ') + '</div>';
-    }
-    if (r.hinweis) {
-      html += '<div class="status-info" style="margin-top:.4rem">ℹ ' + esc(r.hinweis) + '</div>';
-    }
-    el.innerHTML = html;
-  }
-
-  function wireKalibrierung() {
-    var up = document.getElementById('kalibrierung-upload');
-    var rs = document.getElementById('kalibrierung-reset');
-    if (up) up.addEventListener('click', function () {
-      var txt = (document.getElementById('kalibrierung-soll') || {}).value || '';
-      if (!txt.trim()) { renderKalibrierungResult({ error: 'Bitte eine Soll-Liste einfügen.' }); return; }
-      up.disabled = true; up.textContent = 'Lerne…';
-      fetch('/api/kalibrierung-upload', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projekt_id: projectId, soll_text: txt })
-      }).then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
-        .then(function (o) {
-          renderKalibrierungResult(o.ok ? o.j : { error: (o.j && o.j.detail) || 'Upload fehlgeschlagen' });
-          if (o.ok) refreshProjektMassen();  // Materialliste mit der neuen Kalibrierung neu laden
-        })
-        .catch(function (e) { renderKalibrierungResult({ error: String(e) }); })
-        .finally(function () { up.disabled = false; up.textContent = 'Soll-Liste abgleichen & lernen'; });
-    });
-    if (rs) rs.addEventListener('click', function () {
-      if (!confirm('Firmen-Kalibrierung wirklich zurücksetzen? (globale Basis bleibt)')) return;
-      fetch('/api/kalibrierung-reset', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projekt_id: projectId })
-      }).then(function (res) { return res.json(); })
-        .then(function () { renderKalibrierungStatus({ anzahl: 0 });
-          document.getElementById('kalibrierung-result').innerHTML = '<div class="status-info">Kalibrierung zurückgesetzt.</div>';
-          refreshProjektMassen(); });
-    });
-    // Prominenter CTA: öffnet den Erweitert-Drawer und scrollt zum Kalibrierungs-Block
-    var cta = document.getElementById('referenz-cta-btn');
-    if (cta) cta.addEventListener('click', function () {
-      var drawer = document.querySelector('.advanced-drawer');
-      if (drawer) drawer.open = true;
-      var soll = document.getElementById('kalibrierung-soll');
-      if (soll) { soll.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(function () { soll.focus(); }, 400); }
-    });
-  }
-  wireKalibrierung();
+  // Firmen-Selbst-Kalibrierung ENTFERNT — Korrektur passiert jetzt direkt am Plan
+  // (Nachzeichnen) statt über gelernte Firmen-Faktoren (jeder Plan ist ein anderes Gebäude).
+  function renderKalibrierungStatus() { /* no-op: Feature entfernt */ }
 
   // ── PROJEKT-CHATBOT: Fragen zur fertigen Auswertung (read-only, gegroundet) ──
   function buildChatContext(d) {

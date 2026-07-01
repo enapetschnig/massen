@@ -14,7 +14,6 @@
       KI-Massenermittlung
     </a>
     <div class="navbar-right">
-      <a href="kalibrierung.html" class="navbar-link">⚙ Kalibrierung</a>
       <span class="navbar-company" id="company-name"></span>
       <button class="navbar-link" id="logout-btn">Abmelden</button>
     </div>
@@ -213,10 +212,6 @@
                 <div style="grid-column:1/-1;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
                   <button class="btn btn-sm btn-primary" id="materialliste-apply">Materialliste anwenden</button>
                   <button class="btn btn-sm btn-outline" id="materialliste-reset">Defaults</button>
-                  <label class="ml-merken-label" title="Speichert deine Korrekturen dauerhaft für deine Firma — gilt ab dann automatisch für alle Projekte">
-                    <input type="checkbox" id="ml-merken-check"> 🧠 Für meine Firma merken (KI lernt mit)
-                  </label>
-                  <span id="ml-merken-status" class="ml-merken-status"></span>
                 </div>
               </div>
             </div>
@@ -242,16 +237,6 @@
           <div class="advanced-block">
             <h4 class="advanced-h">Woher kommen die Zahlen? &mdash; Quelle &middot; Verl&auml;sslichkeit</h4>
             <div id="herkunft-ledger"></div>
-          </div>
-
-          <!-- Block 4: Aktive Kalibrierung dieses Projekts (Verwaltung im eigenen Bereich) -->
-          <div class="advanced-block">
-            <h4 class="advanced-h">&#9881; Kalibrierung &mdash; was gerade auf dieses Projekt wirkt</h4>
-            <div id="kalibrierung-status" class="kalib-status"></div>
-            <p class="kalib-hint">Diese Werte hat die KI aus deinen Polier-Referenzen gelernt und auf dieses
-              Projekt angewendet. Referenzen (Plan + Ermittlung) verwaltest du zentral unter
-              <a href="kalibrierung.html"><strong>⚙ Kalibrierung</strong></a>.</p>
-            <div id="kalibrierung-result" class="kalib-result"></div>
           </div>
 
         </div>

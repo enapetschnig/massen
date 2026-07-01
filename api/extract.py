@@ -2842,7 +2842,10 @@ async def projekt_massen(body: ProjektMassenRequest):
         firma_id = (_pr.data or {}).get("firma_id")
     except Exception as _exc:
         print(f"[kalibrierung] firma_id-Lookup fehlgeschlagen: {_exc!r}")
-    kalibrierung_faktoren = {} if body.ohne_kalibrierung else _lade_kalibrierung(sb, firma_id)
+    # Firmen-Kalibrierung (gelernte Faktoren) ABGESCHALTET: jeder Plan ist ein anderes
+    # Gebäude, das Lernen über Firmen half real nicht. Korrektur passiert jetzt direkt
+    # am Plan (Nachzeichnen) + über die Stellschrauben. Mechanik bleibt dormant.
+    kalibrierung_faktoren = {}
 
     # 2) Alle Pläne des Projekts laden (mit agent_log für Baudaten + Fenster)
     plaene_res = sb.table("plaene").select(
