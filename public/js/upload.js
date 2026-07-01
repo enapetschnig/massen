@@ -1446,6 +1446,20 @@
           Math.round(fs / 3.5) + '" fill="' + col + '" style="font-weight:600;pointer-events:none">' + txt + '</text>';
       }
     });
+    // Öffnungs-Marker (Fenster/Türen aus dem Text-Layer, byte-exakt) — anklicken = keine Öffnung
+    var marker = '', nF = 0, nT = 0;
+    _nzEdit.oeffRemoved = _nzEdit.oeffRemoved || {};
+    (_nzData.oeffnungen || []).forEach(function (o) {
+      var rm = !!_nzEdit.oeffRemoved[o.id], istF = o.typ === 'fenster';
+      if (!rm) { if (istF) nF++; else nT++; }
+      var mcol = istF ? '#0284c7' : '#b45309', rad = Math.max(9, fs * 0.72);
+      marker += '<g data-oid="' + o.id + '" cursor="pointer" opacity="' + (rm ? 0.28 : 0.95) + '">' +
+        '<circle cx="' + o.px[0] + '" cy="' + o.px[1] + '" r="' + rad + '" fill="' + mcol + '" stroke="#fff" stroke-width="2"/>' +
+        '<text x="' + o.px[0] + '" y="' + o.px[1] + '" font-size="' + Math.round(rad * 1.1) + '" text-anchor="middle" dy="' +
+        Math.round(rad * 0.38) + '" fill="#fff" style="font-weight:700;pointer-events:none">' + (istF ? 'F' : 'T') + '</text>' +
+        '<title>' + (istF ? 'Fenster' : 'Tür') + (o.breite_m ? ' ' + fmtNum(o.breite_m) + '×' + fmtNum(o.hoehe_m) + 'm' : '') +
+        ' — klicken = keine Öffnung</title></g>';
+    });
     var s = _nzSplit(), ges = s.ges;
     var legend = '';
     [50, 38, 25, 20, 12].forEach(function (t) {
@@ -1453,6 +1467,12 @@
       legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + NZ_FARBE[t] + '"></span>' +
         'HLZ ' + t + 'cm: <strong>' + fmtNum(ges[t]) + ' m</strong></span>';
     });
+    if (_nzData.oeffnungen && _nzData.oeffnungen.length) {
+      legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:#0284c7;border-radius:50%"></span>' +
+        '<strong>' + nF + '</strong> Fenster</span>' +
+        '<span class="nz-leg-item"><span class="nz-sw" style="background:#b45309;border-radius:50%"></span>' +
+        '<strong>' + nT + '</strong> Türen</span>';
+    }
     // Auswahl-Toolbar
     var tb = '';
     if (_nzSel != null) {
@@ -1494,13 +1514,23 @@
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
       'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
-      '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g></svg></div></div>';
+      '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g>' +
+      '<g style="pointer-events:auto">' + marker + '</g></svg></div></div>';
     _nzWireZoom(cont);
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
       ln.addEventListener('click', function () {
         if (_nzMoved) return;   // war ein Pan, kein Klick
         _nzSel = parseInt(ln.getAttribute('data-wid'), 10); _nzPaint();
+      });
+    });
+    // Öffnungs-Marker anklicken = keine Öffnung (Fehl-Erkennung entfernen)
+    cont.querySelectorAll('g[data-oid]').forEach(function (mk) {
+      mk.addEventListener('click', function () {
+        if (_nzMoved) return;
+        var oid = parseInt(mk.getAttribute('data-oid'), 10);
+        _nzEdit.oeffRemoved[oid] = !_nzEdit.oeffRemoved[oid];
+        _nzPaint(); _nzSave(_nzSplit().anteile);
       });
     });
     cont.querySelectorAll('.nz-btn').forEach(function (b) {
@@ -1645,7 +1675,8 @@
   function _nzSave(anteile) {
     if (!_nzData || !_nzData.plan_id) return;
     var leer = !Object.keys(_nzEdit.removed).length && !Object.keys(_nzEdit.thick).length &&
-      !Object.keys(_nzEdit.aussen).length && !(_nzEdit.added && _nzEdit.added.length) && !anteile;
+      !Object.keys(_nzEdit.aussen).length && !(_nzEdit.added && _nzEdit.added.length) &&
+      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile;
     fetch('/api/nachzeichnen-korrektur', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan_id: _nzData.plan_id,
@@ -1688,7 +1719,8 @@
       // Gespeicherte Korrekturen wiederherstellen (überleben den Reload)
       var k = d.korrekturen;
       if (k && k.edit) {
-        _nzEdit = { removed: k.edit.removed || {}, thick: k.edit.thick || {}, aussen: k.edit.aussen || {}, added: k.edit.added || [] };
+        _nzEdit = { removed: k.edit.removed || {}, thick: k.edit.thick || {}, aussen: k.edit.aussen || {},
+          added: k.edit.added || [], oeffRemoved: k.edit.oeffRemoved || {} };
         // manuell hinzugefügte Wände wieder in die Geometrie einspielen
         (_nzEdit.added || []).forEach(function (w) { _nzData.waende.push(w); });
         if (k.anteile) {   // angewandte Verteilung zurück in den Override → Mengen stimmen wieder

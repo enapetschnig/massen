@@ -97,6 +97,37 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         if sn:
             summe[sn] = round(summe.get(sn, 0) + laenge_m, 2)
 
+    # Öffnungen (Fenster/Türen) aus dem Text-Layer (STUK/FPH-Codes stehen an der Öffnung,
+    # byte-exakt) → klickbare Marker. Best-effort, bricht nie.
+    oeffnungen = []
+    try:
+        import oeffnungen as _oeff
+        # Spans wie die Haupt-Pipeline aus get_text("dict") (Text-Runs halten "FPH 0,00"
+        # zusammen — "words" würde "FPH" und "0,00" trennen → keine Öffnung erkannt).
+        spans = []
+        for block in page.get_text("dict").get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    txt = (span.get("text") or "").strip()
+                    if not txt:
+                        continue
+                    bb = tuple(span.get("bbox") or (0, 0, 0, 0))
+                    spans.append({"text": txt, "bbox": bb, "size": span.get("size", 0),
+                                  "cx": (bb[0] + bb[2]) / 2.0, "cy": (bb[1] + bb[3]) / 2.0})
+        for o in _oeff.extract_oeffnungen_from_text(spans, []):
+            cx, cy = o.get("cx"), o.get("cy")
+            if cx is None or not (bx0 <= cx <= bx1 and by0 <= cy <= by1):
+                continue
+            oeffnungen.append({
+                "id": len(oeffnungen), "typ": o.get("typ"),
+                "breite_m": o.get("breite_m"), "hoehe_m": o.get("hoehe_m"),
+                "px": to_px(cx, cy),
+            })
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Öffnungen fehlgeschlagen: {e}")
+
     try:
         import fitz
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale),
@@ -111,6 +142,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         "basis_png": basis_png,                 # bytes (Endpoint base64-kodiert)
         "bild_w": bild_w, "bild_h": bild_h,
         "waende": waende,
+        "oeffnungen": oeffnungen,
         "summe_m": {str(k): v for k, v in sorted(summe.items(), reverse=True)},
         "meta": {
             "ptm": round(ptm, 2),
