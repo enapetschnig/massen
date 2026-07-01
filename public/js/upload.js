@@ -828,9 +828,12 @@
       rows.forEach(function (p) {
         var konf = p.konfidenz || 0;
         var tier = konfTier(konf);
-        html += '<div class="ml-row">' +
+        var hlz = (p.material || '').match(/HLZ\s*(\d+)/i);   // Kopplung Plan ↔ Liste
+        var clickAttr = hlz ? ' class="ml-row ml-row-hlz" data-hlz="' + hlz[1] + '" title="Am Plan zeigen — die ' + hlz[1] + 'cm-Wände hervorheben"' : ' class="ml-row"';
+        html += '<div' + clickAttr + '>' +
           '<span class="ml-dot ' + tier.cls + '" title="' + tier.title + ' (' + Math.round(konf * 100) + '%)"></span>' +
           '<span class="ml-mat">' + esc(p.material || '') +
+            (hlz ? '<span class="ml-plan-hint">📐 am Plan</span>' : '') +
             (showFormel && p.formel ? '<span class="ml-formel">' + esc(p.formel) + '</span>' : '') +
           '</span>' +
           '<span class="ml-qty">' + fmtNum(p.menge) + ' <em>' + esc(p.einheit || '') + '</em></span>' +
@@ -851,6 +854,10 @@
           b.textContent = '✓'; setTimeout(function () { b.textContent = '⧉'; }, 1200);
         });
       });
+    });
+    // Kopplung Plan ↔ Liste: HLZ-Position anklicken → zugehörige Wände am Plan hervorheben
+    Array.prototype.forEach.call(board.querySelectorAll('.ml-row-hlz'), function (r) {
+      r.addEventListener('click', function () { nzHighlight(parseInt(r.getAttribute('data-hlz'), 10)); });
     });
 
     // Trust-Ring: EHRLICH + dynamisch — Mischung aus Anteil sicherer Positionen
@@ -1425,7 +1432,7 @@
       var col = rm ? '#b8c0cc' : (NZ_FARBE[cm] || '#888');
       var unsicher = !cm || (w.hatch_dichte != null && w.hatch_dichte < 1.5);
       var p = w.px;
-      lines += '<line data-wid="' + w.id + '" x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
+      lines += '<line data-wid="' + w.id + '" data-cm="' + (cm || '') + '" x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
         '" stroke="' + col + '" stroke-width="' + Math.max(2, w.staerke_px) + '" stroke-linecap="round"' +
         ' stroke-opacity="' + (rm ? 0.3 : 0.82) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
         ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
@@ -1644,6 +1651,22 @@
       body: JSON.stringify({ plan_id: _nzData.plan_id,
         korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null } })
     }).catch(function () { /* Speichern ist best-effort */ });
+  }
+
+  // Kopplung Liste → Plan: die Wände einer HLZ-Stärke am Plan pulsieren lassen.
+  function nzHighlight(cm) {
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var cont = document.getElementById('nachzeichnen-container');
+    if (!cont) return;
+    if (_nzWrap) { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }   // Vollansicht, damit alle sichtbar
+    Array.prototype.forEach.call(cont.querySelectorAll('line.nz-hi'), function (l) { l.classList.remove('nz-hi'); });
+    var sel = cont.querySelectorAll('line[data-cm="' + cm + '"]');
+    if (!sel.length) return;
+    Array.prototype.forEach.call(sel, function (l) { l.classList.add('nz-hi'); });
+    setTimeout(function () {
+      Array.prototype.forEach.call(sel, function (l) { l.classList.remove('nz-hi'); });
+    }, 3200);
   }
 
   function renderNachzeichnen() {
