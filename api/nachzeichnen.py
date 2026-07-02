@@ -229,7 +229,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         dark_f = [s for s in segs if (s[5] is None or s[5] < 0.45)
                   and vektor._laenge(s) / ptm > 0.10 and inb(s)]
         rst_f = raumnetz._Raster((bx0, bx1, by0, by1), ptm, 0.02)
-        grid_f = raumnetz.wand_maske(rst_f, dark_f, hatch, [])
+        fills_f = vektor.wand_fill_rects(page, (bx0, bx1, by0, by1),
+                                         min_seite_m=0.3, ptm=ptm)
+        grid_f = raumnetz.wand_maske(rst_f, dark_f, hatch, [], fill_rects=fills_f)
         for fl in massketten.wand_fluchten(page.get_text("words"),
                                            (bx0, bx1, by0, by1), ptm,
                                            grid_f, rst_f.W, rst_f.H, rst_f.cell):

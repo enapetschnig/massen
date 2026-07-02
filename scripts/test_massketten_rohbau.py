@@ -68,7 +68,8 @@ def pruefe(plan_pfad=PLAN, label="1:100", tol_m=0.035, min_lauf_m=0.4, verbose=T
             and vektor._laenge(s) / ptm > 0.10]
     hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1))
     rst = raumnetz._Raster(box, ptm, 0.02)
-    grid = raumnetz.wand_maske(rst, dark, hatch, [])   # ohne Verschlüsse: reine Wände
+    fills = vektor.wand_fill_rects(page, box, min_seite_m=0.3, ptm=ptm)
+    grid = raumnetz.wand_maske(rst, dark, hatch, [], fill_rects=fills)   # reine Wände
 
     spans = massketten.numeric_spans(words) \
         + massketten.numeric_spans(words, meter_notation=True)   # Union (wie Produkt)

@@ -230,13 +230,17 @@ class _Raster:
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None, versch_out=None,
-               boegen=None):
+               boegen=None, fill_rects=None):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
-    (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing."""
+    (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing.
+    fill_rects: Wand-Körper als Flächen-Fills (Ziegel-Ton-Polygone mancher
+    Wand-Grundrisse) — direkt Wand UND Anker-Basis wie Schraffur."""
     W, H = rst.W, rst.H
     hm = bytearray(W * H)
     for s in hatch_segs:
         rst.line(hm, s[0], s[1], s[2], s[3])
+    for (fx0, fy0, fx1, fy1) in (fill_rects or []):
+        rst.rect(hm, fx0, fy0, fx1, fy1)
     r = max(1, int(hatch_dilat_m / rst.zm))
     dh = _dist_bfs(hm, W, H, r)
     hm_d = bytearray(1 if dh[i] <= r else 0 for i in range(W * H))

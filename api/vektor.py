@@ -343,6 +343,36 @@ def tuer_boegen(page, box, ptm, r_min_m=0.50, r_max_m=1.40,
     return out
 
 
+def wand_fill_rects(page, box=None, min_seite_m=None, ptm=None):
+    """WAND-KÖRPER als FLÄCHEN-FILLS (Ziegel-/Orange-Töne): manche Wand-Grundrisse
+    (1762788650811) zeichnen Wände nicht als Poché-STRICHE, sondern als gefüllte
+    Polygone — _drawings verliert die Fläche (nur 're'-Fills werden gesammelt).
+    → Liste (x0, y0, x1, y1) der warmen Fill-Rects im Box-Bereich.
+    Warm = r>0.5, r>b+0.15, r>=g (Ziegel 0.82/0.71/0.55, Orange 1/0.39/0 …)."""
+    out = []
+    for p in page.get_drawings():
+        typ = p.get("type") or ""
+        if "f" not in typ:
+            continue
+        col = p.get("fill")
+        if not col or len(col) < 3:
+            continue
+        r, g, b = col[0], col[1], col[2]
+        if not (r > 0.5 and r > b + 0.15 and r >= g):
+            continue
+        rc = p.get("rect")
+        if not rc:
+            continue
+        if box:
+            mx, my = (rc.x0 + rc.x1) / 2, (rc.y0 + rc.y1) / 2
+            if not (box[0] <= mx <= box[1] and box[2] <= my <= box[3]):
+                continue
+        if ptm and min_seite_m and max(rc.x1 - rc.x0, rc.y1 - rc.y0) / ptm < min_seite_m:
+            continue    # Mini-Kästchen (Legende/Symbole)
+        out.append((rc.x0, rc.y0, rc.x1, rc.y1))
+    return out
+
+
 def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100):
     """Wand-Poché-Diagonalen mit FARB-Filter: auf farbigen Plänen ist die Maurer-
     Schraffur ROT/ORANGE (= Neubau-Farbe; empirisch am Angerer verifiziert — Außenwand
