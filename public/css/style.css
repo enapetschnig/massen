@@ -2545,6 +2545,15 @@ img {
 .advanced-block { margin-top: 1.1rem; }
 .advanced-h { font-size: 0.92rem; color: var(--primary); margin-bottom: 0.5rem; }
 
+/* Zielgruppen-Presets */
+.zielgruppen-presets { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  margin: 0.8rem 0 0.4rem; }
+.zg-label { font-size: 0.85rem; color: var(--text-light); font-weight: 600; }
+.zg-btn { font-size: 0.85rem; padding: 0.35rem 0.8rem; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--white); cursor: pointer; color: var(--text); }
+.zg-btn:hover { border-color: var(--primary); }
+.zg-btn.zg-on { background: var(--primary); color: #fff; border-color: var(--primary); }
+
 /* Workflow-Stepper */
 .workflow-steps { display: flex; gap: 0.4rem; margin: 1.1rem 0 0.9rem; flex-wrap: wrap;
   border-bottom: 2px solid var(--border); padding-bottom: 0; }

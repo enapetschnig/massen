@@ -74,7 +74,7 @@ Ziel-Workflow (Stepper statt Scroll-Wüste):
 |---|---|
 | ✅ | Planansicht als Zentrum; Kalibrier-Komplexität entfernt; Stellschrauben |
 | ✅ | Stepper-Navigation: 1 Pläne → 2 Plan prüfen (Default) → 3 Massen & Material → 4 Export & Fragen |
-| 🔜 | Zielgruppen-Presets: „Rohbau/Baumeister" (Materialliste zuerst), „Ausbau" (Putz/Estrich/Maler-Massen zuerst), „Kalkulant" (LV-Form zuerst) — gleiche Daten, andere Reihenfolge |
+| ✅ | Zielgruppen-Presets in Schritt 3: Rohbau/Baumeister (Mauerwerk+Beton), Ausbau (Putz·Estrich·Maler), Kalkulant (alle Gewerke, LV-Form offen) — gemerkt via localStorage |
 | ⬜ | Design-Überarbeitung auf die 4 Schritte (klare Hierarchie, weniger gleichzeitig sichtbar) |
 
 ## Säule E — Zielgruppen & Markt

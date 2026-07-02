@@ -1836,7 +1836,7 @@
   // Planansicht verifizieren/korrigieren, DANN die Massen ansehen.
   var WF_GRUPPEN = {
     2: ['#ergebnis-status-banner', '#pruefliste', '#nachzeichnen-section'],
-    3: ['#geo-box', '#fact-strip', '.ml-board-toolbar', '#ml-board', '#auswertung-kennzahlen', '.advanced-drawer'],
+    3: ['#zielgruppen-presets', '#geo-box', '#fact-strip', '.ml-board-toolbar', '#ml-board', '#auswertung-kennzahlen', '.advanced-drawer'],
     4: ['#projekt-chat']
   };
   function wfShow(step) {
@@ -1863,6 +1863,35 @@
       b.addEventListener('click', function () { wfShow(parseInt(b.getAttribute('data-wf'), 10)); });
     });
     wfShow(2);   // initial: Plan prüfen (Bereiche der anderen Schritte ausblenden)
+  })();
+
+  // ── ZIELGRUPPEN-PRESETS: gleiche Daten, passende Sicht je Branche-Bereich ──
+  var ZG_GEWERKE = {
+    rohbau: ['rohbau', 'beton'],            // Baumeister: Mauerwerk/Beton + Materialliste
+    ausbau: ['putz', 'estrich', 'maler'],   // Ausbau-Subunternehmer
+    kalkulant: null                          // alle Gewerke, LV-Form offen
+  };
+  (function wirePresets() {
+    var box = document.getElementById('zielgruppen-presets');
+    if (!box) return;
+    function apply(preset, initial) {
+      _filterState.gewerke = ZG_GEWERKE[preset] || null;
+      box.querySelectorAll('.zg-btn').forEach(function (b) {
+        b.classList.toggle('zg-on', b.getAttribute('data-preset') === preset);
+      });
+      try { localStorage.setItem('zg_preset', preset); } catch (e) { /* egal */ }
+      if (preset === 'kalkulant') {
+        var dr = document.querySelector('.advanced-drawer');
+        if (dr) dr.open = true;   // ÖNORM-Buchform sofort sichtbar
+      }
+      if (!initial) refreshProjektMassen();
+    }
+    box.querySelectorAll('.zg-btn').forEach(function (b) {
+      b.addEventListener('click', function () { apply(b.getAttribute('data-preset'), false); });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('zg_preset'); } catch (e) { /* egal */ }
+    if (saved && ZG_GEWERKE.hasOwnProperty(saved)) apply(saved, true);
   })();
 
   window.loadPlans = loadPlans;
