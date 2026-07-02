@@ -70,7 +70,27 @@ def raum_stempel(page, box):
                 bb = span.get("bbox") or (0, 0, 0, 0)
                 cx, cy = (bb[0] + bb[2]) / 2.0, (bb[1] + bb[3]) / 2.0
                 if bx0 <= cx <= bx1 and by0 <= cy <= by1:
-                    spans.append({"text": txt, "cx": cx, "cy": cy})
+                    spans.append({"text": txt, "cx": cx, "cy": cy,
+                                  "x0": bb[0], "x1": bb[2]})
+    # GEZIELTER SPLIT-ZAHL-JOIN: manche Encoder trennen MITTEN in der Zahl
+    # ("Fl: 64." + "15m²", 1762788650811). Nur joinen wenn der linke Span auf
+    # Ziffer+[.,] ENDET und der rechte mit Ziffer BEGINNT (der breite Join
+    # regressierte Angerer 4/9→3/9 — U-/Namens-Zuordnung hängt an Span-Geometrie).
+    for sp in spans:
+        if not re.search(r"[0-9][.,]$", sp["text"]):
+            continue
+        for _runde in range(3):     # kettenweise: 'Fl: 64.'+'1'+'5m²' (3 Spans!)
+            rechts = sorted((s2 for s2 in spans if s2 is not sp and s2["text"]
+                             and abs(s2["cy"] - sp["cy"]) < 2.5
+                             and -0.5 <= s2["x0"] - sp["x1"] < 6.0
+                             and re.match(r"^[0-9]", s2["text"])),
+                            key=lambda s2: s2["x0"])
+            if not rechts:
+                break
+            sp["text"] = sp["text"] + rechts[0]["text"]
+            sp["x1"] = rechts[0]["x1"]
+            rechts[0]["text"] = ""
+    spans = [s2 for s2 in spans if s2["text"]]
     out = []
     for s in spans:
         mf = _F_RX.search(s["text"])
