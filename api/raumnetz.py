@@ -91,6 +91,39 @@ def raum_stempel(page, box):
             if 0 < dy < 32 and abs(s2["cx"] - s["cx"]) < 80 and dy < best:
                 best, name = dy, s2["text"]
         out.append({"name": name or "?", "f_m2": f, "u_m": u, "cx": s["cx"], "cy": s["cy"]})
+
+    # FALLBACK (Büro-Format ohne "Fl:"-Anker, z.B. AU/WM): nackte "88,11 m"-Spans sind
+    # nur dann Flächen, wenn DIREKT daneben ein eigener "²"-Span liegt (das ² ist als
+    # Superscript ein separater Span) — unterscheidet Flächen von Längenangaben.
+    if not out:
+        hoch2 = [s2 for s2 in spans if len(s2["text"]) == 1 and s2["text"] in ("²", "2")]
+        nackt_rx = re.compile(r"^([0-9]{1,3},[0-9]{1,2})\s*m$")
+        for s in spans:
+            m2 = nackt_rx.match(s["text"])
+            if not m2:
+                continue
+            f = _num(m2.group(1))
+            if not f or f < 1.0 or f > 500:
+                continue
+            if not any(0 < (h["cx"] - s["cx"]) < 60 and abs(h["cy"] - s["cy"]) < 8
+                       for h in hoch2):
+                continue    # kein ²-Nachbar → Länge, keine Fläche
+            # Mehrzeilige Stempel-Blöcke (Wohn-/Nutzfläche …): größten Wert im Umkreis behalten
+            dup = next((o for o in out if abs(o["cx"] - s["cx"]) < 25
+                        and abs(o["cy"] - s["cy"]) < 25), None)
+            if dup:
+                if f > dup["f_m2"]:
+                    dup.update({"f_m2": f, "cx": s["cx"], "cy": s["cy"]})
+                continue
+            name, best = None, 1e9
+            for s2 in spans:
+                if s2 is s or not re.match(r"^[A-Za-zÄÖÜäöüß]{3,}", s2["text"]):
+                    continue
+                d = abs(s["cy"] - s2["cy"]) + abs(s["cx"] - s2["cx"]) * 0.3
+                if s2["cy"] < s["cy"] + 5 and d < best and d < 60:
+                    best, name = d, s2["text"]
+            out.append({"name": name or "?", "f_m2": f, "u_m": None,
+                        "cx": s["cx"], "cy": s["cy"]})
     return out
 
 
