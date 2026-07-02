@@ -200,10 +200,13 @@ def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
                     kanten[j] = n
             base, lo, hi = by0, by0, by1
 
-        def kante_ok(pos_pt):
+        def kante_n(pos_pt):
             iz = int((pos_pt - base) / cell_pt)
             return max((kanten.get(iz + o, 0)
-                        for o in range(-tol_z, tol_z + 1)), default=0) >= min_lauf
+                        for o in range(-tol_z, tol_z + 1)), default=0)
+
+        def kante_ok(pos_pt):
+            return kante_n(pos_pt) >= min_lauf
 
         for b0_lab, grenzen_cm, _w in sub_ketten(
                 vektor._chains_mit_pos(spans, achse), ptm):
@@ -224,7 +227,8 @@ def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
                 continue    # kein Wand-Zug
             for g, ok in zip(im_bild, oks):
                 out.append({"achse": "v" if achse == "h" else "h",
-                            "pos": round(best_b0 + g * k, 2), "ok": bool(ok)})
+                            "pos": round(best_b0 + g * k, 2), "ok": bool(ok),
+                            "lauf": int(kante_n(best_b0 + g * k))})
     # DEDUPE: dieselbe Kette steht oft beidseitig des Plans (Angerer: 8 Doppel) —
     # Fluchten <2cm beisammen verschmelzen, ok=True gewinnt.
     out.sort(key=lambda f: (f["achse"], f["pos"], not f["ok"]))
@@ -232,6 +236,7 @@ def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
     for f in out:
         if ded and ded[-1]["achse"] == f["achse"]                 and abs(ded[-1]["pos"] - f["pos"]) < 0.02 * ptm:
             ded[-1]["ok"] = ded[-1]["ok"] or f["ok"]
+            ded[-1]["lauf"] = max(ded[-1].get("lauf", 0), f.get("lauf", 0))
             continue
         ded.append(f)
     return ded

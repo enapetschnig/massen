@@ -237,7 +237,10 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                                            grid_f, rst_f.W, rst_f.H, rst_f.cell):
             px = to_px(fl["pos"], by0)[0] if fl["achse"] == "v" \
                 else to_px(bx0, fl["pos"])[1]
-            fluchten.append({"achse": fl["achse"], "px": px, "ok": fl["ok"]})
+            # 3 Stufen: Wandfläche (ok) · kurze Kante ≥12cm (Öffnungs-Laibung/
+            # Pfeiler — Fenster-Ketten des 1762788650811 seziert) · fehlt
+            fluchten.append({"achse": fl["achse"], "px": px, "ok": fl["ok"],
+                             "kurz": bool(not fl["ok"] and fl.get("lauf", 0) >= 6)})
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Wandfluchten fehlgeschlagen: {e}")
 

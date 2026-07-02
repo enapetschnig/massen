@@ -1572,13 +1572,15 @@
     var nFlOk = 0, nFl = 0;
     (_nzData.fluchten || []).forEach(function (f) {
       nFl++; if (f.ok) nFlOk++;
-      var fcol = f.ok ? '#16a34a' : '#dc2626';
+      var fcol = f.ok ? '#16a34a' : (f.kurz ? '#f59e0b' : '#dc2626');
       var x1 = f.achse === 'v' ? f.px : 0, y1 = f.achse === 'v' ? 0 : f.px;
       var x2 = f.achse === 'v' ? f.px : W, y2 = f.achse === 'v' ? H : f.px;
       lines += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 +
         '" stroke="' + fcol + '" stroke-width="1.2" stroke-opacity="' + (f.ok ? 0.32 : 0.42) +
         '" stroke-dasharray="3 6" pointer-events="stroke"><title>Wandflucht lt. Maßkette (byte-exakt)' +
-        (f.ok ? ' — ✓ von der Wand-Erkennung bestätigt' : ' — ✗ hier fehlt eine Wand in der Erkennung → prüfen') +
+        (f.ok ? ' — ✓ von der Wand-Erkennung bestätigt'
+              : (f.kurz ? ' — kurze Kante (Öffnungs-Laibung/Pfeiler) — plausibel'
+                        : ' — ✗ hier fehlt eine Wand in der Erkennung → prüfen')) +
         '</title></line>';
     });
     (_nzData.waende || []).forEach(function (w) {

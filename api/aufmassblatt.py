@@ -69,7 +69,8 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     for fl in fluchten:
         ok = bool(fl.get("ok"))
         n_fl_ok += ok
-        col = (0.09, 0.64, 0.29) if ok else (0.86, 0.15, 0.15)
+        col = (0.09, 0.64, 0.29) if ok else \
+            ((0.96, 0.62, 0.04) if fl.get("kurz") else (0.86, 0.15, 0.15))
         if fl.get("achse") == "v":
             a, b = pt(fl["px"], 0), pt(fl["px"], bh)
         else:
