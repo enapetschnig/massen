@@ -114,3 +114,4 @@ Das komplette Aufmaß heißt EINZELN aufgelistet und prüfbar:
 | ✅ | Öffnungs-Aufmaß-Tabelle: je Öffnung Raum·Typ·B×H·Fläche·Regel·Laibung m² mit Rechenweg |
 | ✅ | Wand-Aufmaß-Tabelle aus der Planansicht (je Wand einzeln, ✓ byte-exakt, LIVE mit Korrekturen) + Raum-Aufmaß (je Raum: Boden ✓/Decke/Abwicklung/Sockel) |
 | ✅ | Workflow-Schritt 3 heißt „Aufmaß & Massen" (drei Einzel-Tabellen: Öffnungen·Wände·Räume); ⬜ Rest: Wand↔Öffnung-Zuordnung je Einzelwand, Raum-Stempel-Format WM-Büro |
+| ⬜ | Planansicht-Latenz: Raum-Verifikation im Live-Pfad ~40s (Streifen+Mechanismen bei 3cm-Raster) — Optionen: Ergebnis-Cache in agent_log (einmal rechnen), Verifikation asynchron nachladen, Raster adaptiv |
