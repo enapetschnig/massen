@@ -159,9 +159,19 @@ def pruefe(plan_pfad=PLAN, label="1:100", tol_m=0.035, min_lauf_m=0.4, verbose=T
                     print(f"    {hits}/{n}  Zug {werte[:8]} @ {b0:.0f}")
     t = sum(v[0] for v in ergebnisse.values())
     g = sum(v[1] for v in ergebnisse.values())
+    # ZWEI ZAHLEN (AP.01-Sezierung: Polierpläne bemaßen ALLES — Außenanlagen-
+    # und Öffnungs-Züge messen keine Wände und verwässern den Nenner):
+    #   WAND-Züge = ≥50% der Grenzen treffen nach Snap → deren Abdeckung
+    #   misst die MASKEN-Qualität; der Wand-Zug-Anteil die Plan-Interpretierbarkeit.
+    alle_det = [dd for v in ergebnisse.values() for dd in v[2]]
+    wand = [(h, n) for h, n, _w, _b in alle_det if n and h / n >= 0.5]
+    wt = sum(h for h, _n in wand)
+    wg = sum(n for _h, n in wand)
     if verbose:
-        print(f"\nGESAMT: {t}/{g} = {100 * t / max(1, g):.0f}% der byte-exakten "
-              f"Rohbau-Grenzen von der Wand-Maske bestätigt")
+        print(f"\nGESAMT: {t}/{g} = {100 * t / max(1, g):.0f}% aller Grenzen | "
+              f"WAND-Züge: {len(wand)}/{len(alle_det)} Züge, davon "
+              f"{wt}/{wg} = {100 * wt / max(1, wg):.0f}% Grenzen bestätigt")
+    ergebnisse["wand"] = (wt, wg, len(wand), len(alle_det))
     return ergebnisse
 
 
