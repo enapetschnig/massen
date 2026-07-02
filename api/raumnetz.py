@@ -573,6 +573,71 @@ def _region_glaetten(mask, i0, j0, i1, j1, W, r_cells):
     return [1 if d4[k] <= r_cells else 0 for k in range(bw * bh)], bw, bh
 
 
+def _kanten_begradigen(m, bw, bh, tol=5, quote=0.5):
+    """ACHS-SNAP für die U-Messung: Wände sind achsparallel — fast-gerade Regions-
+    Kanten (Rest-Jitter der Ausgleichs-Fronten, ±tol Zellen) werden auf ihre DOMINANTE
+    Achslinie begradigt. Nur wenn ≥quote der Zeilen/Spalten dieselbe Kantenlage haben
+    (L-Formen bleiben unangetastet, nur die dominante Kante wird glatt)."""
+    from collections import Counter
+
+    def snap_rows(links):
+        werte = {}
+        for j in range(bh):
+            lo = hi = None
+            for i in range(bw):
+                if m[j * bw + i]:
+                    if lo is None:
+                        lo = i
+                    hi = i
+            if lo is not None:
+                werte[j] = lo if links else hi
+        if len(werte) < 8:
+            return
+        dom, cnt = Counter(werte.values()).most_common(1)[0]
+        if cnt / len(werte) < quote:
+            return
+        for j, v in werte.items():
+            if v == dom or abs(v - dom) > tol:
+                continue
+            if links:
+                for i in range(min(v, dom), max(v, dom)):
+                    m[j * bw + i] = 1 if dom < v else 0
+            else:
+                for i in range(min(v, dom) + 1, max(v, dom) + 1):
+                    m[j * bw + i] = 1 if dom > v else 0
+
+    def snap_cols(oben):
+        werte = {}
+        for i in range(bw):
+            lo = hi = None
+            for j in range(bh):
+                if m[j * bw + i]:
+                    if lo is None:
+                        lo = j
+                    hi = j
+            if lo is not None:
+                werte[i] = lo if oben else hi
+        if len(werte) < 8:
+            return
+        dom, cnt = Counter(werte.values()).most_common(1)[0]
+        if cnt / len(werte) < quote:
+            return
+        for i, v in werte.items():
+            if v == dom or abs(v - dom) > tol:
+                continue
+            if oben:
+                for j in range(min(v, dom), max(v, dom)):
+                    m[j * bw + i] = 1 if dom < v else 0
+            else:
+                for j in range(min(v, dom) + 1, max(v, dom) + 1):
+                    m[j * bw + i] = 1 if dom > v else 0
+
+    snap_rows(True)
+    snap_rows(False)
+    snap_cols(True)
+    snap_cols(False)
+
+
 def _loecher_fuellen_und_messen(grid, label, rst, stempel):
     """Je Raum: eingeschlossene Löcher (Möbel-Inseln + deren Innenraum) zählen zur
     Raumfläche (so misst der Plan sein F), U wird die ÄUSSERE Wandlinie. Loch =
@@ -632,6 +697,7 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
                     f_cells += 1
         glatt, bw, bh = _region_glaetten(is_room, i0, j0, i1, j1, W,
                                          max(2, int(0.12 / rst.zm)))
+        _kanten_begradigen(glatt, bw, bh, tol=max(3, int(0.10 / rst.zm)))
         kanten = 0
         for k in range(bw * bh):
             if not glatt[k]:
