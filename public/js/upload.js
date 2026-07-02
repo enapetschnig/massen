@@ -1617,7 +1617,7 @@
         var p2 = r.u_m / 2, disc = p2 * p2 / 4 - r.f_m2;
         if (disc >= 0) {
           var wu = Math.sqrt(disc);
-          tip += ' · Soll-Form ≈ ' + fmtNum(Math.round((p2 / 2 + wu) * 100) / 100) + '×' +
+          tip += ' · Soll-Form (falls rechteckig) ≈ ' + fmtNum(Math.round((p2 / 2 + wu) * 100) / 100) + '×' +
             fmtNum(Math.round((p2 / 2 - wu) * 100) / 100) + ' m';
         }
       }
