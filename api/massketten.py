@@ -23,12 +23,13 @@ from __future__ import annotations
 import re
 from collections import defaultdict, Counter
 
-_NUM = re.compile(r"^\d{1,4}(?:,\d)?$")
+_NUM = re.compile(r"^\d{1,4}(?:,\d)?$")             # klassisch: cm-Ganzzahl
+_NUM_M = re.compile(r"^\d{1,2}(?:[.,]\d{1,2})$")    # Meter-Notation ("1.80", "2,45")
 
 
-def _val(t):
+def _val(t, rx=_NUM):
     t = (t or "").strip()
-    if _NUM.match(t):
+    if rx.match(t):
         try:
             return float(t.replace(",", "."))
         except ValueError:
@@ -36,15 +37,26 @@ def _val(t):
     return None
 
 
-def numeric_spans(words):
-    """fitz get_text('words') → [(x, y, value_cm)] der plausiblen Maß-Zahlen."""
+def numeric_spans(words, meter_notation=False):
+    """fitz get_text('words') → [(x, y, value_cm)] der plausiblen Maß-Zahlen.
+
+    Zwei Notationen (beide real im Korpus): cm als Ganzzahl ("55", "300" —
+    Angerer/ArchiCAD, Default) und METER mit Dezimaltrenner ("1.80" — z.B.
+    1762788650811_EG-Wand: ohne diese Deutung 0 Ketten → Kalibrierung tot).
+    meter_notation NIE gemischt mit cm anwenden: die Meter-Deutung erzeugt aus
+    Höhen-Labels ("2,00") Fake-Ketten, die den Kalibrier-Cluster kippen
+    (gemessen am Angerer: ptm 27,17 → 146). Deshalb strikt als Zweitpass."""
     out = []
     for w in words:
         try:
             x, y, txt = w[0], w[1], w[4]
         except (IndexError, TypeError):
             continue
-        v = _val(txt)
+        if meter_notation:
+            v = _val(txt, _NUM_M)
+            v = v * 100.0 if v is not None and 0.30 <= v <= 15.0 else None
+        else:
+            v = _val(txt)
         if v is not None and 5 <= v <= 1500:   # cm-Maße einer Außenkette
             out.append((round(float(x), 1), round(float(y), 1), v))
     return out

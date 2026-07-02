@@ -158,17 +158,27 @@ def _dominant_cluster(slopes_ptm, label_ptm=None, rel_tol=0.05):
 def kalibriere(words, massstab_label=None):
     """pt→m über den DOMINANTEN Maßketten-Cluster + Label-Kreuzcheck.
     Liefert {ptm_konsens, streuung_pct, n_ketten_tragfaehig, methoden, tragfaehig}."""
-    try:
-        from massketten import numeric_spans
-        spans = numeric_spans(words)
-    except Exception:
-        spans = []
-    chains = _chains_mit_pos(spans, "h") + _chains_mit_pos(spans, "v")
-    slopes = []     # pt/m je Kette (nur R² ≥ 0.98 = wirklich lineare Kette)
-    for ch in chains:
-        s, r2 = _regress_ptcm(ch)
-        if s and r2 >= 0.98 and s > 0.01:
-            slopes.append(s * 100.0)
+    def _slopes(meter_notation):
+        try:
+            from massketten import numeric_spans
+            spans = numeric_spans(words, meter_notation=meter_notation)
+        except Exception:
+            return []
+        chains = _chains_mit_pos(spans, "h") + _chains_mit_pos(spans, "v")
+        out = []    # pt/m je Kette (nur R² ≥ 0.98 = wirklich lineare Kette)
+        for ch in chains:
+            s, r2 = _regress_ptcm(ch)
+            if s and r2 >= 0.98 and s > 0.01:
+                out.append(s * 100.0)
+        return out
+
+    slopes = _slopes(False)
+    if not slopes:
+        # ZWEITPASS Meter-Notation ("1.80" statt "180") — strikt nur wenn der
+        # cm-Pass NICHTS liefert: gemischt kippen Höhen-Labels ("2,00") den
+        # Cluster (gemessen: Angerer 27,17 → 146). 1762788650811_EG-Wand
+        # kalibriert damit exakt auf 1:50 (56,69 ≈ 2835/50).
+        slopes = _slopes(True)
     label_ptm = _label_ptm(massstab_label)
     center, members = _dominant_cluster(slopes, label_ptm)
     ptm = _median(members) if members else None
