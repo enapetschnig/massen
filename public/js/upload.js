@@ -1351,16 +1351,44 @@
     if (!_nzData || !_nzData.waende || !_nzData.waende.length) { el.innerHTML = ''; return; }
     var bd = (window.projektMassenData || {}).baudaten || {};
     var h = bd.geschosshoehe_m || 2.7;
+    // WAND↔ÖFFNUNG-ZUORDNUNG: jede Öffnung zur nächstliegenden Wand (Punkt-Segment-
+    // Distanz in Bild-Pixeln) → je Wand brutto − Öffnungen = NETTO (ÖNORM: nur >4m² Abzug)
+    function distSeg(px, py, p) {
+      var dx = p[2] - p[0], dy = p[3] - p[1];
+      var t = dx || dy ? Math.max(0, Math.min(1, ((px - p[0]) * dx + (py - p[1]) * dy) / (dx * dx + dy * dy))) : 0;
+      var qx = p[0] + t * dx - px, qy = p[1] + t * dy - py;
+      return Math.sqrt(qx * qx + qy * qy);
+    }
+    var wandOeff = {};   // wand-id → [{typ, b, hh, fl, abzug}]
+    (_nzData.oeffnungen || []).forEach(function (o) {
+      if (_nzEdit.oeffRemoved && _nzEdit.oeffRemoved[o.id]) return;
+      var best = null;
+      (_nzData.waende || []).forEach(function (w) {
+        if (_nzEdit.removed && _nzEdit.removed[w.id]) return;
+        if (!_nzCm(w)) return;
+        var d = distSeg(o.px[0], o.px[1], w.px);
+        if (best === null || d < best.d) best = { d: d, id: w.id, sw: w.staerke_px || 6 };
+      });
+      if (!best || best.d > best.sw * 2.5 + 25) return;   // zu weit weg von jeder Wand
+      var fl = (o.breite_m && o.hoehe_m) ? Math.round(o.breite_m * o.hoehe_m * 100) / 100 : null;
+      (wandOeff[best.id] = wandOeff[best.id] || []).push({
+        typ: o.typ, fl: fl, abzug: (fl && fl > 4.0) ? fl : 0
+      });
+    });
     var rows = [], sums = {};
     (_nzData.waende || []).forEach(function (w) {
       if (_nzEdit.removed && _nzEdit.removed[w.id]) return;
       var cm = _nzCm(w);
       if (!cm) return;
       var brutto = Math.round(w.laenge_m * h * 100) / 100;
+      var oe = wandOeff[w.id] || [];
+      var abzug = Math.round(oe.reduce(function (a, x) { return a + x.abzug; }, 0) * 100) / 100;
+      var netto = Math.round((brutto - abzug) * 100) / 100;
       rows.push({ id: w.id, cm: cm, l: w.laenge_m, exakt: !!w.mass_exakt,
-        manuell: !!w.manuell, achse: w.achse, brutto: brutto });
+        manuell: !!w.manuell, achse: w.achse, brutto: brutto,
+        nOeff: oe.length, abzug: abzug, netto: netto });
       sums[cm] = sums[cm] || { n: 0, l: 0, m2: 0 };
-      sums[cm].n++; sums[cm].l += w.laenge_m; sums[cm].m2 += brutto;
+      sums[cm].n++; sums[cm].l += w.laenge_m; sums[cm].m2 += netto;
     });
     if (!rows.length) { el.innerHTML = ''; return; }
     rows.sort(function (a, b) { return b.cm - a.cm || b.l - a.l; });
@@ -1368,21 +1396,24 @@
       '(aus der Planansicht · Höhe ' + fmtNum(h) + ' m · aktualisiert sich mit deinen Korrekturen)</h4>' +
       '<div class="oa-summe">' + Object.keys(sums).sort(function (a, b) { return b - a; }).map(function (t) {
         return 'HLZ ' + t + ': ' + sums[t].n + ' Wände · Σ ' + fmtNum(Math.round(sums[t].l * 100) / 100) +
-          ' m · <strong>' + fmtNum(Math.round(sums[t].m2 * 100) / 100) + ' m²</strong> brutto';
+          ' m · <strong>' + fmtNum(Math.round(sums[t].m2 * 100) / 100) + ' m²</strong> netto';
       }).join(' &nbsp;|&nbsp; ') + '</div>' +
       '<table class="oa-tab"><thead><tr><th>Wand</th><th>Stärke</th><th>Länge</th><th>Höhe</th>' +
-      '<th>Fläche brutto</th><th>Quelle</th></tr></thead><tbody>';
+      '<th>brutto</th><th>Öffnungen</th><th>Abzug >4m²</th><th>netto</th><th>Quelle</th></tr></thead><tbody>';
     rows.forEach(function (r) {
       html += '<tr><td>W' + r.id + ' (' + (r.achse === 'v' ? 'vert.' : 'horiz.') + ')</td>' +
         '<td>HLZ ' + r.cm + '</td>' +
         '<td>' + fmtNum(r.l) + ' m' + (r.exakt ? ' <span title="Länge = byte-exakte Plan-Maßzahl">✓</span>' : '') + '</td>' +
         '<td>' + fmtNum(h) + ' m</td>' +
         '<td>' + fmtNum(r.brutto) + ' m²</td>' +
+        '<td>' + (r.nOeff || '–') + '</td>' +
+        '<td>' + (r.abzug ? '−' + fmtNum(r.abzug) + ' m²' : '–') + '</td>' +
+        '<td><strong>' + fmtNum(r.netto) + ' m²</strong></td>' +
         '<td>' + (r.manuell ? 'manuell ergänzt' : (r.exakt ? 'Plan-Maßzahl (byte-exakt)' : 'Vektor-Messung')) + '</td></tr>';
     });
     el.innerHTML = html + '</tbody></table>' +
-      '<div class="oa-summe">Öffnungs-Abzüge und Laibungen: siehe Öffnungs-Aufmaß oben — ' +
-      'die Wand↔Öffnung-Zuordnung je Einzelwand folgt als nächster Umbau-Schritt.</div>';
+      '<div class="oa-summe">Öffnungen der nächstliegenden Wand zugeordnet; Abzug nur >4,0 m² ' +
+      '(ÖNORM B 2204 — kleinere übermessen, Laibungen siehe Öffnungs-Aufmaß).</div>';
   }
 
   // ── ÖFFNUNGS-AUFMASS: jede Öffnung einzeln, mit ÖNORM-Regel + Laibungs-Formel ──
