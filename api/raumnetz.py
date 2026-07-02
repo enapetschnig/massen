@@ -205,7 +205,7 @@ class _Raster:
 
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
-               hatch_dilat_m=0.10, closing_m=0.08):
+               hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
     (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing."""
     W, H = rst.W, rst.H
@@ -226,8 +226,14 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             r_z = (o.get("breite_m") or 0.9) * 0.9 * rst.ptm
             tuer_zonen.append((o["cx"], o["cy"], r_z * r_z))
 
+    # MÖBEL-ZONEN (Waschen-Sezierung: Grenze schlängelte um wandständige WM/DR-Geräte,
+    # deren Kanten <10cm an der Poché liegen): geschlossene Geräte-Rechtecke werden wie
+    # Tür-Zonen behandelt — Kanten nicht brennen; die Poché (Wand-Kern) brennt weiter,
+    # echte Pfeiler bleiben also Wand.
+    zonen = list(tuer_zonen) + list(moebel_zonen or [])
+
     def in_tuerzone(mx, my):
-        for (zx, zy, r2) in tuer_zonen:
+        for (zx, zy, r2) in zonen:
             if (mx - zx) ** 2 + (my - zy) ** 2 <= r2:
                 return True
         return False
@@ -243,7 +249,7 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             if 0 <= i < W and 0 <= j < H and hm_d[j * W + i]:
                 hits += 1
         if probes and hits / probes >= 0.55:
-            if tuer_zonen and in_tuerzone((s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0):
+            if zonen and in_tuerzone((s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0):
                 continue    # Türblatt/-bogen — keine Wand
             rst.line(grid, s[0], s[1], s[2], s[3])
 
@@ -890,7 +896,20 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     rst = _Raster(box, ptm, zelle_m)
     oe = [o for o in (oeffnungen or [])
           if box[0] <= o.get("cx", -1) <= box[1] and box[2] <= o.get("cy", -1) <= box[3]]
-    grid = wand_maske(rst, dark_segs, hatch_segs, oe)
+    moebel = []
+    try:
+        for p in page.get_drawings():
+            items = p.get("items") or []
+            if len(items) != 1 or items[0][0] != "re":
+                continue
+            rc = items[0][1]
+            w_m, h_m = rc.width / ptm, rc.height / ptm
+            if 0.25 <= w_m <= 1.10 and 0.25 <= h_m <= 1.10:
+                r = max(rc.width, rc.height) * 0.55
+                moebel.append(((rc.x0 + rc.x1) / 2.0, (rc.y0 + rc.y1) / 2.0, r * r))
+    except Exception:
+        moebel = []
+    grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel)
     label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
     label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
     label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)   # grobe Form-Streifen
