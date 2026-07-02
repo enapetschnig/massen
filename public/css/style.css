@@ -2545,6 +2545,19 @@ img {
 .advanced-block { margin-top: 1.1rem; }
 .advanced-h { font-size: 0.92rem; color: var(--primary); margin-bottom: 0.5rem; }
 
+/* Workflow-Stepper */
+.workflow-steps { display: flex; gap: 0.4rem; margin: 1.1rem 0 0.9rem; flex-wrap: wrap;
+  border-bottom: 2px solid var(--border); padding-bottom: 0; }
+.wf-step { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.55rem 1rem;
+  border: none; background: none; cursor: pointer; font-size: 0.92rem; font-weight: 600;
+  color: var(--text-light); border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.wf-step:hover { color: var(--primary); }
+.wf-step.wf-on { color: var(--primary); border-bottom-color: var(--accent, #f39301); }
+.wf-num { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem;
+  height: 1.5rem; border-radius: 50%; background: #e2e8f0; font-size: 0.8rem; }
+.wf-step.wf-on .wf-num { background: var(--accent, #f39301); color: #fff; }
+.wf-hidden { display: none !important; }
+
 /* Nachzeichnen-Planansicht */
 .nachzeichnen-section { margin: 1.2rem 0; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--white); overflow: hidden; }

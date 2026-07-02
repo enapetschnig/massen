@@ -1805,6 +1805,41 @@
   // wird im Lade-Flow aufgerufen, der _nzGeladen-Guard hält es bei einem Fetch).
   window._nzReset = function () { _nzGeladen = false; _nzData = null; renderNachzeichnen(_nzAktivPlan); };
 
+  // ── WORKFLOW-STEPPER: Pläne → Plan prüfen → Massen & Material → Export & Fragen ──
+  // Führt den Nutzer in 4 Schritten durch die Ermittlung, statt alles auf einmal zu
+  // zeigen. Schritt 2 (Plan prüfen) ist der Default nach der Analyse: ERST die
+  // Planansicht verifizieren/korrigieren, DANN die Massen ansehen.
+  var WF_GRUPPEN = {
+    2: ['#ergebnis-status-banner', '#pruefliste', '#nachzeichnen-section'],
+    3: ['#geo-box', '#fact-strip', '.ml-board-toolbar', '#ml-board', '#auswertung-kennzahlen', '.advanced-drawer'],
+    4: ['#projekt-chat']
+  };
+  function wfShow(step) {
+    Object.keys(WF_GRUPPEN).forEach(function (s) {
+      var an = String(step) === s;
+      WF_GRUPPEN[s].forEach(function (sel) {
+        document.querySelectorAll(sel).forEach(function (el) { el.classList.toggle('wf-hidden', !an); });
+      });
+    });
+    document.querySelectorAll('#workflow-steps .wf-step').forEach(function (b) {
+      b.classList.toggle('wf-on', b.getAttribute('data-wf') === String(step));
+    });
+    if (step === 1) {
+      var up = document.getElementById('upload-section');
+      if (up) up.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (step === 2 && typeof _nzApplyZoom === 'function') {
+      _nzApplyZoom();   // Zoom-Transform neu anwenden (Element war ggf. unsichtbar)
+    }
+  }
+  (function wireWorkflow() {
+    var bar = document.getElementById('workflow-steps');
+    if (!bar) return;
+    bar.querySelectorAll('.wf-step').forEach(function (b) {
+      b.addEventListener('click', function () { wfShow(parseInt(b.getAttribute('data-wf'), 10)); });
+    });
+    wfShow(2);   // initial: Plan prüfen (Bereiche der anderen Schritte ausblenden)
+  })();
+
   window.loadPlans = loadPlans;
   window.projectId = projectId;
   loadPlans();
