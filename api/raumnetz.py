@@ -254,10 +254,31 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
 
         score_h = min(ende_score(-1, 0), ende_score(1, 0))
         score_v = min(ende_score(0, -1), ende_score(0, 1))
-        if score_h >= score_v:  # Balken entlang x (Wand verläuft horizontal)
-            rst.rect(grid, cx - b2, cy - d2, cx + b2, cy + d2)
-        else:                   # Balken entlang y
-            rst.rect(grid, cx - d2, cy - b2, cx + d2, cy + b2)
+        # WAND-FLUCHT-SNAP: der Balken gehört in die Flucht der Nachbar-Wandstücke,
+        # nicht an die Label-Position (Bad-Sezierung: Grenze beulte durch die Tür,
+        # weil der Balken unterhalb der Wandlinie saß). Dominante Wand-Zeile/-Spalte
+        # im ±0,7m-Fenster suchen und den Balken dorthin zentrieren.
+        such = int(0.35 / rst.zm)
+        fenster = int(0.7 / rst.zm)
+        ci, cj = rst.ij(cx, cy)
+        if score_h >= score_v:  # Balken entlang x → Wand-Flucht = beste Zeile j
+            best_j, best_n = cj, -1
+            for jj in range(max(0, cj - such), min(H, cj + such + 1)):
+                nsum = sum(1 for ii in range(max(0, ci - fenster), min(W, ci + fenster + 1))
+                           if grid[jj * W + ii])
+                if nsum > best_n:
+                    best_n, best_j = nsum, jj
+            cy_s = rst.by0 + best_j * rst.cell if best_n > fenster // 2 else cy
+            rst.rect(grid, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
+        else:                   # Balken entlang y → Wand-Flucht = beste Spalte i
+            best_i, best_n = ci, -1
+            for ii in range(max(0, ci - such), min(W, ci + such + 1)):
+                nsum = sum(1 for jj in range(max(0, cj - fenster), min(H, cj + fenster + 1))
+                           if grid[jj * W + ii])
+                if nsum > best_n:
+                    best_n, best_i = nsum, ii
+            cx_s = rst.bx0 + best_i * rst.cell if best_n > fenster // 2 else cx
+            rst.rect(grid, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
 
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))
 
