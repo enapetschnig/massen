@@ -37,7 +37,7 @@ für mehrere Bereiche der Baubranche (Baubetriebe/Rohbau, Ausbau-Gewerke, Kalkul
 | ✅ | Möbel-Aussortierung (Schraffur-Verankerung) |
 | 🔜 | **Multi-Geschoss**: alle Grundrisse eines Projekts als Tabs in der Planansicht |
 | 🔜 | Raum-Verifikation Runde 3: Gang-/Zonen-Zuordnung, Tür↔Raum-Topologie → Quote hoch |
-| 🔜 | **Plan-Korpus + Abdeckungs-Metrik**: N echte Pläne verschiedener Büros, je Plan gemessen: Kalibrierung ✓/✗, Box ✓/✗, n Wände, n Räume verifiziert. Ziel-Zahl sichtbar. |
+| ✅ | **Plan-Korpus + Abdeckungs-Metrik** (`scripts/test_korpus.py`): 6 echte Pläne, je Plan Kalibrierung/Ansicht/Wände/Öffnungen/Räume✓. Stand: **alle 4 Grundriss-Pläne ✓** (die 2 ✗ sind Schnitt-Blätter — ehrlich ausgeschlossen statt falsches Bild). Korpus wächst mit jedem neuen Kunden-Plan. |
 | ⬜ | **Raster-/Scan-Fallback** (Pläne ohne Vektoren): Vision-gestützt, ehrlich als „gescannt — reduzierte Genauigkeit" gekennzeichnet |
 | ⬜ | Mehrseitige Pläne / mehrere Grundrisse pro Blatt sauber getrennt (EG/OG auf einem A0) |
 

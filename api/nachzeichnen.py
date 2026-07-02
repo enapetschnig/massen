@@ -50,7 +50,10 @@ def _wandbox(page, ptm):
     bx0, bx1 = pct(xs, 0.02), pct(xs, 0.98)
     by0, by1 = pct(ys, 0.02), pct(ys, 0.98)
     bm, hm = (bx1 - bx0) / ptm, (by1 - by0) / ptm
-    if 4.0 <= bm <= 45.0 and 4.0 <= hm <= 45.0:
+    # 4-30 m je Seite: EFH/MFH-Grundrisse liegen darunter; ein Schnitt-/Ansichts-Blatt
+    # streut seine Linien über das ganze Blatt (Velden-Schnitt: 45×38 m → ehrlich ✗
+    # statt ein falsches "Grundriss"-Bild zu zeigen).
+    if 4.0 <= bm <= 30.0 and 4.0 <= hm <= 30.0:
         marge = 1.0 * ptm   # 1 m Rand
         return (bx0 - marge, bx1 + marge, by0 - marge, by1 + marge)
     return None
