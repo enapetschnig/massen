@@ -285,25 +285,30 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         fenster = int(0.7 / rst.zm)
         ci, cj = rst.ij(cx, cy)
         ist_tuer = o.get("typ") == "tuer"
-        if score_h >= score_v:  # Balken entlang x → Wand-Flucht = beste Zeile j
-            best_j, best_n = cj, -1
+        if score_h >= score_v:  # Balken entlang x → Wand-Flucht = WANDBAND-MITTE
+            # gewichteter Schwerpunkt statt dominanter Einzel-Zeile: bei einer 12cm-Wand
+            # ist die Argmax-Zeile ambig (WC-Sezierung: Balken saß 15-20cm daneben) —
+            # der Schwerpunkt aller Wandzellen im Fenster ist die Bandmitte.
+            gew, summe, best_n = 0, 0.0, 0
             for jj in range(max(0, cj - such), min(H, cj + such + 1)):
                 nsum = sum(1 for ii in range(max(0, ci - fenster), min(W, ci + fenster + 1))
                            if grid[jj * W + ii])
-                if nsum > best_n:
-                    best_n, best_j = nsum, jj
-            cy_s = rst.by0 + best_j * rst.cell if best_n > fenster // 2 else cy
+                gew += nsum
+                summe += nsum * jj
+                best_n = max(best_n, nsum)
+            cy_s = rst.by0 + (summe / gew) * rst.cell if (gew and best_n > fenster // 2) else cy
             rst.rect(grid, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
             if ist_tuer and versch_out is not None:
                 rst.rect(versch_out, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
-        else:                   # Balken entlang y → Wand-Flucht = beste Spalte i
-            best_i, best_n = ci, -1
+        else:                   # Balken entlang y → Wand-Flucht = WANDBAND-MITTE
+            gew, summe, best_n = 0, 0.0, 0
             for ii in range(max(0, ci - such), min(W, ci + such + 1)):
                 nsum = sum(1 for jj in range(max(0, cj - fenster), min(H, cj + fenster + 1))
                            if grid[jj * W + ii])
-                if nsum > best_n:
-                    best_n, best_i = nsum, ii
-            cx_s = rst.bx0 + best_i * rst.cell if best_n > fenster // 2 else cx
+                gew += nsum
+                summe += nsum * ii
+                best_n = max(best_n, nsum)
+            cx_s = rst.bx0 + (summe / gew) * rst.cell if (gew and best_n > fenster // 2) else cx
             rst.rect(grid, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
             if ist_tuer and versch_out is not None:
                 rst.rect(versch_out, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
@@ -932,12 +937,28 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     # Tote Closing-Zone einbeziehen (WC-Sezierung): das Closing versiegelt Zellen
     # ZWISCHEN Balken und Türlaibung — auch die gehören zum Türdurchgang. Balken-Maske
     # um den Closing-Radius dilatieren, aber nur WAND-Zellen kreditieren.
-    r_v = max(2, int(0.08 / rst.zm))
-    dv = _dist_bfs(versch, W2, H2, r_v)
+    # Gutschrift-Zone = die GANZE Tür-Zone (r=0,9×Breite): der komplette Durchgangs-
+    # bereich zählt laut Plan-F zum Raum; Balken+Laibungs-Closing versiegeln dort
+    # Zellen fern des Balkens (WC-Render belegt).
+    tz = []
+    for o in oe:
+        if o.get("typ") == "tuer":
+            r_z = (o.get("breite_m") or 0.9) * 0.9 * ptm
+            tz.append((o["cx"], o["cy"], r_z * r_z))
+
+    def _in_tz(idx):
+        i2, j2 = idx % W2, idx // W2
+        x = rst.bx0 + i2 * rst.cell
+        y = rst.by0 + j2 * rst.cell
+        for (zx, zy, r2) in tz:
+            if (x - zx) ** 2 + (y - zy) ** 2 <= r2:
+                return True
+        return False
+
     gut = [0] * len(stempel)
     n_st = len(stempel)
     for idx in range(W2 * H2):
-        if dv[idx] > r_v or not grid[idx]:
+        if not grid[idx] or not (versch[idx] or _in_tz(idx)):
             continue
         i0_, j0_ = idx % W2, idx // W2
         best_l, best_d = None, 99
