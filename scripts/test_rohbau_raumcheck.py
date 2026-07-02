@@ -22,11 +22,11 @@ import oeffnungen as oeff_mod    # noqa: E402
 from test_raumverifikation import PLAN, _dict_spans   # noqa: E402
 
 
-def run():
-    d = fitz.open(PLAN)
+def run(plan=PLAN, label="1:100", zelle_m=0.02):
+    d = fitz.open(plan)
     page = max(d, key=lambda p: p.rect.width * p.rect.height)
     words = page.get_text("words")
-    ptm = vektor.kalibriere(words, "1:100")["ptm_konsens"]
+    ptm = vektor.kalibriere(words, label)["ptm_konsens"]
     box = nachzeichnen._eg_box(page, ptm)
     bx0, bx1, by0, by1 = box
     segs, _f, _n = vektor._drawings(page)
@@ -35,7 +35,8 @@ def run():
             and vektor._laenge(s) / ptm > 0.10]
     hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1))
     oeff = oeff_mod.extract_oeffnungen_from_text(_dict_spans(page), [])
-    res, _st = raumnetz.verifiziere_seite(page, ptm, box, dark, hatch, oeff)
+    res, _st = raumnetz.verifiziere_seite(page, ptm, box, dark, hatch, oeff,
+                                          zelle_m=zelle_m)
 
     rst = raumnetz._Raster(box, ptm, 0.02)
     fills = vektor.wand_fill_rects(page, box, min_seite_m=0.3, ptm=ptm)
@@ -66,8 +67,14 @@ def run():
             print(f"  ✓✓ {r['name']}: F {f_ist} vs Rohbau {f_roh:.2f} · "
                   f"U {u_ist} vs {u_roh:.2f}  ({w:.2f}×{h:.2f})")
     print(f"\n{n_ok} Räume ROHBAU-verifiziert (Flucht-Rechtecke, F±5%/U±8%)")
-    assert n_ok >= 1, "Regression: Bad war rohbau-verifiziert"
+    return n_ok
 
 
 if __name__ == "__main__":
-    run()
+    if "--wm" in sys.argv:
+        import glob
+        g = sorted(glob.glob(os.path.expanduser("~/Downloads/*AU_WM_01 Erdgeschoss*")))
+        run(g[0], None, zelle_m=0.03)   # Großplan: gröberes Raster für Laufzeit
+    else:
+        n = run()
+        assert n >= 1, "Regression: Bad war rohbau-verifiziert"
