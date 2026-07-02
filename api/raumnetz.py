@@ -695,8 +695,11 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
             for ii in range(i0, i1 + 1):
                 if is_room[base + ii]:
                     f_cells += 1
+        # Glättungsradius größenabhängig: 25cm schließt Objekt-Buchten großer Räume,
+        # frisst aber Mini-Räume (WC −13% gemessen) → kleine Räume 12cm.
+        r_gl = 0.25 if st["f_m2"] >= 4.0 else 0.12
         glatt, bw, bh = _region_glaetten(is_room, i0, j0, i1, j1, W,
-                                         max(2, int(0.12 / rst.zm)))
+                                         max(2, int(r_gl / rst.zm)))
         _kanten_begradigen(glatt, bw, bh, tol=max(3, int(0.10 / rst.zm)))
         kanten = 0
         for k in range(bw * bh):
