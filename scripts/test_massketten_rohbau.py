@@ -26,42 +26,7 @@ import massketten      # noqa: E402
 PLAN = os.path.expanduser("~/Downloads/A-5_Einreichplan_Alfred-Angerer_36_25_Index 0 (1).pdf")
 
 
-def sub_ketten(chains, ptm, rms_max_cm=30.0):
-    """Gruppen → validierte Subketten [(b0_label, [kum-Grenzen in cm])].
-
-    Die y-Gruppen mischen fremde Maßblöcke; Labels sind nur GROB segment-mittig
-    (gemessen: RMS 12-23cm bei echten Zügen wie [55,300,55,45,325,55,343,55]).
-    Deshalb: Subketten-Split am Label-Abstand, B0 nur als GROBE Lage (±35cm) —
-    die byte-exakte Struktur wird anschließend auf die Wand-Maske GESNAPPT."""
-    k = ptm / 100.0
-    out = []
-    for seg in chains:
-        sub, cur = [], [seg[0]]
-        for (p0, v0), (p1, v1) in zip(seg, seg[1:]):
-            erwartet = (v0 + v1) / 2.0 * k
-            if abs((p1 - p0) - erwartet) > 0.30 * erwartet + 20 * k:
-                sub.append(cur)
-                cur = []
-            cur.append((p1, v1))
-        sub.append(cur)
-        for teil in sub:
-            if len(teil) < 2:
-                continue
-            cum, offsets = 0.0, []
-            for p, v in teil:
-                offsets.append(p - (cum + v / 2.0) * k)
-                cum += v
-            b0 = sum(offsets) / len(offsets)
-            rms = math.sqrt(sum((o - b0) ** 2 for o in offsets) / len(offsets))
-            if rms > rms_max_cm * k:
-                continue    # Gruppen-Mix, kein echter Zug
-            grenzen_cm = [0.0]
-            cum = 0.0
-            for _p, v in teil:
-                cum += v
-                grenzen_cm.append(cum)
-            out.append((b0, grenzen_cm, [v for _p, v in teil]))
-    return out
+from massketten import sub_ketten   # eine Quelle — Produkt & Metrik identisch
 
 
 def flaechen_kanten(grid, rst, achse):
@@ -136,7 +101,7 @@ def pruefe(plan_pfad=PLAN, label="1:100", tol_m=0.035, min_lauf_m=0.4, verbose=T
             # SNAP: starre byte-exakte Struktur, 1 Freiheitsgrad (Translation) —
             # bestes B0 in ±35cm um die grobe Label-Lage (1cm-Schritte)
             best_b0, best_hits = b0_lab, -1
-            for off_cm in range(-35, 36):
+            for off_cm in range(-60, 61):   # wie massketten.wand_fluchten
                 b0 = b0_lab + off_cm * k
                 hits = sum(1 for g_cm in grenzen_cm if kante_ok(b0 + g_cm * k))
                 if hits > best_hits:
