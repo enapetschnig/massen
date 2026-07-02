@@ -206,5 +206,8 @@ if __name__ == "__main__":
         g = sorted(glob.glob(os.path.expanduser("~/Downloads/*AU_WM_01 Erdgeschoss*")))
         run(g[0], None, zelle_m=0.03)
     else:
-        run()   # EXPERIMENT — kein Guard; Befunde s. Memory (WC 0,85-Grenzfall,
-        # err-Prefilter kappt räumlich richtige Formen, Dedupe-Strategie offen)
+        n = run()
+        # GUARD (nach Z1-Render-Auflösung): 5 räumlich bewiesene Räume sind die
+        # belastbare Basis der höchsten Beweisstufe (Bad 0,964 · Geräte 0,935 ·
+        # Z1 0,925 · Waschen 0,895 · WC 0,893) — darf nie stumm regressieren.
+        assert n >= 5, f"Regression: nur {n} räumlich bewiesene Räume (Basis 5)"

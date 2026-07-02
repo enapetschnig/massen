@@ -27,6 +27,7 @@ LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
     ("Raum-Verifikation", "test_raumverifikation.py", "ERGEBNIS:"),
     ("Rohbau-Raumcheck", "test_rohbau_raumcheck.py", "ROHBAU-verifiziert"),
+    ("Räumlicher Beweis (IoU)", "exp_rohbau_iou_v3.py", "RÄUMLICH bewiesen"),
 ]
 
 
