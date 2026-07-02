@@ -82,6 +82,36 @@ def tick_cluster(dark, ptm, l_min=0.10, l_max=0.30, abstand_max=0.25):
     return cluster
 
 
+def doppellinie(c, dark, ptm, d_min=0.03, d_max=0.22):
+    """Zur Tick-Reihe das flankierende Linien-Paar finden: achsparallele Kanten
+    beidseits der Reihe (Abstand je 3-22cm), die ≥60% der Reihen-Länge decken.
+    → (front1, front2) Koordinaten der beiden Fronten, sonst None."""
+    fronten = []
+    for seite in (-1, 1):
+        best = None
+        for s in dark:
+            if c["achse"] == "v":
+                if abs(s[0] - s[2]) > 0.5:      # nicht vertikal
+                    continue
+                pos = (s[0] + s[2]) / 2
+                lo, hi = sorted((s[1], s[3]))
+            else:
+                if abs(s[1] - s[3]) > 0.5:
+                    continue
+                pos = (s[1] + s[3]) / 2
+                lo, hi = sorted((s[0], s[2]))
+            d = (pos - c["fix"]) * seite
+            if not (d_min * ptm <= d <= d_max * ptm):
+                continue
+            ueberdeckung = min(hi, c["bis"]) - max(lo, c["von"])
+            if ueberdeckung < 0.6 * (c["bis"] - c["von"]):
+                continue
+            if best is None or d < (best - c["fix"]) * seite:
+                best = pos
+        fronten.append(best)
+    return (fronten[0], fronten[1]) if all(f is not None for f in fronten) else None
+
+
 def run():
     d = fitz.open(PLAN)
     page = max(d, key=lambda p: p.rect.width * p.rect.height)
@@ -93,12 +123,34 @@ def run():
     inb = lambda s: bx0 <= (s[0] + s[2]) / 2 <= bx1 and by0 <= (s[1] + s[3]) / 2 <= by1
     dark = [s for s in segs if (s[5] is None or s[5] < 0.45) and inb(s)
             and vektor._laenge(s) / ptm > 0.10]
+    hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1))
     st = raumnetz.raum_stempel(page, box)
 
     cl = tick_cluster(dark, ptm)
     print(f"{len(cl)} Tick-Reihen (Vorwand-Kandidaten) im EG:")
+
+    # Raum-Regionen der aktuellen Pipeline (für Streifen-Überlapp)
+    import oeffnungen as oeff_mod
+    spans = []
+    for block in page.get_text("dict").get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                txt = (span.get("text") or "").strip()
+                if txt:
+                    bb = tuple(span.get("bbox") or (0, 0, 0, 0))
+                    spans.append({"text": txt, "bbox": bb,
+                                  "cx": (bb[0] + bb[2]) / 2, "cy": (bb[1] + bb[3]) / 2})
+    oeff = oeff_mod.extract_oeffnungen_from_text(spans, [])
+    dbg = {}
+    res, stempel = raumnetz.verifiziere_seite(page, ptm, box, dark, hatch, oeff, debug=dbg)
+    grid, label, rst = dbg["grid"], dbg["label"], dbg["rst"]
+    namen = {i: s["name"] for i, s in enumerate(stempel)}
+    ist = {r["name"]: r for r in res}
+
+    abzug = {}
     for c in cl:
-        # nächster Raum-Stempel
         mx = c["fix"] if c["achse"] == "v" else (c["von"] + c["bis"]) / 2
         my = (c["von"] + c["bis"]) / 2 if c["achse"] == "v" else c["fix"]
         best, bd = None, 1e9
@@ -106,8 +158,40 @@ def run():
             dd = math.hypot(s["cx"] - mx, s["cy"] - my) / ptm
             if dd < bd:
                 bd, best = dd, s
-        print(f"  {c['achse']}-Reihe bei {c['fix']:.0f}, Länge {c['laenge_m']}m, "
-              f"{c['n']} Ticks → nächster Raum: {best['name']} ({bd:.2f}m)")
+        dl = doppellinie(c, dark, ptm)
+        info = f"  {c['achse']}-Reihe bei {c['fix']:.0f} L={c['laenge_m']}m → {best['name']} ({bd:.2f}m)"
+        if not dl:
+            print(info + "  [keine Doppellinie]")
+            continue
+        tiefe = abs(dl[1] - dl[0]) / ptm
+        # Streifen-Zellen: welchem Raum-Label gehören sie aktuell?
+        lo_f, hi_f = sorted(dl)
+        von, bis = c["von"], c["bis"]
+        zaehl = {}
+        j0, j1 = (rst.ij(lo_f, von), rst.ij(hi_f, bis)) if c["achse"] == "v" else \
+                 (rst.ij(von, lo_f), rst.ij(bis, hi_f))
+        for gy in range(max(0, min(j0[1], j1[1])), min(rst.H, max(j0[1], j1[1]) + 1)):
+            for gx in range(max(0, min(j0[0], j1[0])), min(rst.W, max(j0[0], j1[0]) + 1)):
+                l = label[gy * rst.W + gx]
+                if l in namen:
+                    zaehl[namen[l]] = zaehl.get(namen[l], 0) + 1
+        anteile = {k: round(v * rst.zm * rst.zm, 3) for k, v in zaehl.items()}
+        print(info + f"  Tiefe {tiefe:.2f}m, im Raum gezählt: {anteile}")
+        for k, v in anteile.items():
+            abzug[k] = abzug.get(k, 0.0) + v
+
+    print("\nF-PROGNOSE (F_ist − Vorwand-Überlapp ≈ F_soll?):")
+    for name, a in sorted(abzug.items()):
+        r = ist.get(name)
+        if not r:
+            continue
+        f_ist, f_soll = r.get("f_ist"), r.get("f_m2")
+        if not (f_ist and f_soll):
+            continue
+        neu = f_ist - a
+        print(f"  {name:<22} ist {f_ist:6.2f} − Vorwand {a:5.2f} = {neu:6.2f} "
+              f"(soll {f_soll:6.2f}, Fehler {100 * (neu - f_soll) / f_soll:+.1f}% "
+              f"vorher {100 * (f_ist - f_soll) / f_soll:+.1f}%)")
 
 
 if __name__ == "__main__":
