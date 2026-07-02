@@ -1308,6 +1308,47 @@
     });
   }
 
+  // ── WAND-AUFMASS: jede Wand einzeln, aus der Planansicht — LIVE mit Korrekturen ──
+  function renderWandAufmass() {
+    var el = document.getElementById('wand-aufmass');
+    if (!el) return;
+    if (!_nzData || !_nzData.waende || !_nzData.waende.length) { el.innerHTML = ''; return; }
+    var bd = (window.projektMassenData || {}).baudaten || {};
+    var h = bd.geschosshoehe_m || 2.7;
+    var rows = [], sums = {};
+    (_nzData.waende || []).forEach(function (w) {
+      if (_nzEdit.removed && _nzEdit.removed[w.id]) return;
+      var cm = _nzCm(w);
+      if (!cm) return;
+      var brutto = Math.round(w.laenge_m * h * 100) / 100;
+      rows.push({ id: w.id, cm: cm, l: w.laenge_m, exakt: !!w.mass_exakt,
+        manuell: !!w.manuell, achse: w.achse, brutto: brutto });
+      sums[cm] = sums[cm] || { n: 0, l: 0, m2: 0 };
+      sums[cm].n++; sums[cm].l += w.laenge_m; sums[cm].m2 += brutto;
+    });
+    if (!rows.length) { el.innerHTML = ''; return; }
+    rows.sort(function (a, b) { return b.cm - a.cm || b.l - a.l; });
+    var html = '<h4 class="advanced-h" style="margin-top:1.1rem">Wand-Aufmaß — jede Wand einzeln ' +
+      '(aus der Planansicht · Höhe ' + fmtNum(h) + ' m · aktualisiert sich mit deinen Korrekturen)</h4>' +
+      '<div class="oa-summe">' + Object.keys(sums).sort(function (a, b) { return b - a; }).map(function (t) {
+        return 'HLZ ' + t + ': ' + sums[t].n + ' Wände · Σ ' + fmtNum(Math.round(sums[t].l * 100) / 100) +
+          ' m · <strong>' + fmtNum(Math.round(sums[t].m2 * 100) / 100) + ' m²</strong> brutto';
+      }).join(' &nbsp;|&nbsp; ') + '</div>' +
+      '<table class="oa-tab"><thead><tr><th>Wand</th><th>Stärke</th><th>Länge</th><th>Höhe</th>' +
+      '<th>Fläche brutto</th><th>Quelle</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      html += '<tr><td>W' + r.id + ' (' + (r.achse === 'v' ? 'vert.' : 'horiz.') + ')</td>' +
+        '<td>HLZ ' + r.cm + '</td>' +
+        '<td>' + fmtNum(r.l) + ' m' + (r.exakt ? ' <span title="Länge = byte-exakte Plan-Maßzahl">✓</span>' : '') + '</td>' +
+        '<td>' + fmtNum(h) + ' m</td>' +
+        '<td>' + fmtNum(r.brutto) + ' m²</td>' +
+        '<td>' + (r.manuell ? 'manuell ergänzt' : (r.exakt ? 'Plan-Maßzahl (byte-exakt)' : 'Vektor-Messung')) + '</td></tr>';
+    });
+    el.innerHTML = html + '</tbody></table>' +
+      '<div class="oa-summe">Öffnungs-Abzüge und Laibungen: siehe Öffnungs-Aufmaß oben — ' +
+      'die Wand↔Öffnung-Zuordnung je Einzelwand folgt als nächster Umbau-Schritt.</div>';
+  }
+
   // ── ÖFFNUNGS-AUFMASS: jede Öffnung einzeln, mit ÖNORM-Regel + Laibungs-Formel ──
   function renderOeffnungsAufmass(oa) {
     var el = document.getElementById('oeffnungs-aufmass');
@@ -1610,6 +1651,7 @@
       _filterState.materialliste_override = _nzStripAnteile(_filterState.materialliste_override);
       _nzPaint(); refreshProjektMassen(); _nzSave(null);
     });
+    renderWandAufmass();   // Wand-Aufmaß live mitziehen (jede Korrektur sofort sichtbar)
   }
 
   function _nzApplyZoom() {
