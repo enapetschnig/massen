@@ -70,9 +70,8 @@ def pruefe(plan_pfad=PLAN, label="1:100", tol_m=0.035, min_lauf_m=0.4, verbose=T
     rst = raumnetz._Raster(box, ptm, 0.02)
     grid = raumnetz.wand_maske(rst, dark, hatch, [])   # ohne Verschlüsse: reine Wände
 
-    spans = massketten.numeric_spans(words)
-    if not (vektor._chains_mit_pos(spans, "h") or vektor._chains_mit_pos(spans, "v")):
-        spans = massketten.numeric_spans(words, meter_notation=True)   # Meter-Dialekt
+    spans = massketten.numeric_spans(words) \
+        + massketten.numeric_spans(words, meter_notation=True)   # Union (wie Produkt)
     # Nur Ketten DIESER Ansicht: das Blatt trägt auch OG/Schnitt-Maßketten
     # (gemessen: Züge @y=1067 weit außerhalb der EG-Box) — Spans müssen in
     # Box ± 3m liegen (Maßlinien sitzen knapp außerhalb des Gebäudes).

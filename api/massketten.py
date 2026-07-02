@@ -172,9 +172,11 @@ def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
     Öffnungs-Züge der Polierpläne messen keine Wände (AP.01 gemessen)."""
     import vektor   # lazy (vektor importiert massketten lazy → kein Zyklus)
     bx0, bx1, by0, by1 = box
-    spans = numeric_spans(words)
-    if not (vektor._chains_mit_pos(spans, "h") or vektor._chains_mit_pos(spans, "v")):
-        spans = numeric_spans(words, meter_notation=True)
+    # UNION beider Notationen (Token-Klassen disjunkt: "300" nur cm, "1.80" nur
+    # Meter) — Pläne mischen sie im selben Blatt (1762788650811). Die KALIBRIERUNG
+    # bleibt strikt zweipassig (Höhen-Labels kippten dort den Cluster, gemessen);
+    # hier gaten Subketten-Split + Snap + Wand-Zug-Regel die Fehldeutungen.
+    spans = numeric_spans(words) + numeric_spans(words, meter_notation=True)
     m3 = 3.0 * ptm
     spans = [(x, y, v) for (x, y, v) in spans
              if bx0 - m3 <= x <= bx1 + m3 and by0 - m3 <= y <= by1 + m3]
