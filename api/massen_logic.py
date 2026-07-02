@@ -565,3 +565,50 @@ def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None, tuer
         except Exception as e:
             result["gewerke"][g] = {"label": label, "positionen": [], "error": str(e)}
     return result
+
+
+def oeffnungs_aufmass(fenster, tueren, baudaten):
+    """ÖFFNUNGS-AUFMASS ('Massen zuerst'-Umbau): JEDE Öffnung als eigene, prüfbare
+    Zeile — Raum · Typ · B×H · Fläche · angewandte ÖNORM-Regel (B 2204 §5.5.1.3:
+    ≤4,0 m² übermessen OHNE Laibung / >4,0 m² Abzug MIT Laibungszeile) · Laibungs-m²
+    samt Formel. Damit ist sichtbar, WELCHE Laibungen drin sind und warum."""
+    bd = baudaten or {}
+    zeilen = []
+    for o in _oeffnungen_kombi(fenster, tueren):
+        b, h = o.get("breite_m") or 0, o.get("hoehe_m") or 0
+        aussen = _ist_aussenwand(o)
+        wand_cm = bd.get("aussenwand_cm", 50) if aussen else bd.get("innenwand_cm", 12)
+        schwelle = _schwelle_fuer(bd, "putz")
+        n = oeffnung_netto(b, h, wand_cm, o.get("fph_m", 0), schwelle)
+        if n["uebermessen"]:
+            regel = f"übermessen (≤{schwelle:.1f} m² — kein Abzug, keine Laibung)"
+            formel = f"{b:.2f}×{h:.2f}={n['flaeche']:.2f} m² ≤ {schwelle:.1f}"
+        else:
+            regel = f"Abzug + Laibung (>{schwelle:.1f} m²)"
+            u_l = 2 * h + b + (b if n["sohlbank"] else 0)
+            formel = (f"{b:.2f}×{h:.2f}={n['flaeche']:.2f} m² · Laibung ({'2H+2B' if n['sohlbank'] else '2H+B'}"
+                      f"={u_l:.2f} m)×{n['tiefe']:.2f} m={n['laibung']:.2f} m²")
+        zeilen.append({
+            "raum": o.get("raum"),
+            "typ": o.get("_art"),
+            "wand": "AW" if aussen else "IW",
+            "breite_m": round(b, 2), "hoehe_m": round(h, 2),
+            "flaeche_m2": n["flaeche"],
+            "regel": regel,
+            "abzug_m2": n["abzug"],
+            "laibung_m2": n["laibung"],
+            "sohlbank": n["sohlbank"],
+            "formel": formel,
+        })
+    zeilen.sort(key=lambda z: (z["typ"] or "", z["raum"] or ""))
+    return {
+        "zeilen": zeilen,
+        "summen": {
+            "n": len(zeilen),
+            "n_uebermessen": sum(1 for z in zeilen if z["abzug_m2"] == 0),
+            "n_abzug": sum(1 for z in zeilen if z["abzug_m2"] > 0),
+            "abzug_m2": round(sum(z["abzug_m2"] for z in zeilen), 2),
+            "laibung_m2": round(sum(z["laibung_m2"] for z in zeilen), 2),
+        },
+        "norm": "in Anlehnung an ÖNORM B 2204 §5.5.1.3",
+    }

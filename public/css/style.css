@@ -2882,3 +2882,11 @@ line.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 10 !important
   .lv-aufmass > summary { display: none; }
   .lv-pos, .lv-gewerk { break-inside: avoid; }
 }
+
+/* Öffnungs-Aufmaß-Tabelle */
+.oa-summe { font-size: 0.85rem; color: var(--text-light); margin: 0.3rem 0 0.5rem; }
+.oa-tab { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.oa-tab th { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 2px solid var(--border); color: var(--text-light); font-weight: 600; }
+.oa-tab td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+.oa-tab tr.oa-abzug { background: #fff7ed; }
+.oa-formel { font-family: ui-monospace, monospace; font-size: 0.74rem; color: var(--text-light); }

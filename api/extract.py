@@ -4710,6 +4710,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         } if _KONSISTENZ_OK else None,
         "gemessen": gemessen,
         "legende": best_legende,
+        "oeffnungs_aufmass": _oeffnungs_aufmass_safe(alle_fenster, alle_tueren, best_baudaten),
         "farben": {                              # Neubau/Bestand/Abbruch-Erkennung (byte-exakt)
             "hat_bestand": farb_hat_bestand,     # nur True bei ECHTEN Bauteilen (Präzisions-Gate)
             "hat_abbruch": farb_hat_abbruch,
@@ -4724,6 +4725,16 @@ async def projekt_massen(body: ProjektMassenRequest):
 class NachzeichnenRequest(BaseModel):
     projekt_id: str | None = None
     plan_id: str | None = None
+
+
+def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
+    """Öffnungs-Aufmaß je Öffnung (Massen-zuerst-Umbau) — best-effort, bricht nie."""
+    try:
+        from massen_logic import oeffnungs_aufmass
+        return oeffnungs_aufmass(fenster or [], tueren or [], baudaten or {})
+    except Exception as _e:  # pragma: no cover
+        print(f"[oeffnungs_aufmass] fehlgeschlagen: {_e}")
+        return None
 
 
 def _nachzeichnen_roh(body):
