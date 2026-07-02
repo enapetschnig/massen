@@ -1566,6 +1566,21 @@
     var W = _nzData.bild_w, H = _nzData.bild_h, meta = _nzData.meta || {};
     var fs = Math.max(13, Math.round(W / 78));   // Label-Schriftgröße relativ zur Bildbreite
     var lines = '', labels = '';
+    // BYTE-EXAKTE WANDFLUCHTEN (Maßketten-Snap): jede Linie ist eine Wandflucht
+    // laut Plan-Bemaßung — grün = von der Wand-Erkennung bestätigt, rot = dort
+    // fehlt eine Wand in der Erkennung (oder die Kette misst etwas anderes).
+    var nFlOk = 0, nFl = 0;
+    (_nzData.fluchten || []).forEach(function (f) {
+      nFl++; if (f.ok) nFlOk++;
+      var fcol = f.ok ? '#16a34a' : '#dc2626';
+      var x1 = f.achse === 'v' ? f.px : 0, y1 = f.achse === 'v' ? 0 : f.px;
+      var x2 = f.achse === 'v' ? f.px : W, y2 = f.achse === 'v' ? H : f.px;
+      lines += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 +
+        '" stroke="' + fcol + '" stroke-width="1.2" stroke-opacity="' + (f.ok ? 0.32 : 0.42) +
+        '" stroke-dasharray="3 6" pointer-events="stroke"><title>Wandflucht lt. Maßkette (byte-exakt)' +
+        (f.ok ? ' — ✓ von der Wand-Erkennung bestätigt' : ' — ✗ hier fehlt eine Wand in der Erkennung → prüfen') +
+        '</title></line>';
+    });
     (_nzData.waende || []).forEach(function (w) {
       var cm = _nzCm(w), rm = !!_nzEdit.removed[w.id], sel = (_nzSel === w.id);
       var col = rm ? '#b8c0cc' : (NZ_FARBE[cm] || '#888');
@@ -1649,6 +1664,11 @@
         '<strong>' + nF + '</strong> Fenster</span>' +
         '<span class="nz-leg-item"><span class="nz-sw" style="background:#b45309;border-radius:50%"></span>' +
         '<strong>' + nT + '</strong> Türen</span>';
+    }
+    if (nFl) {
+      legend += '<span class="nz-leg-item" title="Wandfluchten aus den byte-exakten Maßketten des Plans, auf die Wand-Erkennung gesnappt">' +
+        '<span class="nz-sw" style="background:repeating-linear-gradient(90deg,#16a34a 0 3px,transparent 3px 6px)"></span>' +
+        'Maßketten-Fluchten: <strong>' + nFlOk + '/' + nFl + '</strong> bestätigt</span>';
     }
     // Auswahl-Toolbar
     var tb = '';

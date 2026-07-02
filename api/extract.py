@@ -4737,7 +4737,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 1   # bei Pipeline-Änderungen erhöhen → Cache invalidiert
+_NZ_CACHE_V = 2   # bei Pipeline-Änderungen erhöhen → Cache invalidiert (2: Maßketten-Fluchten)
 
 
 def _nachzeichnen_roh(body):

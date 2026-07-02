@@ -62,6 +62,21 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     def pt(px, py):
         return fitz.Point(ix0 + px * f, iy0 + py * f)
 
+    # ── Byte-exakte Wandfluchten (Maßketten-Snap) — HINTER den Wänden ──
+    # grün = von der Wand-Erkennung bestätigt, rot = Erkennungs-Lücke (prüfen!)
+    n_fl_ok = 0
+    fluchten = nz.get("fluchten") or []
+    for fl in fluchten:
+        ok = bool(fl.get("ok"))
+        n_fl_ok += ok
+        col = (0.09, 0.64, 0.29) if ok else (0.86, 0.15, 0.15)
+        if fl.get("achse") == "v":
+            a, b = pt(fl["px"], 0), pt(fl["px"], bh)
+        else:
+            a, b = pt(0, fl["px"]), pt(bw, fl["px"])
+        page.draw_line(a, b, color=col, width=0.5, stroke_opacity=0.45,
+                       dashes="[2 4] 0")
+
     # ── Wände einzeichnen ──
     for w in (nz.get("waende") or []):
         cm = w.get("snap_cm")
@@ -133,10 +148,12 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     s_txt = "   ·   ".join(f"HLZ {k}: {v:.2f} m" for k, v in summe.items())
     page.insert_text((M, y), f"Σ Wandlängen je Stärke:  {s_txt}", fontsize=8.5)
     y += 14
+    fl_txt = (f"   ·   Maßketten-Fluchten: {n_fl_ok}/{len(fluchten)} bestätigt "
+              f"(grün gestrichelt; rot = Erkennungs-Lücke)") if fluchten else ""
     page.insert_text((M, y),
                      f"Räume: {n_ok} voll bestätigt (Fläche+Umfang) · {n_f} Fläche exakt (Umfang prüfen) · von {len(raeume)}   ·   "
                      f"Öffnungen: {len(nz.get('oeffnungen') or [])} (byte-exakt aus STUK/FPH-Codes)   ·   "
-                     f"* = Länge byte-exakt aus der Plan-Maßzahl übernommen",
+                     f"* = Länge byte-exakt aus der Plan-Maßzahl übernommen" + fl_txt,
                      fontsize=8.5)
     y += 14
     kal = "Maßstab über Bemaßungsketten verifiziert" if meta.get("tragfaehig") \

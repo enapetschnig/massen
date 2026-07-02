@@ -118,3 +118,107 @@ def reconstruct_bbox(spans, footprint_m2, tol=6.0):
         "flaeche_m2": round(hw * vt / 10000.0, 2),
         "h_rep": hn, "v_rep": vn,
     }
+
+
+# ── Byte-exakte WANDFLUCHTEN aus Ketten-Snap (Produkt-Feature, Juli 2026) ─────
+def sub_ketten(chains, ptm, rms_max_cm=30.0):
+    """Positions-Ketten [(pos_pt, wert_cm)] → validierte Subketten
+    [(b0_label_pt, [kumulative Grenz-cm], [werte_cm])].
+
+    Die Achs-Gruppen mischen fremde Maßblöcke; Labels sind nur GROB segment-
+    mittig (RMS 12-23cm bei echten Zügen). Deshalb: Split am Label-Abstand
+    (≈ (v_i+v_j)/2 ± 30%+20cm), B0 nur als grobe Lage — die byte-exakte
+    Struktur wird anschließend auf die Wand-Maske gesnappt."""
+    import math
+    k = ptm / 100.0
+    out = []
+    for seg in chains:
+        sub, cur = [], [seg[0]]
+        for (p0, v0), (p1, v1) in zip(seg, seg[1:]):
+            erwartet = (v0 + v1) / 2.0 * k
+            if abs((p1 - p0) - erwartet) > 0.30 * erwartet + 20 * k:
+                sub.append(cur)
+                cur = []
+            cur.append((p1, v1))
+        sub.append(cur)
+        for teil in sub:
+            if len(teil) < 2:
+                continue
+            cum, offsets = 0.0, []
+            for p, v in teil:
+                offsets.append(p - (cum + v / 2.0) * k)
+                cum += v
+            b0 = sum(offsets) / len(offsets)
+            rms = math.sqrt(sum((o - b0) ** 2 for o in offsets) / len(offsets))
+            if rms > rms_max_cm * k:
+                continue
+            grenzen_cm = [0.0]
+            cum = 0.0
+            for _p, v in teil:
+                cum += v
+                grenzen_cm.append(cum)
+            out.append((b0, grenzen_cm, [v for _p, v in teil]))
+    return out
+
+
+def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
+                  tol_m=0.035, min_lauf_m=0.4, zm=0.02):
+    """Byte-exakte Wandfluchten: Maßketten-Züge auf die Wand-Maske snappen.
+
+    → Liste {achse: 'v'|'h' (Linien-RICHTUNG), pos: pt, ok: bool} — 'v' ist
+    eine vertikale Flucht (x=pos, aus h-Ketten), 'h' horizontal (y=pos).
+    ok=True: die Maske hat dort eine Flächen-Kante (±tol_m, Lauf ≥min_lauf_m).
+    Nur WAND-Züge (≥50% Grenzen treffen) werden geliefert — Außenanlagen-/
+    Öffnungs-Züge der Polierpläne messen keine Wände (AP.01 gemessen)."""
+    import vektor   # lazy (vektor importiert massketten lazy → kein Zyklus)
+    bx0, bx1, by0, by1 = box
+    spans = numeric_spans(words)
+    if not (vektor._chains_mit_pos(spans, "h") or vektor._chains_mit_pos(spans, "v")):
+        spans = numeric_spans(words, meter_notation=True)
+    m3 = 3.0 * ptm
+    spans = [(x, y, v) for (x, y, v) in spans
+             if bx0 - m3 <= x <= bx1 + m3 and by0 - m3 <= y <= by1 + m3]
+    k = ptm / 100.0
+    min_lauf = int(min_lauf_m / zm)
+    tol_z = max(1, int(tol_m / zm))
+    out = []
+    for achse in ("h", "v"):      # Ketten-Achse; Fluchten stehen QUER dazu
+        # Flächen-Kanten der Maske quer zur Kette
+        kanten = {}
+        if achse == "h":          # h-Kette → vertikale Fluchten (x=const)
+            for i in range(1, W):
+                n = sum(1 for j in range(H) if grid[j * W + i] != grid[j * W + i - 1])
+                if n:
+                    kanten[i] = n
+            base, lo, hi = bx0, bx0, bx1
+        else:
+            for j in range(1, H):
+                n = sum(1 for i in range(W) if grid[j * W + i] != grid[(j - 1) * W + i])
+                if n:
+                    kanten[j] = n
+            base, lo, hi = by0, by0, by1
+
+        def kante_ok(pos_pt):
+            iz = int((pos_pt - base) / cell_pt)
+            return max((kanten.get(iz + o, 0)
+                        for o in range(-tol_z, tol_z + 1)), default=0) >= min_lauf
+
+        for b0_lab, grenzen_cm, _w in sub_ketten(
+                vektor._chains_mit_pos(spans, achse), ptm):
+            best_b0, best_hits = b0_lab, -1
+            for off_cm in range(-35, 36):
+                b0 = b0_lab + off_cm * k
+                hits = sum(1 for g in grenzen_cm if kante_ok(b0 + g * k))
+                if hits > best_hits:
+                    best_hits, best_b0 = hits, b0
+            im_bild = [g for g in grenzen_cm
+                       if lo - 0.1 * ptm <= best_b0 + g * k <= hi + 0.1 * ptm]
+            if len(im_bild) < 2:
+                continue
+            oks = [kante_ok(best_b0 + g * k) for g in im_bild]
+            if sum(oks) < 0.5 * len(im_bild):
+                continue    # kein Wand-Zug
+            for g, ok in zip(im_bild, oks):
+                out.append({"achse": "v" if achse == "h" else "h",
+                            "pos": round(best_b0 + g * k, 2), "ok": bool(ok)})
+    return out

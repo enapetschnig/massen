@@ -218,6 +218,27 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Raum-Verifikation fehlgeschlagen: {e}")
 
+    # BYTE-EXAKTE WANDFLUCHTEN (Maßketten-Snap): jede bestätigte Ketten-Grenze
+    # IST eine Wandflucht laut Plan-Bemaßung — eingezeichnet in Planansicht +
+    # Aufmaßblatt macht sie die Maße NACHVOLLZIEHBAR ("Längen 1:1 aus dem Plan").
+    # Korpus: WM 89% / AP.01 61% / Angerer 56% der Grenzen bestätigt.
+    fluchten = []
+    try:
+        import raumnetz
+        import massketten
+        dark_f = [s for s in segs if (s[5] is None or s[5] < 0.45)
+                  and vektor._laenge(s) / ptm > 0.10 and inb(s)]
+        rst_f = raumnetz._Raster((bx0, bx1, by0, by1), ptm, 0.02)
+        grid_f = raumnetz.wand_maske(rst_f, dark_f, hatch, [])
+        for fl in massketten.wand_fluchten(page.get_text("words"),
+                                           (bx0, bx1, by0, by1), ptm,
+                                           grid_f, rst_f.W, rst_f.H, rst_f.cell):
+            px = to_px(fl["pos"], by0)[0] if fl["achse"] == "v" \
+                else to_px(bx0, fl["pos"])[1]
+            fluchten.append({"achse": fl["achse"], "px": px, "ok": fl["ok"]})
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Wandfluchten fehlgeschlagen: {e}")
+
     try:
         import fitz
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale),
@@ -234,6 +255,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         "waende": waende,
         "oeffnungen": oeffnungen,
         "raeume": raeume,
+        "fluchten": fluchten,
         "summe_m": {str(k): v for k, v in sorted(summe.items(), reverse=True)},
         "meta": {
             "ptm": round(ptm, 2),
