@@ -92,6 +92,21 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
                 fv.append((hx + zu[0]) / 2.0)
     except Exception:
         pass
+    # QUELLE 3 — WAND-FACES aus wand_paare (Geräte-Sezierung: die Ost-Innenflucht
+    # ~591,5 hat weder Ketten-Zug noch Bogen — aber die erkannte Wand kennt sie
+    # als Achse±Dicke/2). Mit IoU+Eindeutigkeit als Wächter ist der reichere
+    # Pool sicher (die Overfitting-Lehre gilt nur OHNE räumlichen Beweis).
+    try:
+        for w in vektor.wand_paare(dark, ptm, min_len_m=0.6,
+                                   legende_dicken=[50, 38, 25, 20, 12],
+                                   hatch=hatch, mit_geometrie=True):
+            d2 = (w.get("dicke_cm") or 0) / 100.0 * ptm / 2.0
+            if w["achse"] == "v":
+                fv.extend([w["x0"] - d2, w["x0"] + d2])
+            else:
+                fh.extend([w["y0"] - d2, w["y0"] + d2])
+    except Exception:
+        pass
     fv_roh, fh_roh = sorted(fv), sorted(fh)   # UNdedupliziert für L-Kerben (xi/yj)
     fv, fh = _dedupe(fv, ptm), _dedupe(fh, ptm)
 
