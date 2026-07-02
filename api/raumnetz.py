@@ -237,7 +237,11 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         # die falsche Richtung → Leck, gemessen). Score = min(Ende1, Ende2).
         cx, cy = o["cx"], o["cy"]
         b2 = ((o.get("breite_m") or 1.0) * rst.ptm * 0.9) / 2.0
-        d2 = 0.20 * rst.ptm
+        # Balken-Tiefe tür-adaptiv: Innentüren sitzen in ~12cm-Wänden — ein 0,4m tiefer
+        # Balken frisst Raumfläche, die laut Plan-F zum Raum gehört (Tür-Diagnose:
+        # 5-6 Türen ≈ 1,6-1,9m² = exakt Flur+WC-Defizit). Fenster (Außenwand 50cm)
+        # behalten die volle Tiefe (sonst Leck zur AUSSEN-Seite).
+        d2 = (0.10 if o.get("typ") == "tuer" else 0.22) * rst.ptm
 
         def ende_score(dx, dy):
             hits = 0
