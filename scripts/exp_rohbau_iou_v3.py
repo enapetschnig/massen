@@ -175,56 +175,74 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
             return inter / union if union else 0.0
 
         ober = max(1.15 * f_ziel, 1.10 * f_ziel + 0.25)
-        kand = []    # (prefilter_score, L, R, O, U, kerbe, beschr)
-        vp = [(a, b) for a in fv if a < cx for b in fv if b > cx
-              if 0.5 <= (b - a) / ptm <= 14.0]
-        hp = [(a, b) for a in fh if a < cy for b in fh if b > cy
-              if 0.5 <= (b - a) / ptm <= 14.0]
-        for (l_, r_) in vp:
-            w_ = (r_ - l_) / ptm
-            for (o_, u_) in hp:
-                h_ = (u_ - o_) / ptm
-                a_ = w_ * h_
-                if 0.98 * f_ziel <= a_ <= ober:
-                    kand.append((abs(a_ - f_ist), l_, r_, o_, u_, None,
-                                 f"Rect {w_:.2f}×{h_:.2f}"))
-                # L-Kandidaten: Bounding per U-Kompatibilität
-                if abs(2 * (w_ + h_) - u_ist) / u_ist <= 0.08:
-                    for xi in (p for p in fv_roh if l_ < p < r_):
-                        for yj in (p for p in fh_roh if o_ < p < u_):
-                            for kx in ((l_, xi), (xi, r_)):
-                                for ky in ((o_, yj), (yj, u_)):
-                                    ka = ((kx[1] - kx[0]) * (ky[1] - ky[0])
-                                          / ptm / ptm)
-                                    if ka < 0.5:
-                                        continue
-                                    err = abs(a_ - ka - f_ist)
-                                    if err <= 0.05 * f_ziel:
-                                        kand.append((err, l_, r_, o_, u_,
-                                                     (kx[0], kx[1], ky[0], ky[1]),
-                                                     f"L {w_:.2f}×{h_:.2f}−"
-                                                     f"{ka:.1f}m²"))
-        # Prefilter-Fix: RECTS IMMER exakt prüfen (wenige), L nach err kappen —
-        # die räumlich richtige Form darf nicht am err-Ranking scheitern.
-        rects = [k for k in kand if k[5] is None]
-        ls = sorted((k for k in kand if k[5] is not None), key=lambda t: t[0])[:120]
-        gerankt = sorted(((iou(k[1], k[2], k[3], k[4], k[5]),) + k
-                          for k in rects + ls), key=lambda t: -t[0])
-        if not gerankt:
+
+        def _rank(fvu, fhu, fvru, fhru):
+            kand = []    # (prefilter_score, L, R, O, U, kerbe, beschr)
+            vp = [(a, b) for a in fvu if a < cx for b in fvu if b > cx
+                  if 0.5 <= (b - a) / ptm <= 14.0]
+            hp = [(a, b) for a in fhu if a < cy for b in fhu if b > cy
+                  if 0.5 <= (b - a) / ptm <= 14.0]
+            for (l_, r_) in vp:
+                w_ = (r_ - l_) / ptm
+                for (o_, u_) in hp:
+                    h_ = (u_ - o_) / ptm
+                    a_ = w_ * h_
+                    if 0.98 * f_ziel <= a_ <= ober:
+                        kand.append((abs(a_ - f_ist), l_, r_, o_, u_, None,
+                                     f"Rect {w_:.2f}×{h_:.2f}"))
+                    # L-Kandidaten: Bounding per U-Kompatibilität
+                    if abs(2 * (w_ + h_) - u_ist) / u_ist <= 0.08:
+                        for xi in (p for p in fvru if l_ < p < r_):
+                            for yj in (p for p in fhru if o_ < p < u_):
+                                for kx in ((l_, xi), (xi, r_)):
+                                    for ky in ((o_, yj), (yj, u_)):
+                                        ka = ((kx[1] - kx[0]) * (ky[1] - ky[0])
+                                              / ptm / ptm)
+                                        if ka < 0.5:
+                                            continue
+                                        err = abs(a_ - ka - f_ist)
+                                        if err <= 0.05 * f_ziel:
+                                            kand.append((err, l_, r_, o_, u_,
+                                                         (kx[0], kx[1], ky[0], ky[1]),
+                                                         f"L {w_:.2f}×{h_:.2f}−"
+                                                         f"{ka:.1f}m²"))
+            rects = [k for k in kand if k[5] is None]
+            ls = sorted((k for k in kand if k[5] is not None), key=lambda t: t[0])[:120]
+            return sorted(((iou(k[1], k[2], k[3], k[4], k[5]),) + k
+                           for k in rects + ls), key=lambda t: -t[0])
+
+        # ZWEI STUFEN (Live-Design): Stufe 1 = BBox-Fenster ±0,5m (schnell);
+        # nur wer dort NICHT eindeutig besteht, bekommt Stufe 2 = voller Pool
+        # (Bad braucht ihn — seine knappe Eindeutigkeit hängt am Kandidatensatz).
+        rj = sorted(runs)
+        rx0 = rstd.bx0 + min(z[0][0] for z in runs.values()) * rstd.cell - 0.5 * ptm
+        rx1 = rstd.bx0 + (max(z[-1][1] for z in runs.values()) + 1) * rstd.cell + 0.5 * ptm
+        ry0 = rstd.by0 + rj[0] * rstd.cell - 0.5 * ptm
+        ry1 = rstd.by0 + (rj[-1] + 1) * rstd.cell + 0.5 * ptm
+
+        def _entscheide(gerankt):
+            if not gerankt:
+                return None, None
+            t = gerankt[0]
+
+            def _gf(g):
+                return (abs(g[2] - t[2]) < 0.12 * ptm and abs(g[3] - t[3]) < 0.12 * ptm
+                        and abs(g[4] - t[4]) < 0.12 * ptm and abs(g[5] - t[5]) < 0.12 * ptm)
+            ok = (t[0] >= iou_min - 1e-9
+                  and all(_gf(g) or g[0] < iou_min - 1e-9
+                          or t[0] - g[0] >= 0.02 for g in gerankt[1:]))
+            return t, ok
+
+        top, ok1 = _entscheide(_rank(
+            [p for p in fv if rx0 <= p <= rx1], [p for p in fh if ry0 <= p <= ry1],
+            [p for p in fv_roh if rx0 <= p <= rx1],
+            [p for p in fh_roh if ry0 <= p <= ry1]))
+        if not ok1:
+            top, ok1 = _entscheide(_rank(fv, fh, fv_roh, fh_roh))
+        if top is None:
             continue
-        top = gerankt[0]
-        # Eindeutigkeit (prinzipiell): nur EINE physische Form darf über der
-        # Schwelle liegen — andersartige Formen (irgendeine Kante >12cm) müssen
-        # alle darunter bleiben. (4-Kanten-Naheliegen war zu streng: U-Varianten
-        # derselben Wand rissen Bad in 'ambig'.)
-        def _gleiche_form(g):
-            return (abs(g[2] - top[2]) < 0.12 * ptm and abs(g[3] - top[3]) < 0.12 * ptm
-                    and abs(g[4] - top[4]) < 0.12 * ptm and abs(g[5] - top[5]) < 0.12 * ptm)
-        # Eindeutig wenn andersartige Formen ENTWEDER unter der Schwelle ODER
-        # um ≥0,02 IoU schlechter sind (die Region BEVORZUGT dann eine Form klar).
-        gleich = all(_gleiche_form(g) or g[0] < iou_min - 1e-9
-                     or top[0] - g[0] >= 0.02 for g in gerankt[1:])
-        if top[0] >= iou_min - 1e-9 and gleich:
+        gerankt = None   # Entscheidung bereits gefallen
+        if ok1:
             n_ok += 1
             if verbose:
                 print(f"  ✓✓ {r['name']}: {top[7]}  IoU={top[0]:.3f}  "
