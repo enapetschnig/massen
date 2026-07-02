@@ -117,24 +117,61 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
         if not (f_ziel and f_ist and u_ist):
             continue
         cx, cy = r["cx"], r["cy"]
+        # ZEILEN-RUNS statt Punktwolke (gemessen 51,7s → Ziel <1s): je Zeile j
+        # die [i_start,i_ende]-Intervalle der Region; inter(Rect) = Σ Intervall-
+        # Überlappungen = O(Zeilen); Kerbe wird analog subtrahiert.
         Wd = rstd.W
-        pts = [(rstd.bx0 + (k % Wd + 0.5) * rstd.cell,
-                rstd.by0 + (k // Wd + 0.5) * rstd.cell)
-               for k in range(Wd * rstd.H) if label_arr[k] == idx]
-        if not pts:
+        runs = {}
+        n_region = 0
+        for j in range(rstd.H):
+            base = j * Wd
+            i = 0
+            zeile = []
+            while i < Wd:
+                if label_arr[base + i] == idx:
+                    a = i
+                    while i < Wd and label_arr[base + i] == idx:
+                        i += 1
+                    zeile.append((a, i - 1))
+                    n_region += i - a
+                else:
+                    i += 1
+            if zeile:
+                runs[j] = zeile
+        if not n_region:
             continue
 
+        def _overlap_zeile(zeile, i0, i1):
+            n = 0
+            for (a, b) in zeile:
+                lo, hi = max(a, i0), min(b, i1)
+                if hi >= lo:
+                    n += hi - lo + 1
+            return n
+
         def iou(L_, R_, O_, U_, kerbe=None):
+            i0 = int((L_ - rstd.bx0) / rstd.cell)
+            i1 = int((R_ - rstd.bx0) / rstd.cell)
+            j0 = max(0, int((O_ - rstd.by0) / rstd.cell))
+            j1 = min(rstd.H - 1, int((U_ - rstd.by0) / rstd.cell))
+            ki0 = ki1 = kj0 = kj1 = None
+            if kerbe:
+                ki0 = int((kerbe[0] - rstd.bx0) / rstd.cell)
+                ki1 = int((kerbe[1] - rstd.bx0) / rstd.cell)
+                kj0 = int((kerbe[2] - rstd.by0) / rstd.cell)
+                kj1 = int((kerbe[3] - rstd.by0) / rstd.cell)
             inter = 0
-            for (px, py) in pts:
-                if L_ <= px <= R_ and O_ <= py <= U_:
-                    if not (kerbe and kerbe[0] <= px <= kerbe[1]
-                            and kerbe[2] <= py <= kerbe[3]):
-                        inter += 1
+            for j in range(j0, j1 + 1):
+                zeile = runs.get(j)
+                if not zeile:
+                    continue
+                inter += _overlap_zeile(zeile, i0, i1)
+                if kerbe and kj0 <= j <= kj1:
+                    inter -= _overlap_zeile(zeile, ki0, ki1)
             f_area = (R_ - L_) * (U_ - O_) / ptm / ptm
             if kerbe:
                 f_area -= ((kerbe[1] - kerbe[0]) * (kerbe[3] - kerbe[2])) / ptm / ptm
-            union = f_area / zm2 + len(pts) - inter
+            union = f_area / zm2 + n_region - inter
             return inter / union if union else 0.0
 
         ober = max(1.15 * f_ziel, 1.10 * f_ziel + 0.25)
