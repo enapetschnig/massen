@@ -36,14 +36,19 @@ def schatten(plan_teil):
     fluchten = [f for f in (nz.get("fluchten") or []) if f["ok"]]
     fl_v = sorted(f["px"] for f in fluchten if f["achse"] == "v")   # x=const
     fl_h = sorted(f["px"] for f in fluchten if f["achse"] == "h")   # y=const
-    tol_px = 0.25 * ptm * scale
-
-    def naechste(fl, p):
-        best = None
-        for q in fl:
-            if best is None or abs(q - p) < abs(best - p):
-                best = q
-        return best if best is not None and abs(best - p) <= tol_px else None
+    def naechste(fl, p, tol_px):
+        # VERSCHÄRFT (Schatten-Messung: 63/117 WM-Wände Δ>3cm, kurze Wände
+        # schnappten auf falsche Nachbar-Fluchten): (1) Toleranz skaliert mit
+        # der Wandlänge, (2) EINDEUTIGKEIT — die zweitnächste Flucht muss
+        # doppelt so weit weg sein, sonst kein Match.
+        if not fl:
+            return None
+        srt = sorted(fl, key=lambda q: abs(q - p))
+        if abs(srt[0] - p) > tol_px:
+            return None
+        if len(srt) > 1 and abs(srt[1] - p) < 2.0 * abs(srt[0] - p):
+            return None    # ambig
+        return srt[0]
 
     n_beidseitig = 0
     deltas = []
@@ -52,10 +57,11 @@ def schatten(plan_teil):
         p = w["px"]
         cm = w.get("snap_cm")
         # Endpunkte entlang der Wand-Achse → Quer-Fluchten
+        tol_px = min(0.25, w["laenge_m"] / 2.0) * ptm * scale
         if w["achse"] == "h":
-            a, b = naechste(fl_v, p[0]), naechste(fl_v, p[2])
+            a, b = naechste(fl_v, p[0], tol_px), naechste(fl_v, p[2], tol_px)
         else:
-            a, b = naechste(fl_h, p[1]), naechste(fl_h, p[3])
+            a, b = naechste(fl_h, p[1], tol_px), naechste(fl_h, p[3], tol_px)
         if cm:
             sum_live[cm] = sum_live.get(cm, 0.0) + w["laenge_m"]
         if a is None or b is None or a == b:
