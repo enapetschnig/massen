@@ -73,11 +73,54 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02):
                 score = abs(fl_a - 1.06 * f_ziel)
                 if best is None or score < best[0]:
                     best = (score, l_, r_, o_, u_)
-        if not best:
+        rect_ok = False
+        if best:
+            _sc0, l0, r0, o0, u0 = best
+            w0 = (r0 - l0) / ptm
+            h0 = (u0 - o0) / ptm
+            f_r0, u_r0 = w0 * h0, 2 * (w0 + h0)
+            f_i0, u_i0 = r.get("f_ist"), r.get("u_ist")
+            rect_ok = bool(f_i0 and abs(f_i0 - f_r0) / f_r0 <= 0.05
+                           and u_i0 and abs(u_i0 - u_r0) / u_r0 <= 0.08)
+        if not rect_ok:
+            # STUFE 2 — L-FORM (Flur/Waschen/Wohnküche gemessen, Fehler 0,02-0,08m²):
+            # achsparalleles L hat den UMFANG seiner Bounding-Box; F = W×H − Kerbe.
+            # Bounding per U-Kompatibilität (±8%), Kerbe als Eck-Rechteck an
+            # inneren Fluchten (byte-exakt), |WH−Kerbe−f_ist| ≤ 5%.
+            u_ist0 = r.get("u_ist")
+            if not u_ist0:
+                continue
+            lbest = None
+            for L_ in (p for p in fv if p < cx):
+                for R_ in (p for p in fv if p > cx):
+                    W_ = (R_ - L_) / ptm
+                    if not 0.5 <= W_ <= 14:
+                        continue
+                    for O_ in (p for p in fh if p < cy):
+                        for U_ in (p for p in fh if p > cy):
+                            H_ = (U_ - O_) / ptm
+                            if not 0.5 <= H_ <= 14:
+                                continue
+                            if abs(2 * (W_ + H_) - u_ist0) / u_ist0 > 0.08:
+                                continue
+                            WH = W_ * H_
+                            for xi in (p for p in fv if L_ < p < R_):
+                                for yj in (p for p in fh if O_ < p < U_):
+                                    for wn in ((xi - L_) / ptm, (R_ - xi) / ptm):
+                                        for hn in ((yj - O_) / ptm, (U_ - yj) / ptm):
+                                            err = abs(WH - wn * hn - (r.get("f_ist") or 0))
+                                            if err <= 0.05 * f_ziel and (
+                                                    lbest is None or err < lbest[0]):
+                                                lbest = (err, W_, H_, wn, hn)
+            if lbest:
+                n_ok += 1
+                print(f"  ✓✓L {r['name']}: F {r.get('f_ist')} ≈ "
+                      f"{lbest[1]:.2f}×{lbest[2]:.2f} − {lbest[3]:.2f}×{lbest[4]:.2f} "
+                      f"(Fehler {lbest[0]:.2f}m²) · U {r.get('u_ist')}")
             continue
         _sc, links, rechts, oben, unten = best
         w = (rechts - links) / ptm
-        h = (unten - oben) / ptm
+        h = (unten - oben) / ptm   # (rect_ok: unten folgt die bestehende Ausgabe)
         f_roh, u_roh = w * h, 2 * (w + h)
         f_ist, u_ist = r.get("f_ist"), r.get("u_ist")
         ok = (f_ist and abs(f_ist - f_roh) / f_roh <= 0.05
@@ -97,4 +140,4 @@ if __name__ == "__main__":
         run(g[0], None, zelle_m=0.03)   # Großplan: gröberes Raster für Laufzeit
     else:
         n = run()
-        assert n >= 3, "Regression: Zimmer 1 + Bad + Geräte waren rohbau-verifiziert"
+        assert n >= 5, "Regression: Z1+Bad+Geräte (Rect) + Flur/Waschen/Wohnküche (L) waren rohbau-verifiziert"
