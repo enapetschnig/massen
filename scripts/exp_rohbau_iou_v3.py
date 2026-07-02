@@ -92,6 +92,7 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
                 fv.append((hx + zu[0]) / 2.0)
     except Exception:
         pass
+    fv_roh, fh_roh = sorted(fv), sorted(fh)   # UNdedupliziert für L-Kerben (xi/yj)
     fv, fh = _dedupe(fv, ptm), _dedupe(fh, ptm)
 
     n_ok = 0
@@ -137,8 +138,8 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
                                  f"Rect {w_:.2f}×{h_:.2f}"))
                 # L-Kandidaten: Bounding per U-Kompatibilität
                 if abs(2 * (w_ + h_) - u_ist) / u_ist <= 0.08:
-                    for xi in (p for p in fv if l_ < p < r_):
-                        for yj in (p for p in fh if o_ < p < u_):
+                    for xi in (p for p in fv_roh if l_ < p < r_):
+                        for yj in (p for p in fh_roh if o_ < p < u_):
                             for kx in ((l_, xi), (xi, r_)):
                                 for ky in ((o_, yj), (yj, u_)):
                                     ka = ((kx[1] - kx[0]) * (ky[1] - ky[0])
@@ -160,11 +161,14 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
         if not gerankt:
             continue
         top = gerankt[0]
-        # Eindeutigkeit: alle nahe der Top-IoU = dieselbe physische Form?
-        nahe = [g for g in gerankt if g[0] >= top[0] - 0.03]
-        gleich = all(abs(g[2] - top[2]) < 0.12 * ptm and abs(g[3] - top[3]) < 0.12 * ptm
-                     and abs(g[4] - top[4]) < 0.12 * ptm
-                     and abs(g[5] - top[5]) < 0.12 * ptm for g in nahe)
+        # Eindeutigkeit (prinzipiell): nur EINE physische Form darf über der
+        # Schwelle liegen — andersartige Formen (irgendeine Kante >12cm) müssen
+        # alle darunter bleiben. (4-Kanten-Naheliegen war zu streng: U-Varianten
+        # derselben Wand rissen Bad in 'ambig'.)
+        def _gleiche_form(g):
+            return (abs(g[2] - top[2]) < 0.12 * ptm and abs(g[3] - top[3]) < 0.12 * ptm
+                    and abs(g[4] - top[4]) < 0.12 * ptm and abs(g[5] - top[5]) < 0.12 * ptm)
+        gleich = all(_gleiche_form(g) or g[0] < iou_min - 1e-9 for g in gerankt[1:])
         if top[0] >= iou_min - 1e-9 and gleich:
             n_ok += 1
             if verbose:
@@ -172,7 +176,7 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
                       f"(F {f_ist}, U {u_ist})")
         elif verbose:
             grund = f"IoU {top[0]:.2f}<{iou_min}" if top[0] < iou_min \
-                else f"{len(nahe)} nahe Formen uneindeutig"
+                else "mehrere Formen über der Schwelle (uneindeutig)"
             print(f"  ✗  {r['name']}: {grund}  (beste: {top[7]})")
     print(f"\n{n_ok} Räume RÄUMLICH bewiesen (IoU≥{iou_min}, eindeutig)")
     return n_ok
