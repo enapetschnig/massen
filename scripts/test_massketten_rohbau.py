@@ -89,7 +89,9 @@ def pruefe(plan_pfad=PLAN, label="1:100", tol_m=0.035, min_lauf_m=0.4, verbose=T
     page = max(d, key=lambda p: p.rect.width * p.rect.height)
     words = page.get_text("words")
     ptm = vektor.kalibriere(words, label)["ptm_konsens"]
-    box = nachzeichnen._eg_box(page, ptm)
+    box = nachzeichnen._eg_box(page, ptm) if ptm else None
+    if ptm and not box:
+        box = nachzeichnen._wandbox(page, ptm)   # Pläne ohne Raumnamen
     if not (ptm and box):
         print("Kalibrierung/Box fehlgeschlagen")
         return None
@@ -104,6 +106,8 @@ def pruefe(plan_pfad=PLAN, label="1:100", tol_m=0.035, min_lauf_m=0.4, verbose=T
     grid = raumnetz.wand_maske(rst, dark, hatch, [])   # ohne Verschlüsse: reine Wände
 
     spans = massketten.numeric_spans(words)
+    if not (vektor._chains_mit_pos(spans, "h") or vektor._chains_mit_pos(spans, "v")):
+        spans = massketten.numeric_spans(words, meter_notation=True)   # Meter-Dialekt
     # Nur Ketten DIESER Ansicht: das Blatt trägt auch OG/Schnitt-Maßketten
     # (gemessen: Züge @y=1067 weit außerhalb der EG-Box) — Spans müssen in
     # Box ± 3m liegen (Maßlinien sitzen knapp außerhalb des Gebäudes).
@@ -161,5 +165,30 @@ def pruefe(plan_pfad=PLAN, label="1:100", tol_m=0.035, min_lauf_m=0.4, verbose=T
     return ergebnisse
 
 
+def korpus():
+    import glob
+    DL = os.path.expanduser("~/Downloads")
+    plaene = [
+        ("A-5_Einreichplan_Alfred-Angerer", "1:100"),
+        ("AU_WM_01 Erdgeschoss", None),
+        ("AP.01 Layout-1", None),
+        ("1762788650811_EG-Wand-Grundriss 01.pdf", None),
+        ("05_AU.3.1.1 HAUS A", None),
+    ]
+    for teil, label in plaene:
+        g = sorted(glob.glob(os.path.join(DL, f"*{teil}*")))
+        print(f"\n=== {teil} ===")
+        if not g:
+            print("  FEHLT")
+            continue
+        try:
+            pruefe(g[0], label, verbose=True)
+        except Exception as e:
+            print(f"  FEHLER {type(e).__name__}: {e}")
+
+
 if __name__ == "__main__":
-    pruefe()
+    if "--korpus" in sys.argv:
+        korpus()
+    else:
+        pruefe()
