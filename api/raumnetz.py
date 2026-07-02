@@ -217,6 +217,21 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
     hm_d = bytearray(1 if dh[i] <= r else 0 for i in range(W * H))
 
     grid = bytearray(hm)
+    # TÜR-ZONEN: das aufgeklappte Türblatt + der Schwenkbogen werden sonst als "Wand"
+    # verankert (Bad-Sezierung: Grenze beulte um das Türblatt). In der Tür-Zone keine
+    # dunklen Kanten brennen — der Verschluss-Balken dichtet die Wandlinie ohnehin.
+    tuer_zonen = []
+    for o in (oeffnungen or []):
+        if o.get("typ") == "tuer":
+            r_z = (o.get("breite_m") or 0.9) * 0.9 * rst.ptm
+            tuer_zonen.append((o["cx"], o["cy"], r_z * r_z))
+
+    def in_tuerzone(mx, my):
+        for (zx, zy, r2) in tuer_zonen:
+            if (mx - zx) ** 2 + (my - zy) ** 2 <= r2:
+                return True
+        return False
+
     for s in dark_segs:
         n = max(2, int(math.hypot(s[2] - s[0], s[3] - s[1]) / rst.cell))
         hits = 0
@@ -228,6 +243,8 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             if 0 <= i < W and 0 <= j < H and hm_d[j * W + i]:
                 hits += 1
         if probes and hits / probes >= 0.55:
+            if tuer_zonen and in_tuerzone((s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0):
+                continue    # Türblatt/-bogen — keine Wand
             rst.line(grid, s[0], s[1], s[2], s[3])
 
     for o in (oeffnungen or []):
