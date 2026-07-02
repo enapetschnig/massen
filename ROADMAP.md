@@ -63,7 +63,7 @@ für mehrere Bereiche der Baubranche (Baubetriebe/Rohbau, Ausbau-Gewerke, Kalkul
 | ✅ | Korrigierbar: Wand entfernen/Stärke/hinzufügen, Öffnung entfernen — persistiert |
 | ✅ | Materialliste ↔ Plan gekoppelt (HLZ-Position → Wände leuchten) |
 | 🔜 | Kopplung ausbauen: JEDE Position (Decke, Bodenplatte, Estrich je Raum, Frostschürze) zeigt ihre Fläche/Kante am Plan |
-| ⬜ | Prüfbares **Aufmaßblatt** (PDF): Plan-Ausschnitt + eingezeichnete Maße je Position — das Dokument, das der Polier/AG abheftet |
+| ✅ | Prüfbares **Aufmaßblatt** (PDF): Plan mit eingezeichneten Wänden/Maßen/Öffnungen/Raum-Status + Legende + Summen (`api/aufmassblatt.py`, Button im Kopf, `test_aufmassblatt.py`) |
 
 ## Säule D — Workflow & Design (Umbau)
 

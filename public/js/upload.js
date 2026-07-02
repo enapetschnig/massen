@@ -1805,6 +1805,31 @@
   // wird im Lade-Flow aufgerufen, der _nzGeladen-Guard hält es bei einem Fetch).
   window._nzReset = function () { _nzGeladen = false; _nzData = null; renderNachzeichnen(_nzAktivPlan); };
 
+  // ── AUFMASSBLATT: abheftbares Prüf-PDF (Plan + eingezeichnete Bauteile) ──
+  (function wireAufmass() {
+    var b = document.getElementById('projekt-aufmass-btn');
+    if (!b) return;
+    b.addEventListener('click', function () {
+      b.disabled = true; var t0 = b.textContent; b.textContent = 'Erzeuge Aufmaßblatt …';
+      fetch('/api/plan-aufmassblatt', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(_nzAktivPlan ? { plan_id: _nzAktivPlan } : { projekt_id: projectId })
+      }).then(function (r) {
+        var ct = r.headers.get('content-type') || '';
+        if (ct.indexOf('pdf') < 0) return r.json().then(function (j) { throw new Error((j && j.grund) || 'nicht verfügbar'); });
+        return r.blob();
+      }).then(function (blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'aufmassblatt.pdf';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+      }).catch(function (e) {
+        alert('Aufmaßblatt: ' + e.message);
+      }).finally(function () { b.disabled = false; b.textContent = t0; });
+    });
+  })();
+
   // ── WORKFLOW-STEPPER: Pläne → Plan prüfen → Massen & Material → Export & Fragen ──
   // Führt den Nutzer in 4 Schritten durch die Ermittlung, statt alles auf einmal zu
   // zeigen. Schritt 2 (Plan prüfen) ist der Default nach der Analyse: ERST die

@@ -4726,12 +4726,9 @@ class NachzeichnenRequest(BaseModel):
     plan_id: str | None = None
 
 
-@app.post("/api/plan-nachzeichnen")
-async def plan_nachzeichnen(body: NachzeichnenRequest):
-    """NACHZEICHNEN-OVERLAY (read-only): rendert das EG-Grundriss-Bild eines Plans +
-    die aus den Vektoren erkannten Wände (Pixel-Koords fürs SVG-Overlay). Probiert die
-    Pläne des Projekts durch und liefert das erste nachzeichenbare Grundriss-Blatt.
-    Best-effort: scheitert alles → {ok:False, grund} (nie 500). Ändert KEINE Mengen."""
+def _nachzeichnen_roh(body):
+    """Gemeinsame Plan-Auswahl + Vektor-Analyse für plan-nachzeichnen UND Aufmaßblatt.
+    Liefert das Ergebnis-Dict MIT basis_png-BYTES (Aufrufer kodiert/verwendet)."""
     if not sb:
         raise HTTPException(500, "Supabase nicht konfiguriert")
     if not _NACHZEICHNEN_OK:
@@ -4755,7 +4752,6 @@ async def plan_nachzeichnen(body: NachzeichnenRequest):
     except Exception as e:
         return {"ok": False, "grund": f"Pläne nicht ladbar: {e}"}
 
-    import base64
     letzter_grund = "kein Grundriss-Blatt gefunden"
     for plan in plaene:
         sp = plan.get("storage_path")
@@ -4773,14 +4769,48 @@ async def plan_nachzeichnen(body: NachzeichnenRequest):
         if not r.get("ok"):
             letzter_grund = r.get("grund") or letzter_grund
             continue
-        png = r.pop("basis_png", None)
-        if png:
-            r["basis_png_b64"] = "data:image/png;base64," + base64.b64encode(png).decode()
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
         r["korrekturen"] = (plan.get("agent_log") or {}).get("nachzeichnen_korrekturen")
         return r
     return {"ok": False, "grund": letzter_grund}
+
+
+@app.post("/api/plan-nachzeichnen")
+async def plan_nachzeichnen(body: NachzeichnenRequest):
+    """NACHZEICHNEN-OVERLAY (read-only): Grundriss-Bild + erkannte Wände/Öffnungen/
+    Räume in Pixel-Koords fürs SVG-Overlay. Best-effort, nie 500, KEINE Mengen."""
+    import base64
+    r = _nachzeichnen_roh(body)
+    if not r.get("ok"):
+        return r
+    png = r.pop("basis_png", None)
+    if png:
+        r["basis_png_b64"] = "data:image/png;base64," + base64.b64encode(png).decode()
+    return r
+
+
+@app.post("/api/plan-aufmassblatt")
+async def plan_aufmassblatt(body: NachzeichnenRequest):
+    """AUFMASSBLATT (PDF): das abheftbare Prüf-Dokument — Plan mit eingezeichneten
+    Wänden/Maßen/Öffnungen/Raum-Status + Legende + Summen. Für Polier/AG."""
+    r = _nachzeichnen_roh(body)
+    if not r.get("ok"):
+        return {"ok": False, "grund": r.get("grund")}
+    projekt_name = ""
+    try:
+        if body.projekt_id:
+            pr = sb.table("projekte").select("name").eq("id", body.projekt_id).single().execute()
+            projekt_name = (pr.data or {}).get("name") or ""
+    except Exception:
+        pass
+    try:
+        import aufmassblatt as _aufmass
+        pdf = _aufmass.erzeuge(r, projekt_name=projekt_name)
+    except Exception as e:  # pragma: no cover
+        return {"ok": False, "grund": f"Aufmaßblatt fehlgeschlagen: {str(e)[:150]}"}
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="aufmassblatt.pdf"'})
 
 
 class NachzeichnenKorrekturRequest(BaseModel):
