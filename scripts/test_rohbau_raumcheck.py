@@ -113,6 +113,7 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02):
                                                     lbest is None or err < lbest[0]):
                                                 lbest = (err, W_, H_, wn, hn)
             if lbest:
+                r["_ok"] = True
                 n_ok += 1
                 print(f"  ✓✓L {r['name']}: F {r.get('f_ist')} ≈ "
                       f"{lbest[1]:.2f}×{lbest[2]:.2f} − {lbest[3]:.2f}×{lbest[4]:.2f} "
@@ -126,9 +127,71 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02):
         ok = (f_ist and abs(f_ist - f_roh) / f_roh <= 0.05
               and u_ist and abs(u_ist - u_roh) / u_roh <= 0.08)
         if ok:
+            r["_ok"] = True
             n_ok += 1
             print(f"  ✓✓ {r['name']}: F {f_ist} vs Rohbau {f_roh:.2f} · "
                   f"U {u_ist} vs {u_roh:.2f}  ({w:.2f}×{h:.2f})")
+    # ── ZWEITPASS: Bogen-Fluchten v2 für unverifizierte Räume ──
+    # Regeln (Overfitting-Lehre): NUR die GESCHLOSSENE Türlinie (Poché-Entscheid),
+    # NUR für Räume ohne Ketten-Beweis, EINDEUTIGKEITS-GATE (>1 disjunkte
+    # passende Form → ambig, nicht verifiziert).
+    import math as _m
+    bogen_fv, bogen_fh = [], []
+    try:
+        for bg in vektor.tuer_boegen(page, box, ptm):
+            hx, hy = bg["hinge"]
+            def _poche(pt):
+                r2 = (0.28 * ptm) ** 2
+                return sum(1 for hh in hatch
+                           if ((hh[0] + hh[2]) / 2 - pt[0]) ** 2
+                           + ((hh[1] + hh[3]) / 2 - pt[1]) ** 2 <= r2)
+            na, nb = _poche(bg["a"]), _poche(bg["b"])
+            if na == nb:
+                continue
+            zu = bg["a"] if na > nb else bg["b"]
+            dx, dy = abs(zu[0] - hx), abs(zu[1] - hy)
+            if dy < 0.2 * dx:
+                bogen_fh.append((hy + zu[1]) / 2.0)
+            elif dx < 0.2 * dy:
+                bogen_fv.append((hx + zu[0]) / 2.0)
+    except Exception:
+        pass
+    fv2 = sorted(fv + bogen_fv)
+    fh2 = sorted(fh + bogen_fh)
+    for r in res:
+        if r.get("_ok"):
+            continue
+        f_ziel, f_ist, u_ist = r.get("f_m2"), r.get("f_ist"), r.get("u_ist")
+        if not (f_ziel and f_ist and u_ist):
+            continue
+        cx, cy = r["cx"], r["cy"]
+        formen = []
+        ober = max(1.15 * f_ziel, 1.10 * f_ziel + 0.25)   # kleine Räume (WC 1,19×)
+        for L_ in (p for p in fv2 if p < cx):
+            for R_ in (p for p in fv2 if p > cx):
+                w_ = (R_ - L_) / ptm
+                if not 0.5 <= w_ <= 14:
+                    continue
+                for O_ in (p for p in fh2 if p < cy):
+                    for U_ in (p for p in fh2 if p > cy):
+                        h_ = (U_ - O_) / ptm
+                        if not 0.5 <= h_ <= 14:
+                            continue
+                        f_r, u_r = w_ * h_, 2 * (w_ + h_)
+                        if not (0.98 * f_ziel <= f_r <= ober):
+                            continue
+                        if (abs(f_ist - f_r) / f_r <= 0.05
+                                and abs(u_ist - u_r) / u_r <= 0.08):
+                            formen.append((round(w_, 1), round(h_, 1)))
+        formen = sorted(set(formen))
+        # Eindeutigkeit: alle passenden Formen müssen ±10cm beieinander liegen
+        if formen and all(abs(a[0] - formen[0][0]) <= 0.1
+                          and abs(a[1] - formen[0][1]) <= 0.1 for a in formen):
+            n_ok += 1
+            print(f"  ✓✓B {r['name']}: eindeutiges Bogen-Rect "
+                  f"{formen[0][0]}×{formen[0][1]} (F {f_ist}, U {u_ist})")
+        elif len(formen) > 1:
+            print(f"  ~ambig {r['name']}: {len(formen)} disjunkte Formen — NICHT verifiziert")
     print(f"\n{n_ok} Räume ROHBAU-verifiziert (Flucht-Rechtecke, F±5%/U±8%)")
     return n_ok
 
