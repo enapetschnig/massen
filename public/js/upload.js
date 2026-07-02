@@ -189,6 +189,8 @@
   }
 
   function renderPlanFilter(plaeneManifest) {
+    // Planansicht-Tabs mit demselben Manifest versorgen (gleicher IIFE-Scope, hoisted)
+    if (plaeneManifest && plaeneManifest.length) _nzPlaene = plaeneManifest;
     var box = document.getElementById('filter-plaene');
     if (!box || !plaeneManifest) return;
     box.innerHTML = plaeneManifest.map(function (p) {
@@ -1722,21 +1724,52 @@
     }, 3200);
   }
 
-  function renderNachzeichnen() {
+  // Multi-Geschoss/Multi-Plan: Tabs über der Planansicht — jeder Plan des Projekts
+  // ist durchschaltbar (EG-Blatt, OG-Blatt, Polierplan …). Lazy je Tab geladen.
+  var _nzPlaene = [];      // Manifest [{id, dateiname}] — von renderPlanFilter gesetzt
+  var _nzAktivPlan = null;
+
+  function _nzTabsHtml() {
+    if (!_nzPlaene || _nzPlaene.length < 2) return '';
+    return '<div class="nz-tabs">' + _nzPlaene.map(function (p) {
+      var on = p.id === _nzAktivPlan;
+      return '<button type="button" class="nz-btn' + (on ? ' nz-btn-on' : '') + '" data-nzplan="' +
+        esc(p.id) + '">' + esc((p.dateiname || 'Plan').slice(0, 34)) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function _nzWireTabs(cont) {
+    cont.querySelectorAll('[data-nzplan]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var pid = b.getAttribute('data-nzplan');
+        if (pid === _nzAktivPlan) return;
+        _nzGeladen = false;
+        renderNachzeichnen(pid);
+      });
+    });
+  }
+
+  function renderNachzeichnen(planId) {
     var cont = document.getElementById('nachzeichnen-container');
-    if (!cont || _nzGeladen || _nzLaeuft) return;
+    if (!cont || (_nzGeladen && !planId) || _nzLaeuft) return;
     _nzLaeuft = true;
-    cont.innerHTML = '<p class="nachzeichnen-hint">Plan wird nachgezeichnet &hellip; (die Wände werden aus den Vektoren gelesen)</p>';
+    cont.innerHTML = _nzTabsHtml() +
+      '<p class="nachzeichnen-hint">Plan wird nachgezeichnet &hellip; (die Wände werden aus den Vektoren gelesen)</p>';
+    _nzWireTabs(cont);
     fetch('/api/plan-nachzeichnen', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projekt_id: projectId })
+      body: JSON.stringify(planId ? { plan_id: planId } : { projekt_id: projectId })
     }).then(function (r) { return r.json(); }).then(function (d) {
       _nzGeladen = true; _nzLaeuft = false;
       if (!d || !d.ok) {
-        cont.innerHTML = '<p class="nachzeichnen-hint">Nachzeichnen für diesen Plan nicht verfügbar' +
+        if (planId) _nzAktivPlan = planId;   // Tab bleibt wählbar markiert
+        cont.innerHTML = _nzTabsHtml() +
+          '<p class="nachzeichnen-hint">Nachzeichnen für diesen Plan nicht verfügbar' +
           (d && d.grund ? ' — ' + esc(d.grund) : '') + '. (Funktioniert bei klar bemaßten Grundriss-Blättern.)</p>';
+        _nzWireTabs(cont);
         return;
       }
+      _nzAktivPlan = d.plan_id || planId || null;
       _nzData = d; _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
       // Gespeicherte Korrekturen wiederherstellen (überleben den Reload)
       var k = d.korrekturen;
@@ -1753,13 +1786,14 @@
       }
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
-      cont.innerHTML =
+      cont.innerHTML = _nzTabsHtml() +
         '<p class="nachzeichnen-hint">Erkannte Wände, farbcodiert nach Stärke (gestrichelt = unsicher). ' +
         '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +
         (hatK ? '<strong style="color:#166534">✓ deine gespeicherten Korrekturen sind angewandt.</strong> ' : '') +
         'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
         ' · ' + (d.dateiname ? esc(d.dateiname) : '') + '</p>' +
         '<div class="nz-dynamic"></div>';
+      _nzWireTabs(cont);
       _nzPaint();
     }).catch(function (e) {
       _nzGeladen = false; _nzLaeuft = false;
@@ -1769,7 +1803,7 @@
 
   // Die Planansicht lädt automatisch nach der ersten Auswertung (renderNachzeichnen()
   // wird im Lade-Flow aufgerufen, der _nzGeladen-Guard hält es bei einem Fetch).
-  window._nzReset = function () { _nzGeladen = false; _nzData = null; renderNachzeichnen(); };
+  window._nzReset = function () { _nzGeladen = false; _nzData = null; renderNachzeichnen(_nzAktivPlan); };
 
   window.loadPlans = loadPlans;
   window.projectId = projectId;

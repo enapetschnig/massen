@@ -2566,6 +2566,8 @@ img {
 .nz-btn-on { background: var(--primary); color: #fff; border-color: var(--primary); }
 .nz-apply { margin: 0.2rem 0 0.8rem; }
 .nz-apply-pct { font-size: 0.8rem; color: var(--text-light); margin-bottom: 0.45rem; }
+.nz-tabs { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.5rem 0 0.2rem; }
+.nz-tabs .nz-btn { font-weight: 500; }
 .nz-zoomctl { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
 .nz-zoomctl .nz-btn { min-width: 2rem; font-weight: 700; }
 @keyframes nzpulse { 0%, 100% { filter: none; stroke-opacity: 0.85; } 50% { filter: drop-shadow(0 0 7px #111); stroke-opacity: 1; } }
