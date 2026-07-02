@@ -93,6 +93,35 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     clampx = lambda v: min(max(v, bx0), bx1)
     clampy = lambda v: min(max(v, by0), by1)
 
+    # MASSKETTEN-SNAP (Stufe 3, "1:1 mit den Längen"): steht neben einer Wand eine
+    # byte-exakte Maß-Zahl, deren Wert der gemessenen Länge entspricht (±8cm/4%),
+    # gewinnt die PLAN-ZAHL über die Messung. Killt das cm-Rauschen der Vektor-Messung.
+    try:
+        from massketten import numeric_spans
+        masse = [(x, y, v) for (x, y, v) in numeric_spans(page.get_text("words"))
+                 if bx0 <= x <= bx1 and by0 <= y <= by1]
+    except Exception:
+        masse = []
+
+    def mass_snap(achse, pos, lo, hi, laenge_m):
+        best = None
+        quer = 2.5 * ptm     # Maßketten liegen oft 1-3m neben der Wand (Außenketten);
+                             # die enge WERT-Toleranz (8cm/4%) verhindert Fehl-Matches
+        for (mx, my, v) in masse:
+            vm = v / 100.0
+            if abs(vm - laenge_m) > max(0.08, 0.04 * laenge_m):
+                continue
+            if achse == "v":
+                if abs(mx - pos) > quer or not (lo - 0.5 * ptm <= my <= hi + 0.5 * ptm):
+                    continue
+            else:
+                if abs(my - pos) > quer or not (lo - 0.5 * ptm <= mx <= hi + 0.5 * ptm):
+                    continue
+            d = abs(vm - laenge_m)
+            if best is None or d < best[0]:
+                best = (d, vm)
+        return best[1] if best else None
+
     waende = []
     summe = {}
     idx = 0
@@ -104,8 +133,12 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         y0c, y1c = clampy(w["y0"]), clampy(w["y1"])
         if w["achse"] == "v":
             laenge_m = round(abs(y1c - y0c) / ptm, 2)
+            exakt = mass_snap("v", x0c, min(y0c, y1c), max(y0c, y1c), laenge_m)
         else:
             laenge_m = round(abs(x1c - x0c) / ptm, 2)
+            exakt = mass_snap("h", y0c, min(x0c, x1c), max(x0c, x1c), laenge_m)
+        if exakt is not None:
+            laenge_m = round(exakt, 2)
         if laenge_m < min_len_m:
             continue
         sn = vektor._snap_legende(w["dicke_cm"], LEG, 2.0)
@@ -118,6 +151,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             "dicke_cm": w["dicke_cm"],
             "snap_cm": sn,
             "laenge_m": laenge_m,
+            "mass_exakt": exakt is not None,     # Länge = byte-exakte Plan-Maßzahl
             "staerke_px": round((sn or w["dicke_cm"]) / 100.0 * ptm * scale, 1),
             "hatch_dichte": w.get("hatch_dichte"),
         })
@@ -144,17 +178,41 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     bb = tuple(span.get("bbox") or (0, 0, 0, 0))
                     spans.append({"text": txt, "bbox": bb, "size": span.get("size", 0),
                                   "cx": (bb[0] + bb[2]) / 2.0, "cy": (bb[1] + bb[3]) / 2.0})
+        oeff_pt = []
         for o in _oeff.extract_oeffnungen_from_text(spans, []):
             cx, cy = o.get("cx"), o.get("cy")
             if cx is None or not (bx0 <= cx <= bx1 and by0 <= cy <= by1):
                 continue
+            oeff_pt.append(o)
             oeffnungen.append({
                 "id": len(oeffnungen), "typ": o.get("typ"),
                 "breite_m": o.get("breite_m"), "hoehe_m": o.get("hoehe_m"),
                 "px": to_px(cx, cy),
             })
     except Exception as e:  # pragma: no cover
+        oeff_pt = []
         print(f"[nachzeichnen] Öffnungen fehlgeschlagen: {e}")
+
+    # RAUM-VERIFIKATION (Stufe 4): der Plan validiert sich selbst — rekonstruierte
+    # Raum-Gebiete gegen die byte-exakten F/U-Stempel prüfen → grüne (bewiesene) vs
+    # gelbe (prüfen!) Räume in der Planansicht. Best-effort, gröberes Raster (3cm)
+    # für die Latenz des Live-Endpoints.
+    raeume = []
+    try:
+        import raumnetz
+        dark = [s for s in segs if (s[5] is None or s[5] < 0.45)
+                and vektor._laenge(s) / ptm > 0.10 and inb(s)]
+        rres, _st = raumnetz.verifiziere_seite(page, ptm, (bx0, bx1, by0, by1),
+                                               dark, hatch, oeff_pt, zelle_m=0.03)
+        for r in rres:
+            raeume.append({
+                "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
+                "f_ist": r.get("f_ist"), "u_ist": r.get("u_ist"),
+                "status": r.get("status"),
+                "px": to_px(r["cx"], r["cy"]),
+            })
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Raum-Verifikation fehlgeschlagen: {e}")
 
     try:
         import fitz
@@ -171,6 +229,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         "bild_w": bild_w, "bild_h": bild_h,
         "waende": waende,
         "oeffnungen": oeffnungen,
+        "raeume": raeume,
         "summe_m": {str(k): v for k, v in sorted(summe.items(), reverse=True)},
         "meta": {
             "ptm": round(ptm, 2),

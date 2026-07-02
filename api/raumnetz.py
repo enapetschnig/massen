@@ -210,25 +210,39 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))
 
 
-def _watershed(grid, rst, stempel):
-    """Multi-Source-BFS: alle Stempel + AUSSEN-Rand-Seeds gleichzeitig."""
+def _watershed(grid, rst, stempel, kern_m=0.45):
+    """EROSIONS-MARKER-WATERSHED (Klassiker der Raum-Segmentierung):
+    Phase 1 flutet nur den KERN-Freiraum (Wand-Abstand > kern_m) — Räume können
+    nicht durch Türen (~90cm) in den Nachbarraum quellen (Tür-Hälse < 2×kern_m sind
+    im Kern unterbrochen). Phase 2 teilt den Rand-Ring + Tür-Zonen per Nähe zu →
+    die Grenze liegt in der TÜR-MITTE (Fehler ≤ Türbreite × Wanddicke/2, winzig)."""
     W, H = rst.W, rst.H
     AUSSEN = len(stempel)
+    r_kern = max(2, int(kern_m / rst.zm))
+    dist = _dist_bfs(grid, W, H, r_kern + 1)
+    kern = bytearray(1 if (not grid[i] and dist[i] > r_kern) else 0
+                     for i in range(W * H))
+
     label = [-1] * (W * H)
     q = deque()
     ok_start = []
     for idx, st in enumerate(stempel):
         si, sj = rst.ij(st["cx"], st["cy"])
         placed = False
-        for rad in range(0, 25):
-            for di in range(-rad, rad + 1):
-                for dj in range(-rad, rad + 1):
-                    ni, nj = si + di, sj + dj
-                    if 0 <= ni < W and 0 <= nj < H and not grid[nj * W + ni] \
-                            and label[nj * W + ni] == -1:
-                        label[nj * W + ni] = idx
-                        q.append((ni, nj))
-                        placed = True
+        for maske in (kern, None):   # erst Kern; Mini-Räume (WC) haben evtl. keinen → freie Zelle
+            for rad in range(0, 40):
+                for di in range(-rad, rad + 1):
+                    for dj in range(-rad, rad + 1):
+                        ni, nj = si + di, sj + dj
+                        if not (0 <= ni < W and 0 <= nj < H):
+                            continue
+                        frei = kern[nj * W + ni] if maske is not None else not grid[nj * W + ni]
+                        if frei and label[nj * W + ni] == -1:
+                            label[nj * W + ni] = idx
+                            q.append((ni, nj))
+                            placed = True
+                            break
+                    if placed:
                         break
                 if placed:
                     break
@@ -237,23 +251,36 @@ def _watershed(grid, rst, stempel):
         ok_start.append(placed)
     for i in range(0, W, 20):
         for j in (0, H - 1):
-            if not grid[j * W + i] and label[j * W + i] == -1:
+            if kern[j * W + i] and label[j * W + i] == -1:
                 label[j * W + i] = AUSSEN
                 q.append((i, j))
     for j in range(0, H, 20):
         for i in (0, W - 1):
-            if not grid[j * W + i] and label[j * W + i] == -1:
+            if kern[j * W + i] and label[j * W + i] == -1:
                 label[j * W + i] = AUSSEN
                 q.append((i, j))
+    # Phase 1: nur im Kern fluten
     while q:
         i, j = q.popleft()
         lab = label[j * W + i]
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             ni, nj = i + di, j + dj
-            if 0 <= ni < W and 0 <= nj < H and not grid[nj * W + ni] \
+            if 0 <= ni < W and 0 <= nj < H and kern[nj * W + ni] \
                     and label[nj * W + ni] == -1:
                 label[nj * W + ni] = lab
                 q.append((ni, nj))
+    # Phase 2: Rand-Ring + Tür-Hälse per Nähe von den Kernen aus zuteilen
+    q = deque(idx for idx in range(W * H) if label[idx] != -1)
+    while q:
+        idx = q.popleft()
+        lab = label[idx]
+        i, j = idx % W, idx // W
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ni, nj = i + di, j + dj
+            nidx = nj * W + ni
+            if 0 <= ni < W and 0 <= nj < H and not grid[nidx] and label[nidx] == -1:
+                label[nidx] = lab
+                q.append(nidx)
     return label, ok_start, AUSSEN
 
 
@@ -289,8 +316,9 @@ def _taschen_adoption(grid, label, rst, stempel, AUSSEN):
                     q.append(nidx)
         if len(comp) < 25:      # < 0,01 m² — Rauschen
             continue
-        # Kontakte durch dünne Wände zählen
-        reach = max(1, int(0.16 / rst.zm))
+        # Kontakte durch dünne Wände zählen (Phantom-Wände von Möbel-/Küchen-Linework
+        # können dicker wirken als echte Trennwände → großzügige Reichweite)
+        reach = max(1, int(0.40 / rst.zm))
         kontakt = {}
         for idx in comp[::max(1, len(comp) // 400)]:
             i, j = idx % W, idx // W

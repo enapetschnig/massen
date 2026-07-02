@@ -1436,7 +1436,8 @@
         '" stroke="' + col + '" stroke-width="' + Math.max(2, w.staerke_px) + '" stroke-linecap="round"' +
         ' stroke-opacity="' + (rm ? 0.3 : 0.82) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
         ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
-        (cm ? 'HLZ ' + cm + 'cm' : '~' + w.dicke_cm + 'cm') + ' · ' + w.laenge_m + ' m — klicken zum Korrigieren</title></line>';
+        (cm ? 'HLZ ' + cm + 'cm' : '~' + w.dicke_cm + 'cm') + ' · ' + w.laenge_m + ' m' +
+        (w.mass_exakt ? ' (= Maßzahl lt. Plan)' : '') + ' — klicken zum Korrigieren</title></line>';
       // Sichtbares Längen-/Stärke-Label auf der Wand (1:1 zum Plan vergleichbar)
       if (!rm && cm && w.laenge_m >= 1.2) {
         var mx = (p[0] + p[2]) / 2, my = (p[1] + p[3]) / 2;
@@ -1460,8 +1461,28 @@
         '<title>' + (istF ? 'Fenster' : 'Tür') + (o.breite_m ? ' ' + fmtNum(o.breite_m) + '×' + fmtNum(o.hoehe_m) + 'm' : '') +
         ' — klicken = keine Öffnung</title></g>';
     });
+    // RAUM-VERIFIKATION: grün = Geometrie gegen die Plan-Stempel (F+U) BEWIESEN,
+    // gelb = prüfen. Der Plan validiert sich selbst.
+    var nRaumOk = 0, raumBadges = '';
+    (_nzData.raeume || []).forEach(function (r) {
+      var ok = r.status === 'verifiziert';
+      if (ok) nRaumOk++;
+      var col = ok ? '#16a34a' : '#d97706';
+      var tip = (r.name || '?') + ' — ' + fmtNum(r.f_m2) + ' m² lt. Plan' +
+        (r.f_ist != null ? ', rekonstruiert ' + fmtNum(r.f_ist) + ' m²' : '') +
+        (ok ? ' ✓ bestätigt' : ' — bitte prüfen');
+      raumBadges += '<g><circle cx="' + r.px[0] + '" cy="' + (r.px[1] - fs * 1.6) + '" r="' + (fs * 0.62) + '"' +
+        ' fill="' + col + '" stroke="#fff" stroke-width="2"/>' +
+        '<text x="' + r.px[0] + '" y="' + (r.px[1] - fs * 1.6) + '" font-size="' + Math.round(fs * 0.75) + '"' +
+        ' text-anchor="middle" dy="' + Math.round(fs * 0.26) + '" fill="#fff" style="font-weight:700;pointer-events:none">' +
+        (ok ? '✓' : '?') + '</text><title>' + tip + '</title></g>';
+    });
     var s = _nzSplit(), ges = s.ges;
     var legend = '';
+    if (_nzData.raeume && _nzData.raeume.length) {
+      legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:#16a34a;border-radius:50%"></span>' +
+        '<strong>' + nRaumOk + '/' + _nzData.raeume.length + '</strong>&nbsp;Räume geometrisch bestätigt</span>';
+    }
     [50, 38, 25, 20, 12].forEach(function (t) {
       if (!ges[t]) return;
       legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + NZ_FARBE[t] + '"></span>' +
@@ -1515,7 +1536,8 @@
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
       'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
       '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g>' +
-      '<g style="pointer-events:auto">' + marker + '</g></svg></div></div>';
+      '<g style="pointer-events:auto">' + marker + '</g>' +
+      '<g style="pointer-events:auto">' + raumBadges + '</g></svg></div></div>';
     _nzWireZoom(cont);
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
