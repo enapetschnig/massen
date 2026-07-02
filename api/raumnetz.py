@@ -31,6 +31,12 @@ from collections import deque
 
 _KOMPAKT_MIN = 3   # Kompaktheits-Schwelle des F-Ausgleichs (Ziel-Nachbarn von 8; Sweep: 3 minimiert U-Fehler bei exaktem F)
 
+# Wörter, die im Raum-Stempel stehen, aber KEINE Raumnamen sind (Bodenbeläge/Material/
+# Außenflächen-Beschriftungen — empirisch am WM-Plan gefunden)
+_KEIN_RAUMNAME = ("fliesen", "parkett", "laminat", "teppich", "estrich", "beton",
+                  "betonplatten", "kies", "wiese", "rasen", "pflaster", "asphalt",
+                  "holz", "vlies", "epoxy", "keramik", "stein")
+
 _F_RX = re.compile(r"^F[lL]\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+)\s*m", re.I)
 _U_CM_RX = re.compile(r"U\s*[:=]?\s*([0-9][0-9\s.]*,?[0-9]*)\s*cm", re.I)
 _U_M_RX = re.compile(r"U\s*[:=]?\s*([0-9]+,[0-9]+)\s*m\b", re.I)
@@ -119,8 +125,13 @@ def raum_stempel(page, box):
             for s2 in spans:
                 if s2 is s or not re.match(r"^[A-Za-zÄÖÜäöüß]{3,}", s2["text"]):
                     continue
+                # Bodenbeläge/Materialien sind KEINE Raumnamen (standen im Stempel näher
+                # als der Name — gemessen am WM-Plan: 'Fliesen', 'Betonplatten' …)
+                t0 = s2["text"].strip().lower()
+                if any(t0.startswith(b) for b in _KEIN_RAUMNAME):
+                    continue
                 d = abs(s["cy"] - s2["cy"]) + abs(s["cx"] - s2["cx"]) * 0.3
-                if s2["cy"] < s["cy"] + 5 and d < best and d < 60:
+                if s2["cy"] < s["cy"] + 5 and d < best and d < 90:
                     best, name = d, s2["text"]
             out.append({"name": name or "?", "f_m2": f, "u_m": None,
                         "cx": s["cx"], "cy": s["cy"]})
