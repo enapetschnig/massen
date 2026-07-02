@@ -1639,7 +1639,8 @@
         }
       }
       if (r.rohbau_ok && r.status !== 'verifiziert') {
-        tip += ' — ✓ ROHBAU-Rechteck aus Maßketten bestätigt (' + fmtNum(r.f_rohbau) + ' m²; Stempel misst Fertigmaß)';
+        tip += ' — ✓ ROHBAU-' + (r.rohbau_form === 'l' ? 'L-Polygon' : 'Rechteck') +
+          ' aus Maßketten bestätigt (' + fmtNum(r.f_rohbau) + ' m²; Stempel misst Fertigmaß)';
       } else
       tip += ok ? ' — ✓ Fläche+Umfang bestätigt'
         : (fOk ? ' — ✓ Fläche exakt; Umfang weicht ab → Form prüfen (mögliche Phantom-Wand/offene Stelle)'

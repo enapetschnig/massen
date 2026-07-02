@@ -269,15 +269,56 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     sc = abs(a_ - 1.06 * f_ziel)
                     if best is None or sc < best[0]:
                         best = (sc, w_, (u_ - o_) / ptm)
-            if not best:
-                continue
-            _sc, w_, h_ = best
-            f_roh, u_roh = w_ * h_, 2 * (w_ + h_)
-            if (abs(f_ist - f_roh) / f_roh <= 0.05
-                    and u_ist and abs(u_ist - u_roh) / u_roh <= 0.08):
-                r["rohbau_ok"] = True
-                r["f_rohbau"] = round(f_roh, 2)
-                r["u_rohbau"] = round(u_roh, 2)
+            rect_ok = False
+            if best:
+                _sc, w_, h_ = best
+                f_roh, u_roh = w_ * h_, 2 * (w_ + h_)
+                if (abs(f_ist - f_roh) / f_roh <= 0.05
+                        and u_ist and abs(u_ist - u_roh) / u_roh <= 0.08):
+                    r["rohbau_ok"] = True
+                    r["rohbau_form"] = "rechteck"
+                    r["f_rohbau"] = round(f_roh, 2)
+                    r["u_rohbau"] = round(u_roh, 2)
+                    rect_ok = True
+            if not rect_ok and u_ist:
+                # L-FORM (Stufe 2): Bounding-Box per U-Kompatibilität (achsparalleles
+                # L hat den Bounding-Umfang), Kerbe = Eck-Rechteck an inneren Fluchten.
+                # PLAUSI: Stempel nicht in der Kerbe, Kerbe ≥ 0,5m² (gegen Overfitting).
+                lbest = None
+                for L_ in (a for a in fv if a < rcx):
+                    for R_ in (b for b in fv if b > rcx):
+                        W_ = (R_ - L_) / ptm
+                        if not 0.5 <= W_ <= 14.0:
+                            continue
+                        for O_ in (a for a in fh if a < rcy):
+                            for U_ in (b for b in fh if b > rcy):
+                                H_ = (U_ - O_) / ptm
+                                if not 0.5 <= H_ <= 14.0:
+                                    continue
+                                if abs(2 * (W_ + H_) - u_ist) / u_ist > 0.08:
+                                    continue
+                                WH = W_ * H_
+                                for xi in (p for p in fv if L_ < p < R_):
+                                    for yj in (p for p in fh if O_ < p < U_):
+                                        for wn_pt, ecke_x in ((xi - L_, (L_, xi)),
+                                                              (R_ - xi, (xi, R_))):
+                                            for hn_pt, ecke_y in ((yj - O_, (O_, yj)),
+                                                                  (U_ - yj, (yj, U_))):
+                                                a_n = (wn_pt / ptm) * (hn_pt / ptm)
+                                                if a_n < 0.5:
+                                                    continue
+                                                if (ecke_x[0] <= rcx <= ecke_x[1]
+                                                        and ecke_y[0] <= rcy <= ecke_y[1]):
+                                                    continue    # Stempel in Kerbe
+                                                err = abs(WH - a_n - f_ist)
+                                                if err <= 0.05 * f_ziel and (
+                                                        lbest is None or err < lbest[0]):
+                                                    lbest = (err, WH - a_n, 2 * (W_ + H_))
+                if lbest:
+                    r["rohbau_ok"] = True
+                    r["rohbau_form"] = "l"
+                    r["f_rohbau"] = round(lbest[1], 2)
+                    r["u_rohbau"] = round(lbest[2], 2)
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Wandfluchten fehlgeschlagen: {e}")
 
