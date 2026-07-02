@@ -37,13 +37,17 @@ _KEIN_RAUMNAME = ("fliesen", "parkett", "laminat", "teppich", "estrich", "beton"
                   "betonplatten", "kies", "wiese", "rasen", "pflaster", "asphalt",
                   "holz", "vlies", "epoxy", "keramik", "stein")
 
-_F_RX = re.compile(r"^F[lL]\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+)\s*m", re.I)
+# Punkt-Dezimal ("Fl: 5.90m²", 1762788650811-Plan) UND Komma mit Tausender-Punkt
+_F_RX = re.compile(r"^F[lL]\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9]{1,2}|[0-9]+)\s*m", re.I)
 _U_CM_RX = re.compile(r"U\s*[:=]?\s*([0-9][0-9\s.]*,?[0-9]*)\s*cm", re.I)
 _U_M_RX = re.compile(r"U\s*[:=]?\s*([0-9]+,[0-9]+)\s*m\b", re.I)
 
 
 def _num(s):
     try:
+        s2 = s.strip()
+        if re.match(r"^[0-9]+\.[0-9]{1,2}$", s2):
+            return float(s2)    # Punkt-DEZIMAL ("5.90"), kein Tausender-Punkt
         return float(s.replace(" ", "").replace(" ", "").replace(".", "").replace(",", "."))
     except (ValueError, AttributeError):
         return None
