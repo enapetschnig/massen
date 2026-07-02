@@ -205,7 +205,7 @@ class _Raster:
 
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
-               hatch_dilat_m=0.10, closing_m=0.14):
+               hatch_dilat_m=0.10, closing_m=0.08):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
     (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing."""
     W, H = rst.W, rst.H
