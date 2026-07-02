@@ -237,6 +237,48 @@ def hatch_segmente(segmente):
             if abs(s[0] - s[2]) > 0.5 and abs(s[1] - s[3]) > 0.5]
 
 
+def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100):
+    """Wand-Poché-Diagonalen mit FARB-Filter: auf farbigen Plänen ist die Maurer-
+    Schraffur ROT/ORANGE (= Neubau-Farbe; empirisch am Angerer verifiziert — Außenwand
+    + Innenwände rot/orange, Terrain-/Muster-Diagonalen grau/grün). Sind ≥min_anteil
+    der Diagonalen rot/orange → NUR diese (filtert ~2700 Rausch-Diagonalen); sonst
+    (monochromer Plan) alle Diagonalen (Fallback = bisheriges Verhalten).
+    Liefert [(x0,y0,x1,y1,width,grau)] wie _drawings-Segmente."""
+    farbig, alle = [], []
+    for p in page.get_drawings():
+        col = p.get("color")
+        rgb = None
+        if col is not None:
+            try:
+                seq = [float(c) for c in col] if not isinstance(col, (int, float)) else [float(col)] * 3
+                if len(seq) == 1:
+                    rgb = (seq[0], seq[0], seq[0])
+                elif len(seq) >= 3:
+                    rgb = (seq[0], seq[1], seq[2])
+            except (TypeError, ValueError):
+                rgb = None
+        ist_rot = bool(rgb and rgb[0] > 0.6 and rgb[0] > rgb[1] + 0.2 and rgb[2] < 0.35)
+        w = p.get("width") or 0.0
+        grau = round(sum(rgb) / 3.0, 3) if rgb else None
+        for it in p["items"]:
+            if it[0] != "l":
+                continue
+            a, b = it[1], it[2]
+            if abs(a.x - b.x) <= 0.5 or abs(a.y - b.y) <= 0.5:
+                continue
+            if box:
+                mx, my = (a.x + b.x) / 2.0, (a.y + b.y) / 2.0
+                if not (box[0] <= mx <= box[1] and box[2] <= my <= box[3]):
+                    continue
+            seg = (a.x, a.y, b.x, b.y, round(w, 3), grau)
+            alle.append(seg)
+            if ist_rot:
+                farbig.append(seg)
+    if alle and len(farbig) >= min_absolut and len(farbig) / len(alle) >= min_anteil:
+        return farbig
+    return alle
+
+
 def _hatch_dichte(hatch, achse, center, dist, lo, hi, laenge_m):
     """Schraffur-Linien pro Meter Wandlänge im Band der Wand (zwischen den 2 Flächen)."""
     if not hatch or laenge_m <= 0:

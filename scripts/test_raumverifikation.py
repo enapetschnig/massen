@@ -50,7 +50,7 @@ def run():
     inb = lambda s: bx0 <= (s[0] + s[2]) / 2 <= bx1 and by0 <= (s[1] + s[3]) / 2 <= by1
     dark = [s for s in segs if (s[5] is None or s[5] < 0.45) and inb(s)
             and vektor._laenge(s) / ptm > 0.10]
-    hatch = [s for s in vektor.hatch_segmente(segs) if inb(s)]
+    hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1))   # farb-gefilterte Wand-Poché
     oeff = oeff_mod.extract_oeffnungen_from_text(_dict_spans(page), [])
 
     res, stempel = raumnetz.verifiziere_seite(page, ptm, box, dark, hatch, oeff)

@@ -185,26 +185,28 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             rst.line(grid, s[0], s[1], s[2], s[3])
 
     for o in (oeffnungen or []):
-        # Verschluss als DÜNNER BALKEN quer über die Wandlücke — ein Quadrat frisst
-        # bei Mini-Räumen echte Fläche (WC 1,83 m² wurde halbiert, gemessen).
-        # Orientierung der Wand aus der lokalen Maske: Wandzellen links/rechts (h)
-        # vs. oben/unten (v) der Öffnung.
+        # Verschluss als DÜNNER BALKEN quer über die Wandlücke. Orientierung per
+        # BEIDE-ENDEN-TEST: der richtige Balken überbrückt die Lücke, d.h. BEIDE
+        # Enden treffen Wand (die reine Dichte-Heuristik wählte bei der Bad-Tür
+        # die falsche Richtung → Leck, gemessen). Score = min(Ende1, Ende2).
         cx, cy = o["cx"], o["cy"]
-        h_hits = v_hits = 0
-        for dm in (0.25, 0.4, 0.55, 0.7):
-            dpt = dm * rst.ptm
-            for sx in (-1, 1):
-                i, j = rst.ij(cx + sx * dpt, cy)
-                if 0 <= i < W and 0 <= j < H and grid[j * W + i]:
-                    h_hits += 1
-                i, j = rst.ij(cx, cy + sx * dpt)
-                if 0 <= i < W and 0 <= j < H and grid[j * W + i]:
-                    v_hits += 1
         b2 = ((o.get("breite_m") or 1.0) * rst.ptm * 0.9) / 2.0
-        d2 = 0.20 * rst.ptm     # Balken-Halbdicke 20cm — bleibt in der Wandzone
-        if h_hits >= v_hits:    # Wand verläuft horizontal → Balken entlang x
+        d2 = 0.20 * rst.ptm
+
+        def ende_score(dx, dy):
+            hits = 0
+            for dm in (0.02, 0.10, 0.18, 0.26):
+                dpt = b2 + dm * rst.ptm
+                i, j = rst.ij(cx + dx * dpt, cy + dy * dpt)
+                if 0 <= i < W and 0 <= j < H and grid[j * W + i]:
+                    hits += 1
+            return hits
+
+        score_h = min(ende_score(-1, 0), ende_score(1, 0))
+        score_v = min(ende_score(0, -1), ende_score(0, 1))
+        if score_h >= score_v:  # Balken entlang x (Wand verläuft horizontal)
             rst.rect(grid, cx - b2, cy - d2, cx + b2, cy + d2)
-        else:                   # Wand vertikal → Balken entlang y
+        else:                   # Balken entlang y
             rst.rect(grid, cx - d2, cy - b2, cx + d2, cy + b2)
 
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))
@@ -346,6 +348,129 @@ def _taschen_adoption(grid, label, rst, stempel, AUSSEN):
     return label
 
 
+def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
+    """F-GEFÜHRTER GRENZ-AUSGLEICH: in OFFENEN Bereichen (kein Wand-Schluss) teilt der
+    Watershed per Distanz — falsch, wenn z.B. der Flur-GANG näher am Bad-Kern liegt.
+    Die byte-exakten Soll-Flächen ziehen die Grenze an die richtige Stelle: übergroße
+    Räume geben freie GRENZ-Zellen an untergroße Nachbarn ab (nie durch Wände), bis
+    beide Richtung Soll konvergieren. U bleibt der unabhängige Prüfwert."""
+    W, H = rst.W, rst.H
+    n = len(stempel)
+    soll = [int(st["f_m2"] / (rst.zm * rst.zm)) for st in stempel]
+    fl = [0] * (n + 1)
+    for idx in range(W * H):
+        if 0 <= label[idx] <= n:
+            fl[label[idx]] += 1
+    # Grenz-Front initialisieren: freie Zellen eines ÜBERGROSSEN Raums ODER von AUSSEN
+    # (AUSSEN = unbegrenzter Geber: Zellen, die ein Raum durch offene Terrassentüren an
+    # draußen verlor, holt der Ausgleich zurück) mit untergroßem Nachbar-Raum.
+    def abgabefaehig(lab):
+        return (0 <= lab < n and fl[lab] > soll[lab]) or lab == AUSSEN
+
+    # WELLEN-basiertes, KOMPAKTES Wachstum: pro Welle wechseln nur Grenz-Zellen mit
+    # ≥2 Ziel-Nachbarn (glatte Front statt fransiger Lappen — Fransen bliesen U +70%
+    # auf; U ist der unabhängige Prüfwert). Front-Set wird je Welle fortgeschrieben.
+    front = set()
+    for idx in range(W * H):
+        lab = label[idx]
+        if grid[idx] or not abgabefaehig(lab):
+            continue
+        i, j = idx % W, idx // W
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ni, nj = i + di, j + dj
+            if 0 <= ni < W and 0 <= nj < H:
+                nl = label[nj * W + ni]
+                if 0 <= nl < n and nl != lab:
+                    front.add(idx)
+                    break
+    for _welle in range(400):
+        wechsel = []
+        for idx in front:
+            lab = label[idx]
+            if grid[idx] or not abgabefaehig(lab):
+                continue
+            i, j = idx % W, idx // W
+            best = None
+            ziel_nb = {}
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = i + di, j + dj
+                if not (0 <= ni < W and 0 <= nj < H):
+                    continue
+                nl = label[nj * W + ni]
+                if 0 <= nl < n and nl != lab:
+                    ziel_nb[nl] = ziel_nb.get(nl, 0) + 1
+                    if fl[nl] < soll[nl]:
+                        defizit = soll[nl] - fl[nl]
+                        if best is None or defizit > best[0]:
+                            best = (defizit, nl)
+            if best is not None and ziel_nb.get(best[1], 0) >= 2:
+                wechsel.append((idx, lab, best[1]))
+        if not wechsel:
+            break
+        neue_front = set()
+        for idx, lab, ziel in wechsel:
+            if fl[ziel] >= soll[ziel]:
+                continue        # Soll inzwischen erreicht (innerhalb der Welle)
+            label[idx] = ziel
+            if 0 <= lab < n:
+                fl[lab] -= 1
+            fl[ziel] += 1
+            i, j = idx % W, idx // W
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = i + di, j + dj
+                nidx = nj * W + ni
+                if 0 <= ni < W and 0 <= nj < H and not grid[nidx]:
+                    neue_front.add(nidx)
+        front = {idx for idx in (front | neue_front)
+                 if not grid[idx] and abgabefaehig(label[idx])}
+    return label
+
+
+def _glaetten(grid, label, rst, n_labels, AUSSEN, runden=5):
+    """GRENZ-GLÄTTUNG (diskreter Mehrheitsfilter): der F-Ausgleich erzeugt fransige
+    Grenzen in offenen Bereichen → U wird künstlich aufgebläht (+20% gemessen). Eine
+    freie Grenzzelle wechselt zum Mehrheits-Label ihrer 8er-Nachbarschaft. Wände und
+    AUSSEN-Zellen bleiben unangetastet; F wird danach re-ausgeglichen."""
+    W, H = rst.W, rst.H
+    for _ in range(runden):
+        wechsel = []
+        for idx in range(W * H):
+            lab = label[idx]
+            if grid[idx] or not (0 <= lab < n_labels):
+                continue
+            i, j = idx % W, idx // W
+            counts = {}
+            rand = False
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    if di == 0 and dj == 0:
+                        continue
+                    ni, nj = i + di, j + dj
+                    if not (0 <= ni < W and 0 <= nj < H):
+                        continue
+                    nidx = nj * W + ni
+                    if grid[nidx]:
+                        continue
+                    nl = label[nidx]
+                    if nl != lab:
+                        rand = True
+                    if 0 <= nl < n_labels:
+                        counts[nl] = counts.get(nl, 0) + 1
+            if not rand or not counts:
+                continue
+            best_l, best_n = lab, counts.get(lab, 0)
+            for l2, n2 in counts.items():
+                if n2 > best_n:
+                    best_l, best_n = l2, n2
+            if best_l != lab and best_n >= 5:
+                wechsel.append((idx, best_l))
+        if not wechsel:
+            break
+        for idx, l2 in wechsel:
+            label[idx] = l2
+    return label
+
+
 def _loecher_fuellen_und_messen(grid, label, rst, stempel):
     """Je Raum: eingeschlossene Löcher (Möbel-Inseln + deren Innenraum) zählen zur
     Raumfläche (so misst der Plan sein F), U wird die ÄUSSERE Wandlinie. Loch =
@@ -412,9 +537,10 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
 
 
 def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
-                      zelle_m=0.02, tol_f=0.06, tol_u=0.10):
+                      zelle_m=0.02, tol_f=0.06, tol_u=0.10, debug=None):
     """Komplette Raum-Verifikation einer Grundriss-Seite.
-    Liefert (ergebnisse, stempel): ergebnisse = [{…, f_ist, u_ist, status}]."""
+    Liefert (ergebnisse, stempel): ergebnisse = [{…, f_ist, u_ist, status}].
+    debug: dict → bekommt grid/label/W/H/rst für Visualisierung."""
     stempel = raum_stempel(page, box)
     rst = _Raster(box, ptm, zelle_m)
     oe = [o for o in (oeffnungen or [])
@@ -422,6 +548,11 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     grid = wand_maske(rst, dark_segs, hatch_segs, oe)
     label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
     label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
+    label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)
+    label = _glaetten(grid, label, rst, len(stempel), AUSSEN)
+    label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)   # F nach Glättung re-fixen
+    if debug is not None:
+        debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN})
     masse = _loecher_fuellen_und_messen(grid, label, rst, stempel)
     out = []
     for idx, st in enumerate(stempel):
