@@ -929,10 +929,15 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     # Tür-Topologie belegt: 5-6 Türen ≈ Flur+WC-Defizit). Jede Tür-Balken-Zelle wird
     # dem NÄCHSTEN Raum-Label gutgeschrieben — nur fürs Flächen-Konto, Topologie/U bleiben.
     W2, H2 = rst.W, rst.H
+    # Tote Closing-Zone einbeziehen (WC-Sezierung): das Closing versiegelt Zellen
+    # ZWISCHEN Balken und Türlaibung — auch die gehören zum Türdurchgang. Balken-Maske
+    # um den Closing-Radius dilatieren, aber nur WAND-Zellen kreditieren.
+    r_v = max(2, int(0.08 / rst.zm))
+    dv = _dist_bfs(versch, W2, H2, r_v)
     gut = [0] * len(stempel)
     n_st = len(stempel)
     for idx in range(W2 * H2):
-        if not versch[idx]:
+        if dv[idx] > r_v or not grid[idx]:
             continue
         i0_, j0_ = idx % W2, idx // W2
         best_l, best_d = None, 99
