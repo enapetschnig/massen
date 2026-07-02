@@ -1985,6 +1985,62 @@
     });
   })();
 
+  // ── AUFMASS-CSV: die drei Aufmaß-Tabellen (Räume · Wände · Öffnungen) für Excel ──
+  (function wireAufmassCsv() {
+    var b = document.getElementById('projekt-aufmass-csv-btn');
+    if (!b) return;
+    function z(v) { return v == null ? '' : String(v).replace(/;/g, ','); }
+    b.addEventListener('click', function () {
+      var d = window.projektMassenData || {};
+      var teile = [];
+      // Räume
+      var innen = (d.raeume || []).filter(function (r) { return r && r.flaeche_m2; });
+      if (innen.length) {
+        teile.push('RAUM-AUFMASS (F/U byte-exakt aus den Raum-Stempeln)');
+        teile.push('Raum;Boden m2;Decke m2;Umfang m;Hoehe m;Wandabwicklung m2;Sockel lfm');
+        var hDef = (d.baudaten || {}).geschosshoehe_m || 2.7;
+        innen.forEach(function (r) {
+          var aussen = !!r._h_not_applicable;
+          var h = r.hoehe_m || (aussen ? null : hDef);
+          var wf = (r.umfang_m && h) ? Math.round(r.umfang_m * h * 100) / 100 : '';
+          teile.push([z(r.name), r.flaeche_m2, aussen ? '' : r.flaeche_m2, r.umfang_m || '',
+            h || '', wf, (r.umfang_m && !aussen) ? r.umfang_m : ''].join(';'));
+        });
+        teile.push('');
+      }
+      // Wände (aus der Planansicht, inkl. Korrekturen)
+      if (_nzData && _nzData.waende) {
+        teile.push('WAND-AUFMASS (aus der Planansicht; * = Laenge byte-exakt aus Plan-Masszahl)');
+        teile.push('Wand;Staerke cm;Laenge m;Quelle');
+        (_nzData.waende || []).forEach(function (w) {
+          if (_nzEdit.removed && _nzEdit.removed[w.id]) return;
+          var cm = _nzCm(w);
+          if (!cm) return;
+          teile.push(['W' + w.id, cm, w.laenge_m + (w.mass_exakt ? '*' : ''),
+            w.manuell ? 'manuell' : (w.mass_exakt ? 'Plan-Masszahl' : 'Vektor')].join(';'));
+        });
+        teile.push('');
+      }
+      // Öffnungen
+      var oa = d.oeffnungs_aufmass;
+      if (oa && oa.zeilen && oa.zeilen.length) {
+        teile.push('OEFFNUNGS-AUFMASS (' + z(oa.norm) + ')');
+        teile.push('Raum;Typ;Wand;Breite m;Hoehe m;Flaeche m2;Regel;Abzug m2;Laibung m2;Rechenweg');
+        oa.zeilen.forEach(function (x) {
+          teile.push([z(x.raum), x.typ, x.wand, x.breite_m, x.hoehe_m, x.flaeche_m2,
+            z(x.regel), x.abzug_m2 || '', x.laibung_m2 || '', z(x.formel)].join(';'));
+        });
+      }
+      if (!teile.length) { alert('Noch keine Aufmaß-Daten — bitte erst die Auswertung laden.'); return; }
+      var blob = new Blob(['﻿' + teile.join('\n')], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'aufmass.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    });
+  })();
+
   // ── WORKFLOW-STEPPER: Pläne → Plan prüfen → Massen & Material → Export & Fragen ──
   // Führt den Nutzer in 4 Schritten durch die Ermittlung, statt alles auf einmal zu
   // zeigen. Schritt 2 (Plan prüfen) ist der Default nach der Analyse: ERST die
