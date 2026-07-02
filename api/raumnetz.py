@@ -470,7 +470,7 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
             ni, nj = i + di, j + dj
             if 0 <= ni < W and 0 <= nj < H:
                 nl = label[nj * W + ni]
-                if 0 <= nl < n and nl != lab:
+                if (0 <= nl < n and nl != lab) or (nl == AUSSEN and 0 <= lab < n):
                     front.add(idx)
                     break
     for _welle in range(400):
@@ -493,6 +493,12 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
                     defizit = soll[nl] - fl[nl]
                     if best is None or defizit > best[0]:
                         best = (defizit, nl)
+                elif nl == AUSSEN and 0 <= lab < n and fl[lab] > soll[lab]:
+                    # SHED: übergroßer Raum darf Rand-Zellen an AUSSEN abgeben (niedrigste
+                    # Priorität) — sonst bleiben Räume ohne unterfüllten Nachbarn zu groß
+                    # (Geräte-Abstellraum F +7% gemessen).
+                    if best is None:
+                        best = (0, AUSSEN)
             if best is None:
                 continue
             # Kompaktheit über die 8er-NACHBARSCHAFT: eine gerade Front-Zelle hat dort
@@ -513,8 +519,10 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
             break
         neue_front = set()
         for idx, lab, ziel in wechsel:
-            if fl[ziel] >= soll[ziel]:
+            if ziel != AUSSEN and fl[ziel] >= soll[ziel]:
                 continue        # Soll inzwischen erreicht (innerhalb der Welle)
+            if ziel == AUSSEN and (not (0 <= lab < n) or fl[lab] <= soll[lab]):
+                continue        # Shed nur solange der Geber übergroß ist
             label[idx] = ziel
             if 0 <= lab < n:
                 fl[lab] -= 1
