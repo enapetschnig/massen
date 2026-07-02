@@ -29,6 +29,8 @@ import math
 import re
 from collections import deque
 
+_KOMPAKT_MIN = 3   # Kompaktheits-Schwelle des F-Ausgleichs (Ziel-Nachbarn von 8; Sweep: 3 minimiert U-Fehler bei exaktem F)
+
 _F_RX = re.compile(r"^F[lL]\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+)\s*m", re.I)
 _U_CM_RX = re.compile(r"U\s*[:=]?\s*([0-9][0-9\s.]*,?[0-9]*)\s*cm", re.I)
 _U_M_RX = re.compile(r"U\s*[:=]?\s*([0-9]+,[0-9]+)\s*m\b", re.I)
@@ -391,19 +393,30 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
                 continue
             i, j = idx % W, idx // W
             best = None
-            ziel_nb = {}
             for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 ni, nj = i + di, j + dj
                 if not (0 <= ni < W and 0 <= nj < H):
                     continue
                 nl = label[nj * W + ni]
-                if 0 <= nl < n and nl != lab:
-                    ziel_nb[nl] = ziel_nb.get(nl, 0) + 1
-                    if fl[nl] < soll[nl]:
-                        defizit = soll[nl] - fl[nl]
-                        if best is None or defizit > best[0]:
-                            best = (defizit, nl)
-            if best is not None and ziel_nb.get(best[1], 0) >= 2:
+                if 0 <= nl < n and nl != lab and fl[nl] < soll[nl]:
+                    defizit = soll[nl] - fl[nl]
+                    if best is None or defizit > best[0]:
+                        best = (defizit, nl)
+            if best is None:
+                continue
+            # Kompaktheit über die 8er-NACHBARSCHAFT: eine gerade Front-Zelle hat dort
+            # 3 Ziel-Nachbarn (4er nur 1 → der Ausgleich stockte sofort, gemessen:
+            # identische Zahlen). ≥2 von 8 unterdrückt 1-Zellen-Fransen, lässt die
+            # Front aber schichtweise wandern.
+            ziel_nb8 = 0
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    if di == 0 and dj == 0:
+                        continue
+                    ni, nj = i + di, j + dj
+                    if 0 <= ni < W and 0 <= nj < H and label[nj * W + ni] == best[1]:
+                        ziel_nb8 += 1
+            if ziel_nb8 >= _KOMPAKT_MIN:
                 wechsel.append((idx, lab, best[1]))
         if not wechsel:
             break
