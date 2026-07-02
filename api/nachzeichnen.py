@@ -25,9 +25,9 @@ def _massstab(page):
     return f"1:{m.group(1)}" if m else None
 
 
-def _eg_box(page, ptm):
+def _eg_box(page, ptm, worte=None):
     W, H = page.rect.width, page.rect.height
-    pos = [(w[0], w[1]) for w in page.get_text("words")
+    pos = [(w[0], w[1]) for w in (worte if worte is not None else page.get_text("words"))
            if any(r.lower() in w[4].lower() for r in RAUM_WORTE)
            and 0.02 * W <= w[0] <= 0.55 * W and 0.04 * H <= w[1] <= 0.6 * H]
     return vektor._view_bbox(pos, ptm, marge_m=4.0, radius_m=13.0)
@@ -61,11 +61,15 @@ def _wandbox(page, ptm):
 
 def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     """Eine Grundriss-Seite → {ok, basis_png(bytes), waende[], summe_m, meta}."""
-    kal = vektor.kalibriere(page.get_text("words"), _massstab(page))
+    # TEXT-SHARING (WM-Profil: get_text('words') kostet ~5s bei 878k-Pfad-Plänen
+    # und lief 4× je Analyse) — einmal ziehen, durchreichen.
+    worte = page.get_text("words")
+    m_label = _massstab(page)
+    kal = vektor.kalibriere(worte, m_label)
     ptm = kal.get("ptm_konsens")
     if not ptm:
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
-    box = _eg_box(page, ptm)
+    box = _eg_box(page, ptm, worte=worte)
     if not box:
         # FALLBACK für Grundriss-Pläne OHNE Raumnamen (z.B. reine Wand-Grundrisse):
         # die Bounding-Box der dunklen Wand-Linien nehmen — aber nur, wenn sie eine
@@ -82,12 +86,25 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     scale = min(max_px / breite_pt, max_px / hoehe_pt, 4.0)
     scale = max(scale, 0.5)
 
-    segs, _f, _n = vektor._drawings(page)
+    # ADAPTIVE RASTERWEITEN (WM-Lehre: mit korrektem ptm=56,7 wurde die Box
+    # ~3,24× größer je Seite, das 0,03er-Raster explodierte ~10× → Pipeline
+    # lief >40min). Ziel: Zellzahl gedeckelt; Angerer-Klasse (≤ ~360m²) behält
+    # EXAKT die bewährten 0,03/0,02 (Untergrenzen).
+    flaeche_m2 = (breite_pt / ptm) * (hoehe_pt / ptm)
+    zelle_r = max(0.03, min(0.08, (flaeche_m2 / 360000.0) ** 0.5))
+    zelle_f = max(0.02, min(0.06, (flaeche_m2 / 810000.0) ** 0.5))
+    grossplan = flaeche_m2 > 600.0
+
+    # PFAD-SHARING (WM-Lehre: page.get_drawings() kostet ~45s bei 878k Pfaden
+    # und lief 5× je Analyse — _drawings, wand_poche, fill_rects, tuer_boegen,
+    # Möbel-Scan → >40min statt Minuten). EINMAL ziehen, überall durchreichen.
+    pfade = list(page.get_drawings())
+    segs, _f, _n = vektor._drawings(page, pfade=pfade)
     inb = lambda s: bx0 <= (s[0] + s[2]) / 2 <= bx1 and by0 <= (s[1] + s[3]) / 2 <= by1
     arch = [s for s in segs if (s[5] is None or s[5] < 0.45)
             and vektor._laenge(s) / ptm > 0.5 and inb(s)]
     # farb-gefilterte Wand-Poché (Neubau rot/orange auf farbigen Plänen; Fallback alle)
-    hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1))
+    hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1), pfade=pfade)
     roh = vektor.wand_paare(arch, ptm, min_len_m=min_len_m, legende_dicken=LEG,
                             hatch=hatch, min_hatch_dichte=min_hatch_dichte, mit_geometrie=True)
 
@@ -102,7 +119,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     # gewinnt die PLAN-ZAHL über die Messung. Killt das cm-Rauschen der Vektor-Messung.
     try:
         from massketten import numeric_spans
-        masse = [(x, y, v) for (x, y, v) in numeric_spans(page.get_text("words"))
+        masse = [(x, y, v) for (x, y, v) in numeric_spans(worte)
                  if bx0 <= x <= bx1 and by0 <= y <= by1]
     except Exception:
         masse = []
@@ -208,8 +225,8 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 and vektor._laenge(s) / ptm > 0.10 and inb(s)]
         dbg_r = {}
         rres, _st = raumnetz.verifiziere_seite(page, ptm, (bx0, bx1, by0, by1),
-                                               dark, hatch, oeff_pt, zelle_m=0.03,
-                                               debug=dbg_r)
+                                               dark, hatch, oeff_pt, zelle_m=zelle_r,
+                                               debug=dbg_r, pfade=pfade)
         for r in rres:
             raeume.append({
                 "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
@@ -231,11 +248,11 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         import massketten
         dark_f = [s for s in segs if (s[5] is None or s[5] < 0.45)
                   and vektor._laenge(s) / ptm > 0.10 and inb(s)]
-        rst_f = raumnetz._Raster((bx0, bx1, by0, by1), ptm, 0.02)
+        rst_f = raumnetz._Raster((bx0, bx1, by0, by1), ptm, zelle_f)
         fills_f = vektor.wand_fill_rects(page, (bx0, bx1, by0, by1),
-                                         min_seite_m=0.3, ptm=ptm)
+                                         min_seite_m=0.3, ptm=ptm, pfade=pfade)
         grid_f = raumnetz.wand_maske(rst_f, dark_f, hatch, [], fill_rects=fills_f)
-        fluchten_pt = massketten.wand_fluchten(page.get_text("words"),
+        fluchten_pt = massketten.wand_fluchten(worte,
                                                (bx0, bx1, by0, by1), ptm,
                                                grid_f, rst_f.W, rst_f.H, rst_f.cell)
         for fl in fluchten_pt:
@@ -252,6 +269,11 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         nutzbar = [f for f in fluchten_pt if f["ok"] or f.get("lauf", 0) >= 6]
         fv = sorted(f["pos"] for f in nutzbar if f["achse"] == "v")
         fh = sorted(f["pos"] for f in nutzbar if f["achse"] == "h")
+        # WM-PROFIL-LEHRE: die Paar-Kreuzprodukte skalieren mit Fluchten-Dichte⁴
+        # (155 Mio. Kombis, >3min am WM). ÄQUIVALENTER Umbau: hp nach Höhe
+        # sortieren, das F-Fenster [0,98..1,15]×F_ziel per bisect ziehen —
+        # gleiche Kandidatenmenge, gleiche Best-Wahl, O(vp·log hp).
+        import bisect as _bi
         for r in raeume:
             f_ziel, f_ist, u_ist = r.get("f_m2"), r.get("f_ist"), r.get("u_ist")
             if not (f_ziel and f_ist):
@@ -262,21 +284,33 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                   if 0.5 <= (b - a) / ptm <= 14.0]
             hp = [(a, b) for a in fh if a < rcy for b in fh if b > rcy
                   if 0.5 <= (b - a) / ptm <= 14.0]
+            hh = sorted((b - a) / ptm for (a, b) in hp)
             best = None
+            formen_r = []    # ALLE F+U-kompatiblen Formen → Eindeutigkeits-Gate
             for (l_, r_) in vp:
                 w_ = (r_ - l_) / ptm
-                for (o_, u_) in hp:
-                    a_ = w_ * (u_ - o_) / ptm
-                    if not (0.98 * f_ziel <= a_ <= 1.15 * f_ziel):
-                        continue
-                    sc = abs(a_ - 1.06 * f_ziel)
+                for k in range(_bi.bisect_left(hh, 0.98 * f_ziel / w_),
+                               _bi.bisect_right(hh, 1.15 * f_ziel / w_)):
+                    h_ = hh[k]
+                    f_k, u_k = w_ * h_, 2 * (w_ + h_)
+                    if (abs(f_ist - f_k) / f_k <= 0.05 and u_ist
+                            and abs(u_ist - u_k) / u_k <= 0.08):
+                        formen_r.append((w_, h_))
+                    sc = abs(f_k - 1.06 * f_ziel)
                     if best is None or sc < best[0]:
-                        best = (sc, w_, (u_ - o_) / ptm)
+                        best = (sc, w_, h_)
             rect_ok = False
             if best:
                 _sc, w_, h_ = best
                 f_roh, u_roh = w_ * h_, 2 * (w_ + h_)
-                if (abs(f_ist - f_roh) / f_roh <= 0.05
+                # EINDEUTIGKEITS-GATE (WM-Lehre: 22/22 rohbau_ok bei dichten
+                # Fluchten = Beliebigkeit — irgendein Rechteck passt immer;
+                # exakt das ±10cm-Gate der bewährten Bogen-Stufe): ALLE
+                # kompatiblen Formen müssen dieselbe sein, sonst kein Beweis.
+                eindeutig = bool(formen_r) and all(
+                    abs(a[0] - formen_r[0][0]) <= 0.1
+                    and abs(a[1] - formen_r[0][1]) <= 0.1 for a in formen_r)
+                if (eindeutig and abs(f_ist - f_roh) / f_roh <= 0.05
                         and u_ist and abs(u_ist - u_roh) / u_roh <= 0.08):
                     r["rohbau_ok"] = True
                     r["rohbau_form"] = "rechteck"
@@ -287,37 +321,50 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 # L-FORM (Stufe 2): Bounding-Box per U-Kompatibilität (achsparalleles
                 # L hat den Bounding-Umfang), Kerbe = Eck-Rechteck an inneren Fluchten.
                 # PLAUSI: Stempel nicht in der Kerbe, Kerbe ≥ 0,5m² (gegen Overfitting).
+                # WM-PROFIL-LEHRE: U-Fenster H∈[0,92·u/2−W .. 1,08·u/2−W] per bisect
+                # statt Vierfach-Kreuzprodukt (äquivalent — dieselbe ±8%-Bedingung);
+                # Kombi-BUDGET als Not-Deckel gegen Fluchten-Dichte⁶ auf Großplänen.
                 lbest = None
-                for L_ in (a for a in fv if a < rcx):
-                    for R_ in (b for b in fv if b > rcx):
-                        W_ = (R_ - L_) / ptm
-                        if not 0.5 <= W_ <= 14.0:
+                formen_l = []    # Eindeutigkeits-Gate wie im Rect-Zweig
+                hps = sorted(hp, key=lambda p: p[1] - p[0])
+                hph = [(b - a) / ptm for (a, b) in hps]
+                budget = 3_000_000
+                for (L_, R_) in vp:
+                    W_ = (R_ - L_) / ptm
+                    for k in range(_bi.bisect_left(hph, 0.92 * u_ist / 2 - W_),
+                                   _bi.bisect_right(hph, 1.08 * u_ist / 2 - W_)):
+                        O_, U_ = hps[k]
+                        H_ = hph[k]
+                        if abs(2 * (W_ + H_) - u_ist) / u_ist > 0.08:
                             continue
-                        for O_ in (a for a in fh if a < rcy):
-                            for U_ in (b for b in fh if b > rcy):
-                                H_ = (U_ - O_) / ptm
-                                if not 0.5 <= H_ <= 14.0:
-                                    continue
-                                if abs(2 * (W_ + H_) - u_ist) / u_ist > 0.08:
-                                    continue
-                                WH = W_ * H_
-                                for xi in (p for p in fv if L_ < p < R_):
-                                    for yj in (p for p in fh if O_ < p < U_):
-                                        for wn_pt, ecke_x in ((xi - L_, (L_, xi)),
-                                                              (R_ - xi, (xi, R_))):
-                                            for hn_pt, ecke_y in ((yj - O_, (O_, yj)),
-                                                                  (U_ - yj, (yj, U_))):
-                                                a_n = (wn_pt / ptm) * (hn_pt / ptm)
-                                                if a_n < 0.5:
-                                                    continue
-                                                if (ecke_x[0] <= rcx <= ecke_x[1]
-                                                        and ecke_y[0] <= rcy <= ecke_y[1]):
-                                                    continue    # Stempel in Kerbe
-                                                err = abs(WH - a_n - f_ist)
-                                                if err <= 0.05 * f_ziel and (
-                                                        lbest is None or err < lbest[0]):
-                                                    lbest = (err, WH - a_n, 2 * (W_ + H_))
-                if lbest:
+                        WH = W_ * H_
+                        xs = fv[_bi.bisect_right(fv, L_):_bi.bisect_left(fv, R_)]
+                        ys = fh[_bi.bisect_right(fh, O_):_bi.bisect_left(fh, U_)]
+                        budget -= 4 * len(xs) * len(ys)
+                        if budget < 0:
+                            break
+                        for xi in xs:
+                            for yj in ys:
+                                for wn_pt, ecke_x in ((xi - L_, (L_, xi)),
+                                                      (R_ - xi, (xi, R_))):
+                                    for hn_pt, ecke_y in ((yj - O_, (O_, yj)),
+                                                          (U_ - yj, (yj, U_))):
+                                        a_n = (wn_pt / ptm) * (hn_pt / ptm)
+                                        if a_n < 0.5:
+                                            continue
+                                        if (ecke_x[0] <= rcx <= ecke_x[1]
+                                                and ecke_y[0] <= rcy <= ecke_y[1]):
+                                            continue    # Stempel in Kerbe
+                                        err = abs(WH - a_n - f_ist)
+                                        if err <= 0.05 * f_ziel:
+                                            formen_l.append((W_, H_))
+                                            if lbest is None or err < lbest[0]:
+                                                lbest = (err, WH - a_n, 2 * (W_ + H_))
+                    if budget < 0:
+                        break
+                if lbest and all(abs(a[0] - formen_l[0][0]) <= 0.1
+                                 and abs(a[1] - formen_l[0][1]) <= 0.1
+                                 for a in formen_l):
                     r["rohbau_ok"] = True
                     r["rohbau_form"] = "l"
                     r["f_rohbau"] = round(lbest[1], 2)
@@ -330,7 +377,8 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         try:
             fv2 = [f["pos"] for f in nutzbar if f["achse"] == "v"]
             fh2 = [f["pos"] for f in nutzbar if f["achse"] == "h"]
-            for bg in vektor.tuer_boegen(page, (bx0, bx1, by0, by1), ptm):
+            for bg in vektor.tuer_boegen(page, (bx0, bx1, by0, by1), ptm,
+                                         pfade=pfade):
                 hx, hy = bg["hinge"]
 
                 def _po(pt):
@@ -366,7 +414,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     out.append(sum(cl) / len(cl))
                 return out
 
-            if dbg_r.get("label") is not None:
+            if dbg_r.get("label") is not None and not grossplan:
+                # Großpläne (>600m² Box): IoU-Kandidatensuche skaliert noch
+                # nicht (kombinatorisch) — ehrlich überspringen statt hängen.
                 raumnetz.raum_iou_beweis(raeume, dbg_r["label"], dbg_r["rst"],
                                          _ddp(fv2), _ddp(fh2), ptm)
         except Exception as e:  # pragma: no cover
@@ -405,7 +455,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # späterer Mengen-Export muss tragfaehig==True + kleine Streuung verlangen.)
             "tragfaehig": bool(kal.get("tragfaehig")),
             "streuung_pct": kal.get("streuung_pct"),
-            "massstab": _massstab(page),
+            "massstab": m_label,
         },
     }
 

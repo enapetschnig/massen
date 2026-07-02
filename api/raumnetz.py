@@ -989,7 +989,8 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
 
 
 def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
-                      zelle_m=0.02, tol_f=0.06, tol_u=0.10, debug=None):
+                      zelle_m=0.02, tol_f=0.06, tol_u=0.10, debug=None,
+                      pfade=None):
     """Komplette Raum-Verifikation einer Grundriss-Seite.
     Liefert (ergebnisse, stempel): ergebnisse = [{…, f_ist, u_ist, status}].
     debug: dict → bekommt grid/label/W/H/rst für Visualisierung."""
@@ -999,7 +1000,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
           if box[0] <= o.get("cx", -1) <= box[1] and box[2] <= o.get("cy", -1) <= box[3]]
     moebel = []
     try:
-        for p in page.get_drawings():
+        for p in (pfade if pfade is not None else page.get_drawings()):
             items = p.get("items") or []
             if len(items) != 1 or items[0][0] != "re":
                 continue
@@ -1014,7 +1015,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     # byte-genau aus der Geometrie — primäre Verschluss-Quelle (Text nur Fallback).
     try:
         import vektor as _vek
-        boegen = _vek.tuer_boegen(page, box, ptm)
+        boegen = _vek.tuer_boegen(page, box, ptm, pfade=pfade)
     except Exception:
         boegen = []
     versch = bytearray(rst.W * rst.H)

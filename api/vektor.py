@@ -16,11 +16,11 @@ ACHS_TOL_PT = 0.6          # |dx| oder |dy| darunter = achsparallel
 
 
 # ── Vektor-Extraktion ────────────────────────────────────────────────────────
-def _drawings(page):
+def _drawings(page, pfade=None):
     """Roh-Pfade als (segmente, fills). segmente: (x0,y0,x1,y1,width,grau). fills: (bbox,grau)."""
     segmente, fills = [], []
     n_pfade = 0
-    for p in page.get_drawings():
+    for p in (pfade if pfade is not None else page.get_drawings()):
         n_pfade += 1
         w = p.get("width") or 0.0
         col = p.get("color")            # stroke-Farbe (r,g,b) 0..1 oder None
@@ -181,6 +181,18 @@ def kalibriere(words, massstab_label=None):
         slopes = _slopes(True)
     label_ptm = _label_ptm(massstab_label)
     center, members = _dominant_cluster(slopes, label_ptm)
+    # LABEL-NÄHE-PRÄFERENZ: Pseudo-Ketten aus wiederholten identischen Labels
+    # (AU_WM_01: Brüstungs-Codes 84/84/84 äquidistant, R²=1, 8 Ketten einig auf
+    # 183,79 statt real 56,7) können den Dominanz-Cluster kapern. Das GEDRUCKTE
+    # Maßstab-Label ist starke Evidenz: existiert ein Cluster in ±15% des Labels,
+    # gewinnt er gegen einen größeren fernen Cluster (Angerer: Label 28,35,
+    # Ketten 27,17 = −4% → bleibt im Fenster; ein Gleichwert-FILTER wurde
+    # gemessen und verworfen — er killte die legitime 1,80er-Fensterraster-
+    # Kette des 1762788650811-Plans, Kalibrierung → None).
+    if label_ptm and members and abs(center - label_ptm) > 0.15 * label_ptm:
+        nahe = [x for x in slopes if abs(x - label_ptm) <= 0.15 * label_ptm]
+        if nahe:
+            center, members = label_ptm, nahe
     ptm = _median(members) if members else None
     support = len(members)
     # Streuung INNERHALB des dominanten Clusters (nicht über alle Maßstäbe)
@@ -284,7 +296,7 @@ def _kasa_fit(pts):
 
 
 def tuer_boegen(page, box, ptm, r_min_m=0.50, r_max_m=1.40,
-                winkel_min=55.0, winkel_max=125.0, fit_tol=0.15):
+                winkel_min=55.0, winkel_max=125.0, fit_tol=0.15, pfade=None):
     """TÜR-AUFSCHLAG-BÖGEN aus den 'c'-Bezier-Items der Drawings (die Tür zeichnet
     sich selbst: Viertelkreis = Angelpunkt + Radius (=Türbreite byte-genau) +
     Radius-Endpunkte, einer davon = 'Tür zu' = Öffnungslinie IN der Wand).
@@ -294,7 +306,7 @@ def tuer_boegen(page, box, ptm, r_min_m=0.50, r_max_m=1.40,
     import math as _m
     bx0, bx1, by0, by1 = box
     out = []
-    for p in page.get_drawings():
+    for p in (pfade if pfade is not None else page.get_drawings()):
         kette = []
 
         def _flush():
@@ -343,14 +355,14 @@ def tuer_boegen(page, box, ptm, r_min_m=0.50, r_max_m=1.40,
     return out
 
 
-def wand_fill_rects(page, box=None, min_seite_m=None, ptm=None):
+def wand_fill_rects(page, box=None, min_seite_m=None, ptm=None, pfade=None):
     """WAND-KÖRPER als FLÄCHEN-FILLS (Ziegel-/Orange-Töne): manche Wand-Grundrisse
     (1762788650811) zeichnen Wände nicht als Poché-STRICHE, sondern als gefüllte
     Polygone — _drawings verliert die Fläche (nur 're'-Fills werden gesammelt).
     → Liste (x0, y0, x1, y1) der warmen Fill-Rects im Box-Bereich.
     Warm = r>0.5, r>b+0.15, r>=g (Ziegel 0.82/0.71/0.55, Orange 1/0.39/0 …)."""
     out = []
-    for p in page.get_drawings():
+    for p in (pfade if pfade is not None else page.get_drawings()):
         typ = p.get("type") or ""
         if "f" not in typ:
             continue
@@ -373,7 +385,7 @@ def wand_fill_rects(page, box=None, min_seite_m=None, ptm=None):
     return out
 
 
-def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100):
+def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100, pfade=None):
     """Wand-Poché-Diagonalen mit FARB-Filter: auf farbigen Plänen ist die Maurer-
     Schraffur ROT/ORANGE (= Neubau-Farbe; empirisch am Angerer verifiziert — Außenwand
     + Innenwände rot/orange, Terrain-/Muster-Diagonalen grau/grün). Sind ≥min_anteil
@@ -381,7 +393,7 @@ def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100):
     (monochromer Plan) alle Diagonalen (Fallback = bisheriges Verhalten).
     Liefert [(x0,y0,x1,y1,width,grau)] wie _drawings-Segmente."""
     farbig, alle = [], []
-    for p in page.get_drawings():
+    for p in (pfade if pfade is not None else page.get_drawings()):
         col = p.get("color")
         rgb = None
         if col is not None:
@@ -412,6 +424,13 @@ def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100):
                 farbig.append(seg)
     if alle and len(farbig) >= min_absolut and len(farbig) / len(alle) >= min_anteil:
         return farbig
+    # MONOCHROM-PFAD (WM-Sezierung): 'alle Diagonalen' brannte 209.820 Segmente
+    # (Terrain-Punktmuster grau 0.75 = 132k, Pflaster grau 0.58 = 31k) als Wand —
+    # 57,7% der Box wurde Maske, verifiziere_seite lief >40min und 0/52. NUR die
+    # DUNKELSTE Grau-Klasse zeichnet die Wände (schwarz 0.0 = 31k, visuell exakt).
+    dunkel = [s for s in alle if s[5] is not None and s[5] <= 0.3]
+    if len(dunkel) >= min_absolut and len(dunkel) < len(alle):
+        return dunkel
     return alle
 
 
