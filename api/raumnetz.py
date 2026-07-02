@@ -530,6 +530,79 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
     return label
 
 
+def _streifen_ausgleich(grid, label, rst, stempel, AUSSEN, max_runden=40):
+    """FORM-ERHALTENDER STREIFEN-AUSGLEICH: unterfüllte Räume wachsen um GANZE
+    achsparallele Rand-Streifen (zusammenhängende Läufe ≥60cm) statt Zellen-Fronten —
+    die Rechteck-Form bleibt erhalten, U fällt auf die Wandlinie (die Zellen-Fronten
+    des Fein-Ausgleichs erzeugten Anbauten mit +20-70% U, gemessen)."""
+    W, H = rst.W, rst.H
+    n = len(stempel)
+    soll = [int(st["f_m2"] / (rst.zm * rst.zm)) for st in stempel]
+    fl = [0] * (n + 1)
+    for idx in range(W * H):
+        if 0 <= label[idx] <= n:
+            fl[label[idx]] += 1
+    min_run = max(3, int(0.6 / rst.zm))
+
+    def geber(lab):
+        return lab == AUSSEN or (0 <= lab < n and fl[lab] > soll[lab])
+
+    for _ in range(max_runden):
+        bewegt = False
+        for b in range(n):
+            if fl[b] >= soll[b]:
+                continue
+            zellen = [idx for idx in range(W * H) if label[idx] == b]
+            if not zellen:
+                continue
+            # Kandidaten je Richtung: (dir, feste Linie) → Positionen entlang der Linie
+            linien = {}
+            for idx in zellen:
+                i, j = idx % W, idx // W
+                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ni, nj = i + di, j + dj
+                    nidx = nj * W + ni
+                    if not (0 <= ni < W and 0 <= nj < H) or grid[nidx]:
+                        continue
+                    if geber(label[nidx]):
+                        key = ((di, dj), ni if di else nj)
+                        linien.setdefault(key, set()).add(nj if di else ni)
+            # längsten zusammenhängenden Lauf finden
+            best = None
+            for key, poss in linien.items():
+                ps = sorted(poss)
+                start = prev = ps[0]
+                for p in ps[1:] + [None]:
+                    if p is not None and p == prev + 1:
+                        prev = p
+                        continue
+                    ll = prev - start + 1
+                    if ll >= min_run and (best is None or ll > best[0]):
+                        best = (ll, key, start, prev)
+                    if p is not None:
+                        start = prev = p
+            if best is None:
+                continue
+            _, ((di, dj), fest), lo, hi = best
+            # Streifen übernehmen (nur Geber-Zellen, Budget: nicht über Soll hinaus)
+            for p in range(lo, hi + 1):
+                if fl[b] >= soll[b]:
+                    break
+                i, j = (fest, p) if di else (p, fest)
+                nidx = j * W + i
+                lab0 = label[nidx]
+                if grid[nidx] or not geber(lab0):
+                    continue
+                label[nidx] = b
+                if 0 <= lab0 < n:
+                    fl[lab0] -= 1
+                fl[b] += 1
+                bewegt = True
+        if not bewegt:
+            break
+    return label
+
+
 def _glaetten(grid, label, rst, n_labels, AUSSEN, runden=5):
     """GRENZ-GLÄTTUNG (diskreter Mehrheitsfilter): der F-Ausgleich erzeugt fransige
     Grenzen in offenen Bereichen → U wird künstlich aufgebläht (+20% gemessen). Eine
@@ -770,7 +843,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     grid = wand_maske(rst, dark_segs, hatch_segs, oe)
     label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
     label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
-    label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)
+    label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)   # grobe Form-Streifen
+    label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)          # Fein-Rest
     label = _glaetten(grid, label, rst, len(stempel), AUSSEN)
     label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)   # F nach Glättung re-fixen
     if debug is not None:
