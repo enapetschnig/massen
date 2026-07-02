@@ -111,6 +111,6 @@ Das komplette Aufmaß heißt EINZELN aufgelistet und prüfbar:
 
 | Status | Item |
 |---|---|
-| 🔜 | Öffnungs-Aufmaß-Tabelle: je Öffnung Raum·Typ·B×H·Fläche·Regel·Laibung m² mit Formel (Daten existieren in oeffnung_netto) |
-| 🔜 | Wand-Aufmaß-Tabelle aus der Planansicht (je Wand einzeln, mit ✓ wenn Maßzahl byte-exakt) |
-| ⬜ | Workflow-Schritt 3 wird „Komplettes Aufmaß", Material rückt in Schritt 4 |
+| ✅ | Öffnungs-Aufmaß-Tabelle: je Öffnung Raum·Typ·B×H·Fläche·Regel·Laibung m² mit Rechenweg |
+| ✅ | Wand-Aufmaß-Tabelle aus der Planansicht (je Wand einzeln, ✓ byte-exakt, LIVE mit Korrekturen) + Raum-Aufmaß (je Raum: Boden ✓/Decke/Abwicklung/Sockel) |
+| ✅ | Workflow-Schritt 3 heißt „Aufmaß & Massen" (drei Einzel-Tabellen: Öffnungen·Wände·Räume); ⬜ Rest: Wand↔Öffnung-Zuordnung je Einzelwand, Raum-Stempel-Format WM-Büro |
