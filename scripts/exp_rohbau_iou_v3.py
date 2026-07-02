@@ -29,11 +29,17 @@ from test_raumverifikation import PLAN, _dict_spans   # noqa: E402
 
 
 def _dedupe(pos_liste, ptm, tol_m=0.07):
-    """Fluchten <tol beisammen verschmelzen (Doppellinien) — erste gewinnt."""
+    """Fluchten <tol beisammen verschmelzen (Doppellinien) — CLUSTER-MITTEL
+    (erste-gewinnt verschob Positionen um bis zu 7cm, gemessen)."""
     out = []
+    cluster = []
     for p in sorted(pos_liste):
-        if not out or p - out[-1] > tol_m * ptm:
-            out.append(p)
+        if cluster and p - cluster[-1] > tol_m * ptm:
+            out.append(sum(cluster) / len(cluster))
+            cluster = []
+        cluster.append(p)
+    if cluster:
+        out.append(sum(cluster) / len(cluster))
     return out
 
 
@@ -145,9 +151,12 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
                                                      (kx[0], kx[1], ky[0], ky[1]),
                                                      f"L {w_:.2f}×{h_:.2f}−"
                                                      f"{ka:.1f}m²"))
-        kand.sort(key=lambda t: t[0])
+        # Prefilter-Fix: RECTS IMMER exakt prüfen (wenige), L nach err kappen —
+        # die räumlich richtige Form darf nicht am err-Ranking scheitern.
+        rects = [k for k in kand if k[5] is None]
+        ls = sorted((k for k in kand if k[5] is not None), key=lambda t: t[0])[:120]
         gerankt = sorted(((iou(k[1], k[2], k[3], k[4], k[5]),) + k
-                          for k in kand[:60]), key=lambda t: -t[0])
+                          for k in rects + ls), key=lambda t: -t[0])
         if not gerankt:
             continue
         top = gerankt[0]
@@ -156,7 +165,7 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
         gleich = all(abs(g[2] - top[2]) < 0.12 * ptm and abs(g[3] - top[3]) < 0.12 * ptm
                      and abs(g[4] - top[4]) < 0.12 * ptm
                      and abs(g[5] - top[5]) < 0.12 * ptm for g in nahe)
-        if top[0] >= iou_min and gleich:
+        if top[0] >= iou_min - 1e-9 and gleich:
             n_ok += 1
             if verbose:
                 print(f"  ✓✓ {r['name']}: {top[7]}  IoU={top[0]:.3f}  "
