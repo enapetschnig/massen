@@ -205,7 +205,8 @@ class _Raster:
 
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
-               hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None, versch_out=None):
+               hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None, versch_out=None,
+               boegen=None):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
     (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing."""
     W, H = rst.W, rst.H
@@ -225,6 +226,12 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         if o.get("typ") == "tuer":
             r_z = (o.get("breite_m") or 0.9) * 0.9 * rst.ptm
             tuer_zonen.append((o["cx"], o["cy"], r_z * r_z))
+    # BOGEN-ZONEN: der Tür-Aufschlagbogen kennt Angelpunkt + Radius byte-genau —
+    # Kreis um den Angelpunkt (1,15×r) überdeckt Türblatt + Schwenkbogen exakt
+    # (präziser zentriert als die Text-Zonen, deren Anker bis 0,63m daneben liegt).
+    for bg in (boegen or []):
+        r_z = bg["r_m"] * 1.15 * rst.ptm
+        tuer_zonen.append((bg["hinge"][0], bg["hinge"][1], r_z * r_z))
 
     # MÖBEL-ZONEN (Waschen-Sezierung: Grenze schlängelte um wandständige WM/DR-Geräte,
     # deren Kanten <10cm an der Poché liegen): geschlossene Geräte-Rechtecke werden wie
@@ -253,12 +260,47 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 continue    # Türblatt/-bogen — keine Wand
             rst.line(grid, s[0], s[1], s[2], s[3])
 
+    # TÜR-VERSCHLÜSSE AUS BOGEN-GEOMETRIE (v3 — der Plan zeichnet die Tür selbst):
+    # Öffnungslinie = Strecke Angelpunkt → geschlossenes Radius-Ende. Welches Ende
+    # 'zu' ist, entscheidet die Poché (das geschlossene Ende liegt IN der Wandflucht,
+    # die offene Blattspitze im Freiraum). Byte-genau in Lage UND Breite — ersetzt
+    # den Text-Anker-Snap (gemessen: Text bis 0,63m neben der Tür).
+    bogen_ok = []
+    for bg in (boegen or []):
+        hx, hy = bg["hinge"]
+
+        def _poche_naehe(pt, r_such=0.28):
+            r2 = (r_such * rst.ptm) ** 2
+            return sum(1 for h in hatch_segs
+                       if ((h[0] + h[2]) / 2 - pt[0]) ** 2
+                       + ((h[1] + h[3]) / 2 - pt[1]) ** 2 <= r2)
+
+        na, nb = _poche_naehe(bg["a"]), _poche_naehe(bg["b"])
+        if na == nb:
+            continue    # unklar → Tür bleibt beim Text-Balken-Fallback
+        zx, zy = bg["a"] if na > nb else bg["b"]
+        # Strecke hinge→zu mit ±0,10m Dicke quer brennen
+        L = math.hypot(zx - hx, zy - hy) or 1.0
+        px, py = -(zy - hy) / L, (zx - hx) / L     # Einheits-Normale
+        d2b = 0.10 * rst.ptm
+        off = -d2b
+        while off <= d2b:
+            rst.line(grid, hx + px * off, hy + py * off, zx + px * off, zy + py * off)
+            if versch_out is not None:
+                rst.line(versch_out, hx + px * off, hy + py * off,
+                         zx + px * off, zy + py * off)
+            off += rst.cell
+        bogen_ok.append((hx, hy))
+
     for o in (oeffnungen or []):
         # Verschluss als DÜNNER BALKEN quer über die Wandlücke. Orientierung per
         # BEIDE-ENDEN-TEST: der richtige Balken überbrückt die Lücke, d.h. BEIDE
         # Enden treffen Wand (die reine Dichte-Heuristik wählte bei der Bad-Tür
         # die falsche Richtung → Leck, gemessen). Score = min(Ende1, Ende2).
         cx, cy = o["cx"], o["cy"]
+        if o.get("typ") == "tuer" and any(
+                math.hypot(hx - cx, hy - cy) < 1.5 * rst.ptm for (hx, hy) in bogen_ok):
+            continue    # Tür bereits byte-genau aus dem Bogen versiegelt
         b2 = ((o.get("breite_m") or 1.0) * rst.ptm * 0.9) / 2.0
         # Balken-Tiefe tür-adaptiv: Innentüren sitzen in ~12cm-Wänden — ein 0,4m tiefer
         # Balken frisst Raumfläche, die laut Plan-F zum Raum gehört (Tür-Diagnose:
@@ -919,8 +961,16 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 moebel.append(((rc.x0 + rc.x1) / 2.0, (rc.y0 + rc.y1) / 2.0, r * r))
     except Exception:
         moebel = []
+    # TÜR-BÖGEN (v3): der Aufschlag-Viertelkreis liefert Angelpunkt + Türbreite
+    # byte-genau aus der Geometrie — primäre Verschluss-Quelle (Text nur Fallback).
+    try:
+        import vektor as _vek
+        boegen = _vek.tuer_boegen(page, box, ptm)
+    except Exception:
+        boegen = []
     versch = bytearray(rst.W * rst.H)
-    grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel, versch_out=versch)
+    grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel,
+                      versch_out=versch, boegen=boegen)
     label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
     label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
     label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)   # grobe Form-Streifen

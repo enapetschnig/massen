@@ -237,6 +237,102 @@ def hatch_segmente(segmente):
             if abs(s[0] - s[2]) > 0.5 and abs(s[1] - s[3]) > 0.5]
 
 
+def _bezier_punkte(p1, p2, p3, p4, n=8):
+    """Kubische Bezier-Kurve an n+1 Parametern abtasten."""
+    pts = []
+    for k in range(n + 1):
+        t = k / n
+        mt = 1 - t
+        x = mt**3 * p1.x + 3 * mt**2 * t * p2.x + 3 * mt * t**2 * p3.x + t**3 * p4.x
+        y = mt**3 * p1.y + 3 * mt**2 * t * p2.y + 3 * mt * t**2 * p3.y + t**3 * p4.y
+        pts.append((x, y))
+    return pts
+
+
+def _kasa_fit(pts):
+    """Algebraischer Kreisfit (Kasa), 2×2-System ohne numpy. → (cx, cy, r) | None."""
+    import math as _m
+    n = len(pts)
+    sx = sum(p[0] for p in pts) / n
+    sy = sum(p[1] for p in pts) / n
+    u = [(p[0] - sx) for p in pts]
+    v = [(p[1] - sy) for p in pts]
+    suu = sum(a * a for a in u)
+    svv = sum(a * a for a in v)
+    suv = sum(a * b for a, b in zip(u, v))
+    suuu = sum(a * a * a for a in u)
+    svvv = sum(a * a * a for a in v)
+    suvv = sum(a * b * b for a, b in zip(u, v))
+    svuu = sum(b * a * a for a, b in zip(u, v))
+    det = suu * svv - suv * suv
+    if abs(det) < 1e-9:
+        return None
+    uc = (0.5 * (suuu + suvv) * svv - 0.5 * (svvv + svuu) * suv) / det
+    vc = (0.5 * (svvv + svuu) * suu - 0.5 * (suuu + suvv) * suv) / det
+    r = _m.sqrt(uc * uc + vc * vc + (suu + svv) / n)
+    return (uc + sx, vc + sy, r)
+
+
+def tuer_boegen(page, box, ptm, r_min_m=0.50, r_max_m=1.40,
+                winkel_min=55.0, winkel_max=125.0, fit_tol=0.15):
+    """TÜR-AUFSCHLAG-BÖGEN aus den 'c'-Bezier-Items der Drawings (die Tür zeichnet
+    sich selbst: Viertelkreis = Angelpunkt + Radius (=Türbreite byte-genau) +
+    Radius-Endpunkte, einer davon = 'Tür zu' = Öffnungslinie IN der Wand).
+    Empirisch am Angerer: 9 Bögen, alle exakt 90,0°, r = 0,83/0,87/1,07m.
+
+    Rückgabe: [{hinge, r_m, a, b, winkel_grad}] — a/b = Radius-Endpunkte."""
+    import math as _m
+    bx0, bx1, by0, by1 = box
+    out = []
+    for p in page.get_drawings():
+        kette = []
+
+        def _flush():
+            if not kette:
+                return
+            pts = []
+            for (p1, p2, p3, p4) in kette:
+                seg = _bezier_punkte(p1, p2, p3, p4)
+                pts.extend(seg if not pts else seg[1:])
+            kette.clear()
+            if len(pts) < 5:
+                return
+            mx = sum(q[0] for q in pts) / len(pts)
+            my = sum(q[1] for q in pts) / len(pts)
+            if not (bx0 <= mx <= bx1 and by0 <= my <= by1):
+                return
+            fit = _kasa_fit(pts)
+            if not fit:
+                return
+            cx, cy, r = fit
+            r_m = r / ptm
+            if not (r_min_m <= r_m <= r_max_m):
+                return
+            fehler = max(abs(_m.hypot(q[0] - cx, q[1] - cy) - r) for q in pts)
+            if fehler > fit_tol * r:
+                return
+            a, b = pts[0], pts[-1]
+            wa = _m.atan2(a[1] - cy, a[0] - cx)
+            wb = _m.atan2(b[1] - cy, b[0] - cx)
+            dw = _m.degrees(abs(_m.atan2(_m.sin(wb - wa), _m.cos(wb - wa))))
+            if not (winkel_min <= dw <= winkel_max):
+                return
+            out.append({"hinge": (cx, cy), "r_m": round(r_m, 3),
+                        "a": a, "b": b, "winkel_grad": round(dw, 1)})
+
+        for it in p.get("items", []):
+            if it[0] == "c":
+                if kette:
+                    pe = kette[-1][3]
+                    if _m.hypot(it[1].x - pe.x, it[1].y - pe.y) > 0.5:
+                        _flush()
+                kette.append((it[1], it[2], it[3], it[4]))
+            else:
+                _flush()
+        _flush()
+    return out
+
+
 def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100):
     """Wand-Poché-Diagonalen mit FARB-Filter: auf farbigen Plänen ist die Maurer-
     Schraffur ROT/ORANGE (= Neubau-Farbe; empirisch am Angerer verifiziert — Außenwand
