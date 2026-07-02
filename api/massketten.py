@@ -206,7 +206,9 @@ def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
         for b0_lab, grenzen_cm, _w in sub_ketten(
                 vektor._chains_mit_pos(spans, achse), ptm):
             best_b0, best_hits = b0_lab, -1
-            for off_cm in range(-35, 36):
+            # ±60cm: Label-Offsets bis 48cm real gemessen (Angerer West-AW-Zug
+            # sass ausserhalb des alten ±35cm-Fensters → Zufalls-Snap +6cm)
+            for off_cm in range(-60, 61):
                 b0 = b0_lab + off_cm * k
                 hits = sum(1 for g in grenzen_cm if kante_ok(b0 + g * k))
                 if hits > best_hits:
