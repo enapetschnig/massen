@@ -531,6 +531,48 @@ def _glaetten(grid, label, rst, n_labels, AUSSEN, runden=5):
     return label
 
 
+def _region_glaetten(mask, i0, j0, i1, j1, W, r_cells):
+    """Closing∘Opening einer Raum-Region in ihrer BBox (BFS-basiert, linear):
+    füllt Einbuchtungen (Verschluss-Balken) und entfernt Zacken-Vorsprünge der
+    Ausgleichs-Fronten. Liefert (geglättete BBox-Maske, bw, bh)."""
+    bw, bh = i1 - i0 + 1, j1 - j0 + 1
+    INF = 32767
+
+    def dist_from(ist_quelle):
+        dist = [INF] * (bw * bh)
+        q = deque()
+        for k in range(bw * bh):
+            if ist_quelle(k):
+                dist[k] = 0
+                q.append(k)
+        while q:
+            k = q.popleft()
+            dd = dist[k] + 1
+            if dd > r_cells:
+                continue
+            ii, jj = k % bw, k // bw
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = ii + di, jj + dj
+                nk = nj * bw + ni
+                if 0 <= ni < bw and 0 <= nj < bh and dist[nk] > dd:
+                    dist[nk] = dd
+                    q.append(nk)
+        return dist
+
+    def raw(k):
+        ii, jj = k % bw, k // bw
+        return mask[(j0 + jj) * W + (i0 + ii)]
+
+    d1 = dist_from(raw)                                       # dilatieren
+    dil = [1 if d1[k] <= r_cells else 0 for k in range(bw * bh)]
+    d2 = dist_from(lambda k: not dil[k])                      # erodieren → CLOSING
+    clo = [1 if (dil[k] and d2[k] > r_cells) else 0 for k in range(bw * bh)]
+    d3 = dist_from(lambda k: not clo[k])                      # erodieren
+    ero = [1 if (clo[k] and d3[k] > r_cells) else 0 for k in range(bw * bh)]
+    d4 = dist_from(lambda k: ero[k])                          # dilatieren → OPENING
+    return [1 if d4[k] <= r_cells else 0 for k in range(bw * bh)], bw, bh
+
+
 def _loecher_fuellen_und_messen(grid, label, rst, stempel):
     """Je Raum: eingeschlossene Löcher (Möbel-Inseln + deren Innenraum) zählen zur
     Raumfläche (so misst der Plan sein F), U wird die ÄUSSERE Wandlinie. Loch =
@@ -579,19 +621,26 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
                 if not beruehrt_rand:
                     for idx in comp:      # Loch → zählt zum Raum (Möbel-Insel)
                         is_room[idx] = 1
-        # F + U auf der gefüllten Silhouette
+        # F auf der ROHEN gefüllten Silhouette (exakt); U auf der GEGLÄTTETEN —
+        # Zacken der Ausgleichs-Fronten + Verschluss-Ausbuchtungen bliesen U ~+20%
+        # auf, obwohl F exakt war (der Blocker der Verifikation, gemessen).
         f_cells = 0
-        kanten = 0
         for jj in range(j0, j1 + 1):
             base = jj * W
             for ii in range(i0, i1 + 1):
-                if not is_room[base + ii]:
-                    continue
-                f_cells += 1
-                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    ni, nj = ii + di, jj + dj
-                    if not (0 <= ni < W and 0 <= nj < H) or not is_room[nj * W + ni]:
-                        kanten += 1
+                if is_room[base + ii]:
+                    f_cells += 1
+        glatt, bw, bh = _region_glaetten(is_room, i0, j0, i1, j1, W,
+                                         max(2, int(0.12 / rst.zm)))
+        kanten = 0
+        for k in range(bw * bh):
+            if not glatt[k]:
+                continue
+            ii, jj = k % bw, k // bw
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = ii + di, jj + dj
+                if not (0 <= ni < bw and 0 <= nj < bh) or not glatt[nj * bw + ni]:
+                    kanten += 1
         out.append((f_cells * rst.zm * rst.zm, kanten * rst.zm))
     return out
 
