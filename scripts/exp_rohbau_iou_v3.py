@@ -272,10 +272,97 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
             if verbose:
                 print(f"  ✓✓ {r['name']}: {top[7]}  IoU={top[0]:.3f}  "
                       f"(F {f_ist}, U {u_ist})")
-        elif verbose:
+            continue
+        # 2-KERBEN-STUFE (T/U/Z) am FINALEN Fail (Probe: Wohnküche-Obergrenze
+        # 0,879 ≥ Schwelle): beste DISJUNKTE 2-Kerben-Form aus der Region
+        # konstruieren, dann ALLE 12 definierenden Kanten auf Pool-Fluchten
+        # snappen (±0,12m — ohne Flucht-Beleg keine Form) und gesnappt beweisen.
+        bx0_, bx1_ = rx0 + 0.5 * ptm, rx1 - 0.5 * ptm
+        by0_, by1_ = ry0 + 0.5 * ptm, ry1 - 0.5 * ptm
+        ecken = [(0, 0), (0, 1), (1, 0), (1, 1)]
+
+        def _kerbe(e, wn, hn, B):
+            kx = (B[0], B[0] + wn) if e[0] == 0 else (B[1] - wn, B[1])
+            ky = (B[2], B[2] + hn) if e[1] == 0 else (B[3] - hn, B[3])
+            return (kx[0], kx[1], ky[0], ky[1])
+
+        def _disjunkt(k1, k2):
+            return (k1[1] <= k2[0] or k2[1] <= k1[0]
+                    or k1[3] <= k2[2] or k2[3] <= k1[2])
+
+        def _iou2(B, k1, k2):
+            i0 = int((B[0] - rstd.bx0) / rstd.cell)
+            i1 = int((B[1] - rstd.bx0) / rstd.cell)
+            j0 = max(0, int((B[2] - rstd.by0) / rstd.cell))
+            j1 = min(rstd.H - 1, int((B[3] - rstd.by0) / rstd.cell))
+            ks = [(int((k[0] - rstd.bx0) / rstd.cell),
+                   int((k[1] - rstd.bx0) / rstd.cell),
+                   int((k[2] - rstd.by0) / rstd.cell),
+                   int((k[3] - rstd.by0) / rstd.cell)) for k in (k1, k2)]
+            inter = 0
+            for j in range(j0, j1 + 1):
+                zeile = runs.get(j)
+                if not zeile:
+                    continue
+                inter += _overlap_zeile(zeile, i0, i1)
+                for kk in ks:
+                    if kk[2] <= j <= kk[3]:
+                        inter -= _overlap_zeile(zeile, kk[0], kk[1])
+            fa = (B[1] - B[0]) * (B[3] - B[2]) / ptm / ptm
+            for k in (k1, k2):
+                fa -= (k[1] - k[0]) * (k[3] - k[2]) / ptm / ptm
+            union = fa / zm2 + n_region - inter
+            return inter / union if union else 0.0
+
+        B0 = (bx0_, bx1_, by0_, by1_)
+        S = 0.5 * ptm
+        best2 = (0.0, None, None)
+        for a in range(4):
+            for b in range(a + 1, 4):
+                for w1 in range(1, 14):
+                    for h1 in range(1, 14):
+                        k1 = _kerbe(ecken[a], w1 * S, h1 * S, B0)
+                        if (k1[1] - k1[0] >= B0[1] - B0[0]
+                                or k1[3] - k1[2] >= B0[3] - B0[2]):
+                            continue
+                        for w2 in range(1, 14):
+                            for h2 in range(1, 14):
+                                k2 = _kerbe(ecken[b], w2 * S, h2 * S, B0)
+                                if (k2[1] - k2[0] >= B0[1] - B0[0]
+                                        or k2[3] - k2[2] >= B0[3] - B0[2]
+                                        or not _disjunkt(k1, k2)):
+                                    continue
+                                v = _iou2(B0, k1, k2)
+                                if v > best2[0]:
+                                    best2 = (v, k1, k2)
+        bewiesen2 = False
+        if best2[0] >= iou_min - 1e-9:
+            def _snap(p, pool):
+                c = min(pool, key=lambda q: abs(q - p), default=None)
+                return c if c is not None and abs(c - p) <= 0.12 * ptm else None
+
+            k1, k2 = best2[1], best2[2]
+            xs = [_snap(p, fv) for p in
+                  (B0[0], B0[1], k1[0], k1[1], k2[0], k2[1])]
+            ys = [_snap(p, fh) for p in
+                  (B0[2], B0[3], k1[2], k1[3], k2[2], k2[3])]
+            if all(v is not None for v in xs + ys):
+                Bs = (xs[0], xs[1], ys[0], ys[1])
+                k1s = (xs[2], xs[3], ys[2], ys[3])
+                k2s = (xs[4], xs[5], ys[4], ys[5])
+                if _disjunkt(k1s, k2s):
+                    v_snap = _iou2(Bs, k1s, k2s)
+                    if v_snap >= iou_min - 1e-9:
+                        n_ok += 1
+                        bewiesen2 = True
+                        if verbose:
+                            print(f"  ✓✓T {r['name']}: 2-Kerben-Form "
+                                  f"(flucht-gesnappt) IoU={v_snap:.3f}")
+        if not bewiesen2 and verbose:
             grund = f"IoU {top[0]:.2f}<{iou_min}" if top[0] < iou_min \
                 else "mehrere Formen über der Schwelle (uneindeutig)"
-            print(f"  ✗  {r['name']}: {grund}  (beste: {top[7]})")
+            print(f"  ✗  {r['name']}: {grund}  (beste: {top[7]}; "
+                  f"2-Kerben max {best2[0]:.2f})")
     print(f"\n{n_ok} Räume RÄUMLICH bewiesen (IoU≥{iou_min}, eindeutig)")
     return n_ok
 
