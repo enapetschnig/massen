@@ -183,7 +183,10 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
         def _gleiche_form(g):
             return (abs(g[2] - top[2]) < 0.12 * ptm and abs(g[3] - top[3]) < 0.12 * ptm
                     and abs(g[4] - top[4]) < 0.12 * ptm and abs(g[5] - top[5]) < 0.12 * ptm)
-        gleich = all(_gleiche_form(g) or g[0] < iou_min - 1e-9 for g in gerankt[1:])
+        # Eindeutig wenn andersartige Formen ENTWEDER unter der Schwelle ODER
+        # um ≥0,02 IoU schlechter sind (die Region BEVORZUGT dann eine Form klar).
+        gleich = all(_gleiche_form(g) or g[0] < iou_min - 1e-9
+                     or top[0] - g[0] >= 0.02 for g in gerankt[1:])
         if top[0] >= iou_min - 1e-9 and gleich:
             n_ok += 1
             if verbose:
