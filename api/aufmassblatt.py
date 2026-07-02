@@ -91,17 +91,22 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
         page.insert_text(fitz.Point(c.x - 2.4, c.y + 2.6), "F" if istF else "T",
                          fontsize=7, color=(1, 1, 1), fontname="hebo")
 
-    # ── Raum-Verifikation ──
+    # ── Raum-Verifikation (3 Stufen: voll · Fläche exakt · prüfen) ──
+    TEAL = (0.05, 0.58, 0.53)
     n_ok = 0
+    n_f = 0
     raeume = nz.get("raeume") or []
     for r in raeume:
         ok = r.get("status") == "verifiziert"
+        f_ok = r.get("status") == "u_daneben"     # Fläche exakt, Umfang prüfen
         if ok:
             n_ok += 1
-        col = GRUEN if ok else AMBER
+        elif f_ok:
+            n_f += 1
+        col = GRUEN if ok else (TEAL if f_ok else AMBER)
         c = pt(r["px"][0], r["px"][1] - 14)
         page.draw_circle(c, 5.5, color=(1, 1, 1), fill=col, width=1)
-        page.insert_text(fitz.Point(c.x - 2.2, c.y + 2.4), "✓" if ok else "?",
+        page.insert_text(fitz.Point(c.x - 2.2, c.y + 2.4), "✓" if (ok or f_ok) else "?",
                          fontsize=7, color=(1, 1, 1), fontname="hebo")
 
     # ── Fuß: Legende + Summen + Ehrlichkeits-Hinweis ──
@@ -129,7 +134,7 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     page.insert_text((M, y), f"Σ Wandlängen je Stärke:  {s_txt}", fontsize=8.5)
     y += 14
     page.insert_text((M, y),
-                     f"Räume: {n_ok}/{len(raeume)} geometrisch bestätigt   ·   "
+                     f"Räume: {n_ok} voll bestätigt (Fläche+Umfang) · {n_f} Fläche exakt (Umfang prüfen) · von {len(raeume)}   ·   "
                      f"Öffnungen: {len(nz.get('oeffnungen') or [])} (byte-exakt aus STUK/FPH-Codes)   ·   "
                      f"* = Länge byte-exakt aus der Plan-Maßzahl übernommen",
                      fontsize=8.5)

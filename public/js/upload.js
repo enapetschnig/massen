@@ -1465,25 +1465,30 @@
     });
     // RAUM-VERIFIKATION: grün = Geometrie gegen die Plan-Stempel (F+U) BEWIESEN,
     // gelb = prüfen. Der Plan validiert sich selbst.
-    var nRaumOk = 0, raumBadges = '';
+    var nRaumOk = 0, nRaumF = 0, raumBadges = '';
     (_nzData.raeume || []).forEach(function (r) {
+      // 3 Stufen: voll verifiziert (F+U) · Fläche bestätigt (F exakt, U prüfen) · prüfen
       var ok = r.status === 'verifiziert';
-      if (ok) nRaumOk++;
-      var col = ok ? '#16a34a' : '#d97706';
+      var fOk = r.status === 'u_daneben';
+      if (ok) nRaumOk++; else if (fOk) nRaumF++;
+      var col = ok ? '#16a34a' : (fOk ? '#0d9488' : '#d97706');
       var tip = (r.name || '?') + ' — ' + fmtNum(r.f_m2) + ' m² lt. Plan' +
         (r.f_ist != null ? ', rekonstruiert ' + fmtNum(r.f_ist) + ' m²' : '') +
-        (ok ? ' ✓ bestätigt' : ' — bitte prüfen');
+        (ok ? ' ✓ Fläche+Umfang bestätigt' : (fOk ? ' ✓ Fläche bestätigt — Umfang prüfen' : ' — bitte prüfen'));
       raumBadges += '<g><circle cx="' + r.px[0] + '" cy="' + (r.px[1] - fs * 1.6) + '" r="' + (fs * 0.62) + '"' +
         ' fill="' + col + '" stroke="#fff" stroke-width="2"/>' +
         '<text x="' + r.px[0] + '" y="' + (r.px[1] - fs * 1.6) + '" font-size="' + Math.round(fs * 0.75) + '"' +
         ' text-anchor="middle" dy="' + Math.round(fs * 0.26) + '" fill="#fff" style="font-weight:700;pointer-events:none">' +
-        (ok ? '✓' : '?') + '</text><title>' + tip + '</title></g>';
+        (ok || fOk ? '✓' : '?') + '</text><title>' + tip + '</title></g>';
     });
     var s = _nzSplit(), ges = s.ges;
     var legend = '';
     if (_nzData.raeume && _nzData.raeume.length) {
       legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:#16a34a;border-radius:50%"></span>' +
-        '<strong>' + nRaumOk + '/' + _nzData.raeume.length + '</strong>&nbsp;Räume geometrisch bestätigt</span>';
+        '<strong>' + nRaumOk + '</strong>&nbsp;voll bestätigt</span>' +
+        '<span class="nz-leg-item"><span class="nz-sw" style="background:#0d9488;border-radius:50%"></span>' +
+        '<strong>' + nRaumF + '</strong>&nbsp;Fläche exakt (Umfang prüfen)</span>' +
+        '<span class="nz-leg-item">von <strong>' + _nzData.raeume.length + '</strong> Räumen</span>';
     }
     [50, 38, 25, 20, 12].forEach(function (t) {
       if (!ges[t]) return;
