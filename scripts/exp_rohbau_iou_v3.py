@@ -235,8 +235,8 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
 
         top, ok1 = _entscheide(_rank(
             [p for p in fv if rx0 <= p <= rx1], [p for p in fh if ry0 <= p <= ry1],
-            [p for p in fv_roh if rx0 <= p <= rx1],
-            [p for p in fh_roh if ry0 <= p <= ry1]))
+            [p for p in fv if rx0 <= p <= rx1],
+            [p for p in fh if ry0 <= p <= ry1]))
         if not ok1:
             # STUFE-2-SKIP: erschöpfende BBox-Ecken-Suche (mit Runs-IoU billig)
             # liefert die OBERGRENZE der Rect/L-Familie für diese Region —
@@ -263,7 +263,7 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
                     print(f"  ✗f {r['name']}: formuntauglich "
                           f"(Rect/L-Obergrenze {max_iou:.2f})")
                 continue
-            top, ok1 = _entscheide(_rank(fv, fh, fv_roh, fh_roh))
+            top, ok1 = _entscheide(_rank(fv, fh, fv, fh))
         if top is None:
             continue
         gerankt = None   # Entscheidung bereits gefallen
