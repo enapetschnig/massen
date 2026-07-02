@@ -369,17 +369,49 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
     def abgabefaehig(lab):
         return (0 <= lab < n and fl[lab] > soll[lab]) or lab == AUSSEN
 
-    # DISTANZ-SCHRANKE gegen Tentakel (Bild-diagnostiziert: Zimmer 2 saugte den GANG
-    # leer statt seiner Süd-Fläche → U +71%): eine Zelle darf nur zu Raum B wechseln,
-    # wenn sie plausibel nah an dessen Stempel liegt — Radius ≈ Raum-Halbdiagonale
-    # (0,9·√F + 1 m). Zellen jenseits davon gehören geometrisch nicht zu B.
-    st_pos = []
-    limit2 = []
-    for st in stempel:
+    # GEODÄTISCHE DISTANZ-SCHRANKE gegen Tentakel: eine Zelle darf nur zu Raum B
+    # wechseln, wenn sie durch den FREIRAUM (Wände blockieren!) nahe an Bs Stempel
+    # liegt (0,9·√F + 1,5 m Weglänge). Der Gang-Tentakel von Zimmer 2 war EUKLIDISCH
+    # nah (direkt über der Wand — Euklid-Schranke griff nicht, gemessen), aber
+    # GEODÄTISCH fern (Weg um die Wand herum). Nur für unterfüllte Räume gerechnet.
+    INF = 32767
+    geo = {}
+    for li, st in enumerate(stempel):
+        if fl[li] >= soll[li]:
+            continue
         si, sj = rst.ij(st["cx"], st["cy"])
-        st_pos.append((si, sj))
-        r_cells = (0.9 * (st["f_m2"] ** 0.5) + 1.0) / rst.zm
-        limit2.append(r_cells * r_cells)
+        # Start auf freie Zelle schieben (Stempel kann auf Linien liegen)
+        start = None
+        for rad in range(0, 15):
+            for di in range(-rad, rad + 1):
+                for dj in range(-rad, rad + 1):
+                    ni, nj = si + di, sj + dj
+                    if 0 <= ni < W and 0 <= nj < H and not grid[nj * W + ni]:
+                        start = nj * W + ni
+                        break
+                if start is not None:
+                    break
+            if start is not None:
+                break
+        if start is None:
+            continue
+        r_lim = int((0.9 * (st["f_m2"] ** 0.5) + 1.5) / rst.zm)
+        dist = [INF] * (W * H)
+        dist[start] = 0
+        q2 = deque([start])
+        while q2:
+            idx2 = q2.popleft()
+            dd = dist[idx2] + 1
+            if dd > r_lim:
+                continue
+            i2, j2 = idx2 % W, idx2 // W
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = i2 + di, j2 + dj
+                nidx = nj * W + ni
+                if 0 <= ni < W and 0 <= nj < H and not grid[nidx] and dist[nidx] > dd:
+                    dist[nidx] = dd
+                    q2.append(nidx)
+        geo[li] = (dist, r_lim)
 
     # WELLEN-basiertes, KOMPAKTES Wachstum: pro Welle wechseln nur Grenz-Zellen mit
     # ≥2 Ziel-Nachbarn (glatte Front statt fransiger Lappen — Fransen bliesen U +70%
@@ -411,9 +443,9 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
                     continue
                 nl = label[nj * W + ni]
                 if 0 <= nl < n and nl != lab and fl[nl] < soll[nl]:
-                    dx, dy = i - st_pos[nl][0], j - st_pos[nl][1]
-                    if dx * dx + dy * dy > limit2[nl]:
-                        continue    # zu weit vom Ziel-Raum-Stempel → Tentakel-Verbot
+                    g = geo.get(nl)
+                    if g is not None and g[0][j * W + i] > g[1]:
+                        continue    # geodätisch zu weit vom Ziel-Stempel → Tentakel-Verbot
                     defizit = soll[nl] - fl[nl]
                     if best is None or defizit > best[0]:
                         best = (defizit, nl)
