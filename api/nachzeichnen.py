@@ -206,14 +206,17 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         import raumnetz
         dark = [s for s in segs if (s[5] is None or s[5] < 0.45)
                 and vektor._laenge(s) / ptm > 0.10 and inb(s)]
+        dbg_r = {}
         rres, _st = raumnetz.verifiziere_seite(page, ptm, (bx0, bx1, by0, by1),
-                                               dark, hatch, oeff_pt, zelle_m=0.03)
+                                               dark, hatch, oeff_pt, zelle_m=0.03,
+                                               debug=dbg_r)
         for r in rres:
             raeume.append({
                 "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
                 "f_ist": r.get("f_ist"), "u_ist": r.get("u_ist"),
                 "status": r.get("status"),
                 "px": to_px(r["cx"], r["cy"]),
+                "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
             })
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Raum-Verifikation fehlgeschlagen: {e}")
@@ -319,6 +322,58 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     r["rohbau_form"] = "l"
                     r["f_rohbau"] = round(lbest[1], 2)
                     r["u_rohbau"] = round(lbest[2], 2)
+        # RÄUMLICHER IoU-BEWEIS (Goldstandard, Cache-Miss-Muster: läuft nur beim
+        # Erstlauf mit, danach aus dem Cache): Fluchten-Pool = Ketten ∪ geschlossene
+        # Bogen-Türlinien ∪ Wand-Faces, Cluster-Mittel-Dedupe; Beweis annotiert
+        # raeume[i] mit iou_bewiesen/iou_wert/iou_form (5/5 formtaugliche Angerer-
+        # Räume, raster-robust).
+        try:
+            fv2 = [f["pos"] for f in nutzbar if f["achse"] == "v"]
+            fh2 = [f["pos"] for f in nutzbar if f["achse"] == "h"]
+            for bg in vektor.tuer_boegen(page, (bx0, bx1, by0, by1), ptm):
+                hx, hy = bg["hinge"]
+
+                def _po(pt):
+                    r2 = (0.28 * ptm) ** 2
+                    return sum(1 for hh in hatch
+                               if ((hh[0] + hh[2]) / 2 - pt[0]) ** 2
+                               + ((hh[1] + hh[3]) / 2 - pt[1]) ** 2 <= r2)
+
+                na, nb = _po(bg["a"]), _po(bg["b"])
+                if na == nb:
+                    continue
+                zu = bg["a"] if na > nb else bg["b"]
+                ddx, ddy = abs(zu[0] - hx), abs(zu[1] - hy)
+                if ddy < 0.2 * ddx:
+                    fh2.append((hy + zu[1]) / 2.0)
+                elif ddx < 0.2 * ddy:
+                    fv2.append((hx + zu[0]) / 2.0)
+            for w in roh:
+                d2f = (w.get("dicke_cm") or 0) / 100.0 * ptm / 2.0
+                if w["achse"] == "v":
+                    fv2.extend([w["x0"] - d2f, w["x0"] + d2f])
+                else:
+                    fh2.extend([w["y0"] - d2f, w["y0"] + d2f])
+
+            def _ddp(lst):
+                out, cl = [], []
+                for p in sorted(lst):
+                    if cl and p - cl[-1] > 0.07 * ptm:
+                        out.append(sum(cl) / len(cl))
+                        cl = []
+                    cl.append(p)
+                if cl:
+                    out.append(sum(cl) / len(cl))
+                return out
+
+            if dbg_r.get("label") is not None:
+                raumnetz.raum_iou_beweis(raeume, dbg_r["label"], dbg_r["rst"],
+                                         _ddp(fv2), _ddp(fh2), ptm)
+        except Exception as e:  # pragma: no cover
+            print(f"[nachzeichnen] IoU-Beweis fehlgeschlagen: {e}")
+        for r in raeume:
+            r.pop("cx", None)
+            r.pop("cy", None)
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Wandfluchten fehlgeschlagen: {e}")
 

@@ -1071,3 +1071,166 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         status = "verifiziert" if (f_ok and u_ok) else ("u_daneben" if f_ok else "f_daneben")
         out.append(dict(st, status=status, f_ist=round(f_ist, 2), u_ist=round(u_ist, 2)))
     return out, stempel
+
+
+# ────────────────────────────────────────────────────────────────────
+# RÄUMLICHER IoU-BEWEIS (v3, Juli 2026) — der Goldstandard der Verifikation
+# ────────────────────────────────────────────────────────────────────
+def raum_iou_beweis(res_liste, label, rst, fv, fh, ptm, iou_min=0.85):
+    """Annotiert res_liste-Einträge mit iou_bewiesen/iou_wert/iou_form.
+
+    Beweis: eine Rect- oder L-Form aus FLUCHT-Paaren muss die Raum-REGION
+    räumlich decken (exakte IoU auf Zeilen-Runs, Schwelle kalibriert 0,85;
+    Bad=0,93 zeigt: echte Einbauten drücken legitim). Eindeutigkeit: keine
+    andersartige Form über der Schwelle ohne ≥0,02-Rückstand. Drei Such-
+    stufen: BBox-Fenster ±0,5m → Form-Obergrenzen-Skip (erschöpfende
+    BBox-Ecken-Suche; Obergrenze < Schwelle−0,02 ⇒ formuntauglich, ehrlich
+    NICHT bewiesen) → Voll-Pool-Fallback (Grenzfälle wie Bad).
+    F+U allein UNTERBESTIMMEN Formen (613 passende Boundings gemessen) —
+    nur die räumliche Deckung beweist. 5/5 formtaugliche Angerer-Räume."""
+    W, H = rst.W, rst.H
+    for idx, r in enumerate(res_liste):
+        f_ziel = r.get("f_m2") or 0
+        f_ist, u_ist = r.get("f_ist"), r.get("u_ist")
+        if not (f_ziel and f_ist and u_ist):
+            continue
+        cx, cy = r["cx"], r["cy"]
+        runs = {}
+        n_region = 0
+        for j in range(H):
+            base = j * W
+            i = 0
+            zeile = []
+            while i < W:
+                if label[base + i] == idx:
+                    a = i
+                    while i < W and label[base + i] == idx:
+                        i += 1
+                    zeile.append((a, i - 1))
+                    n_region += i - a
+                else:
+                    i += 1
+            if zeile:
+                runs[j] = zeile
+        if not n_region:
+            continue
+        zm2 = rst.zm * rst.zm
+
+        def _ovl(zeile, i0, i1):
+            n = 0
+            for (a, b) in zeile:
+                lo, hi = max(a, i0), min(b, i1)
+                if hi >= lo:
+                    n += hi - lo + 1
+            return n
+
+        def iou(L_, R_, O_, U_, kerbe=None):
+            i0 = int((L_ - rst.bx0) / rst.cell)
+            i1 = int((R_ - rst.bx0) / rst.cell)
+            j0 = max(0, int((O_ - rst.by0) / rst.cell))
+            j1 = min(H - 1, int((U_ - rst.by0) / rst.cell))
+            ki = None
+            if kerbe:
+                ki = (int((kerbe[0] - rst.bx0) / rst.cell),
+                      int((kerbe[1] - rst.bx0) / rst.cell),
+                      int((kerbe[2] - rst.by0) / rst.cell),
+                      int((kerbe[3] - rst.by0) / rst.cell))
+            inter = 0
+            for j in range(j0, j1 + 1):
+                zeile = runs.get(j)
+                if not zeile:
+                    continue
+                inter += _ovl(zeile, i0, i1)
+                if ki and ki[2] <= j <= ki[3]:
+                    inter -= _ovl(zeile, ki[0], ki[1])
+            fa = (R_ - L_) * (U_ - O_) / ptm / ptm
+            if kerbe:
+                fa -= ((kerbe[1] - kerbe[0]) * (kerbe[3] - kerbe[2])) / ptm / ptm
+            union = fa / zm2 + n_region - inter
+            return inter / union if union else 0.0
+
+        ober = max(1.15 * f_ziel, 1.10 * f_ziel + 0.25)
+
+        def _rank(fvu, fhu):
+            kand = []
+            vp = [(a, b) for a in fvu if a < cx for b in fvu if b > cx
+                  if 0.5 <= (b - a) / ptm <= 14.0]
+            hp = [(a, b) for a in fhu if a < cy for b in fhu if b > cy
+                  if 0.5 <= (b - a) / ptm <= 14.0]
+            for (l_, r_) in vp:
+                w_ = (r_ - l_) / ptm
+                for (o_, u_) in hp:
+                    h_ = (u_ - o_) / ptm
+                    a_ = w_ * h_
+                    if 0.98 * f_ziel <= a_ <= ober:
+                        kand.append((abs(a_ - f_ist), l_, r_, o_, u_, None,
+                                     f"Rechteck {w_:.2f}×{h_:.2f} m"))
+                    if abs(2 * (w_ + h_) - u_ist) / u_ist <= 0.08:
+                        for xi in (p for p in fvu if l_ < p < r_):
+                            for yj in (p for p in fhu if o_ < p < u_):
+                                for kx in ((l_, xi), (xi, r_)):
+                                    for ky in ((o_, yj), (yj, u_)):
+                                        ka = ((kx[1] - kx[0]) * (ky[1] - ky[0])
+                                              / ptm / ptm)
+                                        if ka < 0.5:
+                                            continue
+                                        if abs(a_ - ka - f_ist) <= 0.05 * f_ziel:
+                                            kand.append(
+                                                (abs(a_ - ka - f_ist), l_, r_, o_, u_,
+                                                 (kx[0], kx[1], ky[0], ky[1]),
+                                                 f"L-Polygon {w_:.2f}×{h_:.2f}"
+                                                 f"−{ka:.1f} m²"))
+            rects = [k for k in kand if k[5] is None]
+            ls = sorted((k for k in kand if k[5] is not None),
+                        key=lambda t: t[0])[:120]
+            return sorted(((iou(k[1], k[2], k[3], k[4], k[5]),) + k
+                           for k in rects + ls), key=lambda t: -t[0])
+
+        def _entscheide(gerankt):
+            if not gerankt:
+                return None, False
+            t = gerankt[0]
+
+            def _gf(g):
+                return (abs(g[2] - t[2]) < 0.12 * ptm
+                        and abs(g[3] - t[3]) < 0.12 * ptm
+                        and abs(g[4] - t[4]) < 0.12 * ptm
+                        and abs(g[5] - t[5]) < 0.12 * ptm)
+            ok = (t[0] >= iou_min - 1e-9
+                  and all(_gf(g) or g[0] < iou_min - 1e-9
+                          or t[0] - g[0] >= 0.02 for g in gerankt[1:]))
+            return t, ok
+
+        rj = sorted(runs)
+        rx0 = rst.bx0 + min(z[0][0] for z in runs.values()) * rst.cell - 0.5 * ptm
+        rx1 = rst.bx0 + (max(z[-1][1] for z in runs.values()) + 1) * rst.cell + 0.5 * ptm
+        ry0 = rst.by0 + rj[0] * rst.cell - 0.5 * ptm
+        ry1 = rst.by0 + (rj[-1] + 1) * rst.cell + 0.5 * ptm
+        top, ok1 = _entscheide(_rank([p for p in fv if rx0 <= p <= rx1],
+                                     [p for p in fh if ry0 <= p <= ry1]))
+        if not ok1:
+            # Form-Obergrenzen-Skip: erschöpfende BBox-Ecken-Suche
+            bx0_, bx1_ = rx0 + 0.5 * ptm, rx1 - 0.5 * ptm
+            by0_, by1_ = ry0 + 0.5 * ptm, ry1 - 0.5 * ptm
+            max_iou = iou(bx0_, bx1_, by0_, by1_)
+            for ex in (0, 1):
+                for ey in (0, 1):
+                    for fwn in range(2, 26, 2):
+                        for fhn in range(2, 26, 2):
+                            wn, hn = fwn * 0.25 * ptm, fhn * 0.25 * ptm
+                            if wn >= (bx1_ - bx0_) or hn >= (by1_ - by0_):
+                                continue
+                            kx = (bx0_, bx0_ + wn) if ex == 0 else (bx1_ - wn, bx1_)
+                            ky = (by0_, by0_ + hn) if ey == 0 else (by1_ - hn, by1_)
+                            v = iou(bx0_, bx1_, by0_, by1_,
+                                    (kx[0], kx[1], ky[0], ky[1]))
+                            if v > max_iou:
+                                max_iou = v
+            if max_iou < iou_min - 0.02:
+                r["iou_max_form"] = round(max_iou, 2)   # formuntauglich, ehrlich
+                continue
+            top, ok1 = _entscheide(_rank(fv, fh))
+        if top is not None and ok1:
+            r["iou_bewiesen"] = True
+            r["iou_wert"] = round(top[0], 3)
+            r["iou_form"] = top[7]
