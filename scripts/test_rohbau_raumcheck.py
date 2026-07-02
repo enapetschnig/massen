@@ -50,12 +50,32 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02):
     n_ok = 0
     for r in res:
         cx, cy = r["cx"], r["cy"]
-        links = max((p for p in fv if p < cx), default=None)
-        rechts = min((p for p in fv if p > cx), default=None)
-        oben = max((p for p in fh if p < cy), default=None)
-        unten = min((p for p in fh if p > cy), default=None)
-        if None in (links, rechts, oben, unten):
+        # FLUCHT-PAAR-SUCHE (v2, WM-Diagnose: bei dichten Fluchten liefert jede
+        # Wand ZWEI Fluchten — "nächste" ergibt 2cm-Rechtecke). Wähle die
+        # (links,rechts)×(oben,unten)-Kombination, die den Stempel enthält und
+        # deren Fläche F_stempel×[0,98..1,15] am besten trifft (Fertig→Rohbau
+        # wächst um Putz/Vorwände; byte-exakt eindeutig, reconstruct_bbox-Prinzip).
+        f_ziel = r.get("f_m2") or 0
+        if not f_ziel:
             continue
+        vp = [(a, b) for a in fv if a < cx for b in fv if b > cx
+              if 0.5 <= (b - a) / ptm <= 14.0]
+        hp = [(a, b) for a in fh if a < cy for b in fh if b > cy
+              if 0.5 <= (b - a) / ptm <= 14.0]
+        best = None
+        for (l_, r_) in vp:
+            w_ = (r_ - l_) / ptm
+            for (o_, u_) in hp:
+                h_ = (u_ - o_) / ptm
+                fl_a = w_ * h_
+                if not (0.98 * f_ziel <= fl_a <= 1.15 * f_ziel):
+                    continue
+                score = abs(fl_a - 1.06 * f_ziel)
+                if best is None or score < best[0]:
+                    best = (score, l_, r_, o_, u_)
+        if not best:
+            continue
+        _sc, links, rechts, oben, unten = best
         w = (rechts - links) / ptm
         h = (unten - oben) / ptm
         f_roh, u_roh = w * h, 2 * (w + h)
@@ -77,4 +97,4 @@ if __name__ == "__main__":
         run(g[0], None, zelle_m=0.03)   # Großplan: gröberes Raster für Laufzeit
     else:
         n = run()
-        assert n >= 1, "Regression: Bad war rohbau-verifiziert"
+        assert n >= 3, "Regression: Zimmer 1 + Bad + Geräte waren rohbau-verifiziert"
