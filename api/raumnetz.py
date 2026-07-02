@@ -37,8 +37,14 @@ _KEIN_RAUMNAME = ("fliesen", "parkett", "laminat", "teppich", "estrich", "beton"
                   "betonplatten", "kies", "wiese", "rasen", "pflaster", "asphalt",
                   "holz", "vlies", "epoxy", "keramik", "stein")
 
-# Punkt-Dezimal ("Fl: 5.90m²", 1762788650811-Plan) UND Komma mit Tausender-Punkt
-_F_RX = re.compile(r"^F[lL]\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9]{1,2}|[0-9]+)\s*m", re.I)
+# Punkt-Dezimal ("Fl: 5.90m²", 1762788650811-Plan) UND Komma mit Tausender-Punkt.
+# BF: = Bodenfläche (Polierplan-Konvention, AP.01: 6 von 9 Seeds fehlten sonst).
+_F_RX = re.compile(r"^(?:F[lL]|BF)\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9]{1,2}|[0-9]+)\s*m", re.I)
+# Solo-Anker ("BF:" allein, Zahl als Tab-Spalte 20-28pt rechts — AP.01-Encoding)
+_F_ANKER_RX = re.compile(r"^(?:F[lL]|BF)\s*[.:]?$", re.I)
+# Bauteil-/Wandtyp-Codes sind KEINE Raumnamen (stehen auf Polierplänen näher
+# am Stempel als der Name und gewannen die Nächster-Span-Suche: 'IW 2' statt Bad)
+_CODE_RX = re.compile(r"^(?:IW|AW|TW|STB|RBL|STUK|RPH|FBH|FFB|RH|BF)\b", re.I)
 _U_CM_RX = re.compile(r"U\s*[:=]?\s*([0-9][0-9\s.]*,?[0-9]*)\s*cm", re.I)
 _U_M_RX = re.compile(r"U\s*[:=]?\s*([0-9]+,[0-9]+)\s*m\b", re.I)
 
@@ -76,6 +82,22 @@ def raum_stempel(page, box):
     # ("Fl: 64." + "15m²", 1762788650811). Nur joinen wenn der linke Span auf
     # Ziffer+[.,] ENDET und der rechte mit Ziffer BEGINNT (der breite Join
     # regressierte Angerer 4/9→3/9 — U-/Namens-Zuordnung hängt an Span-Geometrie).
+    # ANKER-JOIN (AP.01-Polierplan): "BF:" steht als SOLO-Span, die Zahl folgt
+    # als Tab-Spalte 20-28pt rechts — verschmelzen, damit _F_RX greift.
+    # Angerer-sicher: dessen Stempel ('Fl: 10,53 m') sind nie Solo-Anker.
+    for sp in spans:
+        if not _F_ANKER_RX.match(sp["text"]):
+            continue
+        rechts = sorted((s2 for s2 in spans if s2 is not sp and s2["text"]
+                         and abs(s2["cy"] - sp["cy"]) < 2.5
+                         and -0.5 <= s2["x0"] - sp["x1"] < 40.0
+                         and re.match(r"^[0-9]", s2["text"])),
+                        key=lambda s2: s2["x0"])
+        if rechts:
+            sp["text"] = sp["text"] + " " + rechts[0]["text"]
+            sp["x1"] = rechts[0]["x1"]
+            rechts[0]["text"] = ""
+    spans = [s2 for s2 in spans if s2["text"]]
     for sp in spans:
         if not re.search(r"[0-9][.,]$", sp["text"]):
             continue
@@ -117,6 +139,8 @@ def raum_stempel(page, box):
         for s2 in spans:
             if s2 is s or not re.match(r"^[A-Za-zÄÖÜäöüß]", s2["text"]):
                 continue
+            if _CODE_RX.match(s2["text"]):
+                continue    # Wandtyp-/Bauteil-Code, kein Raumname (AP.01: 'IW 2')
             dy = s["cy"] - s2["cy"]
             if 0 < dy < 32 and abs(s2["cx"] - s["cx"]) < 80 and dy < best:
                 best, name = dy, s2["text"]

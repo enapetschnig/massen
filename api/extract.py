@@ -4737,7 +4737,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 7   # bei Pipeline-Änderungen erhöhen → Cache invalidiert (7: räumlicher IoU-Beweis)
+_NZ_CACHE_V = 8   # bei Pipeline-Änderungen erhöhen → Cache invalidiert (8: BF-Polierplan-Stempel)
 
 
 def _nachzeichnen_roh(body):
