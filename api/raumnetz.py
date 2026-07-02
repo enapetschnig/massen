@@ -35,7 +35,7 @@ _KOMPAKT_MIN = 3   # Kompaktheits-Schwelle des F-Ausgleichs (Ziel-Nachbarn von 8
 # Außenflächen-Beschriftungen — empirisch am WM-Plan gefunden)
 _KEIN_RAUMNAME = ("fliesen", "parkett", "laminat", "teppich", "estrich", "beton",
                   "betonplatten", "kies", "wiese", "rasen", "pflaster", "asphalt",
-                  "holz", "vlies", "epoxy", "keramik", "stein")
+                  "holz", "vlies", "epoxy", "keramik", "stein", "feinstein")
 
 # Punkt-Dezimal ("Fl: 5.90m²", 1762788650811-Plan) UND Komma mit Tausender-Punkt.
 # BF: = Bodenfläche (Polierplan-Konvention, AP.01: 6 von 9 Seeds fehlten sonst).
@@ -44,7 +44,8 @@ _F_RX = re.compile(r"^(?:F[lL]|BF)\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9
 _F_ANKER_RX = re.compile(r"^(?:F[lL]|BF)\s*[.:]?$", re.I)
 # Bauteil-/Wandtyp-Codes sind KEINE Raumnamen (stehen auf Polierplänen näher
 # am Stempel als der Name und gewannen die Nächster-Span-Suche: 'IW 2' statt Bad)
-_CODE_RX = re.compile(r"^(?:IW|AW|TW|STB|RBL|STUK|RPH|FBH|FFB|RH|BF)\b", re.I)
+_CODE_RX = re.compile(r"^(?:IW|AW|TW|STB|RBL|STUK|RPH|FBH|FFB|RH|BF"
+                      r"|FFOK|RDOK|RFOK|FOK|OK|UK)\b", re.I)   # + Höhenkoten (WM: 'RDOK-0,24' gewann sonst als Name)
 _U_CM_RX = re.compile(r"U\s*[:=]?\s*([0-9][0-9\s.]*,?[0-9]*)\s*cm", re.I)
 _U_M_RX = re.compile(r"U\s*[:=]?\s*([0-9]+,[0-9]+)\s*m\b", re.I)
 
@@ -162,6 +163,21 @@ def raum_stempel(page, box):
             if not any(0 < (h["cx"] - s["cx"]) < 60 and abs(h["cy"] - s["cy"]) < 8
                        for h in hoch2):
                 continue    # kein ²-Nachbar → Länge, keine Fläche
+            # WOHNUNGS-STEMPEL-GATE (WM: 'TOP 25 / Loggia 11,25 / WNF 45,26 /
+            # 56,51 m²' — der Summen-Seed flutete den Watershed als 'Loggia
+            # 56,51'): Wohnungs-Stempel = Flächen-SPALTE (weitere m²-Werte
+            # exakt übereinander, |dcx|<6) + 'TOP n'-Header im Umkreis. BEIDE
+            # Signale nötig — TOP-Nähe allein fraß den echten Vorraum-Stempel
+    # daneben (98pt), Flächen-Zählung allein scheiterte an Längen-Spans.
+            spalte = any(s2 is not s and abs(s2["cx"] - s["cx"]) < 6
+                         and 0 < abs(s2["cy"] - s["cy"]) <= 30
+                         and nackt_rx.match(s2["text"]) for s2 in spans)
+            top_nah = any(abs(s2["cy"] - s["cy"]) < 60
+                          and abs(s2["cx"] - s["cx"]) < 150
+                          and re.match(r"^TOP\b", s2["text"], re.I)
+                          for s2 in spans)
+            if spalte and top_nah:
+                continue
             # Mehrzeilige Stempel-Blöcke (Wohn-/Nutzfläche …): größten Wert im Umkreis behalten
             dup = next((o for o in out if abs(o["cx"] - s["cx"]) < 25
                         and abs(o["cy"] - s["cy"]) < 25), None)
@@ -178,6 +194,8 @@ def raum_stempel(page, box):
                 t0 = s2["text"].strip().lower()
                 if any(t0.startswith(b) for b in _KEIN_RAUMNAME):
                     continue
+                if _CODE_RX.match(s2["text"]):
+                    continue    # Bauteil-/Koten-Code (WM: 'RDOK-0,24' statt Vorraum)
                 d = abs(s["cy"] - s2["cy"]) + abs(s["cx"] - s2["cx"]) * 0.3
                 if s2["cy"] < s["cy"] + 5 and d < best and d < 90:
                     best, name = d, s2["text"]
