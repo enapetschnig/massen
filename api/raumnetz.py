@@ -314,9 +314,6 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         off = -d2b
         while off <= d2b:
             rst.line(grid, hx + px * off, hy + py * off, zx + px * off, zy + py * off)
-            if versch_out is not None:
-                rst.line(versch_out, hx + px * off, hy + py * off,
-                         zx + px * off, zy + py * off)
             off += rst.cell
         bogen_ok.append((hx, hy))
 
@@ -1021,6 +1018,13 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     tz = []
     for o in oe:
         if o.get("typ") == "tuer":
+            # BOGEN-versiegelte Türen: Seal sitzt AN der Wand → kein Flächen-
+            # verlust → KEINE Gutschrift (Doppelzählung; WC gemessen: −0,24m²
+            # = exakt aufs Rohbau-Rect, Zimmer 2 exakt auf den Stempel).
+            if any(math.hypot(bg["hinge"][0] - o["cx"],
+                              bg["hinge"][1] - o["cy"]) < 1.5 * ptm
+                   for bg in (boegen or [])):
+                continue
             r_z = (o.get("breite_m") or 0.9) * 0.9 * ptm
             tz.append((o["cx"], o["cy"], r_z * r_z))
 
