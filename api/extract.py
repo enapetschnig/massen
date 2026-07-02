@@ -4737,7 +4737,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 3   # bei Pipeline-Änderungen erhöhen → Cache invalidiert (3: Fill-Wände + Notation-Union)
+_NZ_CACHE_V = 4   # bei Pipeline-Änderungen erhöhen → Cache invalidiert (4: Zwei-Ebenen-Raumverifikation)
 
 
 def _nachzeichnen_roh(body):

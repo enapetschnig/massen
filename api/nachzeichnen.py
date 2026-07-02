@@ -232,15 +232,52 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         fills_f = vektor.wand_fill_rects(page, (bx0, bx1, by0, by1),
                                          min_seite_m=0.3, ptm=ptm)
         grid_f = raumnetz.wand_maske(rst_f, dark_f, hatch, [], fill_rects=fills_f)
-        for fl in massketten.wand_fluchten(page.get_text("words"),
-                                           (bx0, bx1, by0, by1), ptm,
-                                           grid_f, rst_f.W, rst_f.H, rst_f.cell):
+        fluchten_pt = massketten.wand_fluchten(page.get_text("words"),
+                                               (bx0, bx1, by0, by1), ptm,
+                                               grid_f, rst_f.W, rst_f.H, rst_f.cell)
+        for fl in fluchten_pt:
             px = to_px(fl["pos"], by0)[0] if fl["achse"] == "v" \
                 else to_px(bx0, fl["pos"])[1]
             # 3 Stufen: Wandfläche (ok) · kurze Kante ≥12cm (Öffnungs-Laibung/
             # Pfeiler — Fenster-Ketten des 1762788650811 seziert) · fehlt
             fluchten.append({"achse": fl["achse"], "px": px, "ok": fl["ok"],
                              "kurz": bool(not fl["ok"] and fl.get("lauf", 0) >= 6)})
+        # ZWEI-EBENEN-VERIFIKATION: Räume zusätzlich gegen das byte-exakte ROHBAU-
+        # Rechteck aus FLUCHT-PAAREN prüfen (Stempel misst FERTIG, Region ROHBAU —
+        # Geräte/Bad/Zimmer 1 am Angerer nur so beweisbar; Paar-Suche = Kombination
+        # mit Stempel innen + Fläche ≈ F_stempel×[0,98..1,15], reconstruct_bbox-Prinzip).
+        nutzbar = [f for f in fluchten_pt if f["ok"] or f.get("lauf", 0) >= 6]
+        fv = sorted(f["pos"] for f in nutzbar if f["achse"] == "v")
+        fh = sorted(f["pos"] for f in nutzbar if f["achse"] == "h")
+        for r in raeume:
+            f_ziel, f_ist, u_ist = r.get("f_m2"), r.get("f_ist"), r.get("u_ist")
+            if not (f_ziel and f_ist):
+                continue
+            rcx = r["px"][0] / scale + bx0
+            rcy = r["px"][1] / scale + by0
+            vp = [(a, b) for a in fv if a < rcx for b in fv if b > rcx
+                  if 0.5 <= (b - a) / ptm <= 14.0]
+            hp = [(a, b) for a in fh if a < rcy for b in fh if b > rcy
+                  if 0.5 <= (b - a) / ptm <= 14.0]
+            best = None
+            for (l_, r_) in vp:
+                w_ = (r_ - l_) / ptm
+                for (o_, u_) in hp:
+                    a_ = w_ * (u_ - o_) / ptm
+                    if not (0.98 * f_ziel <= a_ <= 1.15 * f_ziel):
+                        continue
+                    sc = abs(a_ - 1.06 * f_ziel)
+                    if best is None or sc < best[0]:
+                        best = (sc, w_, (u_ - o_) / ptm)
+            if not best:
+                continue
+            _sc, w_, h_ = best
+            f_roh, u_roh = w_ * h_, 2 * (w_ + h_)
+            if (abs(f_ist - f_roh) / f_roh <= 0.05
+                    and u_ist and abs(u_ist - u_roh) / u_roh <= 0.08):
+                r["rohbau_ok"] = True
+                r["f_rohbau"] = round(f_roh, 2)
+                r["u_rohbau"] = round(u_roh, 2)
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Wandfluchten fehlgeschlagen: {e}")
 

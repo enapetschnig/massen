@@ -1622,8 +1622,8 @@
     var nRaumOk = 0, nRaumF = 0, raumBadges = '';
     (_nzData.raeume || []).forEach(function (r) {
       // 3 Stufen: voll verifiziert (F+U) · Fläche bestätigt (F exakt, U prüfen) · prüfen
-      var ok = r.status === 'verifiziert';
-      var fOk = r.status === 'u_daneben';
+      var ok = r.status === 'verifiziert' || r.rohbau_ok;
+      var fOk = !ok && r.status === 'u_daneben';
       if (ok) nRaumOk++; else if (fOk) nRaumF++;
       var col = ok ? '#16a34a' : (fOk ? '#0d9488' : '#d97706');
       var tip = (r.name || '?') + ' — F ' + fmtNum(r.f_m2) + ' m² lt. Plan' +
@@ -1638,6 +1638,9 @@
             fmtNum(Math.round((p2 / 2 - wu) * 100) / 100) + ' m';
         }
       }
+      if (r.rohbau_ok && r.status !== 'verifiziert') {
+        tip += ' — ✓ ROHBAU-Rechteck aus Maßketten bestätigt (' + fmtNum(r.f_rohbau) + ' m²; Stempel misst Fertigmaß)';
+      } else
       tip += ok ? ' — ✓ Fläche+Umfang bestätigt'
         : (fOk ? ' — ✓ Fläche exakt; Umfang weicht ab → Form prüfen (mögliche Phantom-Wand/offene Stelle)'
                : ' — bitte prüfen');

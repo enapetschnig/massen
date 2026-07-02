@@ -113,8 +113,8 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     n_f = 0
     raeume = nz.get("raeume") or []
     for r in raeume:
-        ok = r.get("status") == "verifiziert"
-        f_ok = r.get("status") == "u_daneben"     # Fläche exakt, Umfang prüfen
+        ok = r.get("status") == "verifiziert" or r.get("rohbau_ok")
+        f_ok = not ok and r.get("status") == "u_daneben"   # Fläche exakt, U prüfen
         if ok:
             n_ok += 1
         elif f_ok:
