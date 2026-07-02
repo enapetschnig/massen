@@ -21,6 +21,7 @@ import nachzeichnen
 
 DL = os.path.expanduser("~/Downloads")
 KORPUS = [
+    "AU_WM_01 Erdgeschoss",
     "A-5_Einreichplan_Alfred-Angerer",
     "AP.01 Layout-1",
     "1762788650811_EG-Wand-Grundriss",

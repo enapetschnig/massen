@@ -92,3 +92,25 @@ Ziel-Workflow (Stepper statt Scroll-Wüste):
 2. `test_raumverifikation` — n/9 Räume selbst-verifiziert (aktuell 1–2/9, Ziel: alle Innenräume)
 3. Plan-Korpus-Abdeckung — n/6 Pläne mit funktionierender Planansicht (aktuell 4/6)
 4. Alle Einheiten-Tests (Öffnungen, Verschnitt, Farben, Nachzeichnen, Kalibrier-Mechanik)
+
+---
+
+## UMBAU-ENTSCHEIDUNG (User, 2026-07-02): „Massen zuerst" — einen Schritt zurück
+
+**Das Fundament der App wird die VOLLSTÄNDIGE Massenermittlung, Position für Position —
+das Material ist nur eine abgeleitete Sicht daraus.** Reihenfolge des Rechenwegs (und
+des Workflows): Geometrie (Planansicht, verifiziert) → **komplettes Aufmaß** → Gewerke-
+Massen → Material/Bestellung → Export.
+
+Das komplette Aufmaß heißt EINZELN aufgelistet und prüfbar:
+- **jede Wand** einzeln (Stärke · Länge · Höhe · brutto − Öffnungen = netto) — wie der Polier im Excel
+- **jede Öffnung** einzeln mit ÖNORM-Regel: ≤4,0 m² übermessen (KEINE Laibung) · >4,0 m²
+  Abzug **+ Laibungszeile** (2·H+B, mit Sohlbank bei Parapet) × Laibungstiefe — sichtbar,
+  welche Laibungen drin sind und warum
+- **jeder Raum** einzeln (Boden = F byte-exakt · Decke · Wandabwicklung U×H · Sockel)
+
+| Status | Item |
+|---|---|
+| 🔜 | Öffnungs-Aufmaß-Tabelle: je Öffnung Raum·Typ·B×H·Fläche·Regel·Laibung m² mit Formel (Daten existieren in oeffnung_netto) |
+| 🔜 | Wand-Aufmaß-Tabelle aus der Planansicht (je Wand einzeln, mit ✓ wenn Maßzahl byte-exakt) |
+| ⬜ | Workflow-Schritt 3 wird „Komplettes Aufmaß", Material rückt in Schritt 4 |
