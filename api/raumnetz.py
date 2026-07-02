@@ -369,6 +369,18 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
     def abgabefaehig(lab):
         return (0 <= lab < n and fl[lab] > soll[lab]) or lab == AUSSEN
 
+    # DISTANZ-SCHRANKE gegen Tentakel (Bild-diagnostiziert: Zimmer 2 saugte den GANG
+    # leer statt seiner Süd-Fläche → U +71%): eine Zelle darf nur zu Raum B wechseln,
+    # wenn sie plausibel nah an dessen Stempel liegt — Radius ≈ Raum-Halbdiagonale
+    # (0,9·√F + 1 m). Zellen jenseits davon gehören geometrisch nicht zu B.
+    st_pos = []
+    limit2 = []
+    for st in stempel:
+        si, sj = rst.ij(st["cx"], st["cy"])
+        st_pos.append((si, sj))
+        r_cells = (0.9 * (st["f_m2"] ** 0.5) + 1.0) / rst.zm
+        limit2.append(r_cells * r_cells)
+
     # WELLEN-basiertes, KOMPAKTES Wachstum: pro Welle wechseln nur Grenz-Zellen mit
     # ≥2 Ziel-Nachbarn (glatte Front statt fransiger Lappen — Fransen bliesen U +70%
     # auf; U ist der unabhängige Prüfwert). Front-Set wird je Welle fortgeschrieben.
@@ -399,6 +411,9 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
                     continue
                 nl = label[nj * W + ni]
                 if 0 <= nl < n and nl != lab and fl[nl] < soll[nl]:
+                    dx, dy = i - st_pos[nl][0], j - st_pos[nl][1]
+                    if dx * dx + dy * dy > limit2[nl]:
+                        continue    # zu weit vom Ziel-Raum-Stempel → Tentakel-Verbot
                     defizit = soll[nl] - fl[nl]
                     if best is None or defizit > best[0]:
                         best = (defizit, nl)
