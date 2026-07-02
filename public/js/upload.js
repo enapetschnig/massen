@@ -1609,9 +1609,21 @@
       var fOk = r.status === 'u_daneben';
       if (ok) nRaumOk++; else if (fOk) nRaumF++;
       var col = ok ? '#16a34a' : (fOk ? '#0d9488' : '#d97706');
-      var tip = (r.name || '?') + ' — ' + fmtNum(r.f_m2) + ' m² lt. Plan' +
-        (r.f_ist != null ? ', rekonstruiert ' + fmtNum(r.f_ist) + ' m²' : '') +
-        (ok ? ' ✓ Fläche+Umfang bestätigt' : (fOk ? ' ✓ Fläche bestätigt — Umfang prüfen' : ' — bitte prüfen'));
+      var tip = (r.name || '?') + ' — F ' + fmtNum(r.f_m2) + ' m² lt. Plan' +
+        (r.f_ist != null ? ' (rekonstruiert ' + fmtNum(r.f_ist) + ')' : '');
+      if (r.u_m) {
+        tip += ' · U ' + fmtNum(r.u_m) + ' m' + (r.u_ist != null ? ' (rek. ' + fmtNum(r.u_ist) + ')' : '');
+        // Soll-Rechteck aus F+U (byte-exakt eindeutig): a+b=U/2, a·b=F
+        var p2 = r.u_m / 2, disc = p2 * p2 / 4 - r.f_m2;
+        if (disc >= 0) {
+          var wu = Math.sqrt(disc);
+          tip += ' · Soll-Form ≈ ' + fmtNum(Math.round((p2 / 2 + wu) * 100) / 100) + '×' +
+            fmtNum(Math.round((p2 / 2 - wu) * 100) / 100) + ' m';
+        }
+      }
+      tip += ok ? ' — ✓ Fläche+Umfang bestätigt'
+        : (fOk ? ' — ✓ Fläche exakt; Umfang weicht ab → Form prüfen (mögliche Phantom-Wand/offene Stelle)'
+               : ' — bitte prüfen');
       raumBadges += '<g><circle cx="' + r.px[0] + '" cy="' + (r.px[1] - fs * 1.6) + '" r="' + (fs * 0.62) + '"' +
         ' fill="' + col + '" stroke="#fff" stroke-width="2"/>' +
         '<text x="' + r.px[0] + '" y="' + (r.px[1] - fs * 1.6) + '" font-size="' + Math.round(fs * 0.75) + '"' +
