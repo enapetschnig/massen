@@ -632,6 +632,7 @@
     renderStatusBanner(data);
     renderKalibrierungStatus(data.kalibrierung);
     renderOeffnungsAufmass(data.oeffnungs_aufmass);
+    renderRaumAufmass(data.raeume, data.baudaten);
 
     // ÖNORM-Gewerke-Kacheln (im Erweitert-Drawer)
     var gw = data.gewerke || {};
@@ -1306,6 +1307,41 @@
       // Egal ob erfolgreich oder fehlgeschlagen — nächsten Plan starten
       autoAnalyseQueue(queue, i + 1);
     });
+  }
+
+  // ── RAUM-AUFMASS: jeder Raum einzeln — Boden byte-exakt · Decke · Abwicklung · Sockel ──
+  function renderRaumAufmass(raeume, baudaten) {
+    var el = document.getElementById('raum-aufmass');
+    if (!el) return;
+    var innen = (raeume || []).filter(function (r) { return r && r.flaeche_m2; });
+    if (!innen.length) { el.innerHTML = ''; return; }
+    var hDef = (baudaten || {}).geschosshoehe_m || 2.7;
+    var sF = 0, sW = 0, sU = 0;
+    var html = '<h4 class="advanced-h" style="margin-top:1.1rem">Raum-Aufmaß — jeder Raum einzeln ' +
+      '(F/U byte-exakt aus den Raum-Stempeln des Plans)</h4>' +
+      '<table class="oa-tab"><thead><tr><th>Raum</th><th>Boden (=F)</th><th>Decke</th><th>Umfang U</th>' +
+      '<th>Höhe</th><th>Wandabwicklung U×H</th><th>Sockel</th></tr></thead><tbody>';
+    innen.forEach(function (r) {
+      var aussen = !!r._h_not_applicable;
+      var h = r.hoehe_m || (aussen ? null : hDef);
+      var u = r.umfang_m || null;
+      var wf = (u && h) ? Math.round(u * h * 100) / 100 : null;
+      if (!aussen) { sF += r.flaeche_m2 || 0; if (wf) sW += wf; if (u) sU += u; }
+      html += '<tr' + (aussen ? ' style="opacity:.6"' : '') + '><td>' + esc(r.name || '?') +
+        (aussen ? ' <span title="überdachte Außenfläche">☂</span>' : '') + '</td>' +
+        '<td>' + fmtNum(r.flaeche_m2) + ' m² ✓</td>' +
+        '<td>' + (aussen ? '–' : fmtNum(r.flaeche_m2) + ' m²') + '</td>' +
+        '<td>' + (u ? fmtNum(u) + ' m ✓' : '–') + '</td>' +
+        '<td>' + (h ? fmtNum(h) + ' m' + (r.hoehe_m ? ' ✓' : ' ≈') : '–') + '</td>' +
+        '<td>' + (wf ? fmtNum(wf) + ' m²' : '–') + '</td>' +
+        '<td>' + (u && !aussen ? fmtNum(u) + ' lfm' : '–') + '</td></tr>';
+    });
+    html += '</tbody></table><div class="oa-summe">Σ Innenräume: Boden <strong>' +
+      fmtNum(Math.round(sF * 100) / 100) + ' m²</strong> · Wandabwicklung <strong>' +
+      fmtNum(Math.round(sW * 100) / 100) + ' m²</strong> · Sockel <strong>' +
+      fmtNum(Math.round(sU * 100) / 100) + ' lfm</strong> — ✓ = byte-exakt aus dem Plan-Text, ' +
+      '≈ = Geschoss-Höhe übernommen. Öffnungs-Abzüge: siehe Öffnungs-Aufmaß.</div>';
+    el.innerHTML = html;
   }
 
   // ── WAND-AUFMASS: jede Wand einzeln, aus der Planansicht — LIVE mit Korrekturen ──
