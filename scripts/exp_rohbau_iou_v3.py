@@ -238,6 +238,31 @@ def run(plan=PLAN, label="1:100", zelle_m=0.02, iou_min=0.85, verbose=True):
             [p for p in fv_roh if rx0 <= p <= rx1],
             [p for p in fh_roh if ry0 <= p <= ry1]))
         if not ok1:
+            # STUFE-2-SKIP: erschöpfende BBox-Ecken-Suche (mit Runs-IoU billig)
+            # liefert die OBERGRENZE der Rect/L-Familie für diese Region —
+            # liegt sie unter der Schwelle, ist der Voll-Pool beweisbar sinnlos
+            # (gemessen: Wohnküche max 0,829 / Z2 0,682 / Flur 0,586 / Park 0,806).
+            bx0_, bx1_ = rx0 + 0.5 * ptm, rx1 - 0.5 * ptm
+            by0_, by1_ = ry0 + 0.5 * ptm, ry1 - 0.5 * ptm
+            max_iou = iou(bx0_, bx1_, by0_, by1_)
+            for ex in (0, 1):
+                for ey in (0, 1):
+                    for fwn in range(2, 26, 2):
+                        for fhn in range(2, 26, 2):
+                            wn, hn = fwn * 0.25 * ptm, fhn * 0.25 * ptm
+                            if wn >= (bx1_ - bx0_) or hn >= (by1_ - by0_):
+                                continue
+                            kx = (bx0_, bx0_ + wn) if ex == 0 else (bx1_ - wn, bx1_)
+                            ky = (by0_, by0_ + hn) if ey == 0 else (by1_ - hn, by1_)
+                            v = iou(bx0_, bx1_, by0_, by1_,
+                                    (kx[0], kx[1], ky[0], ky[1]))
+                            if v > max_iou:
+                                max_iou = v
+            if max_iou < iou_min - 0.02:
+                if verbose:
+                    print(f"  ✗f {r['name']}: formuntauglich "
+                          f"(Rect/L-Obergrenze {max_iou:.2f})")
+                continue
             top, ok1 = _entscheide(_rank(fv, fh, fv_roh, fh_roh))
         if top is None:
             continue
