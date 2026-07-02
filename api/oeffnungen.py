@@ -257,6 +257,60 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
             "konfidenz": 0.95 if (breite_m and raum_name) else 0.7,
         })
 
+    # 2b) STUK-ONLY-Konvention (Polierpläne): Türen tragen oft NUR "STUK +2,04" OHNE
+    # FPH-Zeile — Parapet 0 ist implizit (empirisch am AP.01-Polierplan: 19 STUK-Spans,
+    # 1 FPH-Span → 18 Türen waren unsichtbar). Jeder STUK ohne FPH im Cluster-Radius
+    # wird als Tür-Anker behandelt (fph=0, Höhe=STUK über FBOK). Konservativ: nur
+    # plausible Tür-Sturzhöhen, Konfidenz niedriger als beim vollen FPH+STUK-Paar.
+    OUTDOOR2 = {"terrasse", "loggia", "balkon", "parkplatz", "carport"}
+    for stuk in stuk_spans:
+        if any(math.hypot(f["cx"] - stuk["cx"], f["cy"] - stuk["cy"]) < max_cluster_pt * 1.5
+               for f in fph_spans):
+            continue    # gehört zu einem FPH-Cluster (oben behandelt)
+        h_m = stuk["value_m"]
+        if not (1.7 <= h_m <= 3.2):
+            continue    # keine plausible Tür-Sturzhöhe (Standard 2,01–2,20 m)
+        b_kand = [
+            (math.hypot(b["cx"] - stuk["cx"], b["cy"] - stuk["cy"]), b)
+            for b in breite_spans
+            if math.hypot(b["cx"] - stuk["cx"], b["cy"] - stuk["cy"]) < max_cluster_pt * 2
+        ]
+        b_kand.sort()
+        breite_m = None
+        for _d, b in b_kand:
+            if 0.55 <= b["value_m"] <= 2.60:
+                breite_m = b["value_m"]
+                break
+        raum_name = None
+        if rooms:
+            best, best_d = None, float("inf")
+            for r in rooms:
+                if r.get("cx") is None or r.get("cy") is None:
+                    continue
+                nm = (r.get("name") or r.get("bezeichnung") or "").strip()
+                if nm and nm.split()[0].lower() in OUTDOOR2:
+                    continue
+                d = math.hypot(r["cx"] - stuk["cx"], r["cy"] - stuk["cy"])
+                if d < best_d and d < max_room_dist_pt:
+                    best_d, best = d, r
+            if best:
+                raum_name = best.get("name") or best.get("bezeichnung")
+        oeffnungen.append({
+            "typ": "tuer",
+            "raum": raum_name,
+            "breite_m": breite_m,
+            "hoehe_m": round(h_m, 2),
+            "flaeche_m2": round((breite_m or 0) * h_m, 3),
+            "fph_m": 0.0,
+            "stuk_m": h_m,
+            "wand_typ": None,
+            "tuer_codes": [],
+            "cx": stuk["cx"],
+            "cy": stuk["cy"],
+            "quelle": "text-layer-stuk-only",
+            "konfidenz": 0.7 if (breite_m and raum_name) else 0.55,
+        })
+
     # Dedup: zwei Beschriftungs-Cluster derselben Öffnung können entstehen,
     # weil ArchiCAD pro Tür/Fenster mehrere STUK+FPH-Anker setzt
     # (z.B. STUK-Achse oben + unten, oder beidseitig der Wand). Wir mergen:
