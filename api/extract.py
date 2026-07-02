@@ -4737,6 +4737,9 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
+_NZ_CACHE_V = 1   # bei Pipeline-Änderungen erhöhen → Cache invalidiert
+
+
 def _nachzeichnen_roh(body):
     """Gemeinsame Plan-Auswahl + Vektor-Analyse für plan-nachzeichnen UND Aufmaßblatt.
     Liefert das Ergebnis-Dict MIT basis_png-BYTES (Aufrufer kodiert/verwendet)."""
@@ -4768,6 +4771,33 @@ def _nachzeichnen_roh(body):
         sp = plan.get("storage_path")
         if not sp:
             continue
+        log = plan.get("agent_log") or {}
+
+        # LATENZ-CACHE: die Vektor-Analyse (Wände/Öffnungen/Raum-Verifikation, ~40s)
+        # ist deterministisch je PDF → einmal rechnen, in agent_log cachen. Nur das
+        # billige Basis-PNG (~2s) wird je Aufruf frisch gerendert. Invalidierung über
+        # Versions-Bump bei Pipeline-Änderungen.
+        cache = log.get("nachzeichnen_cache")
+        if cache and cache.get("v") == _NZ_CACHE_V and (cache.get("daten") or {}).get("ok"):
+            try:
+                import fitz
+                pdf_bytes = sb.storage.from_("plaene").download(sp)
+                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                page = max(doc, key=lambda p: p.rect.width * p.rect.height)
+                r = dict(cache["daten"])
+                b = r["meta"]["box_pt"]
+                sc = r["meta"]["scale"]
+                pix = page.get_pixmap(matrix=fitz.Matrix(sc, sc),
+                                      clip=fitz.Rect(b[0], b[1], b[2], b[3]))
+                r["basis_png"] = pix.tobytes("png")
+                doc.close()
+                r["plan_id"] = plan.get("id")
+                r["dateiname"] = plan.get("dateiname")
+                r["korrekturen"] = log.get("nachzeichnen_korrekturen")
+                return r
+            except Exception as e:  # pragma: no cover — Cache kaputt → frischer Lauf
+                print(f"[nachzeichnen] Cache-Rehydrierung fehlgeschlagen: {e}")
+
         try:
             import fitz
             pdf_bytes = sb.storage.from_("plaene").download(sp)
@@ -4780,9 +4810,18 @@ def _nachzeichnen_roh(body):
         if not r.get("ok"):
             letzter_grund = r.get("grund") or letzter_grund
             continue
+        # Cache schreiben (ohne PNG/Korrekturen — die bleiben je Aufruf frisch)
+        try:
+            log["nachzeichnen_cache"] = {
+                "v": _NZ_CACHE_V,
+                "daten": {k: v for k, v in r.items() if k != "basis_png"},
+            }
+            sb.table("plaene").update({"agent_log": log}).eq("id", plan["id"]).execute()
+        except Exception as e:  # pragma: no cover
+            print(f"[nachzeichnen] Cache-Schreiben fehlgeschlagen: {e}")
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
-        r["korrekturen"] = (plan.get("agent_log") or {}).get("nachzeichnen_korrekturen")
+        r["korrekturen"] = log.get("nachzeichnen_korrekturen")
         return r
     return {"ok": False, "grund": letzter_grund}
 
