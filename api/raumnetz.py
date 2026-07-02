@@ -205,7 +205,7 @@ class _Raster:
 
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
-               hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None):
+               hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None, versch_out=None):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
     (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing."""
     W, H = rst.W, rst.H
@@ -284,6 +284,7 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         such = int(0.35 / rst.zm)
         fenster = int(0.7 / rst.zm)
         ci, cj = rst.ij(cx, cy)
+        ist_tuer = o.get("typ") == "tuer"
         if score_h >= score_v:  # Balken entlang x → Wand-Flucht = beste Zeile j
             best_j, best_n = cj, -1
             for jj in range(max(0, cj - such), min(H, cj + such + 1)):
@@ -293,6 +294,8 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                     best_n, best_j = nsum, jj
             cy_s = rst.by0 + best_j * rst.cell if best_n > fenster // 2 else cy
             rst.rect(grid, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
+            if ist_tuer and versch_out is not None:
+                rst.rect(versch_out, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
         else:                   # Balken entlang y → Wand-Flucht = beste Spalte i
             best_i, best_n = ci, -1
             for ii in range(max(0, ci - such), min(W, ci + such + 1)):
@@ -302,6 +305,8 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                     best_n, best_i = nsum, ii
             cx_s = rst.bx0 + best_i * rst.cell if best_n > fenster // 2 else cx
             rst.rect(grid, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
+            if ist_tuer and versch_out is not None:
+                rst.rect(versch_out, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
 
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))
 
@@ -909,7 +914,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 moebel.append(((rc.x0 + rc.x1) / 2.0, (rc.y0 + rc.y1) / 2.0, r * r))
     except Exception:
         moebel = []
-    grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel)
+    versch = bytearray(rst.W * rst.H)
+    grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel, versch_out=versch)
     label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
     label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
     label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)   # grobe Form-Streifen
@@ -919,6 +925,33 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     if debug is not None:
         debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN})
     masse = _loecher_fuellen_und_messen(grid, label, rst, stempel)
+    # BALKEN-F-GUTSCHRIFT: Türdurchgangs-Zellen zählen laut Plan-F zum Raum (WC-Bild +
+    # Tür-Topologie belegt: 5-6 Türen ≈ Flur+WC-Defizit). Jede Tür-Balken-Zelle wird
+    # dem NÄCHSTEN Raum-Label gutgeschrieben — nur fürs Flächen-Konto, Topologie/U bleiben.
+    W2, H2 = rst.W, rst.H
+    gut = [0] * len(stempel)
+    n_st = len(stempel)
+    for idx in range(W2 * H2):
+        if not versch[idx]:
+            continue
+        i0_, j0_ = idx % W2, idx // W2
+        best_l, best_d = None, 99
+        for rad in range(1, 9):
+            for di in (-rad, 0, rad):
+                for dj in (-rad, 0, rad):
+                    if abs(di) != rad and abs(dj) != rad:
+                        continue
+                    ni, nj = i0_ + di, j0_ + dj
+                    if 0 <= ni < W2 and 0 <= nj < H2:
+                        l2 = label[nj * W2 + ni]
+                        if 0 <= l2 < n_st and rad < best_d:
+                            best_l, best_d = l2, rad
+            if best_l is not None:
+                break
+        if best_l is not None:
+            gut[best_l] += 1
+    zm2 = rst.zm * rst.zm
+    masse = [(f + gut[li] * zm2, u) for li, (f, u) in enumerate(masse)]
     out = []
     for idx, st in enumerate(stempel):
         if not ok_start[idx]:
