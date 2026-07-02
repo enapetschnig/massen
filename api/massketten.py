@@ -221,4 +221,13 @@ def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
             for g, ok in zip(im_bild, oks):
                 out.append({"achse": "v" if achse == "h" else "h",
                             "pos": round(best_b0 + g * k, 2), "ok": bool(ok)})
-    return out
+    # DEDUPE: dieselbe Kette steht oft beidseitig des Plans (Angerer: 8 Doppel) —
+    # Fluchten <2cm beisammen verschmelzen, ok=True gewinnt.
+    out.sort(key=lambda f: (f["achse"], f["pos"], not f["ok"]))
+    ded = []
+    for f in out:
+        if ded and ded[-1]["achse"] == f["achse"]                 and abs(ded[-1]["pos"] - f["pos"]) < 0.02 * ptm:
+            ded[-1]["ok"] = ded[-1]["ok"] or f["ok"]
+            continue
+        ded.append(f)
+    return ded
