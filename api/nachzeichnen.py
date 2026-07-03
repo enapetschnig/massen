@@ -70,6 +70,23 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     if not ptm:
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     box = _eg_box(page, ptm, worte=worte)
+    # STUFE 2 (TG-/Großbau-Pläne, Sektor-Audit: die Wohn-RAUM_WORTE trafen am
+    # Velden-TG nur den Stiegenhaus-Kern via Zufallstreffer 'Gang'/'Eingang' —
+    # Box deckte 8% des Bauwerks): Box aus den F/U-STEMPEL-Positionen, wenn
+    # KEINE Box da ist ODER >50% der Stempel außerhalb liegen. raum_stempel
+    # liest seit dem Rotated-Support auch ArchiCAD-Blöcke (555,9m²-Halle).
+    try:
+        import raumnetz as _rn
+        _st = _rn.raum_stempel(page, (0, page.rect.width, 0, page.rect.height))
+        if len(_st) >= 3:
+            drin = sum(1 for x in _st
+                       if box and box[0] <= x["cx"] <= box[1]
+                       and box[2] <= x["cy"] <= box[3])
+            if not box or drin < 0.5 * len(_st):
+                pos = [(x["cx"], x["cy"]) for x in _st]
+                box = vektor._view_bbox(pos, ptm, marge_m=4.0, radius_m=40.0)
+    except Exception:
+        pass
     if not box:
         # FALLBACK für Grundriss-Pläne OHNE Raumnamen (z.B. reine Wand-Grundrisse):
         # die Bounding-Box der dunklen Wand-Linien nehmen — aber nur, wenn sie eine

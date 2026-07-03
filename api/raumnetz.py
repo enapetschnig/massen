@@ -39,9 +39,10 @@ _KEIN_RAUMNAME = ("fliesen", "parkett", "laminat", "teppich", "estrich", "beton"
 
 # Punkt-Dezimal ("Fl: 5.90m²", 1762788650811-Plan) UND Komma mit Tausender-Punkt.
 # BF: = Bodenfläche (Polierplan-Konvention, AP.01: 6 von 9 Seeds fehlten sonst).
-_F_RX = re.compile(r"^(?:F[lL]|BF)\s*[.:]?\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9]{1,2}|[0-9]+)\s*m", re.I)
+_F_RX = re.compile(r"^(?:F[lL]\s*[.:]?|BF\s*[.:]?|F\s*[.:])\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9]{1,2}|[0-9]+)\s*m", re.I)
 # Solo-Anker ("BF:" allein, Zahl als Tab-Spalte 20-28pt rechts — AP.01-Encoding)
-_F_ANKER_RX = re.compile(r"^(?:F[lL]|BF)\s*[.:]?$", re.I)
+_F_ANKER_RX = re.compile(r"^(?:F[lL]\s*[.:]?|BF\s*[.:]?|F\s*[.:])$", re.I)
+_U_ANKER_RX = re.compile(r"^U\s*[.:]$", re.I)
 # Bauteil-/Wandtyp-Codes sind KEINE Raumnamen (stehen auf Polierplänen näher
 # am Stempel als der Name und gewannen die Nächster-Span-Suche: 'IW 2' statt Bad)
 _CODE_RX = re.compile(r"^(?:IW|AW|TW|STB|RBL|STUK|RPH|FBH|FFB|RH|BF"
@@ -98,6 +99,23 @@ def raum_stempel(page, box):
             sp["text"] = sp["text"] + " " + rechts[0]["text"]
             sp["x1"] = rechts[0]["x1"]
             rechts[0]["text"] = ""
+    # VERTIKAL-JOIN (rotierte ArchiCAD-/GSPublisher-Stempel, TG-Plan: 'F:' /
+    # 'U:' stehen als Zeile, der WERT-Span darüber, |dcx|<6 / dy 0-60 — exakt
+    # die Konvention der Produktions-Rotated-Claims). Nur wenn der
+    # horizontale Join nichts fand.
+    for sp in spans:
+        if not (sp["text"] and (_F_ANKER_RX.match(sp["text"])
+                                or _U_ANKER_RX.match(sp["text"]))):
+            continue
+        oben = sorted((s2 for s2 in spans if s2 is not sp and s2["text"]
+                       and abs(s2["cx"] - sp["cx"]) < 6.0
+                       and 0 < sp["cy"] - s2["cy"] <= 60.0
+                       and re.match(r"^[0-9]", s2["text"])),
+                      key=lambda s2: sp["cy"] - s2["cy"])
+        if oben:
+            sp["text"] = sp["text"] + " " + oben[0]["text"]
+            sp["_vjoin"] = round(sp["cy"] - oben[0]["cy"], 1)
+            oben[0]["text"] = ""
     spans = [s2 for s2 in spans if s2["text"]]
     for sp in spans:
         if not re.search(r"[0-9][.,]$", sp["text"]):
@@ -121,7 +139,14 @@ def raum_stempel(page, box):
         u, best_dy = None, 1e9
         for s2 in spans:
             dy = s2["cy"] - s["cy"]
-            if abs(s2["cx"] - s["cx"]) > 40 or not (0 < dy <= 30) or dy >= best_dy:
+            # unter dem F-Span (klassisch) ODER in derselben Zeile daneben
+            # (rotierte Stempel: 'F: … U: …'-Anker nebeneinander)
+            gleiche_zeile = abs(dy) < 3 and 0 < abs(s2["cx"] - s["cx"]) <= 90
+            if not gleiche_zeile and (abs(s2["cx"] - s["cx"]) > 40
+                                      or not (0 < dy <= 30)):
+                continue
+            dy = abs(dy)
+            if dy >= best_dy:
                 continue
             mu = _U_CM_RX.search(s2["text"])
             v = _num(mu.group(1)) if mu else None
@@ -140,7 +165,9 @@ def raum_stempel(page, box):
         if not mf:
             continue
         f = _num(mf.group(1))
-        if not f or f < 0.5 or f > 500:
+        # Deckel 3000 statt 500: TG-Hallen tragen 555,90+ m² (Velden gemessen);
+        # Zahlen-Müll fängt weiterhin der m²-Kontext der RX
+        if not f or f < 0.5 or f > 3000:
             continue
         u = _u_unter(s)
         name, best = None, 1e9
@@ -149,8 +176,14 @@ def raum_stempel(page, box):
                 continue
             if _CODE_RX.match(s2["text"]):
                 continue    # Wandtyp-/Bauteil-Code, kein Raumname (AP.01: 'IW 2')
+            if re.match(r"^[FUHB]\s*[.:]", s2["text"]):
+                continue    # F:/U:/H:/B:-Anker-Zeilen (rotierte Stempel)
+            _t0 = s2["text"].strip().lower()
+            if any(_t0.startswith(b2) for b2 in _KEIN_RAUMNAME):
+                continue    # Belag ist kein Raumname (TG: 'Fliesen' gewann)
             dy = s["cy"] - s2["cy"]
-            if 0 < dy < 32 and abs(s2["cx"] - s["cx"]) < 80 and dy < best:
+            dy_max = 32 + (s.get("_vjoin") or 0)   # rotiert: Name über dem Wert
+            if 0 < dy < dy_max and abs(s2["cx"] - s["cx"]) < 80 and dy < best:
                 best, name = dy, s2["text"]
         out.append({"name": name or "?", "f_m2": f, "u_m": u, "cx": s["cx"], "cy": s["cy"]})
 
