@@ -4771,7 +4771,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 19  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (19: Rotated-Stempel + Stempel-Box)
+_NZ_CACHE_V = 20  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (20: Stempel-Box-Marge skaliert)
 
 
 def _nachzeichnen_roh(body):
