@@ -919,6 +919,32 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
                     q2.append(nidx)
         geo_self[li] = (dist, r_lim)
     if geo_self:
+        # SEALED-POCKET-SHED (WM-Voll-Blatt, Radabstell-Basins): der Seed-
+        # Anker-Shed startet NUR von AUSSEN-Zellen — ein Basin in einer
+        # rundum versiegelten Tasche (Vorplatz: Gebäude + gebrannte
+        # Pflasterkanten) hat KEINEN AUSSEN-Kontakt und behielt +176%.
+        # Deutlich übergroße Räume (>1,10× Soll) ohne AUSSEN-Kontakt geben
+        # ihre geodätisch JENSEITS liegenden Zellen direkt an AUSSEN ab
+        # (Insel in der Tasche); der Wellen-Ausgleich holt danach bis Soll
+        # zurück — wie im offenen Fall.
+        _beruehrt = set()
+        for idx in range(W * H):
+            if label[idx] == AUSSEN and not grid[idx]:
+                i5, j5 = idx % W, idx // W
+                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ni, nj = i5 + di, j5 + dj
+                    if 0 <= ni < W and 0 <= nj < H and not grid[nj * W + ni]:
+                        l5 = label[nj * W + ni]
+                        if 0 <= l5 < n:
+                            _beruehrt.add(l5)
+        for li5, (d5, r5) in geo_self.items():
+            if li5 in _beruehrt or fl[li5] <= soll[li5] * 1.10:
+                continue
+            for idx in range(W * H):
+                if label[idx] == li5 and not grid[idx] and d5[idx] > r5:
+                    label[idx] = AUSSEN
+                    fl[li5] -= 1
+                    fl[AUSSEN] += 1
         q3 = deque(idx for idx in range(W * H)
                    if label[idx] == AUSSEN and not grid[idx])
         while q3:
@@ -1634,6 +1660,16 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     / st["f_m2"] <= tol_f
             if st.get("u_m") is not None:
                 u_ok = abs(u_ist - st["u_m"]) / st["u_m"] <= tol_u
+                if not u_ok and u_ist > st["u_m"]:
+                    # U-RASTER-GATE (einseitig, analog F-Halbzellen v5b):
+                    # die Silhouette kreneliert raster-linear (~2,0·zm·U,
+                    # über 3 Raster 0.02/0.037/0.08 bei identischen Inputs
+                    # gemessen; 46-172 Polygon-Ecken statt 4-8) — wand-
+                    # flankierte Kanäle sind für Closing/Opening unsichtbar.
+                    # Nur die ÜBERSCHUSS-Seite; echte Ausläufer (≥+27%)
+                    # bleiben draußen (6 Stichproben geometrie-verifiziert).
+                    u_ok = abs(u_ist / (1.0 + 2.0 * rst.zm) - st["u_m"]) \
+                        / st["u_m"] <= tol_u
             else:
                 # KOMPAKTHEITS-GATE statt Freifahrt (WM: Radabstell 'verifiziert'
                 # mit U_ist=44,9 bei F=22,7 — Korridor-Schlange, aber ohne

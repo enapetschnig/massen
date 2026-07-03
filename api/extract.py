@@ -4771,7 +4771,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 24  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (24: adaptives Seal-Band)
+_NZ_CACHE_V = 25  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (25: U-Raster-Gate + Sealed-Pocket-Shed)
 
 
 def _nachzeichnen_roh(body):
