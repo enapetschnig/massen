@@ -4738,7 +4738,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 16  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (16: Multi-Geschoss — meta.seite + weitere_seiten)
+_NZ_CACHE_V = 17  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (17: Seal-Richtungs-Fixes + Zonen-Veto + Halbzellen-Bias + Taschen-Gate)
 
 
 def _nachzeichnen_roh(body):

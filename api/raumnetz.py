@@ -355,8 +355,16 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             dx, dy = abs(s[2] - s[0]), abs(s[3] - s[1])
             if math.hypot(dx, dy) < min_l:
                 continue
-            if zonen and in_tuerzone((s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0):
-                continue    # Möbel-/Türzonen: Schrankfronten sind keine Wände
+            mx_, my_ = (s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0
+            if zonen and in_tuerzone(mx_, my_):
+                # Tür-Zonen (Text+Bogen) vetoen nur KURZE Linien (<1,5m =
+                # Türblatt r_m≤1,1m); lange Fassaden-/Brüstungslinien durch
+                # die Zone sind Wände (WM: Südglasfront 3,04m vetoiert →
+                # Zimmer lief in die Loggia). Möbel-Zonen: volles Veto.
+                in_moebel = any((mx_ - zx) ** 2 + (my_ - zy) ** 2 <= r2
+                                for (zx, zy, r2) in (moebel_zonen or []))
+                if in_moebel or math.hypot(s[2] - s[0], s[3] - s[1]) < 1.5 * rst.ptm:
+                    continue
             if dy <= _ACHS and dx > _ACHS:
                 kand["h"].append((min(s[0], s[2]), max(s[0], s[2]), (s[1] + s[3]) / 2.0))
             elif dx <= _ACHS and dy > _ACHS:
@@ -424,6 +432,24 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                        + ((h[1] + h[3]) / 2 - pt[1]) ** 2 <= r2)
 
         na, nb = _poche_naehe(bg["a"]), _poche_naehe(bg["b"])
+        if min(na, nb) >= 5 and max(na, nb) < 1.5 * min(na, nb):
+            # AMBIGES Endpunkt-Poché (Tür an Wand-Ecke, WM 24:21 gemessen —
+            # der Seal brannte QUER durch den Vorraum und trennte den
+            # Eingangs-Arm ab): die LINIEN-Abdeckung auf der Poché-Dilatation
+            # entscheidet (die geschlossene Türlinie liegt in der Wandflucht).
+            def _lin_cov(ende):
+                n_p = 20
+                hits = 0
+                for k in range(n_p + 1):
+                    t = k / n_p
+                    i, j = rst.ij(hx + (ende[0] - hx) * t, hy + (ende[1] - hy) * t)
+                    if 0 <= i < W and 0 <= j < H and hm_d[j * W + i]:
+                        hits += 1
+                return hits / (n_p + 1.0)
+
+            _ca, _cb = _lin_cov(bg["a"]), _lin_cov(bg["b"])
+            if abs(_ca - _cb) >= 0.10:
+                na, nb = (1, 0) if _ca > _cb else (0, 1)
         if na == nb:
             # LOGGIA-/LEICHTWAND-TÜREN (WM: na=nb=0, beidseitig keine Poché —
             # 3 Bögen blieben unversiegelt, Zimmer liefen in die Loggia):
@@ -446,7 +472,29 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
 
             na, nb = _flucht_fort(bg["a"]), _flucht_fort(bg["b"])
             if na == nb:
-                continue    # unklar → Tür bleibt beim Text-Balken-Fallback
+                # TIE-BREAKER: kollineare DUNKLE SEGMENTE jenseits der Enden
+                # (CAD-Linien statt Grid — unpochierte Fassaden-/Fensterbänder
+                # sind zum Seal-Zeitpunkt noch nicht im Grid; WM Bogen[12]
+                # 13:0 gemessen).
+                def _seg_fort(ende):
+                    dx, dy = ende[0] - hx, ende[1] - hy
+                    L0 = math.hypot(dx, dy) or 1.0
+                    dx, dy = dx / L0, dy / L0
+                    n = 0
+                    for s in dark_segs:
+                        mx, my = (s[0] + s[2]) / 2, (s[1] + s[3]) / 2
+                        t = ((mx - ende[0]) * dx + (my - ende[1]) * dy) / rst.ptm
+                        q = abs(-(mx - ende[0]) * dy + (my - ende[1]) * dx) / rst.ptm
+                        if 0.05 <= t <= 1.0 and q <= 0.15:
+                            sdx, sdy = s[2] - s[0], s[3] - s[1]
+                            sl = math.hypot(sdx, sdy) or 1.0
+                            if abs((sdx * dx + sdy * dy) / sl) >= 0.9396926:
+                                n += 1
+                    return n
+
+                na, nb = _seg_fort(bg["a"]), _seg_fort(bg["b"])
+                if not (max(na, nb) >= 4 and max(na, nb) >= 3 * min(na, nb)):
+                    continue    # weiter unklar → Text-Balken-Fallback
         zx, zy = bg["a"] if na > nb else bg["b"]
         # Strecke hinge→zu mit ±0,10m Dicke quer brennen
         L = math.hypot(zx - hx, zy - hy) or 1.0
@@ -456,6 +504,32 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         while off <= d2b:
             rst.line(grid, hx + px * off, hy + py * off, zx + px * off, zy + py * off)
             off += rst.cell
+        # HINGE-FORTSETZUNG (Zimmer-Sezierung: die IW03-Leichtwand zwischen
+        # T-Stoß und Türangel wird von Tür-Zonen vetoiert → 0,6m-Loch):
+        # jenseits des Angelpunkts muss die Wandflucht weitergehen — Muster
+        # [Wand-Anlauf] Lücke(≥0,16m) Wand ⇒ Lücke mit Seal-Dicke brennen.
+        ex, ey = hx - zx, hy - zy
+        L2 = math.hypot(ex, ey) or 1.0
+        ex, ey = ex / L2, ey / L2
+        prof = []
+        for k2 in range(1, 26):
+            dm = 0.04 * k2
+            i2, j2 = rst.ij(hx + ex * dm * rst.ptm, hy + ey * dm * rst.ptm)
+            prof.append(bool(0 <= i2 < W and 0 <= j2 < H and grid[j2 * W + i2]))
+        k = 0
+        while k < len(prof) and prof[k]:
+            k += 1
+        g0 = k
+        while k < len(prof) and not prof[k]:
+            k += 1
+        if k < len(prof) and (k - g0) * 0.04 >= 0.16:
+            tx = hx + ex * 0.04 * (k + 1) * rst.ptm
+            ty = hy + ey * 0.04 * (k + 1) * rst.ptm
+            off = -d2b
+            while off <= d2b:
+                rst.line(grid, hx + px * off, hy + py * off,
+                         tx + px * off, ty + py * off)
+                off += rst.cell
         bogen_ok.append((hx, hy))
 
     for o in (oeffnungen or []):
@@ -493,6 +567,22 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         fenster = int(0.7 / rst.zm)
         ci, cj = rst.ij(cx, cy)
         ist_tuer = o.get("typ") == "tuer"
+        if score_h == 0 and score_v == 0:
+            # ORIENTIERUNGS-TIE (Zimmer-Sezierung: Text-Anker 0,3m im Raum,
+            # beide Enden-Proben verfehlen die dünne Wand → Fenster-Balken
+            # brannte blind quer IN den Raum): Achse = stärkstes WAND-BAND
+            # im Suchfenster (Zeilen- vs. Spalten-Support).
+            bn_r = 0
+            for jj in range(max(0, cj - such), min(H, cj + such + 1)):
+                bn_r = max(bn_r, sum(1 for ii in range(max(0, ci - fenster),
+                                                       min(W, ci + fenster + 1))
+                                     if grid[jj * W + ii]))
+            bn_c = 0
+            for ii in range(max(0, ci - such), min(W, ci + such + 1)):
+                bn_c = max(bn_c, sum(1 for jj in range(max(0, cj - fenster),
+                                                       min(H, cj + fenster + 1))
+                                     if grid[jj * W + ii]))
+            score_h, score_v = (1, 0) if bn_r >= bn_c else (0, 1)
         if score_h >= score_v:  # Balken entlang x → Wand-Flucht = WANDBAND-MITTE
             # gewichteter Schwerpunkt statt dominanter Einzel-Zeile: bei einer 12cm-Wand
             # ist die Argmax-Zeile ambig (WC-Sezierung: Balken saß 15-20cm daneben) —
@@ -598,7 +688,7 @@ def _watershed(grid, rst, stempel, kern_m=0.45):
     return label, ok_start, AUSSEN
 
 
-def _taschen_adoption(grid, label, rst, stempel, AUSSEN):
+def _taschen_adoption(grid, label, rst, stempel, AUSSEN, huelle_burn=None):
     """Unerreichte Frei-Taschen (label −1): F-geführt dem Nachbar-Raum zuschlagen.
     Nachbar = Label mit den meisten Kontakten beim Blick durch dünne Wände (≤16cm).
     Adoptiert NUR, wenn es das F des Nachbarn Richtung Soll bewegt (byte-exakte
@@ -630,6 +720,22 @@ def _taschen_adoption(grid, label, rst, stempel, AUSSEN):
                     q.append(nidx)
         if len(comp) < 25:      # < 0,01 m² — Rauschen
             continue
+        if huelle_burn is not None:
+            # Tasche grenzt an KÜNSTLICHE Hüllen-Schluss-Zellen → sie liegt
+            # JENSEITS der echten Wand (Loggia-Geländer-Kante, gemessen:
+            # U-Schlange der Loggia Entwässerung) — kein Rauminhalt.
+            am_huellenschluss = False
+            for idx in comp:
+                i, j = idx % W, idx // W
+                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ni, nj = i + di, j + dj
+                    if 0 <= ni < W and 0 <= nj < H and huelle_burn[nj * W + ni]:
+                        am_huellenschluss = True
+                        break
+                if am_huellenschluss:
+                    break
+            if am_huellenschluss:
+                continue
         # Kontakte durch dünne Wände zählen (Phantom-Wände von Möbel-/Küchen-Linework
         # können dicker wirken als echte Trennwände → großzügige Reichweite)
         reach = max(1, int(0.40 / rst.zm))
@@ -1281,7 +1387,10 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel,
                           versch_out=versch, boegen=boegen,
                           paar_fallback=paar_fallback)
+        vor_fs = bytes(grid)
         _n_fs, luecken = _fassaden_schluss(grid, rst.W, rst.H, rst.zm)
+        huelle_burn = bytearray(1 if (grid[i_] and not vor_fs[i_]) else 0
+                                for i_ in range(rst.W * rst.H))
         # STUFE-2-BRÜCKEN-BURN (Fassaden-Sezierung): Tor-/Front-Linien, deren
         # BEIDE Enden in der Wand-Maske ankern und die eine erkannte HÜLLEN-
         # Lücke überspannen, brennen. Der globale Brücken-Burn zerschnitt
@@ -1317,7 +1426,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     continue    # Mitte schon Wand → nichts zu überbrücken
                 rst.line(grid, s[0], s[1], s[2], s[3])
         label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
-        label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
+        label = _taschen_adoption(grid, label, rst, stempel, AUSSEN,
+                                  huelle_burn=huelle_burn)
         label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)
         label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)
         label = _glaetten(grid, label, rst, len(stempel), AUSSEN)
@@ -1398,6 +1508,15 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 continue
             f_ist, u_ist = masse[idx]
             f_ok = abs(f_ist - st["f_m2"]) / st["f_m2"] <= tol_f
+            if not f_ok and f_ist < st["f_m2"]:
+                # HALBZELLEN-BIAS (gerichtet): Wandlinien-Zellen zählen ganz
+                # als Wand, die wahre Fläche reicht im Mittel eine halbe Zelle
+                # hinein → F wird um bis zu U×zelle/2 UNTERschätzt (0,26m² bei
+                # 0.037er-Raster, gemessen). Nur die UNTERE Gate-Seite weiten —
+                # symmetrisch kippte Angerer Bad/Geräte über das obere Gate.
+                f_tief = f_ist + u_ist * rst.zm / 2.0
+                f_ok = abs(min(f_tief, st["f_m2"]) - st["f_m2"]) \
+                    / st["f_m2"] <= tol_f
             if st.get("u_m") is not None:
                 u_ok = abs(u_ist - st["u_m"]) / st["u_m"] <= tol_u
             else:
