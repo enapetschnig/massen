@@ -32,7 +32,7 @@ BREITE_CM_RX = re.compile(r"^([0-9]{2,3})$")  # "60", "80", "120"
 BREITE_M_RX = re.compile(r"^([0-9])[,.]([0-9]{1,2})$")  # "0,80", "1,30", "2,40"
 WAND_RX = re.compile(r"^(AW|IW)\s*\d?$", re.I)
 # Tür-Marker
-TUER_CODE_RX = re.compile(r"^(D\s*\d+|T\s*\d+|DR|EI\s*\d|RS\s*\d)$", re.I)
+TUER_CODE_RX = re.compile(r"^(D\s*\d+|T\s*\d+|DR|EI2?\s*\d{1,2}(?:\s+\d{2})?|RS\s*\d)$", re.I)
 
 
 def _parse_num(s: str) -> Optional[float]:
@@ -324,6 +324,33 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
             if abs(va - vb) > tol_m:
                 return False
         return True
+
+    # 2c) STANDALONE-TÜR-MARKER (TG-/Gewerbe-Pläne, Sektor-Audit: 16 EI2-30-
+    # Brandschutztüren am Velden-TG trugen weder FPH noch STUK → 0 Öffnungen).
+    # Tür-Codes, die in KEINEM FPH-Cluster stecken, werden eigene Türen
+    # (Breite unbekannt → Verschluss-Default 0,9m; Konfidenz niedrig, aber
+    # der Marker + Verschluss-Balken machen Raum-Verifikation + Stk-Zählung
+    # möglich). Dedupe: Marker <35pt beisammen = eine Tür (Label+Gegenlabel).
+    _verbraucht = set()
+    for o in oeffnungen:
+        for c in (o.get("tuer_codes") or []):
+            _verbraucht.add(c)
+    _solo = [t for t in tuer_marker_spans
+             if not any(math.hypot(t["cx"] - o["cx"], t["cy"] - o["cy"])
+                        < max_cluster_pt * 1.5 for o in oeffnungen)]
+    _solo_ded = []
+    for t in _solo:
+        if any(math.hypot(t["cx"] - u["cx"], t["cy"] - u["cy"]) < max_cluster_pt
+               for u in _solo_ded):
+            continue
+        _solo_ded.append(t)
+    for t in _solo_ded:
+        oeffnungen.append({
+            "typ": "tuer", "raum": None, "breite_m": None, "hoehe_m": None,
+            "flaeche_m2": None, "fph_m": 0.0, "stuk_m": None, "wand_typ": None,
+            "tuer_codes": [t["code"]], "cx": t["cx"], "cy": t["cy"],
+            "quelle": "tuer-code-standalone", "konfidenz": 0.5,
+        })
 
     def _same_fph_stuk(a, b, tol_m=0.05):
         return (abs((a.get("fph_m") or 0) - (b.get("fph_m") or 0)) < tol_m
