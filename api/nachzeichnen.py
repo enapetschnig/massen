@@ -462,6 +462,18 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
 
 
 def analysiere_doc(doc, **kw):
-    """Ganzes PDF → größte Seite nachzeichnen."""
-    page = max(doc, key=lambda p: p.rect.width * p.rect.height)
-    return analysiere_seite(page, **kw)
+    """Ganzes PDF → Seiten nach Größe probieren, die erste ANALYSIERBARE gewinnt.
+    (Breiten-Sweep-Fall Mitterwurzerweg4: Dachplan-Satz mit 3 gleich großen
+    Seiten — die erste ist 'Dachflächen' ohne Grundriss-Kontur, die SPARREN-
+    LAGE auf Seite 2 ist analysierbar. Nur-größte-Seite gab dort auf.)
+    Streng additiv: war die größte Seite ok, ist das Ergebnis identisch;
+    Fehlschläge scheitern früh (Kalibrierung/Box) und kosten Sekunden."""
+    seiten = sorted(doc, key=lambda p: -(p.rect.width * p.rect.height))
+    erster = None
+    for page in seiten[:8]:
+        res = analysiere_seite(page, **kw)
+        if res.get("ok"):
+            return res
+        if erster is None:
+            erster = res
+    return erster or {"ok": False, "grund": "Leeres Dokument"}
