@@ -374,10 +374,20 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
     decke_m = baudaten["decke_cm"] / 100.0
     pos = LVPosition("1.2", f"Stahlbeton-Decke über {geschoss}", "m³")
     _basis_decke = baudaten.get("_basis_decke_m2")
+    # ÖNORM-Audit (Deckenöffnungen): STIEGENLÖCHER gehören nicht in die
+    # Betonmenge (B 2204/LB-HB LG07: große Aussparungen als eigene Positionen).
+    # Stiegenhaus-Räume sind der byte-exakte Kandidat — nur abziehen wenn
+    # vorhanden (eingeschossige EFH ohne Stiegenhaus bleiben byte-identisch).
+    _stiege_f = sum(_room_value(r, "flaeche_m2") or 0 for r in rooms
+                    if kategorie_of(_room_name(r)) == "Stiegenhaus")
     if _basis_decke:
         pos.quelle = f"in Anlehnung an ÖNORM B 2204 (vormals B 2211) · Decken-Fläche × Dicke {decke_m:.2f}m (gemeinsame Basis)"
         pos.add_zeile("Decke gesamt", laenge=round(_basis_decke, 2), hoehe=decke_m,
                       summe=_basis_decke * decke_m, quelle=f"F={_basis_decke:.2f} × d={decke_m:.2f}")
+        if _stiege_f:
+            pos.add_zeile("abzügl. Deckenöffnung Stiege", laenge=-round(_stiege_f, 2),
+                          hoehe=decke_m, summe=-_stiege_f * decke_m,
+                          quelle=f"Stiegenhaus F={_stiege_f:.2f} × d={decke_m:.2f} (Aussparung)")
     else:
         pos.quelle = f"in Anlehnung an ÖNORM B 2204 (vormals B 2211) · Σ Fläche × Deckendicke {decke_m:.2f}m"
         for r in innen:

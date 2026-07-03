@@ -2676,6 +2676,19 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
         "geschoss": geschoss,
     }
     log["wand_bemassung_vision"] = wall_dims_per_top
+    # DACH-POSITIONEN (Dachdecker/Zimmerer-Sektor): byte-exakter Text-Pass über
+    # alle Seiten — Sanierungs-/Angebotspläne tragen Flächen/Sparren/Velux als
+    # Text. Best-effort, {} wenn kein Dach-Signal (EFH-Grundrisse unberührt).
+    try:
+        from dach_positionen import dach_positionen as _dachpos
+        import fitz as _fitz_dp
+        _ddoc = _fitz_dp.open(stream=pdf_bytes, filetype="pdf")
+        _dp = _dachpos(_ddoc)
+        _ddoc.close()
+        if _dp:
+            log["dach_positionen"] = _dp
+    except Exception as _e_dp:
+        print(f"[dach] Reader fehlgeschlagen: {_e_dp}")
     # Außenkontur-Vision (Polygon + Außenmaße) für projekt-massen-Konsum
     if _MASSEN_OK:  # nur in dem Pfad existiert die Variable
         try:
@@ -3708,6 +3721,10 @@ async def projekt_massen(body: ProjektMassenRequest):
                 geschoss = g
         # MASSKETTEN-TEXT-LAYER-BBox — byte-exakte Hülle, höchste Priorität
         # (validiert: aus Kettenbemaßung gelesen + an Grundfläche verankert).
+        # Dach-Positionen (Zimmerer/Dachdecker) des Plans einsammeln
+        if log.get("dach_positionen"):
+            _dach_gesamt.append(dict(log["dach_positionen"],
+                                     plan=p.get("dateiname")))
         mk = log.get("massketten_bbox")
         if mk and mk.get("umfang_m"):
             aussenmasse_kandidaten.append({
@@ -3891,6 +3908,7 @@ async def projekt_massen(body: ProjektMassenRequest):
     bbox_flaechen = [c["flaeche_m2"] for c in aussenmasse_kandidaten if c.get("flaeche_m2")]
 
     gemessen = None
+    _dach_gesamt = []   # Dach-Positionen (byte-exakt) über alle Pläne
     # Fläche: Bodenplatte aus Vision-Polygon ODER bbox ODER Σ F_innen
     bp_flaeche = _median(poly_flaechen) or _median(bbox_flaechen)
     if bp_flaeche is None and f_innen_check > 0:
@@ -4680,6 +4698,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         "projekt_id": projekt_id,
         "pruefliste": pruefliste,
         "herkunft": herkunft,
+        "dach_positionen": _dach_gesamt or None,
         "legende_warnungen": (best_baudaten or {}).get("_warnungen") or [],
         "plaene_count": len(plaene),
         "plaene_total": len(plaene_all),
