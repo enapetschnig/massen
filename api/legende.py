@@ -224,10 +224,32 @@ def parse_legende(spans: list) -> dict:
             code = _norm_code(m.group(1), m.group(2))
             result["wand_counts"][code] = result["wand_counts"].get(code, 0) + 1
 
+    # GROSSBUCHSTABEN-MATERIAL-LEGENDE (Sektor-Audit: der Velden-TG trägt
+    # die Material-Legende als GROSS-Wörter — STAHLBETON/SICHTBETON/
+    # MANTELBETON/BETONSTEIN — statt W-/D-Code-Blöcken; konfidenz war 0,0
+    # obwohl das Materialsystem byte-exakt am Blatt steht). Additives Feld:
+    # Signal für die STB-Weiche + Anzeige; greift nicht in wand_typen ein.
+    _gross = []
+    _GROSS_RX = re.compile(
+        r"^(STAHLBETON|SICHTBETON|MANTELBETON|BETONSTEIN|ORTBETON|"
+        r"FERTIGTEIL|MAUERWERK|ZIEGEL|HOLZ|WU-BETON)\b")
+    for s in spans:
+        m = _GROSS_RX.match(s["text"].strip())
+        if m and m.group(1) not in _gross:
+            _gross.append(m.group(1))
+    if _gross:
+        result["materialien_gross"] = _gross
+        if not result["wand_typen"] and any(
+                g in ("STAHLBETON", "SICHTBETON", "MANTELBETON", "ORTBETON",
+                      "WU-BETON") for g in _gross):
+            result["material_system"] = "stb"
+
     # Konfidenz: wie viel der Legende konnten wir lesen?
     gelesen = (len(result["wand_typen"]) + bool(result["decke_cm"]) +
                bool(result["bodenplatte_cm"]) + bool(result["sauberkeitsschicht_cm"]))
     result["konfidenz"] = min(0.97, 0.55 + 0.1 * gelesen) if result["wand_typen"] else 0.0
+    if not result["wand_typen"] and _gross:
+        result["konfidenz"] = 0.4   # Material-System gelesen, keine Dicken
     return result
 
 
