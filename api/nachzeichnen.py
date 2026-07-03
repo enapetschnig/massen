@@ -84,7 +84,13 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                        and box[2] <= x["cy"] <= box[3])
             if not box or drin < 0.5 * len(_st):
                 pos = [(x["cx"], x["cy"]) for x in _st]
-                box = vektor._view_bbox(pos, ptm, marge_m=4.0, radius_m=40.0)
+                # Marge skaliert mit dem größten Stempel: der 555,9m²-Hallen-
+                # Stempel sitzt MITTIG, die Außenkante liegt ~√F/2 entfernt —
+                # die 4m-Marge kappte die Halle auf 225m² (gemessen). EFH
+                # (max F ≤ 40) bleibt bei 4m.
+                _fmax = max((x.get("f_m2") or 0) for x in _st)
+                _marge = max(4.0, 0.6 * (_fmax ** 0.5))
+                box = vektor._view_bbox(pos, ptm, marge_m=_marge, radius_m=40.0)
     except Exception:
         pass
     if not box:
