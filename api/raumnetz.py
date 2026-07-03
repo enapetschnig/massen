@@ -529,10 +529,22 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 if not (max(na, nb) >= 4 and max(na, nb) >= 3 * min(na, nb)):
                     continue    # weiter unklar → Text-Balken-Fallback
         zx, zy = bg["a"] if na > nb else bg["b"]
-        # Strecke hinge→zu mit ±0,10m Dicke quer brennen
+        # Strecke hinge→zu quer brennen — Band-Dicke ADAPTIV aus dem lokalen
+        # Poché-Querprofil (V7-Sezierung: fixe ±0,10m fraßen auf 12cm-LEICHT-
+        # wänden Raumfläche; fixe ±0,06m brachen Angerers 25er-Wände —
+        # gemessen 6/9→5/9). Poché-verankerte Wände behalten ihr breites
+        # Band, unpochierte Leichtwände bekommen das schmale.
         L = math.hypot(zx - hx, zy - hy) or 1.0
         px, py = -(zy - hy) / L, (zx - hx) / L     # Einheits-Normale
-        d2b = 0.10 * rst.ptm
+        _mx, _my = (hx + zx) / 2.0, (hy + zy) / 2.0
+        _lauf = 0
+        for _o in range(-8, 9):
+            _i, _j = rst.ij(_mx + px * _o * 0.04 * rst.ptm,
+                            _my + py * _o * 0.04 * rst.ptm)
+            if 0 <= _i < W and 0 <= _j < H and hm_d[_j * W + _i]:
+                _lauf += 1
+        _dicke_m = _lauf * 0.04
+        d2b = max(0.06, min(0.10, _dicke_m / 2.0 + 0.02)) * rst.ptm
         off = -d2b
         while off <= d2b:
             rst.line(grid, hx + px * off, hy + py * off, zx + px * off, zy + py * off)
