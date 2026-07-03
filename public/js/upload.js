@@ -1610,6 +1610,13 @@
     // BYTE-EXAKTE WANDFLUCHTEN (Maßketten-Snap): jede Linie ist eine Wandflucht
     // laut Plan-Bemaßung — grün = von der Wand-Erkennung bestätigt, rot = dort
     // fehlt eine Wand in der Erkennung (oder die Kette misst etwas anderes).
+    // HÖHENKOTEN (Schnitt-Blätter): byte-exakt gelesene ±-Koten als Marker —
+    // auch Schnitt-/Ansichts-Blätter sind damit nachvollziehbar erschlossen.
+    (_nzData.koten || []).forEach(function (k) {
+      lines += '<circle cx="' + k.px[0] + '" cy="' + k.px[1] + '" r="5" fill="#7c3aed"' +
+        ' fill-opacity="0.55" stroke="#fff" stroke-width="1"><title>Höhenkote ' +
+        esc(k.wert) + ' m (byte-exakt)</title></circle>';
+    });
     // GEMAUERTE HÜLLE (Kontur der Wand-Maske): der Außenumfang treibt die
     // halbe Materialliste — hier ist er am Plan sichtbar und gegen die
     // gerechnete Zahl prüfbar (ÖNORM-B-2110-Prinzip: prüfbare Mengen).
@@ -2054,6 +2061,19 @@
       }
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
+      var schnittHint = d.typ === 'schnitt'
+        ? '<p class="nachzeichnen-hint">📐 <strong>Schnitt-/Ansichts-Blatt</strong> — ' +
+          (d.koten || []).length + ' Höhenkoten byte-exakt gelesen (violette Marker, Tooltip zeigt den Wert). ' +
+          'Kein Grundriss auf diesem Blatt — Mengen kommen von den Grundriss-Blättern. ' +
+          'Maßstab ' + esc((d.meta || {}).massstab || '?') + '</p>'
+        : null;
+      if (schnittHint) {
+        cont.innerHTML = _nzTabsHtml() + schnittHint + '<div class="nz-dynamic"></div>';
+        _nzWireTabs(cont);
+        _nzWireSeiten(cont);
+        _nzPaint();
+        return;
+      }
       cont.innerHTML = _nzTabsHtml() +
         '<p class="nachzeichnen-hint">Erkannte Wände, farbcodiert nach Stärke (gestrichelt = unsicher). ' +
         '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +

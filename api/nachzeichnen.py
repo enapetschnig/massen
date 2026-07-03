@@ -99,6 +99,39 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         # PLAUSIBLE Gebäude-Größe hat (4-45 m/Seite). Schließt Schnitte/Lagepläne aus.
         box = _wandbox(page, ptm)
     if not box:
+        # SCHNITT-BLATT-MODUS ('für alle Pläne': jedes Blatt liefert, was es
+        # trägt): Schnitt-/Ansichts-Blätter haben keinen Grundriss, aber
+        # byte-exakte HÖHENKOTEN (Velden 40, 05_AU 83 gemessen) — Ansicht mit
+        # Koten-Markern statt reinem ✗.
+        koten = [(w[0], w[1], w[4]) for w in worte
+                 if re.match(r"^[±+\-]\s?\d{1,2}[.,]\d{2}$", w[4].strip())]
+        if len(koten) >= 8:
+            bx0s, by0s = 0.0, 0.0
+            bx1s, by1s = page.rect.width, page.rect.height
+            scale_s = max(0.5, min(max_px / bx1s, max_px / by1s, 4.0))
+            try:
+                import fitz as _fz
+                pix = page.get_pixmap(matrix=_fz.Matrix(scale_s, scale_s))
+                return {
+                    "ok": True, "typ": "schnitt",
+                    "basis_png": pix.tobytes("png"),
+                    "bild_w": pix.width, "bild_h": pix.height,
+                    "waende": [], "oeffnungen": [], "raeume": [],
+                    "konturen": [], "fluchten": [], "summe_m": {},
+                    "koten": [{"px": [round(x * scale_s, 1), round(y * scale_s, 1)],
+                               "wert": t.strip()} for (x, y, t) in koten[:200]],
+                    "meta": {
+                        "ptm": round(ptm, 2), "scale": round(scale_s, 4),
+                        "box_pt": [0.0, 0.0, round(bx1s, 1), round(by1s, 1)],
+                        "n_waende": 0,
+                        "box_m": [round(bx1s / ptm, 1), round(by1s / ptm, 1)],
+                        "tragfaehig": bool(kal.get("tragfaehig")),
+                        "streuung_pct": kal.get("streuung_pct"),
+                        "massstab": m_label, "typ": "schnitt",
+                    },
+                }
+            except Exception:
+                pass
         return {"ok": False, "grund": "Kein Grundriss-Bereich gefunden (weder Raum-Labels noch plausible Wand-Kontur)"}
     bx0, bx1, by0, by1 = box
     breite_pt, hoehe_pt = (bx1 - bx0), (by1 - by0)
