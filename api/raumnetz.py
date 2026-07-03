@@ -702,6 +702,70 @@ def _f_ausgleich(grid, label, rst, stempel, AUSSEN, max_verschub=40000):
                     q2.append(nidx)
         geo[li] = (dist, r_lim)
 
+    # SEED-ANKER-SHED (Foyer-ohne-Stempel-Sezierung): ein Basin aus echtem Raum
+    # + stempellosem Flur gab beim AUSSEN-Shed die FALSCHE Seite ab (Radabstell:
+    # 22.080 Zellen des echten Raums gingen an AUSSEN, die Korridor-Schlange
+    # blieb — Zentroid 3,9m neben dem Stempel, U=45). VORAB geben übergroße
+    # Räume ihre geodätisch JENSEITS der eigenen Stempel-Schranke liegenden
+    # Zellen wellenweise von AUSSEN her ab — der Teil um den eigenen Stempel
+    # bleibt. Shed stoppt am Soll (übergroße lange Flure geben nur ihre
+    # fernsten Enden bis Soll ab; U bleibt der unabhängige Prüfwert).
+    geo_self = {}
+    for li, st in enumerate(stempel):
+        if fl[li] <= soll[li]:
+            continue
+        si, sj = rst.ij(st["cx"], st["cy"])
+        start = None
+        for rad in range(0, 15):
+            for di in range(-rad, rad + 1):
+                for dj in range(-rad, rad + 1):
+                    ni, nj = si + di, sj + dj
+                    if 0 <= ni < W and 0 <= nj < H and not grid[nj * W + ni]:
+                        start = nj * W + ni
+                        break
+                if start is not None:
+                    break
+            if start is not None:
+                break
+        if start is None:
+            continue
+        r_lim = int((0.9 * (st["f_m2"] ** 0.5) + 1.5) / rst.zm)
+        dist = [INF] * (W * H)
+        dist[start] = 0
+        q2 = deque([start])
+        while q2:
+            idx2 = q2.popleft()
+            dd = dist[idx2] + 1
+            if dd > r_lim:
+                continue
+            i2, j2 = idx2 % W, idx2 // W
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = i2 + di, j2 + dj
+                nidx = nj * W + ni
+                if 0 <= ni < W and 0 <= nj < H and not grid[nidx] and dist[nidx] > dd:
+                    dist[nidx] = dd
+                    q2.append(nidx)
+        geo_self[li] = (dist, r_lim)
+    if geo_self:
+        q3 = deque(idx for idx in range(W * H)
+                   if label[idx] == AUSSEN and not grid[idx])
+        while q3:
+            idx3 = q3.popleft()
+            i3, j3 = idx3 % W, idx3 // W
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = i3 + di, j3 + dj
+                if not (0 <= ni < W and 0 <= nj < H):
+                    continue
+                nidx = nj * W + ni
+                lab3 = label[nidx]
+                gs = geo_self.get(lab3)
+                if (gs is not None and not grid[nidx] and fl[lab3] > soll[lab3]
+                        and gs[0][nidx] > gs[1]):
+                    label[nidx] = AUSSEN
+                    fl[lab3] -= 1
+                    fl[AUSSEN] += 1
+                    q3.append(nidx)
+
     # WELLEN-basiertes, KOMPAKTES Wachstum: pro Welle wechseln nur Grenz-Zellen mit
     # ≥2 Ziel-Nachbarn (glatte Front statt fransiger Lappen — Fransen bliesen U +70%
     # auf; U ist der unabhängige Prüfwert). Front-Set wird je Welle fortgeschrieben.
