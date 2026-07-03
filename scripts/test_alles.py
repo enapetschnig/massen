@@ -22,6 +22,7 @@ GUARDS = [
     ("Korrektur-Override", "test_nachzeichnen_override.py", "bounded, kein Kollateral"),
     ("Aufmaßblatt", "test_aufmassblatt.py", "PDF mit Plan+Einzeichnungen"),
     ("Kalibrier-Mechanik", "test_kalibrierung.py", "dormant, aber intakt"),
+    ("Dach-Sektor (byte-exakt)", "test_dach_positionen.py", "Σ=Gesamt + Sparren + Velux"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
