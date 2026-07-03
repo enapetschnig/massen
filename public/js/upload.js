@@ -874,7 +874,15 @@
         var konf = p.konfidenz || 0;
         var tier = konfTier(konf);
         var hlz = (p.material || '').match(/HLZ\s*(\d+)/i);   // Kopplung Plan ↔ Liste
-        var clickAttr = hlz ? ' class="ml-row ml-row-hlz" data-hlz="' + hlz[1] + '" title="Am Plan zeigen — die ' + hlz[1] + 'cm-Wände hervorheben"' : ' class="ml-row"';
+        var pref = p.plan_ref || (hlz ? { layer: 'waende', snap_cm: parseInt(hlz[1], 10) } : null);
+        var clickAttr = ' class="ml-row"';
+        if (pref && pref.layer === 'waende' && pref.snap_cm) {
+          clickAttr = ' class="ml-row ml-row-hlz" data-hlz="' + pref.snap_cm + '" title="Am Plan zeigen — die ' + pref.snap_cm + 'cm-Wände hervorheben"';
+        } else if (pref && pref.layer === 'konturen') {
+          clickAttr = ' class="ml-row ml-row-kontur" title="Am Plan zeigen — die Hüllen-Kontur (blau) hervorheben"';
+        } else if (pref && pref.layer === 'oeffnungen') {
+          clickAttr = ' class="ml-row ml-row-oeff" title="Am Plan zeigen — die Öffnungs-Marker hervorheben"';
+        }
         html += '<div' + clickAttr + '>' +
           '<span class="ml-dot ' + tier.cls + '" title="' + tier.title + ' (' + Math.round(konf * 100) + '%)"></span>' +
           '<span class="ml-mat">' + esc(p.material || '') +
@@ -903,6 +911,24 @@
     // Kopplung Plan ↔ Liste: HLZ-Position anklicken → zugehörige Wände am Plan hervorheben
     Array.prototype.forEach.call(board.querySelectorAll('.ml-row-hlz'), function (r) {
       r.addEventListener('click', function () { nzHighlight(parseInt(r.getAttribute('data-hlz'), 10)); });
+    });
+    // plan_ref-Kopplung: Konturen-/Öffnungs-Positionen pulsieren ihre Plan-Ebene
+    function _pulse(selector) {
+      var sec = document.getElementById('nachzeichnen-section');
+      if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      var cont = document.getElementById('nachzeichnen-container');
+      if (!cont) return;
+      var sel = cont.querySelectorAll(selector);
+      Array.prototype.forEach.call(sel, function (el) { el.classList.add('nz-hi'); });
+      setTimeout(function () {
+        Array.prototype.forEach.call(sel, function (el) { el.classList.remove('nz-hi'); });
+      }, 3200);
+    }
+    Array.prototype.forEach.call(board.querySelectorAll('.ml-row-kontur'), function (r) {
+      r.addEventListener('click', function () { _pulse('polyline'); });
+    });
+    Array.prototype.forEach.call(board.querySelectorAll('.ml-row-oeff'), function (r) {
+      r.addEventListener('click', function () { _pulse('circle'); });
     });
 
     // Trust-Ring: EHRLICH + dynamisch — Mischung aus Anteil sicherer Positionen

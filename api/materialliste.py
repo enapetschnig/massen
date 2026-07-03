@@ -147,6 +147,7 @@ class MaterialPos:
         self.menge = round(float(menge or 0), 2)
         self.formel = formel
         self.konfidenz = konfidenz
+        self.plan_ref = None   # {"layer": "waende|oeffnungen|konturen", …}
 
     def to_dict(self):
         return {
@@ -156,6 +157,7 @@ class MaterialPos:
             "einheit": self.einheit,
             "formel": self.formel,
             "konfidenz": self.konfidenz,
+            **({"plan_ref": self.plan_ref} if self.plan_ref else {}),
         }
 
 
@@ -915,6 +917,22 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
                 p.konfidenz = round(K_GEO * (0.85 if ("iso-korb" in mat or "voranstrich" in mat) else 0.92), 2)
         elif b == "Mauerwerk EG":
             p.konfidenz = round(min(K_GEO, K_UMF + 0.05), 2) if umf else round(K_GEO * 0.88, 2)
+
+    # ── plan_ref-TAGGING (Nachvollziehbarkeits-Audit P2): jede Position
+    # referenziert ihre Plan-Ebene STRUKTURELL (Frontend-Kopplung lief bisher
+    # über einen HLZ-Material-Regex — Konturen/Öffnungen hatten gar keine).
+    import re as _re
+    for p in out:
+        _mat = (p.material or "").lower()
+        _frm = (p.formel or "").lower()
+        _m_hlz = _re.search(r"hlz\s*(\d+)", _mat)
+        if _m_hlz:
+            p.plan_ref = {"layer": "waende", "snap_cm": int(_m_hlz.group(1))}
+        elif "überlage" in _mat or "rolladen" in _mat or "rollladen" in _mat:
+            p.plan_ref = {"layer": "oeffnungen"}
+        elif ("umfang" in _frm or "außenkante" in _frm or "frostgraben" in _frm
+              or "gebäude-außen" in _frm):
+            p.plan_ref = {"layer": "konturen"}
 
     # ── Kennzahlen (immer-sichtbar in der Auswertung) — EXAKT dieselben Werte, die
     # die Mengen treiben, damit Anzeige und Materialliste garantiert konsistent sind.
