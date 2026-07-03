@@ -19,8 +19,10 @@ BLAU = (0.01, 0.52, 0.78)
 BRAUN = (0.71, 0.33, 0.04)
 
 
-def erzeuge(nz, projekt_name="", firmen_name=""):
-    """nachzeichnen-Ergebnis (ok, mit basis_png bytes) → PDF-Bytes (A3 quer)."""
+def erzeuge(nz, projekt_name="", firmen_name="", massen=None):
+    """nachzeichnen-Ergebnis (ok, mit basis_png bytes) → PDF-Bytes (A3 quer).
+    massen: optional {bauteile: {…: [Positionen]}, kennzahlen: {…}} → Seite 2
+    'Mengen mit Formel' (B-2110-Prüfbeleg: Mengenermittlung nachvollziehbar)."""
     import fitz
 
     if not nz or not nz.get("ok") or not nz.get("basis_png"):
@@ -179,6 +181,56 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     page.insert_text((M, y),
                      f"{kal}. Erzeugt aus den Plan-Vektoren (kein Schätzwert); gestrichelte/“?”-Elemente bitte am Plan prüfen.",
                      fontsize=8, color=(0.35, 0.35, 0.35))
+
+    # ── Seite 2: MENGEN MIT FORMEL (Nachvollziehbarkeits-Audit P2) ──
+    # Das abheftbare Dokument bewies bisher Wände/Räume/Öffnungen, aber keine
+    # einzige ermittelte MENGE — als Prüfbeleg im Sinn ÖNORM B 2110 8.3.1.2
+    # unvollständig. Jede Position mit Menge + Formel + Konfidenz.
+    if massen and isinstance(massen, dict) and massen.get("bauteile"):
+        p2 = doc.new_page(width=W_PT, height=H_PT)
+        p2.insert_text((M, M + 14), "AUFMASSBLATT — Mengenermittlung mit Rechenweg",
+                       fontsize=15, fontname="hebo")
+        p2.insert_text((M, M + 32),
+                       f"Projekt: {projekt_name or '–'}   ·   {heute}   ·   "
+                       "Jede Menge mit Formel — händisch nachprüfbar (ÖNORM B 2110 Pkt. 8.3.1.2)",
+                       fontsize=9, color=(0.25, 0.25, 0.25))
+        y2 = M + 58
+        SPALTE2 = W_PT / 2.0 + 10
+        x2 = M
+        col_w = W_PT / 2.0 - M - 20
+
+        def _zeile(txt, fs=8.0, farbe=(0, 0, 0), bold=False):
+            nonlocal y2, x2
+            if y2 > H_PT - M - 14:
+                y2 = M + 58
+                x2 = SPALTE2 if x2 == M else M
+                if x2 == M:      # beide Spalten voll → neue Seite
+                    p3 = doc.new_page(width=W_PT, height=H_PT)
+                    _seiten.append(p3)
+            _seiten[-1].insert_text((x2, y2), txt[:150], fontsize=fs,
+                                    fontname="hebo" if bold else "helv", color=farbe)
+            y2 += fs + 4.5
+
+        _seiten = [p2]
+        for bauteil, rows in (massen.get("bauteile") or {}).items():
+            if not rows:
+                continue
+            _zeile(str(bauteil), fs=9.5, bold=True)
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                kf = r.get("konfidenz")
+                kf_txt = f"  [{int(round(float(kf) * 100))}%]" if kf is not None else ""
+                _zeile(f"  {r.get('material')}: {r.get('menge')} {r.get('einheit')}{kf_txt}",
+                       fs=8.5)
+                if r.get("formel"):
+                    _zeile(f"    = {r['formel']}", fs=7.5, farbe=(0.35, 0.35, 0.35))
+            y2 += 4
+        kz = massen.get("kennzahlen") or {}
+        if kz:
+            _zeile("Kennzahlen (Treiber der Mengen)", fs=9.5, bold=True)
+            for k2, v2 in kz.items():
+                _zeile(f"  {k2}: {v2}", fs=8.0)
 
     out = doc.tobytes(deflate=True)
     doc.close()

@@ -2041,7 +2041,11 @@
       b.disabled = true; var t0 = b.textContent; b.textContent = 'Erzeuge Aufmaßblatt …';
       fetch('/api/plan-aufmassblatt', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(_nzAktivPlan ? { plan_id: _nzAktivPlan } : { projekt_id: projectId })
+        body: JSON.stringify(Object.assign(
+          _nzAktivPlan ? { plan_id: _nzAktivPlan } : { projekt_id: projectId },
+          // Seite 2 des Aufmaßblatts: Mengen mit Formel (B-2110-Prüfbeleg)
+          _lastML && _lastML.bauteile
+            ? { massen: { bauteile: _lastML.bauteile, kennzahlen: _lastML.kennzahlen } } : {}))
       }).then(function (r) {
         var ct = r.headers.get('content-type') || '';
         if (ct.indexOf('pdf') < 0) return r.json().then(function (j) { throw new Error((j && j.grund) || 'nicht verfügbar'); });

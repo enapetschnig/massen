@@ -4739,6 +4739,7 @@ class NachzeichnenRequest(BaseModel):
     projekt_id: str | None = None
     plan_id: str | None = None
     seite: int | None = None   # Multi-Geschoss: explizite PDF-Seite (on-demand)
+    massen: dict | None = None  # Aufmaßblatt S.2: Materialliste vom Frontend (bauteile+kennzahlen)
 
 
 def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
@@ -4878,7 +4879,7 @@ async def plan_aufmassblatt(body: NachzeichnenRequest):
         pass
     try:
         import aufmassblatt as _aufmass
-        pdf = _aufmass.erzeuge(r, projekt_name=projekt_name)
+        pdf = _aufmass.erzeuge(r, projekt_name=projekt_name, massen=body.massen)
     except Exception as e:  # pragma: no cover
         return {"ok": False, "grund": f"Aufmaßblatt fehlgeschlagen: {str(e)[:150]}"}
     return Response(content=pdf, media_type="application/pdf",
