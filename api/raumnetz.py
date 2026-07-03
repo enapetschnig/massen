@@ -114,14 +114,10 @@ def raum_stempel(page, box):
             sp["x1"] = rechts[0]["x1"]
             rechts[0]["text"] = ""
     spans = [s2 for s2 in spans if s2["text"]]
-    out = []
-    for s in spans:
-        mf = _F_RX.search(s["text"])
-        if not mf:
-            continue
-        f = _num(mf.group(1))
-        if not f or f < 0.5 or f > 500:
-            continue
+    def _u_unter(s):
+        """'U: xx,xx m'-Span direkt unter dem F-Span (byte-exakt) — gemeinsam für
+        Haupt- UND Fallback-Zweig (WM-Sezierung: 20/21 Fallback-Stempel tragen U,
+        der harte u_m=None ließ abgedriftete Regionen unsichtbar 'verifiziert')."""
         u, best_dy = None, 1e9
         for s2 in spans:
             dy = s2["cy"] - s["cy"]
@@ -136,6 +132,17 @@ def raum_stempel(page, box):
             v = _num(mu.group(1)) if mu else None
             if v and 1 <= v <= 300:
                 u, best_dy = v, dy
+        return u
+
+    out = []
+    for s in spans:
+        mf = _F_RX.search(s["text"])
+        if not mf:
+            continue
+        f = _num(mf.group(1))
+        if not f or f < 0.5 or f > 500:
+            continue
+        u = _u_unter(s)
         name, best = None, 1e9
         for s2 in spans:
             if s2 is s or not re.match(r"^[A-Za-zÄÖÜäöüß]", s2["text"]):
@@ -199,7 +206,7 @@ def raum_stempel(page, box):
                 d = abs(s["cy"] - s2["cy"]) + abs(s["cx"] - s2["cx"]) * 0.3
                 if s2["cy"] < s["cy"] + 5 and d < best and d < 90:
                     best, name = d, s2["text"]
-            out.append({"name": name or "?", "f_m2": f, "u_m": None,
+            out.append({"name": name or "?", "f_m2": f, "u_m": _u_unter(s),
                         "cx": s["cx"], "cy": s["cy"]})
     return out
 
@@ -315,6 +322,14 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 return True
         return False
 
+    # HINWEIS (WM-Sezierung, Experiment dokumentiert): WM zeichnet leichte
+    # Trennwände als 10-12cm-DOPPELLINIEN OHNE Poché — der Anker-Pass brennt
+    # sie nicht, der Watershed teilt Wohnungen per Distanz (Zimmer +21%).
+    # Ein Wand-Paar-Fallback (angedockte Doppellinien brennen) wurde in ZWEI
+    # Varianten GEMESSEN und zurückgestellt: Rechteck-Brand heilt Zimmer-F,
+    # zackt aber U auf (WM verifiziert 4→1, Bad-Vorwände brennen mit);
+    # Mittellinie regressiert Angerer (5/9→4/9). Vor dem Wiedereinbau muss
+    # die U-Zacken-Front (kernlose Phase-2-Zellen, 67% gemessen) gelöst sein.
     for s in dark_segs:
         n = max(2, int(math.hypot(s[2] - s[0], s[3] - s[1]) / rst.cell))
         hits = 0
@@ -1080,10 +1095,20 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 return True
         return False
 
+    # Kredit nur BALKEN-NAH (WM-Sezierung: die 2,29-m-Haustür kreditierte via
+    # Vollkreis-Zone 13,3 m² Wandfläche → Stiegenhaus +1,65 m²; die Kreiszone
+    # wächst QUADRATISCH mit der Türbreite). Tür-Zonen-Zellen zählen nur noch
+    # ≤0,25 m an einer Balken-Zelle — deckt die tote Closing-Zone (WC-Sezierung)
+    # weiter ab, skaliert aber linear.
+    r_nahe = max(1, int(0.25 / rst.zm))
+    d_versch = _dist_bfs(versch, W2, H2, r_nahe) if any(versch) else None
     gut = [0] * len(stempel)
     n_st = len(stempel)
     for idx in range(W2 * H2):
-        if not grid[idx] or not (versch[idx] or _in_tz(idx)):
+        if not grid[idx]:
+            continue
+        if not (versch[idx] or (_in_tz(idx) and d_versch is not None
+                                and d_versch[idx] <= r_nahe)):
             continue
         i0_, j0_ = idx % W2, idx // W2
         best_l, best_d = None, 99
@@ -1110,7 +1135,14 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
             continue
         f_ist, u_ist = masse[idx]
         f_ok = abs(f_ist - st["f_m2"]) / st["f_m2"] <= tol_f
-        u_ok = st.get("u_m") is None or abs(u_ist - st["u_m"]) / st["u_m"] <= tol_u
+        if st.get("u_m") is not None:
+            u_ok = abs(u_ist - st["u_m"]) / st["u_m"] <= tol_u
+        else:
+            # KOMPAKTHEITS-GATE statt Freifahrt (WM: Radabstell 'verifiziert'
+            # mit U_ist=44,9 bei F=22,7 — die Region war eine Korridor-Schlange,
+            # aber ohne Stempel-U lief das U-Gate leer). Isoperimetrie: U eines
+            # Quadrats = 4√F; reale Räume ≤ ~1,8×; Angerer 'Park' 1,25 bleibt ✓.
+            u_ok = f_ist > 0 and u_ist <= 1.8 * 4.0 * (f_ist ** 0.5)
         status = "verifiziert" if (f_ok and u_ok) else ("u_daneben" if f_ok else "f_daneben")
         out.append(dict(st, status=status, f_ist=round(f_ist, 2), u_ist=round(u_ist, 2)))
     return out, stempel
