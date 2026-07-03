@@ -637,6 +637,32 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         math.ceil(decke_m2 / 100 * f("voranstrich_kanister_pro_100m2", override)) or 1,
         f"{decke_m2}m² Decke", konfidenz=0.55))
 
+    # ═══ Giebel (Sattel-/Pultdach) — ÖNORM-Audit P1: fehlte komplett ═══
+    # LB-HB LG08 kennt die Giebelwand explizit ('Az schräger Abschluss z.B.
+    # bei Giebelwänden'). Giebelfläche = Giebelseite × Firstüberhöhung / 2 ×
+    # Anzahl (Sattel 2, Pult 1). Giebelseite = kürzere Rechteck-Seite aus
+    # U/A (2(b+t)=U, b·t=A); Firstüberhöhung = Gebäudehöhe − Traufe
+    # (Geschosshöhe + Decke). Nur wenn ALLE Quellen da sind — sonst keine
+    # Position (kein Schaden, additiv; eigene Zeile statt still in die
+    # Paletten, damit der Polier sie am Plan/Schnitt prüfen kann).
+    _dt = str((baudaten or {}).get("dach_typ") or "").lower()
+    _gh_ges = (baudaten or {}).get("gebaeudehoehe_m")
+    if _dt in ("sattel", "satteldach", "pult", "pultdach") and _gh_ges             and aussenumfang_m > 0 and bodenplatte_m2 > 0:
+        _traufe = h + decke_cm / 100.0
+        _ueber = float(_gh_ges) - _traufe
+        _disc = aussenumfang_m * aussenumfang_m / 16.0 - bodenplatte_m2
+        if 0.5 <= _ueber <= 6.0 and _disc > 0:
+            _seite_kurz = aussenumfang_m / 4.0 - _disc ** 0.5
+            _n_giebel = 2 if _dt.startswith("sattel") else 1
+            _giebel_m2 = round(_seite_kurz * _ueber / 2.0 * _n_giebel, 2)
+            if _giebel_m2 >= 2.0:
+                out.append(MaterialPos(
+                    "Mauerwerk EG", f"HLZ {aw_cm:.0f}cm Giebel", "m²",
+                    _giebel_m2,
+                    f"{_n_giebel}× Giebel {_seite_kurz:.2f}m × "
+                    f"(First {float(_gh_ges):.2f} − Traufe {_traufe:.2f})/2",
+                    konfidenz=0.55))
+
     # ═══ Attika (nur bei Flachdach) ═══
     if f("attika_aktiv", override) or f("attika_anteil_aussen", override) > 0:
         att_h = f("attika_hoehe_m", override)

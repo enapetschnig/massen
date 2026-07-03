@@ -4204,6 +4204,17 @@ async def projekt_massen(body: ProjektMassenRequest):
             ov = body.materialliste_override or {}
             if "attika_aktiv" not in ov:
                 body.materialliste_override = dict(ov, attika_aktiv=1)
+        # Dach-Parameter für die GIEBEL-Position spiegeln (ÖNORM-Audit P1:
+        # Giebelflächen fehlten komplett — LB-HB LG08 'schräger Abschluss').
+        if best_schnitt.get("dachtyp"):
+            best_baudaten.setdefault("dach_typ", str(best_schnitt["dachtyp"]).lower())
+        _gh_ges = best_schnitt.get("gebaeudehoehe_m")
+        try:
+            _gh_ges = float(_gh_ges) if _gh_ges is not None else None
+        except (TypeError, ValueError):
+            _gh_ges = None
+        if _gh_ges and 3.0 <= _gh_ges <= 20.0:
+            best_baudaten.setdefault("gebaeudehoehe_m", round(_gh_ges, 2))
         # Säulen aus Schnitt/Ansicht erkannt → in die Materialliste übernehmen
         # (User-Override hat Vorrang). Macht den Säulen-Block sichtbar statt 0.
         sa = best_schnitt.get("saeulen_anzahl")
