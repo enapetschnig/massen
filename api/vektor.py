@@ -385,7 +385,8 @@ def wand_fill_rects(page, box=None, min_seite_m=None, ptm=None, pfade=None):
     return out
 
 
-def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100, pfade=None):
+def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100, pfade=None,
+               ptm=None):
     """Wand-Poché-Diagonalen mit FARB-Filter: auf farbigen Plänen ist die Maurer-
     Schraffur ROT/ORANGE (= Neubau-Farbe; empirisch am Angerer verifiziert — Außenwand
     + Innenwände rot/orange, Terrain-/Muster-Diagonalen grau/grün). Sind ≥min_anteil
@@ -429,6 +430,13 @@ def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100, pfade=None):
     # 57,7% der Box wurde Maske, verifiziere_seite lief >40min und 0/52. NUR die
     # DUNKELSTE Grau-Klasse zeichnet die Wände (schwarz 0.0 = 31k, visuell exakt).
     dunkel = [s for s in alle if s[5] is not None and s[5] <= 0.3]
+    # LÄNGEN-GATE (TG-Sezierung): echte Poché-Schraffur ist KURZ (WM gemessen:
+    # Median 5cm, 99% ≤1m) — lange dunkle Linien im Monochrom-Pfad sind
+    # STELLPLATZ-MARKIERUNGEN/Kanten (TG: 8% >1m), die die 555m²-Halle im
+    # Watershed zersägten. Nur mit ptm anwendbar (Länge in Metern).
+    if ptm:
+        max_l = 1.0 * ptm
+        dunkel = [s for s in dunkel if _laenge(s) <= max_l]
     if len(dunkel) >= min_absolut and len(dunkel) < len(alle):
         return dunkel
     return alle

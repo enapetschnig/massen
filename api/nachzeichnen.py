@@ -127,7 +127,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     arch = [s for s in segs if (s[5] is None or s[5] < 0.45)
             and vektor._laenge(s) / ptm > 0.5 and inb(s)]
     # farb-gefilterte Wand-Poché (Neubau rot/orange auf farbigen Plänen; Fallback alle)
-    hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1), pfade=pfade)
+    hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1), pfade=pfade, ptm=ptm)
     roh = vektor.wand_paare(arch, ptm, min_len_m=min_len_m, legende_dicken=LEG,
                             hatch=hatch, min_hatch_dichte=min_hatch_dichte, mit_geometrie=True)
 
