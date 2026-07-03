@@ -415,6 +415,47 @@
     if (k.decke_flaeche_m2 != null)
       tiles.push(kz('▦', 'Deckenfläche', fmtNum(k.decke_flaeche_m2) + ' m²', 'EG-Decke inkl. Auskragung'));
     el.innerHTML = '<div class="kz-title">Kennzahlen auf einen Blick</div><div class="kz-grid">' + tiles.join('') + '</div>';
+    renderDachPositionen(data, el);
+  }
+
+  // DACH-POSITIONEN (Dachdecker/Zimmerer-Sektor): byte-exakt vom Plan gelesene
+  // Flächen/Hölzer/Fenster — eigener Block unter den Kennzahlen, nur wenn der
+  // Plan-Satz Dach-Positionen trägt (Sanierungs-/Angebotspläne).
+  function renderDachPositionen(data, anchorEl) {
+    var alle = data.dach_positionen || [];
+    var old = document.getElementById('dach-positionen-karte');
+    if (old) old.remove();
+    if (!alle.length || !anchorEl) return;
+    var html = '<div class="kz-title" style="margin-top:1rem">🏠 Dach-Positionen (byte-exakt vom Plan)</div>';
+    alle.forEach(function (dp) {
+      var z = [];
+      (dp.flaechen || []).forEach(function (f2) {
+        z.push('Dachfläche ' + esc(f2.name) + ': <strong>' + f2.m2 + ' m²</strong>' +
+          (f2.rechnung ? ' <span style="color:#6b7280">(= ' + esc(f2.rechnung) + ')</span>' : ''));
+      });
+      if (dp.gesamt_m2 != null && dp.gesamt_bestaetigt)
+        z.push('<span style="color:#166534">✓ Σ Teilflächen = Gesamt (' + dp.gesamt_m2 +
+               ' m²) — der Plan bestätigt sich selbst</span>');
+      (dp.hoelzer || []).forEach(function (h2) {
+        z.push(h2.anzahl + '× ' + esc(h2.bauteil) + ' B/H ' + h2.b_cm + '/' + h2.h_cm + ' cm');
+      });
+      (dp.fenster || []).forEach(function (fe) {
+        z.push(fe.anzahl + '× ' + esc(fe.marke) + (fe.typ ? ' ' + esc(fe.typ) : '') +
+               ' ' + fe.breite_cm + '/' + fe.hoehe_cm + ' cm');
+      });
+      (dp.positionen || []).forEach(function (po) {
+        z.push('Pos. ' + po.pos + ') ' + esc(po.text) + (po.m2 ? ' — ca. ' + po.m2 + ' m²' : ''));
+      });
+      if (z.length) {
+        html += '<div class="kz-sub" style="margin:.2rem 0 .5rem">' +
+          (dp.plan ? esc(dp.plan) + ': ' : '') + '</div><ul style="margin:.1rem 0 .6rem 1.1rem;font-size:.86rem;line-height:1.5">' +
+          z.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>';
+      }
+    });
+    var div = document.createElement('div');
+    div.id = 'dach-positionen-karte';
+    div.innerHTML = html;
+    anchorEl.appendChild(div);
   }
 
   // PRÜF-LISTE: klare „hier nachschauen"-Punkte für den Polier (deterministisch
