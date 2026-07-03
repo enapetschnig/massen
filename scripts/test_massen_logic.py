@@ -63,12 +63,16 @@ def run():
     neg = _negative_zeilen(wand)
     check("Putz: genau EIN Abzug (nur das große Fenster)", len(neg) == 1)
     check("Putz: Abzug = -6,0 m² (3,0×2,0)", neg and abs(neg[0]["wert"] + 6.0) < 0.01)
-    check("Putz: Laibung-Zeile vorhanden (großes Fenster)", len(_zeilen_mit(wand, "laibung")) == 1)
+    # ÖNORM-Audit P3: Leibung ist EIGENE Position 1.1a (B 2204 §5.5.1.3
+    # zweigleisig — mit Leibungs-Position wird abgezogen UND separat verrechnet)
+    laib = next((p for p in putz if p.posnr == "1.1a"), None)
+    check("Putz: Leibungs-Position 1.1a vorhanden (großes Fenster)",
+          laib is not None and len(laib.zeilen) == 1 and laib.endsumme > 0)
     check("Putz: kleines Fenster erzeugt KEINEN Abzug (übermessen)",
           not any("klein" in (z["text"] or "").lower() for z in neg))
-    # Brutto-Wand 22×2,70=59,4 − 6,0 + Laibung(>0) → zwischen 53,4 und 59,4
-    check("Putz: Endsumme = Brutto − Abzug + Laibung plausibel",
-          53.4 < wand.endsumme < 59.4)
+    # Brutto-Wand 22×2,70=59,4 − 6,0 = 53,4 (Laibung separat in 1.1a)
+    check("Putz: Wand-Endsumme = Brutto − Abzug (Leibung separat)",
+          abs(wand.endsumme - 53.4) < 0.1)
 
     # ── MALER: > 4 m² abziehen, MIT Laibung (ÖNORM-konsistent zum Putz, Phase 1) ──
     maler = gewerk_maler(ROOMS, WINDOWS, BAUDATEN)

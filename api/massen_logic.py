@@ -280,7 +280,10 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
 
     pos = LVPosition("1.1", f"Innenputz Wände — {geschoss}", "m²")
-    pos.quelle = f"in Anlehnung an ÖNORM B 2204 (vormals B 2210) · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
+    pos.quelle = f"in Anlehnung an ÖNORM B 2204 (vormals B 2210) · Σ(U×H) − Öffnungen>{schwelle:.1f}m²"
+    pos_laib = LVPosition("1.1a", f"Leibungsputz — {geschoss}", "m²")
+    pos_laib.quelle = ("ÖNORM B 2204 §5.5.1.3 (eigene Leibungs-Position: "
+                       "Öffnung > Schwelle abgezogen, Leibung separat)")
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
@@ -298,11 +301,19 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
                           laenge=bw, hoehe=-hw, summe=-netto["abzug"],
                           quelle=f"Öffnung >{schwelle:.1f} m²")
-            pos.add_zeile(f"  Laibung {w.get('code','')}".rstrip(), summe=netto["laibung"],
-                          quelle=(f"Tiefe {netto['tiefe']:.2f}m × Abwicklung"
-                                  + (" +Sohlbank" if netto["sohlbank"] else "")))
+            # Leibung → EIGENE Position 1.1a (B 2204 §5.5.1.3 ist zweigleisig:
+            # MIT Leibungs-Positionen wird abgezogen UND die Leibung separat
+            # verrechnet — vorher steckte sie in der Wandputz-Position, das
+            # machte das LV strukturell nicht angebots-vergleichbar).
+            pos_laib.add_zeile(f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
+                               summe=netto["laibung"],
+                               quelle=(f"Tiefe {netto['tiefe']:.2f}m × Abwicklung"
+                                       + (" +Sohlbank" if netto["sohlbank"] else "")))
     pos.konfidenz = 0.9
     positionen.append(pos)
+    if pos_laib.zeilen:
+        pos_laib.konfidenz = 0.85
+        positionen.append(pos_laib)
 
     pos = LVPosition("1.2", f"Innenputz Decken — {geschoss}", "m²")
     pos.quelle = "in Anlehnung an ÖNORM B 2204 (vormals B 2210) · Σ Raumfläche"
