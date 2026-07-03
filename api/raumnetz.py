@@ -1193,6 +1193,8 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
         return runs
 
     n_neu = 0
+    luecken = []    # ALLE Hüllen-Lücken (auch nicht geschlossene) → Brücken-Burn
+    gap_max2 = int(4.5 / zm)
     for axis in ("col", "row"):
         for side in (0, 1):
             runs = [r for r in runs_of(profil(axis, side))
@@ -1202,11 +1204,12 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
                 for bi in range(ai + 1, len(runs)):
                     b0, _b1, l1 = runs[bi]
                     gap = b0 - a1 - 1
-                    if gap > max_gap_c:
+                    if gap > gap_max2:
                         break
                     if gap < 2:
                         continue
-                    if abs(l0 - l1) <= tol_c:
+                    luecken.append((axis, a1, b0, min(l0, l1), max(l0, l1)))
+                    if gap <= max_gap_c and abs(l0 - l1) <= tol_c:
                         n = max(1, b0 - a1)
                         for k in range(n + 1):
                             a = a1 + k
@@ -1219,7 +1222,7 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
                                     grid[idx] = 1
                         n_neu += 1
                         break
-    return n_neu
+    return n_neu, luecken
 
 
 def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
@@ -1257,7 +1260,41 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel,
                           versch_out=versch, boegen=boegen,
                           paar_fallback=paar_fallback)
-        _fassaden_schluss(grid, rst.W, rst.H, rst.zm)
+        _n_fs, luecken = _fassaden_schluss(grid, rst.W, rst.H, rst.zm)
+        # STUFE-2-BRÜCKEN-BURN (Fassaden-Sezierung): Tor-/Front-Linien, deren
+        # BEIDE Enden in der Wand-Maske ankern und die eine erkannte HÜLLEN-
+        # Lücke überspannen, brennen. Der globale Brücken-Burn zerschnitt
+        # Innenräume (gemessen: Zimmer 12,32→5,23) — die Lücken-Bedingung
+        # macht ihn chirurgisch (S5-Tor 1,7m verband Radabstell mit dem
+        # stempellosen Foyer zu einem 63,7m²-Basin).
+        if luecken:
+            d_w = _dist_bfs(grid, rst.W, rst.H, 2)
+
+            def _ank(i, j):
+                return 0 <= i < rst.W and 0 <= j < rst.H and d_w[j * rst.W + i] <= 2
+
+            for s in dark_segs:
+                L = math.hypot(s[2] - s[0], s[3] - s[1]) / rst.ptm
+                if not (0.5 <= L <= 4.0):
+                    continue
+                i0_, j0_ = rst.ij(s[0], s[1])
+                i1_, j1_ = rst.ij(s[2], s[3])
+                if not (_ank(i0_, j0_) and _ank(i1_, j1_)):
+                    continue
+                mi, mj = (i0_ + i1_) // 2, (j0_ + j1_) // 2
+                if not any(a1 <= (mi if axis == "col" else mj) <= b0
+                           and lmin - 4 <= (mj if axis == "col" else mi) <= lmax + 4
+                           for (axis, a1, b0, lmin, lmax) in luecken):
+                    continue
+                frei = 0
+                for k in range(1, 8):
+                    t = k / 8.0
+                    ii, jj = rst.ij(s[0] + (s[2] - s[0]) * t, s[1] + (s[3] - s[1]) * t)
+                    if 0 <= ii < rst.W and 0 <= jj < rst.H and not grid[jj * rst.W + ii]:
+                        frei += 1
+                if frei < 4:
+                    continue    # Mitte schon Wand → nichts zu überbrücken
+                rst.line(grid, s[0], s[1], s[2], s[3])
         label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
         label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
         label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)
