@@ -4737,7 +4737,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 14  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (14: Seiten-Fallback in analysiere_doc)
+_NZ_CACHE_V = 15  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (15: Bogen-Seal via Wandflucht-Verlängerungs-Probe)
 
 
 def _nachzeichnen_roh(body):

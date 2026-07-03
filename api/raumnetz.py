@@ -425,7 +425,28 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
 
         na, nb = _poche_naehe(bg["a"]), _poche_naehe(bg["b"])
         if na == nb:
-            continue    # unklar → Tür bleibt beim Text-Balken-Fallback
+            # LOGGIA-/LEICHTWAND-TÜREN (WM: na=nb=0, beidseitig keine Poché —
+            # 3 Bögen blieben unversiegelt, Zimmer liefen in die Loggia):
+            # CAD-Wahrheit als Richtungs-Quelle — die geschlossene Türlinie
+            # liegt IN der Wandflucht, JENSEITS des zu-Endes läuft die Wand
+            # weiter (Fassade/Brüstung im grid); jenseits der Blattspitze ist
+            # Freiraum. Verlängerungs-Probe (Punkt-Nähe scheiterte: beide
+            # Enden liegen nahe der Fassade, gemessen WM 4V→3V).
+            def _flucht_fort(ende):
+                dx, dy = ende[0] - hx, ende[1] - hy
+                L0 = math.hypot(dx, dy) or 1.0
+                dx, dy = dx / L0, dy / L0
+                n_w = 0
+                for dm in (0.15, 0.35, 0.55, 0.75, 0.95):
+                    i, j = rst.ij(ende[0] + dx * dm * rst.ptm,
+                                  ende[1] + dy * dm * rst.ptm)
+                    if 0 <= i < W and 0 <= j < H and grid[j * W + i]:
+                        n_w += 1
+                return n_w
+
+            na, nb = _flucht_fort(bg["a"]), _flucht_fort(bg["b"])
+            if na == nb:
+                continue    # unklar → Tür bleibt beim Text-Balken-Fallback
         zx, zy = bg["a"] if na > nb else bg["b"]
         # Strecke hinge→zu mit ±0,10m Dicke quer brennen
         L = math.hypot(zx - hx, zy - hy) or 1.0
