@@ -239,6 +239,24 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Raum-Verifikation fehlgeschlagen: {e}")
 
+    # GEMAUERTE HÜLLE als Kontur-Layer (Nachvollziehbarkeits-Audit P1: der
+    # Außenumfang treibt ~20 der 35 Material-Positionen und war nie am Plan
+    # eingezeichnet — B-2110-Prinzip prüfbarer Mengenermittlung). Quelle ist
+    # die AUSSEN-Grenze der Wand-Maske (Plan-Koordinaten, direkt vergleichbar
+    # mit dem Materialliste-Umfang).
+    konturen = []
+    try:
+        import raumnetz
+        if dbg_r.get("grid") is not None and dbg_r.get("label") is not None:
+            for k in raumnetz.huellen_kontur(dbg_r["grid"], dbg_r["label"],
+                                             dbg_r["rst"], dbg_r["AUSSEN"]):
+                konturen.append({
+                    "px": [to_px(x, y) for (x, y) in k["punkte"]],
+                    "umfang_m": k["umfang_m"],
+                })
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Hüllen-Kontur fehlgeschlagen: {e}")
+
     # BYTE-EXAKTE WANDFLUCHTEN (Maßketten-Snap): jede bestätigte Ketten-Grenze
     # IST eine Wandflucht laut Plan-Bemaßung — eingezeichnet in Planansicht +
     # Aufmaßblatt macht sie die Maße NACHVOLLZIEHBAR ("Längen 1:1 aus dem Plan").
@@ -444,6 +462,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         "waende": waende,
         "oeffnungen": oeffnungen,
         "raeume": raeume,
+        "konturen": konturen,
         "fluchten": fluchten,
         "summe_m": {str(k): v for k, v in sorted(summe.items(), reverse=True)},
         "meta": {

@@ -1352,6 +1352,76 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
     return n_neu, luecken
 
 
+def huellen_kontur(grid, label, rst, AUSSEN, min_umfang_m=8.0):
+    """GEMAUERTE HÜLLE als Polylinie(n) in pt (Nachvollziehbarkeits-Audit P1:
+    der Außenumfang treibt ~20 der 35 Material-Positionen, war aber nie am
+    Plan eingezeichnet). Kontur = Wand-Zellen mit AUSSEN-Nachbar, verfolgt
+    per Moore-Nachbarschaft; nur Konturen ≥min_umfang (Nebengebäude bleiben,
+    Deko-Inseln fallen raus). Liefert [{punkte: [(x,y)…], umfang_m}]."""
+    W, H = rst.W, rst.H
+    rand = bytearray(W * H)
+    for j in range(H):
+        base = j * W
+        for i in range(W):
+            if not grid[base + i]:
+                continue
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = i + di, j + dj
+                if not (0 <= ni < W and 0 <= nj < H) or label[nj * W + ni] == AUSSEN:
+                    rand[base + i] = 1
+                    break
+    besucht = bytearray(W * H)
+    # Moore-Nachbarn im Uhrzeigersinn
+    MN = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
+    konturen = []
+    for start in range(W * H):
+        if not rand[start] or besucht[start]:
+            continue
+        pfad = []
+        i, j = start % W, start // W
+        cur = (i, j)
+        richtung = 0
+        for _schritt in range(4 * (W + H) * 4):   # Sicherheits-Deckel
+            pfad.append(cur)
+            besucht[cur[1] * W + cur[0]] = 1
+            gefunden = False
+            for k in range(8):
+                d = MN[(richtung + k) % 8]
+                ni, nj = cur[0] + d[0], cur[1] + d[1]
+                if 0 <= ni < W and 0 <= nj < H and rand[nj * W + ni]:
+                    cur = (ni, nj)
+                    richtung = (richtung + k + 6) % 8   # zurückdrehen
+                    gefunden = True
+                    break
+            if not gefunden or cur == (i, j):
+                break
+        if len(pfad) < 8:
+            continue
+        # Ausdünnen: nur Richtungswechsel behalten (Polylinie statt Zellkette)
+        punkte = []
+        for n2, p in enumerate(pfad):
+            if n2 == 0 or n2 == len(pfad) - 1:
+                punkte.append(p)
+                continue
+            a, b = pfad[n2 - 1], pfad[n2 + 1]
+            if (p[0] - a[0], p[1] - a[1]) != (b[0] - p[0], b[1] - p[1]):
+                punkte.append(p)
+        umf = 0.0
+        for n2 in range(1, len(punkte)):
+            umf += ((punkte[n2][0] - punkte[n2 - 1][0]) ** 2
+                    + (punkte[n2][1] - punkte[n2 - 1][1]) ** 2) ** 0.5
+        umf_m = umf * rst.zm
+        if umf_m < min_umfang_m:
+            continue
+        konturen.append({
+            "punkte": [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
+                       for p in punkte],
+            "umfang_m": round(umf_m, 2),
+        })
+    konturen.sort(key=lambda k: -k["umfang_m"])
+    return konturen[:4]
+
+
 def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                       zelle_m=0.02, tol_f=0.06, tol_u=0.10, debug=None,
                       pfade=None):

@@ -1569,6 +1569,18 @@
     // BYTE-EXAKTE WANDFLUCHTEN (Maßketten-Snap): jede Linie ist eine Wandflucht
     // laut Plan-Bemaßung — grün = von der Wand-Erkennung bestätigt, rot = dort
     // fehlt eine Wand in der Erkennung (oder die Kette misst etwas anderes).
+    // GEMAUERTE HÜLLE (Kontur der Wand-Maske): der Außenumfang treibt die
+    // halbe Materialliste — hier ist er am Plan sichtbar und gegen die
+    // gerechnete Zahl prüfbar (ÖNORM-B-2110-Prinzip: prüfbare Mengen).
+    (_nzData.konturen || []).forEach(function (k, ki) {
+      if (!k.px || k.px.length < 3) return;
+      var pts = k.px.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+      lines += '<polyline points="' + pts + '" fill="none" stroke="#1d4ed8"' +
+        ' stroke-width="2.2" stroke-opacity="0.55" stroke-dasharray="10 5"' +
+        ' pointer-events="stroke"><title>Gemauerte Hülle (erkannt): Umfang ≈ ' +
+        k.umfang_m + ' m' + (ki === 0 ? ' — vergleiche mit dem Außenumfang im Geo-Kasten' : '') +
+        '</title></polyline>';
+    });
     var nFlOk = 0, nFl = 0;
     (_nzData.fluchten || []).forEach(function (f) {
       nFl++; if (f.ok) nFlOk++;

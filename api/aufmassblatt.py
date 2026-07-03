@@ -62,6 +62,18 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     def pt(px, py):
         return fitz.Point(ix0 + px * f, iy0 + py * f)
 
+    # ── Gemauerte Hülle (Kontur der Wand-Maske) — der Außenumfang treibt die
+    # halbe Materialliste; hier ist er am Plan prüfbar (B-2110-Prinzip) ──
+    for _ki, _k in enumerate(nz.get("konturen") or []):
+        _pts = _k.get("px") or []
+        if len(_pts) < 3:
+            continue
+        for _n2 in range(1, len(_pts)):
+            page.draw_line(pt(_pts[_n2 - 1][0], _pts[_n2 - 1][1]),
+                           pt(_pts[_n2][0], _pts[_n2][1]),
+                           color=(0.11, 0.31, 0.85), width=1.0,
+                           stroke_opacity=0.55, dashes="[6 3] 0")
+
     # ── Byte-exakte Wandfluchten (Maßketten-Snap) — HINTER den Wänden ──
     # grün = von der Wand-Erkennung bestätigt, rot = Erkennungs-Lücke (prüfen!)
     n_fl_ok = 0
@@ -152,6 +164,10 @@ def erzeuge(nz, projekt_name="", firmen_name=""):
     y += 14
     fl_txt = (f"   ·   Maßketten-Fluchten: {n_fl_ok}/{len(fluchten)} bestätigt "
               f"(grün gestrichelt; rot = Erkennungs-Lücke)") if fluchten else ""
+    _kont = nz.get("konturen") or []
+    if _kont:
+        fl_txt += (f"   ·   Gemauerte Hülle (blau gestrichelt): "
+                   f"Umfang ≈ {_kont[0].get('umfang_m')} m")
     page.insert_text((M, y),
                      f"Räume: {n_ok} voll bestätigt (Fläche+Umfang) · {n_f} Fläche exakt (Umfang prüfen) · von {len(raeume)}   ·   "
                      f"Öffnungen: {len(nz.get('oeffnungen') or [])} (byte-exakt aus STUK/FPH-Codes)   ·   "
