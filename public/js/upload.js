@@ -1912,6 +1912,30 @@
   // ist durchschaltbar (EG-Blatt, OG-Blatt, Polierplan …). Lazy je Tab geladen.
   var _nzPlaene = [];      // Manifest [{id, dateiname}] — von renderPlanFilter gesetzt
   var _nzAktivPlan = null;
+  // Multi-Geschoss: das Backend meldet weitere analysierbare Blätter (EG/OG/KG
+  // im selben PDF); die UI bietet sie als Umschalter an, Analyse on-demand.
+  var _nzWeitereSeiten = [], _nzHauptSeite = null, _nzAktivSeite = null;
+
+  function _nzSeitenHtml() {
+    if (!_nzWeitereSeiten.length) return '';
+    var alle = [_nzHauptSeite].concat(_nzWeitereSeiten);
+    return ' · Blätter: ' + alle.map(function (s) {
+      var aktiv = (s === _nzAktivSeite);
+      return aktiv ? '<strong>Blatt ' + (s + 1) + '</strong>'
+        : '<a href="#" data-nz-seite="' + s + '">Blatt ' + (s + 1) + '</a>';
+    }).join(' ');
+  }
+
+  function _nzWireSeiten(cont) {
+    cont.querySelectorAll('[data-nz-seite]').forEach(function (a) {
+      a.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        var s = parseInt(a.getAttribute('data-nz-seite'), 10);
+        _nzGeladen = false;
+        renderNachzeichnen(_nzAktivPlan, s === _nzHauptSeite ? null : s);
+      });
+    });
+  }
 
   function _nzTabsHtml() {
     if (!_nzPlaene || _nzPlaene.length < 2) return '';
@@ -1933,16 +1957,18 @@
     });
   }
 
-  function renderNachzeichnen(planId) {
+  function renderNachzeichnen(planId, seite) {
     var cont = document.getElementById('nachzeichnen-container');
-    if (!cont || (_nzGeladen && !planId) || _nzLaeuft) return;
+    if (!cont || (_nzGeladen && !planId && seite == null) || _nzLaeuft) return;
     _nzLaeuft = true;
     cont.innerHTML = _nzTabsHtml() +
       '<p class="nachzeichnen-hint">Plan wird nachgezeichnet &hellip; (die Wände werden aus den Vektoren gelesen)</p>';
     _nzWireTabs(cont);
+    var reqBody = planId ? { plan_id: planId } : { projekt_id: projectId };
+    if (seite != null) reqBody.seite = seite;
     fetch('/api/plan-nachzeichnen', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(planId ? { plan_id: planId } : { projekt_id: projectId })
+      body: JSON.stringify(reqBody)
     }).then(function (r) { return r.json(); }).then(function (d) {
       _nzGeladen = true; _nzLaeuft = false;
       if (!d || !d.ok) {
@@ -1954,6 +1980,11 @@
         return;
       }
       _nzAktivPlan = d.plan_id || planId || null;
+      _nzAktivSeite = (d.meta || {}).seite != null ? d.meta.seite : null;
+      if (seite == null) {   // Hauptblatt-Lauf liefert die Blatt-Liste
+        _nzHauptSeite = _nzAktivSeite;
+        _nzWeitereSeiten = d.weitere_seiten || [];
+      }
       _nzData = d; _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
       // Gespeicherte Korrekturen wiederherstellen (überleben den Reload)
       var k = d.korrekturen;
@@ -1975,9 +2006,10 @@
         '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +
         (hatK ? '<strong style="color:#166534">✓ deine gespeicherten Korrekturen sind angewandt.</strong> ' : '') +
         'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
-        ' · ' + (d.dateiname ? esc(d.dateiname) : '') + '</p>' +
+        ' · ' + (d.dateiname ? esc(d.dateiname) : '') + _nzSeitenHtml() + '</p>' +
         '<div class="nz-dynamic"></div>';
       _nzWireTabs(cont);
+      _nzWireSeiten(cont);
       _nzPaint();
     }).catch(function (e) {
       _nzGeladen = false; _nzLaeuft = false;

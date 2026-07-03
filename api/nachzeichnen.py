@@ -461,18 +461,47 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     }
 
 
-def analysiere_doc(doc, **kw):
+def analysiere_doc(doc, seite=None, **kw):
     """Ganzes PDF → Seiten nach Größe probieren, die erste ANALYSIERBARE gewinnt.
     (Breiten-Sweep-Fall Mitterwurzerweg4: Dachplan-Satz mit 3 gleich großen
     Seiten — die erste ist 'Dachflächen' ohne Grundriss-Kontur, die SPARREN-
     LAGE auf Seite 2 ist analysierbar. Nur-größte-Seite gab dort auf.)
     Streng additiv: war die größte Seite ok, ist das Ergebnis identisch;
-    Fehlschläge scheitern früh (Kalibrierung/Box) und kosten Sekunden."""
+    Fehlschläge scheitern früh (Kalibrierung/Box) und kosten Sekunden.
+    seite: explizite Seiten-Nr. (Multi-Geschoss: UI fordert ein anderes
+    Geschoss on-demand an). meta.seite trägt immer die analysierte Seite —
+    der PNG-Renderer MUSS dieselbe Seite nehmen (nicht 'die größte')."""
+    if seite is not None:
+        try:
+            res = analysiere_seite(doc[int(seite)], **kw)
+        except Exception as e:
+            return {"ok": False, "grund": f"Seite {seite} nicht analysierbar: {e}"}
+        if res.get("ok"):
+            res["meta"]["seite"] = int(seite)
+        return res
     seiten = sorted(doc, key=lambda p: -(p.rect.width * p.rect.height))
     erster = None
     for page in seiten[:8]:
         res = analysiere_seite(page, **kw)
         if res.get("ok"):
+            res["meta"]["seite"] = page.number
+            # WEITERE GESCHOSSE (billige Probe, nur Raumwort-Box): Einreich-
+            # Sätze tragen EG/OG/KG auf eigenen Seiten — die UI bietet sie
+            # als Umschalter an und fordert die Analyse on-demand an.
+            weitere = []
+            for p2 in seiten[:8]:
+                if p2.number == page.number:
+                    continue
+                try:
+                    worte2 = p2.get_text("words")
+                    kal2 = vektor.kalibriere(worte2, _massstab(p2))
+                    ptm2 = kal2.get("ptm_konsens")
+                    if ptm2 and _eg_box(p2, ptm2, worte=worte2):
+                        weitere.append(p2.number)
+                except Exception:
+                    pass
+            if weitere:
+                res["weitere_seiten"] = weitere
             return res
         if erster is None:
             erster = res

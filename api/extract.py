@@ -4725,6 +4725,7 @@ async def projekt_massen(body: ProjektMassenRequest):
 class NachzeichnenRequest(BaseModel):
     projekt_id: str | None = None
     plan_id: str | None = None
+    seite: int | None = None   # Multi-Geschoss: explizite PDF-Seite (on-demand)
 
 
 def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
@@ -4737,7 +4738,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 15  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (15: Bogen-Seal via Wandflucht-Verlängerungs-Probe)
+_NZ_CACHE_V = 16  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (16: Multi-Geschoss — meta.seite + weitere_seiten)
 
 
 def _nachzeichnen_roh(body):
@@ -4777,14 +4778,22 @@ def _nachzeichnen_roh(body):
         # ist deterministisch je PDF → einmal rechnen, in agent_log cachen. Nur das
         # billige Basis-PNG (~2s) wird je Aufruf frisch gerendert. Invalidierung über
         # Versions-Bump bei Pipeline-Änderungen.
-        cache = log.get("nachzeichnen_cache")
+        # Cache je Seite (Multi-Geschoss): Default-Lauf unter dem alten Key,
+        # explizite Seiten unter nachzeichnen_cache_s<N>.
+        cache_key = ("nachzeichnen_cache" if body.seite is None
+                     else f"nachzeichnen_cache_s{body.seite}")
+        cache = log.get(cache_key)
         if cache and cache.get("v") == _NZ_CACHE_V and (cache.get("daten") or {}).get("ok"):
             try:
                 import fitz
                 pdf_bytes = sb.storage.from_("plaene").download(sp)
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                page = max(doc, key=lambda p: p.rect.width * p.rect.height)
                 r = dict(cache["daten"])
+                # PNG von der ANALYSIERTEN Seite (Seiten-Fallback: die größte
+                # Seite kann die falsche sein — Dachplan-Satz gemessen)
+                s_nr = (r.get("meta") or {}).get("seite")
+                page = doc[s_nr] if s_nr is not None and 0 <= s_nr < len(doc) \
+                    else max(doc, key=lambda p: p.rect.width * p.rect.height)
                 b = r["meta"]["box_pt"]
                 sc = r["meta"]["scale"]
                 pix = page.get_pixmap(matrix=fitz.Matrix(sc, sc),
@@ -4793,7 +4802,7 @@ def _nachzeichnen_roh(body):
                 doc.close()
                 r["plan_id"] = plan.get("id")
                 r["dateiname"] = plan.get("dateiname")
-                r["korrekturen"] = log.get("nachzeichnen_korrekturen")
+                r["korrekturen"] = log.get("nachzeichnen_korrekturen") if body.seite is None else None
                 return r
             except Exception as e:  # pragma: no cover — Cache kaputt → frischer Lauf
                 print(f"[nachzeichnen] Cache-Rehydrierung fehlgeschlagen: {e}")
@@ -4802,7 +4811,7 @@ def _nachzeichnen_roh(body):
             import fitz
             pdf_bytes = sb.storage.from_("plaene").download(sp)
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            r = _nachzeichnen.analysiere_doc(doc, max_px=1800)
+            r = _nachzeichnen.analysiere_doc(doc, seite=body.seite, max_px=1800)
             doc.close()
         except Exception as e:  # pragma: no cover
             letzter_grund = f"Render fehlgeschlagen: {e}"
@@ -4812,7 +4821,7 @@ def _nachzeichnen_roh(body):
             continue
         # Cache schreiben (ohne PNG/Korrekturen — die bleiben je Aufruf frisch)
         try:
-            log["nachzeichnen_cache"] = {
+            log[cache_key] = {
                 "v": _NZ_CACHE_V,
                 "daten": {k: v for k, v in r.items() if k != "basis_png"},
             }
@@ -4821,7 +4830,7 @@ def _nachzeichnen_roh(body):
             print(f"[nachzeichnen] Cache-Schreiben fehlgeschlagen: {e}")
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
-        r["korrekturen"] = log.get("nachzeichnen_korrekturen")
+        r["korrekturen"] = log.get("nachzeichnen_korrekturen") if body.seite is None else None
         return r
     return {"ok": False, "grund": letzter_grund}
 
