@@ -162,6 +162,76 @@ class MaterialPos:
 # ────────────────────────────────────────────────────────────────────
 # BAUTEIL-BERECHNUNGEN
 # ────────────────────────────────────────────────────────────────────
+def _stb_bauteile(rooms, baudaten, override, gemessen, kennzahlen_out,
+                  K_GEO, K_UMF):
+    """STB-/Tiefgaragen-Materialliste (Sektor-Weiche): Beton m³ + Schalung m²
+    + Bewehrung t + Bodenbeschichtung statt HLZ-EFH-Positionen. Kalkulanten-
+    Bedarf lt. B 2211/LB-HB LG07: Beton je Bauteil, Schalung horizontal/
+    vertikal getrennt, Bewehrung über kg/m³-Kennwert (firmen-kalibrierbar)."""
+    bd = baudaten or {}
+    gemessen = gemessen or {}
+    f_alle = sum(r.get("flaeche_m2") or 0 for r in rooms)
+    u_alle = sum(r.get("umfang_m") or 0 for r in rooms)
+    _hs = [r.get("hoehe_m") for r in rooms if r.get("hoehe_m")]
+    h = float(bd.get("geschosshoehe_m") or (sum(_hs) / len(_hs) if _hs else 2.75))
+    decke_cm = float(bd.get("decke_cm") or 25)
+    bp_cm = float(bd.get("bodenplatte_cm") or 30)
+    wand_cm = float(bd.get("stb_wand_cm") or 25)
+    kg_m3 = float(bd.get("bewehrung_kg_m3") or 90.0)   # Kalibrier-Moat-Parameter
+    umfang = float(gemessen.get("aussenumfang_m") or 0)
+    if not umfang and f_alle:
+        umfang = round((f_alle ** 0.5) * 4 * 1.15, 2)
+    # Grundfläche brutto: Σ lichte Flächen + Wand-Band (5%)
+    gf = round(f_alle * 1.05, 2)
+    f_garage = sum(r.get("flaeche_m2") or 0 for r in rooms
+                   if "garage" in str(r.get("name") or "").lower())
+    out = []
+    out.append(MaterialPos("Bodenplatte", "Beton C25/30", "m³",
+                           gf * bp_cm / 100.0,
+                           f"{gf}m² × {bp_cm:.0f}cm (ΣF {f_alle:.0f}m² × 1,05 Wand-Band)",
+                           konfidenz=K_GEO))
+    out.append(MaterialPos("Bodenplatte", "Sauberkeitsschicht C16/20 5cm", "m³",
+                           gf * 0.05, f"{gf}m² × 5cm", konfidenz=round(K_GEO * 0.9, 2)))
+    out.append(MaterialPos("Bodenplatte", "Bewehrung (Kennwert)", "t",
+                           gf * bp_cm / 100.0 * kg_m3 / 1000.0,
+                           f"{gf * bp_cm / 100.0:.1f}m³ × {kg_m3:.0f}kg/m³",
+                           konfidenz=0.5))
+    wand_m2 = round(umfang * h, 2)
+    out.append(MaterialPos("Wände (STB)", f"Beton C25/30 Wand {wand_cm:.0f}cm", "m³",
+                           wand_m2 * wand_cm / 100.0,
+                           f"Umfang {umfang}m × h {h:.2f}m × {wand_cm:.0f}cm",
+                           konfidenz=K_UMF))
+    out.append(MaterialPos("Wände (STB)", "Schalung vertikal (2-seitig)", "m²",
+                           wand_m2 * 2, f"{wand_m2}m² × 2 Seiten", konfidenz=K_UMF))
+    out.append(MaterialPos("Wände (STB)", "Bewehrung (Kennwert)", "t",
+                           wand_m2 * wand_cm / 100.0 * kg_m3 / 1000.0,
+                           f"{wand_m2 * wand_cm / 100.0:.1f}m³ × {kg_m3:.0f}kg/m³",
+                           konfidenz=0.5))
+    out.append(MaterialPos("Decke", "Beton C25/30", "m³",
+                           gf * decke_cm / 100.0, f"{gf}m² × {decke_cm:.0f}cm",
+                           konfidenz=K_GEO))
+    out.append(MaterialPos("Decke", "Schalung horizontal", "m²",
+                           gf, f"= Grundfläche {gf}m²", konfidenz=K_GEO))
+    out.append(MaterialPos("Decke", "Bewehrung (Kennwert)", "t",
+                           gf * decke_cm / 100.0 * kg_m3 / 1000.0,
+                           f"{gf * decke_cm / 100.0:.1f}m³ × {kg_m3:.0f}kg/m³",
+                           konfidenz=0.5))
+    if f_garage:
+        out.append(MaterialPos("Bodenaufbau", "Bodenbeschichtung (OS 8)", "m²",
+                               f_garage, f"Σ Garagen-Fläche {f_garage:.1f}m²",
+                               konfidenz=round(K_GEO * 0.95, 2)))
+    if kennzahlen_out is not None:
+        kennzahlen_out.update({
+            "sektor": "STB/Tiefgarage",
+            "geschosshoehe_m": round(h, 2),
+            "grundflaeche_brutto_m2": gf,
+            "wandflaeche_m2": wand_m2,
+            "aussenumfang_m": round(umfang, 2),
+            "bewehrung_kg_m3": kg_m3,
+        })
+    return out
+
+
 def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG",
                             tueren=None, gemessen=None, wand_verteilung=None, legende=None,
                             kennzahlen_out=None):
@@ -199,6 +269,23 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Σ-F-verankerte + Legende-gelesene Werte sind faktisch byte-exakt → bis 0.96
     K_BEIDE = round(min(K_GEO, K_LEG) if K_LEG else K_GEO * 0.9, 2)
     K_FORM = 0.5   # reine Faustformel ohne direkte Messung — bleibt ehrlich niedrig
+
+    # ── SEKTOR-WEICHE STB/Tiefgarage (Baubetriebe-Audit: 'Tiefgarage' =
+    # Nebenraum_kalt → 555,9 m² = 77% des Velden-TG fielen aus Bodenplatte/
+    # Decke/Wänden, und für den STAHLBETON-Bau wurden HLZ-Paletten
+    # vorgeschlagen). Signal: ein Garage-Raum ≥100 m² (TG-Halle; EFH-Garagen
+    # sind <50 m²) ODER kalt-dominiert (>60% von ΣF). Dann Beton/Schalung/
+    # Bewehrung statt HLZ — die EFH-Polier-Linie bleibt byte-identisch. ──
+    _f_alle = sum(r.get("flaeche_m2") or 0 for r in rooms)
+    _f_kalt = sum(r.get("flaeche_m2") or 0 for r in rooms
+                  if _kat(r) in ("Nebenraum_kalt", "Loggia"))
+    _tg_halle = any((r.get("flaeche_m2") or 0) >= 100.0
+                    and "garage" in str(r.get("name") or r.get("bezeichnung") or "").lower()
+                    for r in rooms)
+    if rooms and (_tg_halle or (_f_alle > 0 and _f_kalt / _f_alle > 0.60
+                                and _f_alle >= 200.0)):
+        return _stb_bauteile(rooms, baudaten, override, gemessen,
+                             kennzahlen_out, K_GEO, K_UMF)
 
     innen = [r for r in rooms if _kat(r) == "Innenraum_warm"]
     loggia = [r for r in rooms if _kat(r) == "Loggia"]  # Terrasse, Balkon, Parkplatz
