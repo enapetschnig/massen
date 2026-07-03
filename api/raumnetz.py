@@ -312,7 +312,7 @@ class _Raster:
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None, versch_out=None,
-               boegen=None, fill_rects=None, paar_fallback=False):
+               boegen=None, fill_rects=None, paar_fallback=False, stuetzen=None):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
     (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing.
     fill_rects: Wand-Körper als Flächen-Fills (Ziegel-Ton-Polygone mancher
@@ -372,6 +372,46 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             rst.line(grid, s[0], s[1], s[2], s[3])
         else:
             unverankert.append(s)
+
+    # ── STÜTZEN-KNOTEN-SCHLUSS (Wandknoten-Sezierung, byte-exakt geankert):
+    # R60-verkapselte Stützen sitzen in 0,6-0,9m-Buchten zwischen pochierten
+    # Wandbändern; die schließende Kapselungs-Front ist eine EINZELNE dünne
+    # unpochierte Linie (Trockenbau trägt ORTHOGONALE Dämm-Kreuzschraffur —
+    # für wand_poche unsichtbar, das nur Diagonalen sammelt). Kurze achs-
+    # parallele unverankerte Linien, deren BEIDE Enden in der Poché-Dilatation
+    # ankern UND deren Mitte ≤1,8m an einem 'Stütze…'-Text-Span liegt, brennen
+    # als Rect (line-Sampling ließ 1-Zell-Löcher, gemessen). Das Stützen-Gate
+    # ist ZWINGEND: ohne zerschnitten Treppen/Duschwände/Pflasterkanten
+    # 4 Räume (43→41 gemessen). Ohne Stütze-Spans (TG: 0) beweisbar inert.
+    if stuetzen:
+        _kn_rc = max(1, int(round(0.08 / rst.zm)))
+        _kn_r2 = (1.8 * rst.ptm) ** 2
+
+        def _kn_pnah(x, y):
+            ci, cj = rst.ij(x, y)
+            for nj in range(max(0, cj - _kn_rc), min(H, cj + _kn_rc + 1)):
+                base = nj * W
+                for ni in range(max(0, ci - _kn_rc), min(W, ci + _kn_rc + 1)):
+                    if hm_d[base + ni]:
+                        return True
+            return False
+
+        for s in unverankert:
+            dx, dy = abs(s[2] - s[0]), abs(s[3] - s[1])
+            _L = math.hypot(dx, dy)
+            if not (0.4 * rst.ptm <= _L <= 1.5 * rst.ptm):
+                continue
+            if min(dx, dy) > 0.06 * rst.ptm:
+                continue
+            _mx, _my = (s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0
+            if not any((_mx - ax) ** 2 + (_my - ay) ** 2 <= _kn_r2
+                       for (ax, ay) in stuetzen):
+                continue
+            if zonen and in_tuerzone(_mx, _my):
+                continue
+            if _kn_pnah(s[0], s[1]) and _kn_pnah(s[2], s[3]):
+                rst.rect(grid, min(s[0], s[2]), min(s[1], s[3]),
+                         max(s[0], s[2]), max(s[1], s[3]))
 
     # WAND-PAAR-FALLBACK (nur FERTIG-Ebene, Bad-Anatomie-Sezierung): unpochierte
     # Doppellinien (Installations-/Vorwände, leichte Trennwände) sind die
@@ -1500,6 +1540,21 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     Liefert (ergebnisse, stempel): ergebnisse = [{…, f_ist, u_ist, status}].
     debug: dict → bekommt grid/label/W/H/rst für Visualisierung."""
     stempel = raum_stempel(page, box)
+    _stuetzen = []
+    try:
+        for _blk in page.get_text("dict").get("blocks", []):
+            if _blk.get("type") != 0:
+                continue
+            for _ln in _blk.get("lines", []):
+                for _sp in _ln.get("spans", []):
+                    _t = (_sp.get("text") or "").strip()
+                    if re.match(r"^St(ü|ue)tze(n)?\b", _t, re.I):
+                        _bb = _sp.get("bbox") or (0, 0, 0, 0)
+                        _cx0, _cy0 = (_bb[0] + _bb[2]) / 2.0, (_bb[1] + _bb[3]) / 2.0
+                        if box[0] <= _cx0 <= box[1] and box[2] <= _cy0 <= box[3]:
+                            _stuetzen.append((_cx0, _cy0))
+    except Exception:
+        _stuetzen = []
     rst = _Raster(box, ptm, zelle_m)
     oe = [o for o in (oeffnungen or [])
           if box[0] <= o.get("cx", -1) <= box[1] and box[2] <= o.get("cy", -1) <= box[3]]
@@ -1527,7 +1582,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         versch = bytearray(rst.W * rst.H)
         grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel,
                           versch_out=versch, boegen=boegen,
-                          paar_fallback=paar_fallback)
+                          paar_fallback=paar_fallback, stuetzen=_stuetzen)
         vor_fs = bytes(grid)
         _n_fs, luecken = _fassaden_schluss(grid, rst.W, rst.H, rst.zm)
         huelle_burn = bytearray(1 if (grid[i_] and not vor_fs[i_]) else 0
@@ -1701,6 +1756,25 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 if r1["status"] != "verifiziert" and r2["status"] == "verifiziert":
                     r1.update(status="verifiziert", f_ist=r2["f_ist"],
                               u_ist=r2["u_ist"], ebene="fertig")
+                elif (r1["status"] == "u_daneben"
+                      and r2.get("u_m") is not None
+                      and r2.get("u_ist") is not None):
+                    # HYBRID (Bad-Vorwand-Sezierung): Stempel messen FERTIG.
+                    # Der ROHBAU-Pass beweist F exakt (Basin inkl. Schacht-
+                    # Nische = Rohbau-Raum), leckt aber im U durch die im
+                    # Rohbau BEWUSST offene Vorwand-/Schacht-Zone ('DB lt.
+                    # HKLS-E Plan'); der FERTIG-Pass versiegelt sie und trifft
+                    # U, verliert aber legitim die Taschen-Fläche. Kreuz-
+                    # Beweis: F=roh, U=fertig — Gates unverändert, streng
+                    # monoton (nur u_daneben→verifiziert möglich).
+                    _u2, _us = r2["u_ist"], r2["u_m"]
+                    _uok = abs(_u2 - _us) / _us <= tol_u
+                    if not _uok and _u2 > _us:
+                        _uok = abs(_u2 / (1.0 + 2.0 * rst.zm) - _us) \
+                            / _us <= tol_u
+                    if _uok:
+                        r1.update(status="verifiziert", u_ist=_u2,
+                                  ebene="hybrid")
         except Exception:
             pass
     return out, stempel
