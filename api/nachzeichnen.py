@@ -232,6 +232,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
                 "f_ist": r.get("f_ist"), "u_ist": r.get("u_ist"),
                 "status": r.get("status"),
+                "ebene": r.get("ebene"),   # 'roh'|'fertig' — welche Ebene bewies
                 "px": to_px(r["cx"], r["cy"]),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
             })

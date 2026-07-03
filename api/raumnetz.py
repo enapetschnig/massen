@@ -279,7 +279,7 @@ class _Raster:
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None, versch_out=None,
-               boegen=None, fill_rects=None):
+               boegen=None, fill_rects=None, paar_fallback=False):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
     (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing.
     fill_rects: Wand-Körper als Flächen-Fills (Ziegel-Ton-Polygone mancher
@@ -322,14 +322,7 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 return True
         return False
 
-    # HINWEIS (WM-Sezierung, Experiment dokumentiert): WM zeichnet leichte
-    # Trennwände als 10-12cm-DOPPELLINIEN OHNE Poché — der Anker-Pass brennt
-    # sie nicht, der Watershed teilt Wohnungen per Distanz (Zimmer +21%).
-    # Ein Wand-Paar-Fallback (angedockte Doppellinien brennen) wurde in ZWEI
-    # Varianten GEMESSEN und zurückgestellt: Rechteck-Brand heilt Zimmer-F,
-    # zackt aber U auf (WM verifiziert 4→1, Bad-Vorwände brennen mit);
-    # Mittellinie regressiert Angerer (5/9→4/9). Vor dem Wiedereinbau muss
-    # die U-Zacken-Front (kernlose Phase-2-Zellen, 67% gemessen) gelöst sein.
+    unverankert = []
     for s in dark_segs:
         n = max(2, int(math.hypot(s[2] - s[0], s[3] - s[1]) / rst.cell))
         hits = 0
@@ -344,6 +337,76 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             if zonen and in_tuerzone((s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0):
                 continue    # Türblatt/-bogen — keine Wand
             rst.line(grid, s[0], s[1], s[2], s[3])
+        else:
+            unverankert.append(s)
+
+    # WAND-PAAR-FALLBACK (nur FERTIG-Ebene, Bad-Anatomie-Sezierung): unpochierte
+    # Doppellinien (Installations-/Vorwände, leichte Trennwände) sind die
+    # FERTIG-Grenzen — Stempel messen Fertigmaße. Auf der ROHBAU-Ebene (Default
+    # False) bleibt alles byte-identisch; die Fälle sind NUR auf Ebenen-Ebene
+    # trennbar (gemessen: jedes lokale Paar-Gate regressiert einen der Pläne —
+    # Poché-Gate: Angerer 6/9 aber WM 4→3; Grid-Gate: tötet die Bad-Heilung;
+    # Mittellinie: verfehlt den raumseitigen Streifen geometrisch).
+    if paar_fallback:
+        _ACHS = 0.6
+        min_l = 0.6 * rst.ptm
+        kand = {"h": [], "v": []}
+        for s in unverankert:
+            dx, dy = abs(s[2] - s[0]), abs(s[3] - s[1])
+            if math.hypot(dx, dy) < min_l:
+                continue
+            if zonen and in_tuerzone((s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0):
+                continue    # Möbel-/Türzonen: Schrankfronten sind keine Wände
+            if dy <= _ACHS and dx > _ACHS:
+                kand["h"].append((min(s[0], s[2]), max(s[0], s[2]), (s[1] + s[3]) / 2.0))
+            elif dx <= _ACHS and dy > _ACHS:
+                kand["v"].append((min(s[1], s[3]), max(s[1], s[3]), (s[0] + s[2]) / 2.0))
+        d_lo, d_hi = 0.06 * rst.ptm, 0.30 * rst.ptm
+        paare = []
+        for a in ("h", "v"):
+            ks = sorted(kand[a], key=lambda t: t[2])
+            for i1 in range(len(ks)):
+                lo1, hi1, q1 = ks[i1]
+                for i2 in range(i1 + 1, len(ks)):
+                    lo2, hi2, q2 = ks[i2]
+                    dq = q2 - q1
+                    if dq > d_hi:
+                        break
+                    if dq < d_lo:
+                        continue
+                    lo, hi = max(lo1, lo2), min(hi1, hi2)
+                    if hi - lo >= min_l:
+                        paare.append((a, lo, hi, (q1 + q2) / 2.0, dq))
+        rz = max(1, int(0.30 * rst.ptm / rst.cell))
+
+        def _wand_nahe(x, y):
+            ci, cj = rst.ij(x, y)
+            for nj in range(max(0, cj - rz), min(H, cj + rz + 1)):
+                base = nj * W
+                for ni in range(max(0, ci - rz), min(W, ci + rz + 1)):
+                    if grid[base + ni]:
+                        return True
+            return False
+
+        offen = paare
+        for _runde in range(4):
+            rest, neu = [], 0
+            for p in offen:
+                a, lo, hi, mitte, dq = p
+                e1 = (lo, mitte) if a == "h" else (mitte, lo)
+                e2 = (hi, mitte) if a == "h" else (mitte, hi)
+                # BEIDE Enden andocken (einseitig = Möbel, gemessen)
+                if _wand_nahe(*e1) and _wand_nahe(*e2):
+                    if a == "h":
+                        rst.rect(grid, lo, mitte - dq / 2.0, hi, mitte + dq / 2.0)
+                    else:
+                        rst.rect(grid, mitte - dq / 2.0, lo, mitte + dq / 2.0, hi)
+                    neu += 1
+                else:
+                    rest.append(p)
+            offen = rest
+            if not neu:
+                break
 
     # TÜR-VERSCHLÜSSE AUS BOGEN-GEOMETRIE (v3 — der Plan zeichnet die Tür selbst):
     # Öffnungslinie = Strecke Angelpunkt → geschlossenes Radius-Ende. Welches Ende
@@ -1021,6 +1084,80 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
     return out
 
 
+def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50):
+    """HÜLLEN-KANTEN-SCHLIESSUNG (WM-Sezierung: Loggia-Glasfronten/Tore sind nur
+    dünne Linien OHNE Poché — grau 0,49-0,89 bzw. 0,14pt-schwarz — und fallen am
+    Schraffur-Anker durch; die Fassade blieb an 6+ Stellen 1,2-2,3m offen, der
+    Watershed flutete 14/21 Räume ins AUSSEN). Aus 4 Richtungen das äußerste
+    Wand-Profil bilden; Lücken ≤max_gap zwischen KOLLINEAREN Fassaden-Runs
+    (Niveau-Differenz ≤tol, Run ≥min_run) orthogonal schließen (2 Zellen dick).
+    Gemessen: WM-Leck −37%, 6 Räume dicht; Angerer 5/9 unverändert (einzige
+    Abweichung Park-U 30,20→30,04); legitime Stufen/Carports bleiben offen."""
+    tol_c = max(1, int(tol_m / zm))
+    min_run_c = max(2, int(min_run_m / zm))
+    max_gap_c = int(max_gap_m / zm)
+
+    def profil(axis, side):
+        n = W if axis == "col" else H
+        m = H if axis == "col" else W
+        prof = [None] * n
+        for a in range(n):
+            rng = range(m) if side == 0 else range(m - 1, -1, -1)
+            for b in rng:
+                idx = (b * W + a) if axis == "col" else (a * W + b)
+                if grid[idx]:
+                    prof[a] = b
+                    break
+        return prof
+
+    def runs_of(prof):
+        runs = []
+        i = 0
+        n = len(prof)
+        while i < n:
+            if prof[i] is None:
+                i += 1
+                continue
+            j = i
+            lvl = [prof[i]]
+            while j + 1 < n and prof[j + 1] is not None and abs(prof[j + 1] - prof[j]) <= 2:
+                j += 1
+                lvl.append(prof[j])
+            lvl.sort()
+            runs.append((i, j, lvl[len(lvl) // 2]))
+            i = j + 1
+        return runs
+
+    n_neu = 0
+    for axis in ("col", "row"):
+        for side in (0, 1):
+            runs = [r for r in runs_of(profil(axis, side))
+                    if r[1] - r[0] + 1 >= min_run_c]
+            for ai in range(len(runs)):
+                _a0, a1, l0 = runs[ai]
+                for bi in range(ai + 1, len(runs)):
+                    b0, _b1, l1 = runs[bi]
+                    gap = b0 - a1 - 1
+                    if gap > max_gap_c:
+                        break
+                    if gap < 2:
+                        continue
+                    if abs(l0 - l1) <= tol_c:
+                        n = max(1, b0 - a1)
+                        for k in range(n + 1):
+                            a = a1 + k
+                            b = l0 + (l1 - l0) * k // n
+                            for db in (0, 1):
+                                bb = b + db
+                                if 0 <= a < (W if axis == "col" else H) \
+                                        and 0 <= bb < (H if axis == "col" else W):
+                                    idx = (bb * W + a) if axis == "col" else (a * W + bb)
+                                    grid[idx] = 1
+                        n_neu += 1
+                        break
+    return n_neu
+
+
 def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                       zelle_m=0.02, tol_f=0.06, tol_u=0.10, debug=None,
                       pfade=None):
@@ -1051,18 +1188,20 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         boegen = _vek.tuer_boegen(page, box, ptm, pfade=pfade)
     except Exception:
         boegen = []
-    versch = bytearray(rst.W * rst.H)
-    grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel,
-                      versch_out=versch, boegen=boegen)
-    label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
-    label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
-    label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)   # grobe Form-Streifen
-    label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)          # Fein-Rest
-    label = _glaetten(grid, label, rst, len(stempel), AUSSEN)
-    label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)   # F nach Glättung re-fixen
-    if debug is not None:
-        debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN})
-    masse = _loecher_fuellen_und_messen(grid, label, rst, stempel)
+    def _pass(paar_fallback):
+        versch = bytearray(rst.W * rst.H)
+        grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel,
+                          versch_out=versch, boegen=boegen,
+                          paar_fallback=paar_fallback)
+        _fassaden_schluss(grid, rst.W, rst.H, rst.zm)
+        label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
+        label = _taschen_adoption(grid, label, rst, stempel, AUSSEN)
+        label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)
+        label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)
+        label = _glaetten(grid, label, rst, len(stempel), AUSSEN)
+        label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)
+        return grid, label, ok_start, AUSSEN, versch
+
     # BALKEN-F-GUTSCHRIFT: Türdurchgangs-Zellen zählen laut Plan-F zum Raum (WC-Bild +
     # Tür-Topologie belegt: 5-6 Türen ≈ Flur+WC-Defizit). Jede Tür-Balken-Zelle wird
     # dem NÄCHSTEN Raum-Label gutgeschrieben — nur fürs Flächen-Konto, Topologie/U bleiben.
@@ -1095,56 +1234,83 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 return True
         return False
 
-    # Kredit nur BALKEN-NAH (WM-Sezierung: die 2,29-m-Haustür kreditierte via
-    # Vollkreis-Zone 13,3 m² Wandfläche → Stiegenhaus +1,65 m²; die Kreiszone
-    # wächst QUADRATISCH mit der Türbreite). Tür-Zonen-Zellen zählen nur noch
-    # ≤0,25 m an einer Balken-Zelle — deckt die tote Closing-Zone (WC-Sezierung)
-    # weiter ab, skaliert aber linear.
-    r_nahe = max(1, int(0.25 / rst.zm))
-    d_versch = _dist_bfs(versch, W2, H2, r_nahe) if any(versch) else None
-    gut = [0] * len(stempel)
-    n_st = len(stempel)
-    for idx in range(W2 * H2):
-        if not grid[idx]:
-            continue
-        if not (versch[idx] or (_in_tz(idx) and d_versch is not None
-                                and d_versch[idx] <= r_nahe)):
-            continue
-        i0_, j0_ = idx % W2, idx // W2
-        best_l, best_d = None, 99
-        for rad in range(1, 9):
-            for di in (-rad, 0, rad):
-                for dj in (-rad, 0, rad):
-                    if abs(di) != rad and abs(dj) != rad:
-                        continue
-                    ni, nj = i0_ + di, j0_ + dj
-                    if 0 <= ni < W2 and 0 <= nj < H2:
-                        l2 = label[nj * W2 + ni]
-                        if 0 <= l2 < n_st and rad < best_d:
-                            best_l, best_d = l2, rad
+    def _messen_und_status(grid, label, ok_start, versch):
+        masse = _loecher_fuellen_und_messen(grid, label, rst, stempel)
+        # Kredit nur BALKEN-NAH (WM-Sezierung: die 2,29-m-Haustür kreditierte via
+        # Vollkreis-Zone 13,3 m² Wandfläche → Stiegenhaus +1,65 m²; die Kreiszone
+        # wächst QUADRATISCH mit der Türbreite). Tür-Zonen-Zellen zählen nur noch
+        # ≤0,25 m an einer Balken-Zelle — deckt die tote Closing-Zone (WC-
+        # Sezierung) weiter ab, skaliert aber linear.
+        r_nahe = max(1, int(0.25 / rst.zm))
+        d_versch = _dist_bfs(versch, W2, H2, r_nahe) if any(versch) else None
+        gut = [0] * len(stempel)
+        n_st = len(stempel)
+        for idx in range(W2 * H2):
+            if not grid[idx]:
+                continue
+            if not (versch[idx] or (_in_tz(idx) and d_versch is not None
+                                    and d_versch[idx] <= r_nahe)):
+                continue
+            i0_, j0_ = idx % W2, idx // W2
+            best_l, best_d = None, 99
+            for rad in range(1, 9):
+                for di in (-rad, 0, rad):
+                    for dj in (-rad, 0, rad):
+                        if abs(di) != rad and abs(dj) != rad:
+                            continue
+                        ni, nj = i0_ + di, j0_ + dj
+                        if 0 <= ni < W2 and 0 <= nj < H2:
+                            l2 = label[nj * W2 + ni]
+                            if 0 <= l2 < n_st and rad < best_d:
+                                best_l, best_d = l2, rad
+                if best_l is not None:
+                    break
             if best_l is not None:
-                break
-        if best_l is not None:
-            gut[best_l] += 1
-    zm2 = rst.zm * rst.zm
-    masse = [(f + gut[li] * zm2, u) for li, (f, u) in enumerate(masse)]
-    out = []
-    for idx, st in enumerate(stempel):
-        if not ok_start[idx]:
-            out.append(dict(st, status="kein_start", f_ist=None, u_ist=None))
-            continue
-        f_ist, u_ist = masse[idx]
-        f_ok = abs(f_ist - st["f_m2"]) / st["f_m2"] <= tol_f
-        if st.get("u_m") is not None:
-            u_ok = abs(u_ist - st["u_m"]) / st["u_m"] <= tol_u
-        else:
-            # KOMPAKTHEITS-GATE statt Freifahrt (WM: Radabstell 'verifiziert'
-            # mit U_ist=44,9 bei F=22,7 — die Region war eine Korridor-Schlange,
-            # aber ohne Stempel-U lief das U-Gate leer). Isoperimetrie: U eines
-            # Quadrats = 4√F; reale Räume ≤ ~1,8×; Angerer 'Park' 1,25 bleibt ✓.
-            u_ok = f_ist > 0 and u_ist <= 1.8 * 4.0 * (f_ist ** 0.5)
-        status = "verifiziert" if (f_ok and u_ok) else ("u_daneben" if f_ok else "f_daneben")
-        out.append(dict(st, status=status, f_ist=round(f_ist, 2), u_ist=round(u_ist, 2)))
+                gut[best_l] += 1
+        zm2 = rst.zm * rst.zm
+        masse = [(f + gut[li] * zm2, u) for li, (f, u) in enumerate(masse)]
+        out = []
+        for idx, st in enumerate(stempel):
+            if not ok_start[idx]:
+                out.append(dict(st, status="kein_start", f_ist=None, u_ist=None))
+                continue
+            f_ist, u_ist = masse[idx]
+            f_ok = abs(f_ist - st["f_m2"]) / st["f_m2"] <= tol_f
+            if st.get("u_m") is not None:
+                u_ok = abs(u_ist - st["u_m"]) / st["u_m"] <= tol_u
+            else:
+                # KOMPAKTHEITS-GATE statt Freifahrt (WM: Radabstell 'verifiziert'
+                # mit U_ist=44,9 bei F=22,7 — Korridor-Schlange, aber ohne
+                # Stempel-U lief das U-Gate leer). Isoperimetrie: U(Quadrat)=4√F;
+                # reale Räume ≤ ~1,8×; Angerer 'Park' 1,25 bleibt ✓.
+                u_ok = f_ist > 0 and u_ist <= 1.8 * 4.0 * (f_ist ** 0.5)
+            status = "verifiziert" if (f_ok and u_ok) else ("u_daneben" if f_ok else "f_daneben")
+            out.append(dict(st, status=status, f_ist=round(f_ist, 2), u_ist=round(u_ist, 2)))
+        return out
+
+    grid, label, ok_start, AUSSEN, versch = _pass(False)   # ROHBAU-Ebene
+    if debug is not None:
+        debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN})
+    out = _messen_und_status(grid, label, ok_start, versch)
+    for r in out:
+        if r["status"] == "verifiziert":
+            r["ebene"] = "roh"
+    # ZWEI-EBENEN-VERIFIKATION (Bad-Anatomie-Sezierung): Stempel messen FERTIG-
+    # Maße, die Maske ROHBAU. Pass 2 brennt zusätzlich die unpochierten
+    # Doppellinien (Vorwände/leichte Trennwände = Fertig-Grenzen) und darf
+    # Räume NUR dazugewinnen (monotoner Merge — Regressionsfreiheit hängt an
+    # der Monotonie, gemessen: Angerer 5→6, WM 4 gehalten, IoU-Guard auf dem
+    # unveränderten Pass-1-Grid). f_ist/u_ist kommen vom verifizierenden Pass.
+    if any(r["status"] not in ("verifiziert", "kein_start") for r in out):
+        try:
+            g2, l2, ok2, _au2, v2 = _pass(True)   # FERTIG-Ebene
+            out2 = _messen_und_status(g2, l2, ok2, v2)
+            for r1, r2 in zip(out, out2):
+                if r1["status"] != "verifiziert" and r2["status"] == "verifiziert":
+                    r1.update(status="verifiziert", f_ist=r2["f_ist"],
+                              u_ist=r2["u_ist"], ebene="fertig")
+        except Exception:
+            pass
     return out, stempel
 
 
