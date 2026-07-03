@@ -9,7 +9,7 @@ Kern-Zusagen:
   • Putz zieht NUR Öffnungen > 5 m² ab (+ Laibung), kleinere werden übermessen.
   • Maler zieht > 5 m² ab, OHNE Laibung.
   • Estrich ignoriert Öffnungen komplett.
-  • Default-Schwelle ist 5,0 m² (Wächter gegen stille Änderung).
+  • Default-Schwelle ist 4,0 m² (Wächter gegen stille Änderung; ÖNORM B 2204 §5.5.1.3).
 
 Lauf:  python3 scripts/test_massen_logic.py   (Exit 0 = Verhalten festgenagelt)
 """
@@ -26,7 +26,7 @@ from massen_logic import (gewerk_putz, gewerk_maler, gewerk_estrich,
 BAUDATEN = {"aussenwand_cm": 50.0, "geschosshoehe_m": 2.70, "decke_cm": 20.0,
             "bodenplatte_cm": 25.0}
 
-# Ein warmer Innenraum mit zwei Fenstern: eines GROSS (>5 m²), eines KLEIN (<5 m²)
+# Ein warmer Innenraum mit zwei Fenstern: eines GROSS (>4 m²), eines KLEIN (<4 m²)
 ROOMS = [{"name": "Zimmer 1", "flaeche_m2": 30.0, "umfang_m": 22.0, "hoehe_m": 2.70}]
 WINDOWS = [
     {"raum": "Zimmer 1", "breite_m": 3.0, "hoehe_m": 2.0, "code": "GROSS"},   # 6,0 m² → Abzug

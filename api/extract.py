@@ -4415,7 +4415,9 @@ async def projekt_massen(body: ProjektMassenRequest):
         _kz = materialliste_result.get("kennzahlen") or {}
         for _src, _dst in (("aussenwand_flaeche_m2", "_basis_aussenwand_flaeche_m2"),
                            ("innenwand_flaeche_m2", "_basis_innenwand_flaeche_m2"),
-                           ("decke_flaeche_m2", "_basis_decke_m2"),
+                           # ÖNORM-Audit: LV-Decke = PLANMASS (ohne Bestell-
+                           # Aufschläge); Fallback alte Kennzahl, falls leer.
+                           ("decke_planmass_m2", "_basis_decke_m2"),
                            ("bodenplatte_flaeche_m2", "_basis_bodenplatte_m2"),
                            ("aussenumfang_m", "_basis_aussenumfang_m")):
             if _kz.get(_src):

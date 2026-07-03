@@ -577,7 +577,10 @@ def oeffnungs_aufmass(fenster, tueren, baudaten):
     for o in _oeffnungen_kombi(fenster, tueren):
         b, h = o.get("breite_m") or 0, o.get("hoehe_m") or 0
         aussen = _ist_aussenwand(o)
-        wand_cm = bd.get("aussenwand_cm", 50) if aussen else bd.get("innenwand_cm", 12)
+        # ÖNORM-Audit-Bugfix: 'innenwand_cm' existiert nicht (DEFAULT_BAUDATEN
+        # kennt innenwand_tragend_cm) → IW-Laibungstiefe war 0,06 statt 0,19 m,
+        # der Prüfbeleg widersprach der eigenen Putz-LV. Gleiche Quelle wie LV:
+        wand_cm = _wand_cm_of(o, bd)
         schwelle = _schwelle_fuer(bd, "putz")
         n = oeffnung_netto(b, h, wand_cm, o.get("fph_m", 0), schwelle)
         if n["uebermessen"]:

@@ -253,6 +253,12 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         geometrie_quelle = f"Σ Raum-F × {bp_faktor:.2f}-Aufschlag"
         geometrie_konfidenz = 0.65
 
+    # ÖNORM-Audit (LV-Planmaß-Entkopplung): die LV-Abrechnungsmenge der Decke
+    # darf die BESTELL-Aufschläge (decke_auskragung 1,05 / loggia 1,15) nicht
+    # enthalten — Norm verlangt Planmaß ab Außenkante. Bestell-Position behält
+    # decke_m2 (mit Reserve), die LV bekommt das aufschlagfreie Planmaß.
+    decke_planmass_m2 = round(bodenplatte_m2 + f_sum_loggia, 2)
+
     if gemessen.get("aussenumfang_m"):
         aussenumfang_m = round(float(gemessen["aussenumfang_m"]), 2)
         umfang_quelle = gemessen.get("quelle", "gemessen")
@@ -289,6 +295,35 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Geometrie nicht voll → der Polier kann hier hochkorrigieren (Default 1.0 = neutral,
     # kein Effekt auf Bestandsläufe). Skaliert HLZ-Innen + Mörtel + Innenwand-Kennzahl.
     iw_m2_innen_rohbau = round(iw_laenge * h * f("innenwand_aufschlag", override), 2)
+
+    # ÖNORM-Audit (Bestell-Öffnungsabzug): GROSSE Öffnungen (> Schwelle, z.B.
+    # Hebeschiebetür 6,9 m²) aus der Bestell-Wandfläche abziehen — kleine bleiben
+    # übermessen (Verschnittreserve). Dieselbe oeffnung_netto-Regel wie die LV,
+    # damit beide Ansichten dieselbe Wand zeigen. Firmen-Override:
+    # bestell_oeffnung_schwelle (Default = Rohbau-Schwelle 4,0).
+    abzug_aw_m2, abzug_iw_m2 = 0.0, 0.0
+    try:
+        from massen_logic import oeffnung_netto, _wand_cm_of, _schwelle_fuer
+        _bs = float((baudaten or {}).get("bestell_oeffnung_schwelle")
+                    or _schwelle_fuer(baudaten or {}, "rohbau"))
+        for _o, _art in ([(o, "fenster") for o in (fenster or [])]
+                         + [(o, "tuer") for o in (tueren or [])]):
+            _o2 = dict(_o)
+            _o2["_art"] = _art
+            _n = oeffnung_netto(_o2.get("breite_m") or 0, _o2.get("hoehe_m") or 0,
+                                _wand_cm_of(_o2, baudaten), _o2.get("fph_m", 0), _bs)
+            if not _n["abzug"]:
+                continue
+            _wt = (_o2.get("wand_typ") or "").lower()
+            _ist_aw = _wt.startswith("a") if _wt else (_art == "fenster")
+            if _ist_aw:
+                abzug_aw_m2 += _n["abzug"]
+            else:
+                abzug_iw_m2 += _n["abzug"]
+    except Exception:
+        abzug_aw_m2, abzug_iw_m2 = 0.0, 0.0
+    aw_m2_aussen = round(max(0.0, aw_m2_aussen - abzug_aw_m2), 2)
+    iw_m2_innen_rohbau = round(max(0.0, iw_m2_innen_rohbau - abzug_iw_m2), 2)
 
     out = []
 
@@ -750,6 +785,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             "innenwand_flaeche_m2": round(iw_m2_innen_rohbau, 2),
             "wandflaeche_gesamt_m2": round(aw_m2_aussen + iw_m2_innen_rohbau, 2),
             "decke_flaeche_m2": round(decke_m2, 2),
+            "decke_planmass_m2": decke_planmass_m2,
             "bodenplatte_flaeche_m2": round(bodenplatte_m2, 2),
             "aussenumfang_m": round(aussenumfang_m, 2),
             "fundament_umfang_m": round(fundament_umfang_m, 2),
