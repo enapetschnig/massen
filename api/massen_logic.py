@@ -143,6 +143,10 @@ def _schwelle_fuer(baudaten, gewerk=None):
         return float(bd[f"oeffnung_schwelle_{gewerk}"])
     if bd.get("oeffnung_schwelle") is not None:
         return float(bd["oeffnung_schwelle"])
+    if gewerk == "maler":
+        # ÖNORM-Audit: Malerarbeiten sind NICHT Teil der B 2204 — die Maler-
+        # Aufmaßpraxis (analog DIN 18363) übermisst nur bis 2,5 m².
+        return 2.5
     return OEFFNUNG_ABZUG_SCHWELLE_M2
 
 
@@ -455,7 +459,8 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
     fzuord = fenster_pro_raum(rooms, oeffnungen)
 
     pos = LVPosition("1.1", f"Anstrich Wände — {geschoss}", "m²")
-    pos.quelle = f"in Anlehnung an ÖNORM B 2204 · Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen"
+    pos.quelle = (f"Maler-Aufmaßpraxis (analog DIN 18363) · "
+                  f"Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen")
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]

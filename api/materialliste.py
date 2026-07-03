@@ -657,22 +657,45 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         # Standard-Innentür (125cm) statt herauszufallen (sonst „9 Türen, nur 7 Stürze").
         n_ohne_breite = max(0, len(tueren) - len(tuer_breiten))
         oeffnung_unscharf = n_ohne_breite > 0
-        n_125 = sum(1 for b in tuer_breiten if b <= 1.10) + n_ohne_breite  # ≤110cm + ohne Maß
-        n_200 = sum(1 for b in tuer_breiten if 1.10 < b <= 1.80)  # 110-180cm
-        n_250 = sum(1 for b in tuer_breiten if b > 1.80)         # Schiebe/Terrasse
-        if n_125:
-            _txt125 = (f"{n_125} Innentüren (≤110cm" + (f" + {n_ohne_breite} ohne Maß)" if n_ohne_breite else ")"))
+        # NORMBASIERT (LB-HB LG08: Überlagen = 'jeweilige Rohbaulichte,
+        # zusätzlich 2 × 15 cm für die Auflager'): benötigt = lichte + 0,30m,
+        # dann die KLEINSTE Standardlänge ≥ benötigt (Sortiment konfigurierbar).
+        # Vorher rutschte z.B. eine 1,00m-Tür in den 125er (benötigt 1,30!).
+        _sortiment = [float(x) for x in
+                      (baudaten or {}).get("ueberlagen_sortiment_cm")
+                      or (125, 150, 200, 250, 300)]
+        _sortiment.sort()
+        stk = {}
+        for b in tuer_breiten:
+            ben = b * 100.0 + 30.0
+            l_cm = next((L for L in _sortiment if L >= ben), _sortiment[-1])
+            stk[l_cm] = stk.get(l_cm, 0) + 1
+        if n_ohne_breite:   # Standard-Innentür 88er → benötigt 118 → 125er
+            stk[_sortiment[0]] = stk.get(_sortiment[0], 0) + n_ohne_breite
+        for l_cm in sorted(stk):
+            _txt = (f"{stk[l_cm]}× lichte+2×15cm Auflager ≤ {l_cm:.0f}cm"
+                    + (f" (inkl. {n_ohne_breite} ohne Maß)"
+                       if n_ohne_breite and l_cm == _sortiment[0] else ""))
             out.append(MaterialPos(
-                "Öffnungen", "Ziegelüberlage 12cm 125cm", "Stk",
-                n_125, _txt125, konfidenz=0.85 if not n_ohne_breite else 0.7))
-        if n_200:
+                "Öffnungen", f"Ziegelüberlage 12cm {l_cm:.0f}cm", "Stk",
+                stk[l_cm], _txt,
+                konfidenz=0.85 if not (n_ohne_breite and l_cm == _sortiment[0]) else 0.7))
+        # FENSTER ohne Rolladenkasten brauchen ebenfalls einen Sturz (jede
+        # Öffnung hat Sturz ODER Kasten — nie keins; Audit-Befund: Fenster
+        # <1,0m Breite bekamen bisher gar nichts)
+        _f_sturz = {}
+        for w in (windows or []):
+            b = w.get("breite_m") or 0
+            if not b or b >= 1.0:      # ≥1,0m → Rolladenkasten-Block oben
+                continue
+            ben = b * 100.0 + 30.0
+            l_cm = next((L for L in _sortiment if L >= ben), _sortiment[-1])
+            _f_sturz[l_cm] = _f_sturz.get(l_cm, 0) + 1
+        for l_cm in sorted(_f_sturz):
             out.append(MaterialPos(
-                "Öffnungen", "Ziegelüberlage 12cm 200cm", "Stk",
-                n_200, f"{n_200} Türen 110-180cm Breite", konfidenz=0.8))
-        if n_250:
-            out.append(MaterialPos(
-                "Öffnungen", "Ziegelüberlage 12cm 250cm", "Stk",
-                n_250, f"{n_250} Türen/Schiebe-Elemente >180cm", konfidenz=0.8))
+                "Öffnungen", f"Ziegelüberlage 12cm {l_cm:.0f}cm (Fenster)", "Stk",
+                _f_sturz[l_cm], f"{_f_sturz[l_cm]}× Fenster <1,0m ohne Rolladenkasten",
+                konfidenz=0.75))
     else:
         # Fallback: Pauschal-Annahme wenn STUK/FPH-Erkennung leer war
         n_tueren = max(0, len(rooms) - 1)
