@@ -68,6 +68,12 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     kal = vektor.kalibriere(worte, m_label)
     ptm = kal.get("ptm_konsens")
     if not ptm:
+        # SCAN-ERKENNUNG (Edge-Case-Sweep): Bild-PDFs ohne Text-Layer bekommen
+        # eine handlungsleitende Meldung statt der generischen.
+        if len(worte) < 10:
+            return {"ok": False, "grund": ("Scan/Bild-PDF ohne Text-Layer — für die "
+                    "Massenermittlung wird das Vektor-Original benötigt "
+                    "(aus dem CAD als PDF exportiert, nicht gescannt)")}
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     box = _eg_box(page, ptm, worte=worte)
     # STUFE 2 (TG-/Großbau-Pläne, Sektor-Audit: die Wohn-RAUM_WORTE trafen am
