@@ -365,7 +365,11 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     fundament_umfang_m = round(float(gemessen.get("fundament_umfang_m") or aussenumfang_m), 2)
     _fund_groesser = fundament_umfang_m > aussenumfang_m + 0.05
 
-    aw_m2_aussen = round(aussenumfang_m * h, 2)
+    # MAUERWERKSHÖHE (ÖNORM-Audit-Experiment): Mauerwerk reicht real nur bis
+    # UK Decke — das ~20cm-Band darüber ist Beton/Deckenrost (h × Umfang war
+    # ~+7% HLZ). Messlauf gegen die Polier-Ground-Truth entscheidet.
+    h_mw = max(2.0, h - decke_cm / 100.0)
+    aw_m2_aussen = round(aussenumfang_m * h_mw, 2)
     # Innenwand-Fläche OHNE Doppelzählung: Σ Raum-Umfang zählt jede Innenwand
     # von BEIDEN angrenzenden Räumen (2×), die Außenwand-Innenseite 1×. Also:
     #   Σ U_innen = Außenumfang + 2 × Innenwand-Länge
@@ -381,7 +385,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Innenwand-Aufschlag: kurze/unbemaßte Trennwände erfasst die (ΣU−Außenkante)/2-
     # Geometrie nicht voll → der Polier kann hier hochkorrigieren (Default 1.0 = neutral,
     # kein Effekt auf Bestandsläufe). Skaliert HLZ-Innen + Mörtel + Innenwand-Kennzahl.
-    iw_m2_innen_rohbau = round(iw_laenge * h * f("innenwand_aufschlag", override), 2)
+    iw_m2_innen_rohbau = round(iw_laenge * h_mw * f("innenwand_aufschlag", override), 2)
 
     # ÖNORM-Audit (Bestell-Öffnungsabzug): GROSSE Öffnungen (> Schwelle, z.B.
     # Hebeschiebetür 6,9 m²) aus der Bestell-Wandfläche abziehen — kleine bleiben
