@@ -615,7 +615,7 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 rst.line(grid, hx + px * off, hy + py * off,
                          tx + px * off, ty + py * off)
                 off += rst.cell
-        bogen_ok.append((hx, hy))
+        bogen_ok.append((hx, hy, bg["r_m"]))
 
     for o in (oeffnungen or []):
         # Verschluss als DÜNNER BALKEN quer über die Wandlücke. Orientierung per
@@ -623,9 +623,49 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         # Enden treffen Wand (die reine Dichte-Heuristik wählte bei der Bad-Tür
         # die falsche Richtung → Leck, gemessen). Score = min(Ende1, Ende2).
         cx, cy = o["cx"], o["cy"]
-        if o.get("typ") == "tuer" and any(
-                math.hypot(hx - cx, hy - cy) < 1.5 * rst.ptm for (hx, hy) in bogen_ok):
-            continue    # Tür bereits byte-genau aus dem Bogen versiegelt
+        _gb_glas = False
+        if o.get("typ") == "tuer":
+            _gb_r = [_r3 for (_hx3, _hy3, _r3) in bogen_ok
+                     if math.hypot(_hx3 - cx, _hy3 - cy) < 1.5 * rst.ptm]
+            if _gb_r:
+                # GLASFRONT-UNSKIP (Sezierung [44]): der nahe Bogen deckt die
+                # Textbreite nur bis 2,6×r — eine 3,05m-Fenstertür mit 0,94m-
+                # Bogen ließ ~2m Glasfront unversiegelt. Nur im ROH-Pass
+                # (FERTIG bleibt byte-identisch: der Burn kollidierte dort mit
+                # dem Wand-Paar-Fallback, [49] U 24,96→33,44 gemessen).
+                if paar_fallback or (o.get("breite_m") or 1.0) <= 2.6 * max(_gb_r):
+                    continue    # Tür bereits byte-genau aus dem Bogen versiegelt
+                _gb_glas = True
+                # FRONT-LINIEN-SNAP: Orientierung/Lage/Ausdehnung von der
+                # gemessenen FRONT-LINIE (|L−breite|≤0,35m, ≤0,40m am Anker —
+                # alle 9 WM-Unskips haben sie; 4 davon 5,7° SCHRÄG, für jede
+                # achsparallele Suche unsichtbar). Kein versch_out: der
+                # Glasfront-Balken ersetzt die echte Grenzlinie, frisst keine
+                # Raumfläche ([12] +6,8% F durch Kredit, gemessen).
+                _gb_best = None
+                _gb_br = (o.get("breite_m") or 1.0) * rst.ptm
+                for _s3 in dark_segs:
+                    _sdx, _sdy = _s3[2] - _s3[0], _s3[3] - _s3[1]
+                    _sl = math.hypot(_sdx, _sdy)
+                    if _sl < 1e-6 or abs(_sl - _gb_br) > 0.35 * rst.ptm:
+                        continue
+                    _ux, _uy = _sdx / _sl, _sdy / _sl
+                    _t = (cx - _s3[0]) * _ux + (cy - _s3[1]) * _uy
+                    if not (-0.2 * _sl <= _t <= 1.2 * _sl):
+                        continue
+                    _dq = abs(-(cx - _s3[0]) * _uy + (cy - _s3[1]) * _ux)
+                    if _dq <= 0.40 * rst.ptm and (_gb_best is None or _dq < _gb_best[0]):
+                        _gb_best = (_dq, _s3, _ux, _uy)
+                if _gb_best is not None:
+                    _s3, _ux, _uy = _gb_best[1], _gb_best[2], _gb_best[3]
+                    _d2g = 0.10 * rst.ptm
+                    _px, _py = -_uy, _ux
+                    _off = -_d2g
+                    while _off <= _d2g:
+                        rst.line(grid, _s3[0] + _px * _off, _s3[1] + _py * _off,
+                                 _s3[2] + _px * _off, _s3[3] + _py * _off)
+                        _off += rst.cell
+                    continue
         b2 = ((o.get("breite_m") or 1.0) * rst.ptm * 0.9) / 2.0
         # Balken-Tiefe tür-adaptiv: Innentüren sitzen in ~12cm-Wänden — ein 0,4m tiefer
         # Balken frisst Raumfläche, die laut Plan-F zum Raum gehört (Tür-Diagnose:
@@ -679,9 +719,60 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 gew += nsum
                 summe += nsum * jj
                 best_n = max(best_n, nsum)
-            cy_s = rst.by0 + (summe / gew) * rst.cell if (gew and best_n > fenster // 2) else cy
+            _gb_band = bool(gew and best_n > fenster // 2)
+            cy_s = rst.by0 + (summe / gew) * rst.cell if _gb_band else cy
+            # BALKEN-FALLBACK-SNAP (Sezierung: versagt der Wandband-Snap,
+            # brannte der Balken am rohen Text-Anker — bis 0,63m daneben,
+            # bei [44] 0,37m IM Raum → +2,6m U-Schlitz). Fenster: nächste
+            # lange grid-nahe Parallel-Linie; Tür: WAND-FLÄCHEN-PAAR-Gate
+            # (echte Sturz-/Wandkanten kommen als Parallel-Paar ≤0,12m, das
+            # offene Türblatt ist eine Einzellinie — Grid/Poché-Gates sind
+            # wegen Türzonen-Veto/Leichtwand blind). Nur ROH-Pass.
+            if not paar_fallback and (not ist_tuer or not _gb_band):
+                _gb_fang2 = (0.52 if ist_tuer else 0.45) * rst.ptm
+                _gb_cands = []
+                for _s3 in dark_segs:
+                    if abs(_s3[3] - _s3[1]) > 0.06 * rst.ptm:
+                        continue
+                    _lo = _s3[0] if _s3[0] <= _s3[2] else _s3[2]
+                    _hi = _s3[2] if _s3[0] <= _s3[2] else _s3[0]
+                    if _hi - _lo < (0.9 if ist_tuer else 1.5) * rst.ptm:
+                        continue
+                    _ov = min(_hi, cx + b2) - max(_lo, cx - b2)
+                    if _ov < 0.8 * (b2 + b2):
+                        continue
+                    _sy = (_s3[1] + _s3[3]) / 2.0
+                    _dq = abs(_sy - cy_s)
+                    if _dq > _gb_fang2:
+                        continue
+                    if not ist_tuer:
+                        _ok = 0
+                        _ov0, _ov1 = max(_lo, cx - b2), min(_hi, cx + b2)
+                        for _tf in (0.25, 0.5, 0.75):
+                            _pi, _pj = rst.ij(_ov0 + _tf * (_ov1 - _ov0), _sy)
+                            if not (0 <= _pi < W):
+                                continue
+                            for _dj in (-2, -1, 0, 1, 2):
+                                _jj = _pj + _dj
+                                if 0 <= _jj < H and grid[_jj * W + _pi]:
+                                    _ok += 1
+                                    break
+                        if _ok < 2:
+                            continue
+                    _gb_cands.append((_dq, _sy))
+                _gb_fb = None
+                for (_dq, _sy) in sorted(_gb_cands):
+                    if not ist_tuer:
+                        _gb_fb = (_dq, _sy)
+                        break
+                    if any(0.005 * rst.ptm < abs(_sy - _sy2) <= 0.12 * rst.ptm
+                           for (_dq2, _sy2) in _gb_cands):
+                        _gb_fb = (_dq, _sy)
+                        break
+                if _gb_fb is not None:
+                    cy_s = _gb_fb[1]
             rst.rect(grid, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
-            if ist_tuer and versch_out is not None:
+            if ist_tuer and versch_out is not None and not _gb_glas:
                 rst.rect(versch_out, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
         else:                   # Balken entlang y → Wand-Flucht = WANDBAND-MITTE
             gew, summe, best_n = 0, 0.0, 0
@@ -691,9 +782,54 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 gew += nsum
                 summe += nsum * ii
                 best_n = max(best_n, nsum)
-            cx_s = rst.bx0 + (summe / gew) * rst.cell if (gew and best_n > fenster // 2) else cx
+            _gb_band = bool(gew and best_n > fenster // 2)
+            cx_s = rst.bx0 + (summe / gew) * rst.cell if _gb_band else cx
+            # Balken-Fallback-Snap vertikal (siehe horizontalen Zweig)
+            if not paar_fallback and (not ist_tuer or not _gb_band):
+                _gb_fang2 = (0.52 if ist_tuer else 0.45) * rst.ptm
+                _gb_cands = []
+                for _s3 in dark_segs:
+                    if abs(_s3[2] - _s3[0]) > 0.06 * rst.ptm:
+                        continue
+                    _lo = _s3[1] if _s3[1] <= _s3[3] else _s3[3]
+                    _hi = _s3[3] if _s3[1] <= _s3[3] else _s3[1]
+                    if _hi - _lo < (0.9 if ist_tuer else 1.5) * rst.ptm:
+                        continue
+                    _ov = min(_hi, cy + b2) - max(_lo, cy - b2)
+                    if _ov < 0.8 * (b2 + b2):
+                        continue
+                    _sx = (_s3[0] + _s3[2]) / 2.0
+                    _dq = abs(_sx - cx_s)
+                    if _dq > _gb_fang2:
+                        continue
+                    if not ist_tuer:
+                        _ok = 0
+                        _ov0, _ov1 = max(_lo, cy - b2), min(_hi, cy + b2)
+                        for _tf in (0.25, 0.5, 0.75):
+                            _pi, _pj = rst.ij(_sx, _ov0 + _tf * (_ov1 - _ov0))
+                            if not (0 <= _pj < H):
+                                continue
+                            for _di in (-2, -1, 0, 1, 2):
+                                _ii = _pi + _di
+                                if 0 <= _ii < W and grid[_pj * W + _ii]:
+                                    _ok += 1
+                                    break
+                        if _ok < 2:
+                            continue
+                    _gb_cands.append((_dq, _sx))
+                _gb_fb = None
+                for (_dq, _sx) in sorted(_gb_cands):
+                    if not ist_tuer:
+                        _gb_fb = (_dq, _sx)
+                        break
+                    if any(0.005 * rst.ptm < abs(_sx - _sx2) <= 0.12 * rst.ptm
+                           for (_dq2, _sx2) in _gb_cands):
+                        _gb_fb = (_dq, _sx)
+                        break
+                if _gb_fb is not None:
+                    cx_s = _gb_fb[1]
             rst.rect(grid, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
-            if ist_tuer and versch_out is not None:
+            if ist_tuer and versch_out is not None and not _gb_glas:
                 rst.rect(versch_out, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
 
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))

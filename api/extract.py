@@ -4771,7 +4771,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 26  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (26: Stützen-Knoten-Schluss + Hybrid-Verifikation)
+_NZ_CACHE_V = 27  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (27: Glasfront-Unskip + Front-Linien-Snap + Balken-Fallback-Snap)
 
 
 def _nachzeichnen_roh(body):
