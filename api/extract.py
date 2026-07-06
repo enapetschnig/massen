@@ -4456,13 +4456,19 @@ async def projekt_massen(body: ProjektMassenRequest):
     # materialliste_override → Bestell-Liste/Angerer 13/13 bleiben unangetastet).
     if isinstance(materialliste_result, dict) and not materialliste_result.get("error"):
         _kz = materialliste_result.get("kennzahlen") or {}
+        # Reihenfolge wichtig: bei gleichem _dst gewinnt der LETZTE Treffer. Netto
+        # zuerst als Fallback (alt-gecachte Läufe ohne Brutto), Brutto ZULETZT →
+        # die Gewerke bekommen BRUTTO und ziehen Öffnungen selbst ab (sonst
+        # Doppelabzug, seit der Bestell-Öffnungsabzug via fenster→windows feuert).
         for _src, _dst in (("aussenwand_flaeche_m2", "_basis_aussenwand_flaeche_m2"),
                            ("innenwand_flaeche_m2", "_basis_innenwand_flaeche_m2"),
                            # ÖNORM-Audit: LV-Decke = PLANMASS (ohne Bestell-
                            # Aufschläge); Fallback alte Kennzahl, falls leer.
                            ("decke_planmass_m2", "_basis_decke_m2"),
                            ("bodenplatte_flaeche_m2", "_basis_bodenplatte_m2"),
-                           ("aussenumfang_m", "_basis_aussenumfang_m")):
+                           ("aussenumfang_m", "_basis_aussenumfang_m"),
+                           ("aussenwand_flaeche_brutto_m2", "_basis_aussenwand_flaeche_m2"),
+                           ("innenwand_flaeche_brutto_m2", "_basis_innenwand_flaeche_m2")):
             if _kz.get(_src):
                 best_baudaten[_dst] = _kz[_src]
     if saeulen_erkannt:

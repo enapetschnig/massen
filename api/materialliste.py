@@ -426,7 +426,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         from massen_logic import oeffnung_netto, _wand_cm_of, _schwelle_fuer
         _bs = float((baudaten or {}).get("bestell_oeffnung_schwelle")
                     or _schwelle_fuer(baudaten or {}, "rohbau"))
-        for _o, _art in ([(o, "fenster") for o in (fenster or [])]
+        for _o, _art in ([(o, "fenster") for o in (windows or [])]
                          + [(o, "tuer") for o in (tueren or [])]):
             _o2 = dict(_o)
             _o2["_art"] = _art
@@ -442,6 +442,12 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
                 abzug_iw_m2 += _n["abzug"]
     except Exception:
         abzug_aw_m2, abzug_iw_m2 = 0.0, 0.0
+    # BRUTTO merken (VOR dem Öffnungsabzug): die Gewerke-LV-Positionen (Rohbau
+    # Außenwand-Ansichtsfläche, Außenputz) ziehen die Öffnungen SELBST ab — sie
+    # brauchen daher die BRUTTO-Basis, sonst würden sie doppelt abziehen. Die
+    # Bestell-Materialliste dagegen nutzt weiterhin die netto-Wandfläche.
+    aw_m2_brutto = aw_m2_aussen
+    iw_m2_brutto = iw_m2_innen_rohbau
     aw_m2_aussen = round(max(0.0, aw_m2_aussen - abzug_aw_m2), 2)
     iw_m2_innen_rohbau = round(max(0.0, iw_m2_innen_rohbau - abzug_iw_m2), 2)
 
@@ -980,6 +986,9 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
             "geschosshoehe_m": round(h, 2),
             "aussenwand_flaeche_m2": round(aw_m2_aussen, 2),
             "innenwand_flaeche_m2": round(iw_m2_innen_rohbau, 2),
+            # BRUTTO (vor Öffnungsabzug) — Basis für die Gewerke-LV, die selbst abziehen
+            "aussenwand_flaeche_brutto_m2": round(aw_m2_brutto, 2),
+            "innenwand_flaeche_brutto_m2": round(iw_m2_brutto, 2),
             "wandflaeche_gesamt_m2": round(aw_m2_aussen + iw_m2_innen_rohbau, 2),
             "decke_flaeche_m2": round(decke_m2, 2),
             "decke_planmass_m2": decke_planmass_m2,
