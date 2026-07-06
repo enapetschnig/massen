@@ -4781,7 +4781,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 33  # IoU-Goldstandard auch auf Großplänen (nur_bbox) — TG 16→17 grün
+_NZ_CACHE_V = 34  # Raum-Konturen auch auf Großplänen gezeichnet — WM 0→49/70 sichtbar
 
 
 def _nachzeichnen_roh(body):

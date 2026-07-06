@@ -321,7 +321,13 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         # Passes (dbg_r); best-effort, große Pläne nicht (Latenz/Rausch).
         regionen = {}
         try:
-            if dbg_r.get("label") is not None and not grossplan:
+            # Läuft jetzt AUCH auf Großplänen (Nachvollziehbarkeit: WM/TG-Räume hatten
+            # gar keine gezeichnete Kontur — die größten Pläne mit den meisten Räumen
+            # waren blank). raum_regionen selbst filtert unzuverlässige/zackige Umrisse
+            # (Flächen-Treue ±20%, ≤40 Ecken, ≥75% achsparallel) → nur saubere Räume
+            # bekommen einen Umriss, komplexe bleiben ehrlich ohne. Sicherheits-Deckel
+            # gegen Extrem-Pläne: >150 Räume überspringen (reine Latenz-Vorsicht).
+            if dbg_r.get("label") is not None and len(rres) <= 150:
                 regionen = raumnetz.raum_regionen(dbg_r["label"], dbg_r["rst"],
                                                   len(rres))
         except Exception as _er:
