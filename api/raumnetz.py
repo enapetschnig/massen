@@ -1763,9 +1763,11 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         boegen = _vek.tuer_boegen(page, box, ptm, pfade=pfade)
     except Exception:
         boegen = []
-    def _pass(paar_fallback):
+    def _pass(paar_fallback, hatch_use=None):
         versch = bytearray(rst.W * rst.H)
-        grid = wand_maske(rst, dark_segs, hatch_segs, oe, moebel_zonen=moebel,
+        grid = wand_maske(rst, dark_segs,
+                          hatch_segs if hatch_use is None else hatch_use,
+                          oe, moebel_zonen=moebel,
                           versch_out=versch, boegen=boegen,
                           paar_fallback=paar_fallback, stuetzen=_stuetzen)
         vor_fs = bytes(grid)
@@ -1943,6 +1945,26 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 if r1["status"] != "verifiziert" and rg["status"] == "verifiziert":
                     r1.update(status="verifiziert", f_ist=rg["f_ist"],
                               u_ist=rg["u_ist"], ebene="schacht")
+        except Exception:
+            pass
+    # BODEN-SCHRAFFUR-EBENE (Bad-Roh-F-Sezierung, monotoner ADD-Merge): auf
+    # monochromen Plänen wird Fliesen-/Belags-Feinschraffur IM Rauminneren als
+    # Wand gebrannt → kleine Räume werden an der Fill-Grenze abgeschnitten (F
+    # −19..−43%). hatch_fill_filter trennt die dünne Wand-Poché von der fetten
+    # Bodenfläche. Global kostet der Filter 2 WM-Zufalls-Grüne + 1 TG-Raum
+    # (Stellplatz-Poché) — als reiner ADD-Merge kann er NICHTS verlieren.
+    # GATE: nur wenn der Filter ≥8% der Schraffur entfernt (Boden-Tiling-
+    # Signatur) — sonst kein Zusatz-Watershed (EFH/Farbpläne bleiben schnell).
+    if any(r["status"] not in ("verifiziert", "kein_start") for r in out):
+        try:
+            hatch_f = hatch_fill_filter(hatch_segs, box, ptm)
+            if hatch_segs and len(hatch_f) <= 0.92 * len(hatch_segs):
+                g4, l4, ok4, _au4, v4 = _pass(False, hatch_use=hatch_f)
+                out_f = _messen_und_status(g4, l4, ok4, v4, r_gl_gross=0.40)
+                for r1, rf in zip(out, out_f):
+                    if r1["status"] != "verifiziert" and rf["status"] == "verifiziert":
+                        r1.update(status="verifiziert", f_ist=rf["f_ist"],
+                                  u_ist=rf["u_ist"], ebene="boden")
         except Exception:
             pass
     # ZWEI-EBENEN-VERIFIKATION (Bad-Anatomie-Sezierung): Stempel messen FERTIG-

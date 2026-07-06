@@ -4781,7 +4781,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 29  # Schacht-Glättungs-Ebene (monotoner ADD-Merge) + Dach-Export
+_NZ_CACHE_V = 30  # Boden-Schraffur-Ebene (gefilterter ADD-Merge) — WM 51->55
 
 
 def _nachzeichnen_roh(body):
