@@ -1644,6 +1644,30 @@
     }
     return Math.abs(A) / 2 / (k * k);
   }
+  function _nzMessUmfang() {   // GESCHLOSSENER Umfang (inkl. Schluss-Kante) in m
+    if (_nzMeasPts.length < 3) return 0;
+    var k = _nzPxProM(), U = 0, n = _nzMeasPts.length;
+    for (var i = 0; i < n; i++) {
+      var a = _nzMeasPts[i], b = _nzMeasPts[(i + 1) % n];
+      U += Math.sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
+    }
+    return U / k;
+  }
+  // Gemessenen Gebäude-Umfang als Außenumfang übernehmen → fließt in die
+  // Materialliste (Außenwand/Frostschürze/Randabschluss hängen daran). Der
+  // Backend-Override markiert 'user-gemessen' (Konfidenz 0,98) und schlägt
+  // die Vision-Schätzung. So schließt sich die HasenbeinPlan-Schleife:
+  // Messung → Berechnung — für genau die unsicheren Fälle.
+  window._nzMessUmfangUebernehmen = function () {
+    var u = Math.round(_nzMessUmfang() * 100) / 100;
+    if (!(u >= 10 && u <= 400)) { alert('Gemessener Umfang ' + u + ' m außerhalb 10–400 m — bitte Gebäude-Außenkante abklicken.'); return; }
+    var ov = _filterState.baudaten_override || {};
+    ov.aussenumfang_m = u;
+    _filterState.baudaten_override = ov;
+    refreshProjektMassen();
+    var out = document.getElementById('nz-mess-out');
+    if (out) out.innerHTML = '<strong style="color:#166534">✓ Außenumfang ' + fmtNum(u) + ' m übernommen — Materialliste neu gerechnet</strong>';
+  };
 
   function _nzCm(w) { return _nzEdit.thick[w.id] != null ? _nzEdit.thick[w.id] : w.snap_cm; }
   function _nzAussenDefault(cm) { return cm === 50 || cm === 38; }  // 20/12 immer innen, 25 default innen
@@ -2036,8 +2060,10 @@
       if (n < 2) out.innerHTML = '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>';
       else {
         var s = 'Strecke <strong>' + fmtNum(Math.round(_nzMessStrecke() * 100) / 100) + ' m</strong>';
-        if (n >= 3) s += ' · Umriss-Fläche <strong style="color:#7c3aed">' + fmtNum(Math.round(_nzMessFlaeche() * 100) / 100) + ' m²</strong>';
-        out.innerHTML = s + ' <span style="color:#6b7280">(byte-exakt am Maßstab)</span>';
+        if (n >= 3) s += ' · Umriss-Fläche <strong style="color:#7c3aed">' + fmtNum(Math.round(_nzMessFlaeche() * 100) / 100) + ' m²</strong>' +
+          ' · Umfang <strong>' + fmtNum(Math.round(_nzMessUmfang() * 100) / 100) + ' m</strong>';
+        out.innerHTML = s + ' <span style="color:#6b7280">(byte-exakt am Maßstab)</span>' +
+          (n >= 3 ? ' <button type="button" class="nz-btn" style="padding:.1rem .5rem;font-size:.78rem" onclick="_nzMessUmfangUebernehmen()" title="Den geklickten Gebäude-Umriss als Außenumfang in die Materialliste übernehmen">→ als Außenumfang übernehmen</button>' : '');
       }
     }
   }
