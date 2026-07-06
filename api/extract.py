@@ -4994,9 +4994,24 @@ async def projekt_export(body: ProjektMassenRequest):
     # CLEAN "OENORM"-FORMAT: nur die ÖNORM-Massenermittlung als prüfbares LV
     # (Gewerk → Positionen mit ÖNORM-Bezug + Aufmaß-Zeilen). Ohne Bestell-Einheiten.
     if (body.export_format or "").lower() in ("oenorm", "önorm", "massen"):
+        # PRÜFBARER LV-KOPF (fehlte bisher — der Export startete direkt mit der
+        # Spaltenzeile): Projekt + Pläne + Umfang, damit das exportierte LV ohne
+        # Zusatzinfo zuordenbar ist (Baubetrieb-Übergabe an ORCA/ABK).
+        _pl_namen = ", ".join(p.get("dateiname", "") for p in (data.get("plaene") or [])
+                              if p.get("selected"))
+        _proj = data.get("projekt_name") or data.get("projekt_id") or "Projekt"
+        _n_gw = len(data.get("gewerke") or {})
+        _n_pos = sum(len(g.get("positionen") or []) for g in (data.get("gewerke") or {}).values())
         # LG-Spalte (Standardisierte LB-Hochbau Leistungsgruppe) voran — damit
         # der Export nach LG/Position gliedert wie die AVA-Software (ORCA/ABK).
-        rl = ["LG;Gewerk;Pos;Beschreibung;Menge;Einheit;ÖNORM-Bezug;Konfidenz %"]
+        rl = [
+            "ÖNORM-Massenermittlung — prüfbares Leistungsverzeichnis",
+            "Projekt;" + esc(_proj),
+            "Pläne;" + esc(_pl_namen or "(alle gewählten)"),
+            "Umfang;" + str(_n_gw) + " Gewerke;" + str(_n_pos) + " Positionen",
+            "",
+            "LG;Gewerk;Pos;Beschreibung;Menge;Einheit;ÖNORM-Bezug;Konfidenz %",
+        ]
         for gk, ginfo in (data.get("gewerke") or {}).items():
             label = (ginfo.get("label") or gk)
             lg = ginfo.get("lg") or ""
