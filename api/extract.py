@@ -4979,6 +4979,13 @@ async def projekt_export(body: ProjektMassenRequest):
             for p in pps:
                 rl.append(";".join([esc(bauteil), esc(p.get("material")),
                                     fmt(p.get("menge")), esc(p.get("einheit"))]))
+        # DACH-/ZIMMERER-MATERIAL (byte-exakt) mit in den Bestell-Export — sonst
+        # sieht der Dachdecker seine Mengen im UI, kann sie aber nicht exportieren.
+        for dp in (data.get("dach_positionen") or []):
+            for p in (dp.get("materialliste") or []):
+                rl.append(";".join([esc("Dach: " + str(p.get("bauteil"))),
+                                    esc(p.get("material")), fmt(p.get("menge")),
+                                    esc(p.get("einheit"))]))
         csv_r = "﻿" + "\r\n".join(rl) + "\r\n"
         fn_r = f"materialliste-{(data.get('projekt_id') or 'export')[:8]}.csv"
         return Response(content=csv_r, media_type="text/csv; charset=utf-8",
@@ -5174,6 +5181,31 @@ async def projekt_export(body: ProjektMassenRequest):
                     fmt((p.get("konfidenz") or 0) * 100, 0),
                     esc(p.get("formel")),
                 ]))
+        lines.append("")
+
+    # DACH-/ZIMMERER-SEKTOR (byte-exakt vom Plan) — Positionen + Material-Mengen
+    for dp in (data.get("dach_positionen") or []):
+        lines.append(f"DACH-POSITIONEN (byte-exakt){'  ' + esc(dp.get('plan')) if dp.get('plan') else ''}")
+        if dp.get("gesamt_m2") is not None:
+            best = " ✓ Σ Teilflächen = Gesamt" if dp.get("gesamt_bestaetigt") else ""
+            lines.append(f"Dachfläche gesamt;{fmt(dp['gesamt_m2'])};m²;{esc(best)}")
+        for f2 in (dp.get("flaechen") or []):
+            lines.append(";".join(["Dachfläche " + esc(f2.get("name")),
+                                   fmt(f2.get("m2")), "m²", esc(f2.get("rechnung") or "")]))
+        for h2 in (dp.get("hoelzer") or []):
+            lines.append(";".join([esc(h2.get("bauteil")), str(h2.get("anzahl")), "Stk",
+                                   f"B/H {h2.get('b_cm')}/{h2.get('h_cm')} cm"]))
+        for fe in (dp.get("fenster") or []):
+            lines.append(";".join([esc((fe.get("marke") or "") + " " + (fe.get("typ") or "")),
+                                   str(fe.get("anzahl")), "Stk",
+                                   f"{fe.get('breite_cm')}/{fe.get('hoehe_cm')} cm"]))
+        if dp.get("materialliste"):
+            lines.append("Bauteil;Material;Menge;Einheit;Konfidenz;Formel")
+            for p in dp["materialliste"]:
+                lines.append(";".join([esc(p.get("bauteil")), esc(p.get("material")),
+                                       fmt(p.get("menge")), esc(p.get("einheit")),
+                                       fmt((p.get("konfidenz") or 0) * 100, 0),
+                                       esc(p.get("formel"))]))
         lines.append("")
 
     csv = "﻿" + "\r\n".join(lines) + "\r\n"
