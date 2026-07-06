@@ -124,6 +124,16 @@ def run():
     check("Fliesen: Wand 24,0 − Tür 1,6 − Fenster 0,5 (im Band) = 21,9",
           abs(fw_ab.endsumme - 21.9) < 0.05)
 
+    # ── CROSS-DEDUP Fenster↔Tür (dieselbe Hebeschiebetür in beiden Listen) ──
+    _kom = ML._oeffnungen_kombi(
+        [{"breite_m": 2.4, "hoehe_m": 2.4, "cx": 100, "cy": 100}],      # als Fenster
+        [{"breite_m": 2.4, "hoehe_m": 2.4, "cx": 105, "cy": 102}])      # UND als Tür
+    check("Öffnungs-Dedup: gleiche Öffnung (2,4×2,4, positions-nah) → 1×", len(_kom) == 1)
+    _kom2 = ML._oeffnungen_kombi(
+        [{"breite_m": 1.0, "hoehe_m": 0.6, "cx": 100, "cy": 100}],
+        [{"breite_m": 0.8, "hoehe_m": 2.0, "cx": 100, "cy": 94}])       # andere Maße
+    check("Öffnungs-Dedup: verschiedene Öffnungen (andere Maße) bleiben 2", len(_kom2) == 2)
+
     # ── PHASE 1: zentraler Helfer oeffnung_netto (ÖNORM B 2204) ──
     n_klein = ML.oeffnung_netto(1.5, 2.0, wand_cm=50, schwelle=4.0)   # 3,0 m²
     check("netto: 3,0 m² übermessen → kein Abzug", n_klein["uebermessen"] and n_klein["abzug"] == 0)

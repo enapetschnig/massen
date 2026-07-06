@@ -201,9 +201,40 @@ def oeffnung_netto(breite_m, hoehe_m, wand_cm, fph_m=0.0, schwelle=None,
 
 def _oeffnungen_kombi(windows, tueren):
     """Fenster + Türen zu EINER getaggten Öffnungs-Liste (_art) für den ÖNORM-Abzug.
-    Türen ohne explizites _art werden als 'tuer' markiert (→ Innenwand-Fallback)."""
+    Türen ohne explizites _art werden als 'tuer' markiert (→ Innenwand-Fallback).
+
+    CROSS-DEDUP: eine große Hebe-/Schiebetür zur Terrasse wird oft vom Fenster-Vision-
+    Pass UND vom STUK/FPH-Text-Pass erfasst → sie läge in BEIDEN Listen und würde
+    DOPPELT abgezogen. Türen, die positions-nah (≤30pt cx/cy) an einer schon erfassten
+    Öffnung liegen, werden als dieselbe physische Öffnung erkannt; die BEMASSTE
+    Variante bleibt. Nur aktiv, wenn beide Positionen tragen (sonst kein Dedup)."""
     out = [dict(w, _art=(w.get("_art") or "fenster")) for w in (windows or [])]
-    out += [dict(t, _art=(t.get("_art") or "tuer")) for t in (tueren or [])]
+    for t in (tueren or []):
+        tx, ty = t.get("cx"), t.get("cy")
+        tb, th = t.get("breite_m"), t.get("hoehe_m")
+        match_i = None
+        if tx is not None and ty is not None:
+            for _i, w in enumerate(out):
+                wx, wy = w.get("cx"), w.get("cy")
+                if not (wx is not None and wy is not None
+                        and abs(wx - tx) <= 30 and abs(wy - ty) <= 30):
+                    continue
+                wb, wh = w.get("breite_m"), w.get("hoehe_m")
+                # Nur DIESELBE Öffnung mergen: beide bemaßt → Maße müssen ~gleich sein
+                # (≤0,2 m; sonst sind es zwei verschiedene Öffnungen nah beieinander);
+                # ist eine Seite maßlos, genügt die Positions-Nähe.
+                if tb and th and wb and wh:
+                    if abs(wb - tb) <= 0.2 and abs(wh - th) <= 0.2:
+                        match_i = _i
+                        break
+                else:
+                    match_i = _i
+                    break
+        if match_i is None:
+            out.append(dict(t, _art=(t.get("_art") or "tuer")))
+        elif (not (out[match_i].get("breite_m") and out[match_i].get("hoehe_m"))
+              and tb and th):
+            out[match_i] = dict(t, _art=(t.get("_art") or "tuer"))  # bemaßte Variante behalten
     return out
 
 
@@ -292,7 +323,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
         pos.add_zeile(f"{_room_name(r)} — Wand brutto", laenge=u, hoehe=h,
                       summe=u * h, quelle=f"U={u} × H={h}")
         for w in fzuord.get(id(r), []):
-            bw, hw = w.get("breite_m", 0), w.get("hoehe_m", 0)
+            bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
                                    w.get("fph_m", 0), schwelle)
             if netto["uebermessen"] or netto["abzug"] <= 0:
@@ -508,7 +539,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
         pos.add_zeile(f"{_room_name(r)} — Wand", laenge=u, hoehe=h, summe=u * h,
                       quelle=f"U={u} × H={h}")
         for w in fzuord.get(id(r), []):
-            bw, hw = w.get("breite_m", 0), w.get("hoehe_m", 0)
+            bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
                                    w.get("fph_m", 0), schwelle)
             if netto["uebermessen"] or netto["abzug"] <= 0:
@@ -609,7 +640,7 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
         # Öffnungen im Fliesenband [0..h] abziehen: Tür (fph=0) → volle Bandhöhe,
         # Fenster ab Parapet fph → nur der Teil unter der Fliesenhöhe ist gefliest.
         for w in fzuord.get(id(r), []):
-            bw, hw = w.get("breite_m", 0), w.get("hoehe_m", 0)
+            bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             fph = w.get("fph_m", 0) or 0
             band = min(h, fph + hw) - max(0.0, fph)   # Öffnungshöhe innerhalb des Bands
             if bw <= 0 or band <= 0:

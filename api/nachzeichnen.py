@@ -99,7 +99,14 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 box = vektor._view_bbox(pos, ptm, marge_m=_marge, radius_m=40.0)
     except Exception:
         pass
-    if not box:
+    # SCHNITT-GATE vor _wandbox (Audit): ein kompaktes Schnitt-/Ansichts-Blatt (12×10 m
+    # Gebäude) hat KEINE Raumnamen und KEINE Stempel, seine dunklen Linien ergeben aber
+    # eine 4-30-m-Box → _wandbox akzeptierte es fälschlich als Grundriss. Trägt das Blatt
+    # ≥8 byte-exakte HÖHENKOTEN (die Schnitt-Signatur), _wandbox überspringen → es fällt
+    # sauber in den Schnitt-Modus unten.
+    _koten_n = sum(1 for w in worte
+                   if re.match(r"^[±+\-]\s?\d{1,2}[.,]\d{2}$", w[4].strip()))
+    if not box and _koten_n < 8:
         # FALLBACK für Grundriss-Pläne OHNE Raumnamen (z.B. reine Wand-Grundrisse):
         # die Bounding-Box der dunklen Wand-Linien nehmen — aber nur, wenn sie eine
         # PLAUSIBLE Gebäude-Größe hat (4-45 m/Seite). Schließt Schnitte/Lagepläne aus.

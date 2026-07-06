@@ -1464,8 +1464,16 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel, r_gl_gross=0.25):
     Komponente von Nicht-Raum-Zellen, die die Raum-BBox nicht erreicht."""
     W, H = rst.W, rst.H
     out = []
+    # PERF (Profiling: 22s): die Raum-Zellen EINMAL in einem Grid-Durchlauf sammeln
+    # statt je Raum den ganzen Grid zu scannen (O(W·H) statt O(n·W·H)). Diese Funktion
+    # MISST nur (verändert label nicht) → das Ergebnis ist byte-identisch.
+    _cells_by_room = {}
+    for idx in range(W * H):
+        _lab = label[idx]
+        if 0 <= _lab < len(stempel):
+            _cells_by_room.setdefault(_lab, []).append(idx)
     for li, st in enumerate(stempel):
-        cells = [idx for idx in range(W * H) if label[idx] == li]
+        cells = _cells_by_room.get(li)
         if not cells:
             out.append((0.0, 0.0))
             continue
