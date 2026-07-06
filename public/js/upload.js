@@ -288,6 +288,21 @@
     if (!el) return;
     var bd = data.baudaten || {}, bq = bd._quellen || {}, g = data.gemessen || {};
     var facts = [];
+    // SEKTOR-INDIKATOR (mehrere Bereiche der Baubranche sichtbar machen): die
+    // App erkennt den Plan-Typ und rechnet im passenden Modus — der Nutzer sieht
+    // sofort, WAS erkannt wurde, statt still umgeschaltet zu werden.
+    var sektor = null;
+    var _kz = (data.materialliste && data.materialliste.kennzahlen) || {};
+    if ((data.dach_positionen || []).length)
+      sektor = { ico: '🏠', txt: 'Dachplan · Zimmerer/Dachdecker', col: '#b45309' };
+    else if (_kz.sektor === 'STB/Tiefgarage')
+      sektor = { ico: '🅿️', txt: 'Tiefgarage · Stahlbeton-Modus', col: '#475569' };
+    else
+      sektor = { ico: '🏗️', txt: 'Rohbau · Hochbau (EFH/Wohnbau)', col: '#166534' };
+    facts.push('<div class="fact fact-sektor" style="border-color:' + sektor.col +
+      '"><span class="fact-ico">' + sektor.ico + '</span><span class="fact-k">Sektor</span>' +
+      '<span class="fact-v" style="color:' + sektor.col + ';font-weight:700">' + sektor.txt +
+      '</span><span class="fact-src" title="automatisch aus dem Plan-Typ erkannt — passt Mengenlogik + Materialliste an">erkannt</span></div>');
     function srcTag(key) {
       var q = (bq[key] || '') + '';
       var dc = q.indexOf('doppelcheck') >= 0 ? '<span class="fact-confirm" title="von zwei unabhängigen Quellen bestätigt — sehr hohe Konfidenz">✓✓</span>' : '';
