@@ -589,6 +589,18 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
                 _la[_dk] = _la.get(_dk, 0) + _c / _sa * 100.0
             elif _dk and _v.get("art") == "innen" and _si:
                 _li[_dk] = _li.get(_dk, 0) + _c / _si * 100.0
+        # Legende kennt evtl. nur EINE Wandklasse (nur aussen ODER nur innen) — dann
+        # würde die ANDERE Wandfläche (aw_m2_aussen bzw. iw_m2_innen_rohbau) im
+        # Legende-Zweig stillschweigend fallengelassen. Fehlende Klasse aus der
+        # Standard-Verteilung nachfüllen, damit KEINE Wand-m² verloren geht.
+        if _la and not _li:
+            _li = {25: f("wand_anteil_25cm_innen", override),
+                   20: f("wand_anteil_20cm", override),
+                   12: f("wand_anteil_12cm", override)}
+        elif _li and not _la:
+            _la = {50: f("wand_anteil_50cm", override),
+                   38: f("wand_anteil_38cm", override),
+                   25: f("wand_anteil_25cm_aussen", override)}
         if _la or _li:
             wand_verteilung = {"aussen": _la, "innen": _li}
     if (wand_verteilung and (wand_verteilung.get("aussen") or wand_verteilung.get("innen"))

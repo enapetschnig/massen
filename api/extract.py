@@ -3637,6 +3637,9 @@ async def projekt_massen(body: ProjektMassenRequest):
     aussenmasse_kandidaten = []  # Liste von {seiten, umfang, flaeche, breite, tiefe, quelle}
     aussenpolygon_kandidaten = []  # Liste von {umfang_m, flaeche_m2, quelle}
     fundament_kandidaten = []  # Linie B: Bodenplatten-Außenkante {umfang_m, flaeche_m2}
+    _dach_gesamt = []  # Dach-Positionen (byte-exakt) über alle Pläne — MUSS vor dem
+    # Loop stehen: der Loop appendet ab Z.~3737 (log['dach_positionen']); die frühere
+    # Init NACH dem Loop war ein NameError-Crash-Risiko UND überschrieb die Appends.
     for p in plaene:
         log = p.get("agent_log") or {}
         gw = log.get("gewerke") or {}
@@ -3918,7 +3921,8 @@ async def projekt_massen(body: ProjektMassenRequest):
     bbox_flaechen = [c["flaeche_m2"] for c in aussenmasse_kandidaten if c.get("flaeche_m2")]
 
     gemessen = None
-    _dach_gesamt = []   # Dach-Positionen (byte-exakt) über alle Pläne
+    # (_dach_gesamt wird jetzt VOR dem Plan-Loop initialisiert — die frühere Init
+    #  hier hätte die im Loop gesammelten Dach-Positionen wieder auf [] gesetzt.)
     # Fläche: Bodenplatte aus Vision-Polygon ODER bbox ODER Σ F_innen
     bp_flaeche = _median(poly_flaechen) or _median(bbox_flaechen)
     if bp_flaeche is None and f_innen_check > 0:
@@ -4619,7 +4623,10 @@ async def projekt_massen(body: ProjektMassenRequest):
         if _s in ("warnung", "fehler"):
             pruefliste.append({"prio": "hoch" if _s == "fehler" else "mittel",
                                "thema": _f.get("check") or "Plausibilität",
-                               "hinweis": _f.get("botschaft") or ""})
+                               # Konsistenz-Findings tragen ihren Text unter "msg"
+                               # (konsistenz.py-Schema) — "botschaft" gab es NIE, die
+                               # Warnungen erschienen also mit leerem Hinweis-Text.
+                               "hinweis": _f.get("msg") or _f.get("botschaft") or ""})
     if isinstance(opus_pruefung, dict):
         for _b in (opus_pruefung.get("befunde") or opus_pruefung.get("pruefung") or []):
             _s = (_b.get("schwere") or "").lower()
