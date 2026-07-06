@@ -1518,7 +1518,7 @@
     var sF = 0, sW = 0, sU = 0;
     var html = '<h4 class="advanced-h" style="margin-top:1.1rem">Raum-Aufmaß — jeder Raum einzeln ' +
       '(F/U byte-exakt aus den Raum-Stempeln des Plans)</h4>' +
-      '<table class="oa-tab"><thead><tr><th>Raum</th><th>Boden (=F)</th><th>Decke</th><th>Umfang U</th>' +
+      '<div class="tbl-scroll"><table class="oa-tab"><thead><tr><th>Raum</th><th>Boden (=F)</th><th>Decke</th><th>Umfang U</th>' +
       '<th>Höhe</th><th>Wandabwicklung U×H</th><th>Sockel</th></tr></thead><tbody>';
     innen.forEach(function (r) {
       var aussen = !!r._h_not_applicable;
@@ -1535,7 +1535,7 @@
         '<td>' + (wf ? fmtNum(wf) + ' m²' : '–') + '</td>' +
         '<td>' + (u && !aussen ? fmtNum(u) + ' lfm' : '–') + '</td></tr>';
     });
-    html += '</tbody></table><div class="oa-summe">Σ Innenräume: Boden <strong>' +
+    html += '</tbody></table></div><div class="oa-summe">Σ Innenräume: Boden <strong>' +
       fmtNum(Math.round(sF * 100) / 100) + ' m²</strong> · Wandabwicklung <strong>' +
       fmtNum(Math.round(sW * 100) / 100) + ' m²</strong> · Sockel <strong>' +
       fmtNum(Math.round(sU * 100) / 100) + ' lfm</strong> — ✓ = byte-exakt aus dem Plan-Text, ' +
@@ -1597,7 +1597,7 @@
         return _nzTLabel(t) + ': ' + sums[t].n + ' Wände · Σ ' + fmtNum(Math.round(sums[t].l * 100) / 100) +
           ' m · <strong>' + fmtNum(Math.round(sums[t].m2 * 100) / 100) + ' m²</strong> netto';
       }).join(' &nbsp;|&nbsp; ') + '</div>' +
-      '<table class="oa-tab"><thead><tr><th>Wand</th><th>Stärke</th><th>Länge</th><th>Höhe</th>' +
+      '<div class="tbl-scroll"><table class="oa-tab"><thead><tr><th>Wand</th><th>Stärke</th><th>Länge</th><th>Höhe</th>' +
       '<th>brutto</th><th>Öffnungen</th><th>Abzug >4m²</th><th>netto</th><th>Quelle</th></tr></thead><tbody>';
     rows.forEach(function (r) {
       html += '<tr><td>W' + r.id + ' (' + (r.achse === 'v' ? 'vert.' : 'horiz.') + ')</td>' +
@@ -1610,7 +1610,7 @@
         '<td><strong>' + fmtNum(r.netto) + ' m²</strong></td>' +
         '<td>' + (r.manuell ? 'manuell ergänzt' : (r.exakt ? 'Plan-Maßzahl (byte-exakt)' : 'Vektor-Messung')) + '</td></tr>';
     });
-    el.innerHTML = html + '</tbody></table>' +
+    el.innerHTML = html + '</tbody></table></div>' +
       '<div class="oa-summe">Öffnungen der nächstliegenden Wand zugeordnet; Abzug nur >4,0 m² ' +
       '(ÖNORM B 2204 — kleinere übermessen, Laibungen siehe Öffnungs-Aufmaß).</div>';
   }
@@ -1626,7 +1626,7 @@
       '<div class="oa-summe">' + s.n + ' Öffnungen · ' + s.n_uebermessen + ' übermessen (≤4,0 m²) · ' +
       s.n_abzug + ' mit Abzug — Σ Abzug <strong>' + fmtNum(s.abzug_m2) + ' m²</strong>, Σ Laibungen <strong>' +
       fmtNum(s.laibung_m2) + ' m²</strong></div>' +
-      '<table class="oa-tab"><thead><tr><th>Raum</th><th>Typ</th><th>Wand</th><th>B×H</th><th>Fläche</th>' +
+      '<div class="tbl-scroll"><table class="oa-tab"><thead><tr><th>Raum</th><th>Typ</th><th>Wand</th><th>B×H</th><th>Fläche</th>' +
       '<th>Regel</th><th>Abzug</th><th>Laibung</th><th>Rechenweg</th></tr></thead><tbody>';
     oa.zeilen.forEach(function (z) {
       html += '<tr' + (z.abzug_m2 > 0 ? ' class="oa-abzug"' : '') + '>' +
@@ -1640,7 +1640,7 @@
         '<td>' + (z.laibung_m2 ? '+' + fmtNum(z.laibung_m2) + ' m²' + (z.sohlbank ? ' (inkl. Sohlbank)' : '') : '–') + '</td>' +
         '<td class="oa-formel">' + esc(z.formel) + '</td></tr>';
     });
-    el.innerHTML = html + '</tbody></table>';
+    el.innerHTML = html + '</tbody></table></div>';
   }
 
   // Firmen-Selbst-Kalibrierung ENTFERNT — Korrektur passiert jetzt direkt am Plan

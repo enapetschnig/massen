@@ -2051,6 +2051,10 @@ img {
   border: 1px solid #d1d5db; border-radius: 4px;
 }
 .materialliste-table-wrap { overflow-x: auto; }
+/* Scroll-Wrapper für die breiten Aufmaß-Tabellen (9-Spalten-Wand-Aufmaß etc.):
+   auf Handys/Tablets scrollt die Tabelle IN sich statt die Seite horizontal
+   aufzubrechen (Design-Prinzip; Baubetriebe arbeiten mobil auf der Baustelle). */
+.tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
 .materialliste-table {
   width: 100%; border-collapse: collapse; font-size: 0.82rem;
 }
