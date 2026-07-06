@@ -2500,6 +2500,46 @@ img {
 .ml-board {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.9rem;
 }
+/* ── Ansichts-Umschalter Mengen ↔ Bestellung ── */
+.view-switch { display: inline-flex; background: var(--surface-2, #f1f5f9); border: 1px solid var(--border);
+  border-radius: 9px; padding: 3px; gap: 2px; }
+.view-switch .vs { border: 0; background: transparent; color: var(--text-light);
+  font: inherit; font-size: 0.88rem; font-weight: 600; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+.view-switch .vs.on { background: var(--primary); color: #fff; box-shadow: var(--shadow-sm); }
+/* ── Prüfbare Mengenermittlung (Instrument-Anmutung) ── */
+.mengen-board { display: flex; flex-direction: column; gap: 0.8rem; }
+.mengen-board .mgroup { background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
+  border-left: 4px solid var(--mg-c, #64788f); }
+.mengen-board .mg-ok { --mg-c: #1c7a49; } .mengen-board .mg-warn { --mg-c: #b4770a; }
+.mengen-board .mg-idle { --mg-c: #64788f; }
+.mengen-board .mgroup-h { display: flex; align-items: center; gap: 10px;
+  padding: 11px 16px; background: var(--surface-2, #f6f8fb); }
+.mengen-board .lg-badge { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+  font-weight: 700; color: var(--primary-light); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 6px; letter-spacing: .02em; }
+.mengen-board .mg-name { font-weight: 700; font-size: 0.95rem; letter-spacing: -.01em; }
+.mengen-board .mg-ct { font-size: 0.78rem; color: var(--text-faint); margin-left: auto; }
+.mengen-board .mrow2 { display: grid; grid-template-columns: 1fr auto 46px; gap: 14px;
+  align-items: baseline; padding: 10px 16px; border-top: 1px solid var(--border); }
+.mengen-board .mgroup-h + .mrow2 { border-top: 0; }
+.mengen-board .m-pos { font-size: 0.9rem; color: var(--text); }
+.mengen-board .m-nr { font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; color: var(--text-faint); }
+.mengen-board .m-qty { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums;
+  font-weight: 700; font-size: 0.98rem; text-align: right; white-space: nowrap; }
+.mengen-board .m-qty .u { font-family: inherit; font-weight: 500; font-size: 0.76rem; color: var(--text-faint); margin-left: 4px; }
+.mengen-board .m-conf { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums;
+  font-size: 0.78rem; font-weight: 700; text-align: right; }
+.mengen-board .m-conf.hi { color: #1c7a49; } .mengen-board .m-conf.mid { color: #b4770a; }
+.mengen-board .m-conf.lo { color: #64788f; }
+/* Aufmaß-Herleitung — der prüfbare Rechenweg je Raum */
+.mengen-board .m-auf { padding: 2px 16px 10px 16px; }
+.mengen-board .auf-z { display: grid; grid-template-columns: 1fr auto auto; gap: 12px;
+  padding: 3px 10px; font-size: 0.8rem; color: var(--text-light);
+  border-left: 2px solid var(--border); margin-left: 4px; }
+.mengen-board .az-q { font-family: ui-monospace, Menlo, monospace; font-size: 0.74rem; color: var(--text-faint); }
+.mengen-board .az-w { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums;
+  font-weight: 600; color: var(--text-light); }
 .ml-empty {
   grid-column: 1 / -1; padding: 2rem; text-align: center; color: var(--text-light);
   background: var(--white); border: 1px dashed var(--border); border-radius: var(--radius);

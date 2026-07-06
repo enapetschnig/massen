@@ -764,7 +764,69 @@
     }
 
     renderReadData(data);
+    renderMengenermittlung(data);
     renderMaterialliste(data.materialliste, data.gemessen);
+  }
+
+  // PRÜFBARE MENGENERMITTLUNG (ÖNORM A 2063 / LB-Hochbau): Gewerk (LG) →
+  // Position → Menge · Einheit → AUFMASS-HERLEITUNG (der Rechenweg je Raum) +
+  // Konfidenz. Das ist die ausschreibungs-/abrechnungsfähige Grundlage — die
+  // Bestell-Materialliste ist die abgeleitete Beschaffungs-Sicht (Umschalter).
+  var _lastGewerke = null;
+  function renderMengenermittlung(data) {
+    _lastGewerke = data && data.gewerke;
+    var board = document.getElementById('mengen-board');
+    if (!board) return;
+    var gw = data && data.gewerke || {};
+    var keys = Object.keys(gw).filter(function (k) {
+      return (gw[k].positionen || []).some(function (p) { return (p.endsumme || 0) !== 0; });
+    });
+    if (!keys.length) {
+      board.innerHTML = '<div class="ml-empty">Noch keine Mengen — die Pläne enthalten noch keine vollständigen Raumdaten.</div>';
+      return;
+    }
+    var showAuf = !!(document.getElementById('ml-formel-toggle') || {}).checked;
+    var onlySure = !!(document.getElementById('ml-only-sure') || {}).checked;
+    var html = '';
+    keys.forEach(function (gk) {
+      var g = gw[gk];
+      var lg = g.lg || '';
+      var name = (g.label || gk).replace(/\s*\(.*\)/, '').replace(/^Maurer\s*\/\s*/, '').replace(/^Verputzer/, 'Putz');
+      var pos = (g.positionen || []).filter(function (p) {
+        return (p.endsumme || 0) !== 0 && (!onlySure || (p.konfidenz || 0) >= 0.65);
+      });
+      if (!pos.length) return;
+      // Gewerk-Konfidenz (min) → Farb-Stripe
+      var gkonf = Math.min.apply(null, pos.map(function (p) { return p.konfidenz || 0; }));
+      var gc = gkonf >= 0.8 ? 'ok' : (gkonf >= 0.6 ? 'warn' : 'idle');
+      html += '<section class="mgroup mg-' + gc + '">';
+      html += '<div class="mgroup-h">' +
+        (lg ? '<span class="lg-badge">LG ' + esc(lg) + '</span>' : '') +
+        '<span class="mg-name">' + esc(name) + '</span>' +
+        '<span class="mg-ct">' + pos.length + ' Position' + (pos.length > 1 ? 'en' : '') +
+        (g.label && /B\s*2\d{3}/.test(g.label) ? ' · ÖNORM ' + (g.label.match(/B\s*2\d{3}/) || [''])[0] : '') +
+        '</span></div>';
+      pos.forEach(function (p) {
+        var konf = Math.round((p.konfidenz || 0) * 100);
+        var kc = konf >= 80 ? 'hi' : (konf >= 65 ? 'mid' : 'lo');
+        html += '<div class="mrow2">' +
+          '<div class="m-pos"><span class="m-nr">' + esc(p.posnr || '') + '</span> ' +
+          esc(p.beschreibung || '') + '</div>' +
+          '<div class="m-qty">' + fmtNum(p.endsumme) + '<span class="u">' + esc(p.einheit || '') + '</span></div>' +
+          '<div class="m-conf ' + kc + '">' + konf + '%</div></div>';
+        if (showAuf && (p.zeilen || []).length) {
+          html += '<div class="m-auf">';
+          (p.zeilen || []).forEach(function (z) {
+            html += '<div class="auf-z"><span class="az-t">' + esc(z.text || '') + '</span>' +
+              '<span class="az-q">' + esc(z.quelle || '') + '</span>' +
+              '<span class="az-w">' + fmtNum(z.wert) + '</span></div>';
+          });
+          html += '</div>';
+        }
+      });
+      html += '</section>';
+    });
+    board.innerHTML = html;
   }
 
   // EINE Datenquelle für alle gelesenen Elemente: Räume + Fenster + Türen aus
@@ -835,16 +897,38 @@
     var ringNum = document.getElementById('trust-ring-num');
     if (!board) return;
 
-    // Rechenweg-Toggle + „nur Sichere"-Filter einmalig binden → neu rendern
+    // Rechenweg/Aufmaß-Toggle + „nur Sichere"-Filter binden → BEIDE Ansichten neu
     var tog = document.getElementById('ml-formel-toggle');
     if (tog && !tog.dataset.bound) {
       tog.dataset.bound = '1';
-      tog.addEventListener('change', function () { renderMaterialliste(_lastML, _lastGemessen); });
+      tog.addEventListener('change', function () {
+        renderMaterialliste(_lastML, _lastGemessen);
+        renderMengenermittlung({ gewerke: _lastGewerke });
+      });
     }
     var onlySure = document.getElementById('ml-only-sure');
     if (onlySure && !onlySure.dataset.bound) {
       onlySure.dataset.bound = '1';
-      onlySure.addEventListener('change', function () { renderMaterialliste(_lastML, _lastGemessen); });
+      onlySure.addEventListener('change', function () {
+        renderMaterialliste(_lastML, _lastGemessen);
+        renderMengenermittlung({ gewerke: _lastGewerke });
+      });
+    }
+    // Ansichts-Umschalter Mengen ↔ Bestellung (einmalig binden)
+    var vsw = document.getElementById('mengen-view-switch');
+    if (vsw && !vsw.dataset.bound) {
+      vsw.dataset.bound = '1';
+      vsw.querySelectorAll('.vs').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var v = b.getAttribute('data-view');
+          vsw.querySelectorAll('.vs').forEach(function (x) {
+            var on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-selected', on ? 'true' : 'false');
+          });
+          var mb = document.getElementById('mengen-board'), lb = document.getElementById('ml-board');
+          if (mb) mb.classList.toggle('hidden', v !== 'mengen');
+          if (lb) lb.classList.toggle('hidden', v !== 'material');
+        });
+      });
     }
 
     if (!ml || ml.error || !ml.bauteile) {

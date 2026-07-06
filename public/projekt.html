@@ -130,15 +130,23 @@
         <button type="button" class="zg-btn" data-preset="kalkulant">&#128202; Kalkulant (alle Gewerke, LV-Form)</button>
       </div>
 
-      <!-- HERZSTÜCK: Materialliste nach Bauteil gruppiert -->
+      <!-- HERZSTÜCK: prüfbare Mengenermittlung (ÖNORM/LB-HB) ODER Bestell-Materialliste -->
       <div class="ml-board-toolbar">
-        <span class="ml-board-title">Material nach Bauteil</span>
+        <div class="view-switch" id="mengen-view-switch" role="tablist" aria-label="Ansicht wählen">
+          <button type="button" class="vs on" data-view="mengen" role="tab" aria-selected="true"
+            title="Prüfbare Mengen nach Leistungsgruppe/Position mit Aufmaß-Herleitung — die ausschreibungs- &amp; abrechnungsfähige Grundlage (ÖNORM A 2063 / LB-Hochbau)">Mengen &middot; pr&uuml;fbar</button>
+          <button type="button" class="vs" data-view="material" role="tab" aria-selected="false"
+            title="Abgeleitete Bestell-Materialliste — Bauteil · Material · Paletten/m³ mit Verschnitt (für den Einkauf)">Bestellung</button>
+        </div>
         <div class="ml-board-tools">
           <label class="ml-tool"><input type="checkbox" id="ml-only-sure"> nur Sichere</label>
-          <label class="ml-tool"><input type="checkbox" id="ml-formel-toggle"> &#129518; Rechenwege</label>
+          <label class="ml-tool"><input type="checkbox" id="ml-formel-toggle"> &#129518; Aufma&szlig;/Rechenweg</label>
         </div>
       </div>
-      <div class="ml-board" id="ml-board"></div>
+      <!-- prüfbare Mengenermittlung nach Gewerk/Position (primär) -->
+      <div class="mengen-board" id="mengen-board"></div>
+      <!-- Bestell-Materialliste nach Bauteil (auf Umschalten) -->
+      <div class="ml-board hidden" id="ml-board"></div>
 
       <!-- KENNZAHLEN: immer sichtbar am Ende der Auswertung (Höhe + Wandflächen) -->
       <div class="auswertung-kennzahlen" id="auswertung-kennzahlen"></div>
