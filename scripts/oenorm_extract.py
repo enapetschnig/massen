@@ -710,12 +710,93 @@ def export_excel(positionen: list[LVPosition], out_path: Path, baustelle: str = 
     wb.save(out_path)
 
 
+def rotated_claims_fill(rooms: list[dict], spans: list[dict]) -> None:
+    """ROTATED-LABEL GLOBAL CLAIMS (Harness-Sync mit api/extract.py 1146-1230):
+    ArchiCAD/GSPublisher-Pläne (Velden-TG) setzen 'F:'/'U:'/'H:'/'B:' als
+    SOLO-Spans mit dem Wert im Span DARÜBER (rotiertes Layout) — die
+    Nachbarschafts-Suche von extract_room findet sie nicht. Claims sammeln
+    und Lücken greedy füllen (jeder Claim max. 1×, Radius 150pt). Ohne diesen
+    Block maß das Scoreboard den TG mit 6/19 statt der echten 17/19 Räume."""
+    def _value_above(label_s, x_tol=6, y_max=60):
+        lx, ly = label_s["cx"], label_s["cy"]
+        best = None
+        bd = float("inf")
+        for o in spans:
+            if o is label_s:
+                continue
+            if abs(o["cx"] - lx) > x_tol:
+                continue
+            dy = ly - o["cy"]
+            if 0 < dy <= y_max:
+                ot = o["text"].strip()
+                if ot in ("F:", "U:", "H:", "B:"):
+                    continue
+                if len(ot) <= 1 and o.get("size", 9) < 5.5:
+                    continue
+                if dy < bd:
+                    bd = dy
+                    best = ot
+        return best
+
+    claims = []
+    for s in spans:
+        t = s["text"].strip()
+        if t in ("F:", "U:", "H:"):
+            v_text = _value_above(s)
+            if v_text:
+                m = re.search(r"([0-9]+[,.][0-9]+)", v_text)
+                if m:
+                    claims.append({"kind": t[0],
+                                   "value": float(m.group(1).replace(",", ".")),
+                                   "cx": s["cx"], "cy": s["cy"]})
+        for kind in ("F", "U", "H"):
+            m = re.match(rf"^{kind}\s*[:=]\s*([0-9]+[,.][0-9]+)", t)
+            if m:
+                claims.append({"kind": kind,
+                               "value": float(m.group(1).replace(",", ".")),
+                               "cx": s["cx"], "cy": s["cy"]})
+
+    def _greedy_fill(kind, attr):
+        kc = [c for c in claims if c["kind"] == kind]
+        missing = [r for r in rooms if not r.get(attr)]
+        if not kc or not missing:
+            return
+        pairs = []
+        for mi, r in enumerate(missing):
+            for ci, c in enumerate(kc):
+                d = ((r["cx"] - c["cx"]) ** 2 + (r["cy"] - c["cy"]) ** 2) ** 0.5
+                if d <= 150:
+                    pairs.append((d, mi, ci))
+        pairs.sort()
+        used_r, used_c = set(), set()
+        for d, mi, ci in pairs:
+            if mi in used_r or ci in used_c:
+                continue
+            missing[mi][attr] = kc[ci]["value"]
+            missing[mi].setdefault("_quellen", {})[attr] = "rotated-claim"
+            used_r.add(mi)
+            used_c.add(ci)
+
+    _greedy_fill("F", "flaeche_m2")
+    _greedy_fill("U", "umfang_m")
+    _greedy_fill("H", "hoehe_m")
+
+
 # ════════════════════════════════════════════════════════════════════════
 # 10. Main
 # ════════════════════════════════════════════════════════════════════════
 def analyse_pdf(pdf_path: Path) -> dict:
     doc = fitz.open(pdf_path)
     page = doc[0]
+    # MULTI-PAGE-Fallback (Harness-Sync): liefert Blatt 1 kaum Räume, die
+    # raumreichste Seite nehmen (Produktion analysiert alle Seiten je Plan).
+    if len(doc) > 1:
+        def _n_rooms(p):
+            sp = extract_spans(p)
+            thr = compute_label_size_threshold(sp)
+            return sum(1 for s2 in sp if is_room_label(s2, thr))
+        if _n_rooms(page) < 3:
+            page = max(doc, key=_n_rooms)
     pw, ph = page.rect.width, page.rect.height
     spans = extract_spans(page)
 
@@ -753,6 +834,7 @@ def analyse_pdf(pdf_path: Path) -> dict:
     raw_rooms = [extract_room(s, spans) for s in spans
                  if is_room_label(s, min_label_size)]
     rooms = dedup_by_position(raw_rooms)
+    rotated_claims_fill(rooms, spans)   # ArchiCAD-Solo-Anker (Harness-Sync)
 
     # Fenster & Türen
     windows = extract_windows(spans)
