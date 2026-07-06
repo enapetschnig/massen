@@ -1758,6 +1758,16 @@
         '<text x="' + r.px[0] + '" y="' + (r.px[1] - fs * 1.6) + '" font-size="' + Math.round(fs * 0.75) + '"' +
         ' text-anchor="middle" dy="' + Math.round(fs * 0.26) + '" fill="#fff" style="font-weight:700;pointer-events:none">' +
         (ok || fOk ? '✓' : '?') + '</text><title>' + tip + '</title></g>';
+      // PRÜF-RÄUME sichtbar am Plan beschriften (nicht nur im Tooltip): erkannte
+      // Fläche + Abweichung, damit die zu prüfenden Stellen ohne Hover auffallen.
+      if (!ok && r.f_ist != null && r.f_m2) {
+        var dpct = Math.round((r.f_ist - r.f_m2) / r.f_m2 * 100);
+        var note = fOk ? 'Umfang prüfen' : ('erkannt ' + fmtNum(r.f_ist) + ' (' + (dpct >= 0 ? '+' : '') + dpct + '%)');
+        raumBadges += '<text x="' + (r.px[0] + fs * 0.9) + '" y="' + (r.px[1] - fs * 1.6) + '"' +
+          ' font-size="' + Math.round(fs * 0.62) + '" dy="' + Math.round(fs * 0.22) + '" fill="' + col +
+          '" stroke="#fff" stroke-width="0.7" paint-order="stroke" style="pointer-events:none">' +
+          note + '</text>';
+      }
     });
     var s = _nzSplit(), ges = s.ges;
     var legend = '';

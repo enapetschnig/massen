@@ -139,6 +139,20 @@ def erzeuge(nz, projekt_name="", firmen_name="", massen=None):
         page.draw_circle(c, 5.5, color=(1, 1, 1), fill=col, width=1)
         page.insert_text(fitz.Point(c.x - 2.2, c.y + 2.4), "✓" if (ok or f_ok) else "?",
                          fontsize=7, color=(1, 1, 1), fontname="hebo")
+        # PRÜF-RÄUME am Plan beschriften (Nachvollziehbarkeit auf dem Ausdruck:
+        # der Polier sieht OHNE Bildschirm, WO und WIE STARK unsere Lesung von
+        # der Plan-Zahl abweicht). Nur bei nicht-voll-bestätigten Räumen, damit
+        # der Plan nicht zuwuchert; byte-exakte Soll-Zahl steht schon im Stempel.
+        if not ok and r.get("f_ist") and r.get("f_m2"):
+            try:
+                d_pct = (r["f_ist"] - r["f_m2"]) / r["f_m2"] * 100.0
+                note = f"erkannt {r['f_ist']:.1f} m² ({d_pct:+.0f}%)"
+                if f_ok:
+                    note = f"F ok · Umfang prüfen ({r.get('u_ist', '?')} vs {r.get('u_m', '?')} m)"
+                page.insert_text(fitz.Point(c.x + 8, c.y + 2.4), note,
+                                 fontsize=6, color=col, fontname="helv")
+            except (TypeError, ValueError):
+                pass
 
     # ── Fuß: Legende + Summen + Ehrlichkeits-Hinweis ──
     y = H_PT - FUSS + 16
