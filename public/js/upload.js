@@ -1617,6 +1617,33 @@
   var _nzZoom = { s: 1, x: 0, y: 0 }, _nzMoved = false;   // Zoom/Pan-Zustand + Drag-Erkennung
   var _nzWrap = null, _nzPan = null, _nzZoomWinBound = false;
   var _nzAddMode = false, _nzDraw = null;   // "Wand hinzufügen"-Modus + laufende Zeichnung
+  var _nzMeasMode = false, _nzMeasPts = [];   // MESSEN-Modus (Lineal/Fläche) + geklickte Punkte
+
+  // Bild-px → Meter über die Plan-Kalibrierung (scale·ptm). Kern des Mess-
+  // Werkzeugs: wo die Auto-Erkennung unsicher ist, misst der Polier selbst
+  // byte-exakt am Maßstab (wie HasenbeinPlan — nur dass der Plan schon
+  // kalibriert ist). laenge in px → m; Polygon-Fläche via Shoelace → m².
+  function _nzPxProM() {
+    var m = _nzData && _nzData.meta || {};
+    return (m.scale || 1) * (m.ptm || 1);   // px pro Meter
+  }
+  function _nzMessStrecke() {
+    var k = _nzPxProM(), L = 0;
+    for (var i = 1; i < _nzMeasPts.length; i++) {
+      var a = _nzMeasPts[i - 1], b = _nzMeasPts[i];
+      L += Math.sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
+    }
+    return L / k;
+  }
+  function _nzMessFlaeche() {
+    if (_nzMeasPts.length < 3) return 0;
+    var k = _nzPxProM(), A = 0, n = _nzMeasPts.length;
+    for (var i = 0; i < n; i++) {
+      var a = _nzMeasPts[i], b = _nzMeasPts[(i + 1) % n];
+      A += a[0] * b[1] - b[0] * a[1];
+    }
+    return Math.abs(A) / 2 / (k * k);
+  }
 
   function _nzCm(w) { return _nzEdit.thick[w.id] != null ? _nzEdit.thick[w.id] : w.snap_cm; }
   function _nzAussenDefault(cm) { return cm === 50 || cm === 38; }  // 20/12 immer innen, 25 default innen
@@ -1866,9 +1893,13 @@
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
       '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
-      '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem">' +
-      (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>' : 'Mausrad = zoomen · ziehen = verschieben') + '</span></div>' +
-      '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
+      '<button type="button" class="nz-btn' + (_nzMeasMode ? ' nz-btn-on' : '') + '" data-z="mess" title="Byte-exakt am Maßstab messen — für unsichere Räume selbst nachmessen">📏 Messen</button>' +
+      (_nzMeasMode ? '<button type="button" class="nz-btn" data-z="mess-clear">✕ Messung löschen</button>' : '') +
+      '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem" id="nz-mess-out">' +
+      (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>'
+        : (_nzMeasMode ? '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>'
+          : 'Mausrad = zoomen · ziehen = verschieben')) + '</span></div>' +
+      '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode || _nzMeasMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
       '<div class="nz-zoom" style="transform-origin:0 0;position:relative;width:100%">' +
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
@@ -1947,7 +1978,9 @@
     cont.querySelectorAll('.nz-zoomctl [data-z]').forEach(function (b) {
       b.addEventListener('click', function () {
         var z = b.getAttribute('data-z');
-        if (z === 'add') { _nzAddMode = !_nzAddMode; _nzSel = null; _nzPaint(); }
+        if (z === 'add') { _nzAddMode = !_nzAddMode; if (_nzAddMode) { _nzMeasMode = false; _nzMeasPts = []; } _nzSel = null; _nzPaint(); }
+        else if (z === 'mess') { _nzMeasMode = !_nzMeasMode; if (_nzMeasMode) { _nzAddMode = false; } _nzMeasPts = []; _nzSel = null; _nzPaint(); }
+        else if (z === 'mess-clear') { _nzMeasPts = []; _nzPaint(); }
         else if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
         else _nzZoomAt(_nzWrap.clientWidth / 2, _nzWrap.clientHeight / 2, z === 'in' ? 1.3 : 1 / 1.3);
       });
@@ -1961,10 +1994,51 @@
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _nzMoved = true;
         _nzZoom.x = _nzPan.ox + dx; _nzZoom.y = _nzPan.oy + dy; _nzApplyZoom();
       });
-      window.addEventListener('mouseup', function () {
+      window.addEventListener('mouseup', function (e) {
         if (_nzDraw) { if (_nzDraw.p1) _nzAddWall(_nzDraw.p0, _nzDraw.p1); _nzDraw = null; return; }
+        // MESSEN: ein sauberer Klick (kein Pan) setzt einen Mess-Punkt.
+        if (_nzMeasMode && _nzPan && !_nzMoved && _nzWrap) {
+          _nzMeasPts.push(_nzScreenToImg(e)); _nzPan = null; _nzMeasPaint(); return;
+        }
         if (_nzPan) { _nzPan = null; if (_nzWrap) _nzWrap.style.cursor = 'grab'; }
       });
+    }
+    // Mess-Overlay nach einem Repaint wiederherstellen (Punkte überleben Zoom/Modus).
+    if (_nzMeasMode && _nzMeasPts.length) _nzMeasPaint();
+  }
+
+  // MESS-OVERLAY: geklickte Punkte + Verbindungslinien + Live-Readout (m / m²).
+  // Zeichnet in eine eigene SVG-Gruppe, ohne _nzPaint komplett neu zu bauen.
+  function _nzMeasPaint() {
+    var svg = _nzWrap && _nzWrap.querySelector('svg'); if (!svg) return;
+    var old = svg.querySelector('#nz-mess'); if (old) old.remove();
+    var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('id', 'nz-mess');
+    var pts = _nzMeasPts, n = pts.length;
+    if (n >= 2) {
+      var d = pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+      var poly = document.createElementNS('http://www.w3.org/2000/svg', n >= 3 ? 'polygon' : 'polyline');
+      poly.setAttribute('points', d);
+      poly.setAttribute('fill', n >= 3 ? '#7c3aed' : 'none');
+      poly.setAttribute('fill-opacity', '0.12');
+      poly.setAttribute('stroke', '#7c3aed'); poly.setAttribute('stroke-width', '2.5');
+      g.appendChild(poly);
+    }
+    pts.forEach(function (p) {
+      var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('cx', p[0]); c.setAttribute('cy', p[1]); c.setAttribute('r', '5');
+      c.setAttribute('fill', '#7c3aed'); c.setAttribute('stroke', '#fff'); c.setAttribute('stroke-width', '1.5');
+      g.appendChild(c);
+    });
+    svg.appendChild(g);
+    var out = document.getElementById('nz-mess-out');
+    if (out) {
+      if (n < 2) out.innerHTML = '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>';
+      else {
+        var s = 'Strecke <strong>' + fmtNum(Math.round(_nzMessStrecke() * 100) / 100) + ' m</strong>';
+        if (n >= 3) s += ' · Umriss-Fläche <strong style="color:#7c3aed">' + fmtNum(Math.round(_nzMessFlaeche() * 100) / 100) + ' m²</strong>';
+        out.innerHTML = s + ' <span style="color:#6b7280">(byte-exakt am Maßstab)</span>';
+      }
     }
   }
 
