@@ -95,64 +95,56 @@
       <!-- KONFIDENZ-KOPF: „kann ich das übernehmen?" zuerst, in einem Blick -->
       <div class="konf-kopf" id="konf-kopf"></div>
 
-      <!-- GEOMETRIE-KASTEN: die kritischen Maße mit Sicherungs-Flag -->
-      <div class="geo-box" id="geo-box"></div>
-
-      <!-- FACTS: was die App byte-exakt aus dem Plan gelesen hat -->
-      <div class="fact-strip" id="fact-strip"></div>
-
-      <!-- WORKFLOW-STEPPER: der geführte Weg — Pläne → Plan prüfen → Massen → Export -->
-      <nav class="workflow-steps" id="workflow-steps">
-        <button type="button" class="wf-step" data-wf="1"><span class="wf-num">1</span> Pl&auml;ne</button>
-        <button type="button" class="wf-step wf-on" data-wf="2"><span class="wf-num">2</span> Plan pr&uuml;fen</button>
-        <button type="button" class="wf-step" data-wf="3"><span class="wf-num">3</span> Aufma&szlig; &amp; Massen</button>
-        <button type="button" class="wf-step" data-wf="4"><span class="wf-num">4</span> Export &amp; Fragen</button>
-      </nav>
-
       <!-- nur wenn relevant: Warn-/Hinweis-Banner -->
       <div class="ergebnis-status-banner" id="ergebnis-status-banner"></div>
 
-      <!-- PRÜF-LISTE: was VOR der Bestellung zu prüfen ist — steht VOR der Liste -->
-      <div class="pruefliste" id="pruefliste"></div>
+      <!-- HAUPT-RASTER: Mengen (breit) + Geometrie/Prüfen-Rail daneben -->
+      <div class="result-grid">
+        <div class="result-main">
+          <!-- ZIELGRUPPEN-PRESETS: gleiche Daten, passende Sicht je Bereich der Baubranche -->
+          <div class="zielgruppen-presets" id="zielgruppen-presets">
+            <span class="zg-label">Ansicht f&uuml;r:</span>
+            <button type="button" class="zg-btn zg-on" data-preset="rohbau">&#129521; Rohbau / Baumeister</button>
+            <button type="button" class="zg-btn" data-preset="ausbau">&#127912; Ausbau (Putz &middot; Estrich &middot; Maler)</button>
+            <button type="button" class="zg-btn" data-preset="kalkulant">&#128202; Kalkulant (alle Gewerke, LV-Form)</button>
+          </div>
 
-      <!-- NACHZEICHNEN: Plan-Ansicht mit erkannten Wänden — führt die Auswertung an,
-           automatisch geladen, Wände anklickbar zum Korrigieren -->
+          <!-- HERZSTÜCK: prüfbare Mengenermittlung (ÖNORM/LB-HB) ODER Bestell-Materialliste -->
+          <div class="ml-board-toolbar">
+            <div class="view-switch" id="mengen-view-switch" role="tablist" aria-label="Ansicht wählen">
+              <button type="button" class="vs on" data-view="mengen" role="tab" aria-selected="true"
+                title="Prüfbare Mengen nach Leistungsgruppe/Position mit Aufmaß-Herleitung — die ausschreibungs- &amp; abrechnungsfähige Grundlage (ÖNORM A 2063 / LB-Hochbau)">Mengen &middot; pr&uuml;fbar</button>
+              <button type="button" class="vs" data-view="material" role="tab" aria-selected="false"
+                title="Abgeleitete Bestell-Materialliste — Bauteil · Material · Paletten/m³ mit Verschnitt (für den Einkauf)">Bestellung</button>
+            </div>
+            <div class="ml-board-tools">
+              <label class="ml-tool"><input type="checkbox" id="ml-only-sure"> nur Sichere</label>
+              <label class="ml-tool"><input type="checkbox" id="ml-formel-toggle"> &#129518; Aufma&szlig;/Rechenweg</label>
+            </div>
+          </div>
+          <!-- prüfbare Mengenermittlung nach Gewerk/Position (primär) -->
+          <div class="mengen-board" id="mengen-board"></div>
+          <!-- Bestell-Materialliste nach Bauteil (auf Umschalten) -->
+          <div class="ml-board hidden" id="ml-board"></div>
+        </div>
+
+        <!-- RAIL: Geometrie + Prüfen + Kenndaten, zusammengeführt -->
+        <aside class="result-rail">
+          <div class="geo-box" id="geo-box"></div>
+          <div class="pruefliste" id="pruefliste"></div>
+          <div class="fact-strip" id="fact-strip"></div>
+          <div class="auswertung-kennzahlen" id="auswertung-kennzahlen"></div>
+        </aside>
+      </div>
+
+      <!-- NACHZEICHNEN: Plan-Ansicht mit erkannten Wänden + Mess-Werkzeug (voller Breite) -->
       <section class="nachzeichnen-section" id="nachzeichnen-section">
         <div class="nachzeichnen-head">&#128208; Planansicht &mdash; nachgezeichnete W&auml;nde
-          <span class="nachzeichnen-sub">(W&auml;nde anklicken zum Pr&uuml;fen/Korrigieren)</span></div>
+          <span class="nachzeichnen-sub">(W&auml;nde anklicken zum Pr&uuml;fen/Korrigieren &middot; &#128207; Messen)</span></div>
         <div class="nachzeichnen-container" id="nachzeichnen-container">
           <p class="nachzeichnen-hint">Plan wird geladen &hellip;</p>
         </div>
       </section>
-
-      <!-- ZIELGRUPPEN-PRESETS: gleiche Daten, passende Sicht je Bereich der Baubranche -->
-      <div class="zielgruppen-presets" id="zielgruppen-presets">
-        <span class="zg-label">Ansicht f&uuml;r:</span>
-        <button type="button" class="zg-btn zg-on" data-preset="rohbau">&#129521; Rohbau / Baumeister</button>
-        <button type="button" class="zg-btn" data-preset="ausbau">&#127912; Ausbau (Putz &middot; Estrich &middot; Maler)</button>
-        <button type="button" class="zg-btn" data-preset="kalkulant">&#128202; Kalkulant (alle Gewerke, LV-Form)</button>
-      </div>
-
-      <!-- HERZSTÜCK: prüfbare Mengenermittlung (ÖNORM/LB-HB) ODER Bestell-Materialliste -->
-      <div class="ml-board-toolbar">
-        <div class="view-switch" id="mengen-view-switch" role="tablist" aria-label="Ansicht wählen">
-          <button type="button" class="vs on" data-view="mengen" role="tab" aria-selected="true"
-            title="Prüfbare Mengen nach Leistungsgruppe/Position mit Aufmaß-Herleitung — die ausschreibungs- &amp; abrechnungsfähige Grundlage (ÖNORM A 2063 / LB-Hochbau)">Mengen &middot; pr&uuml;fbar</button>
-          <button type="button" class="vs" data-view="material" role="tab" aria-selected="false"
-            title="Abgeleitete Bestell-Materialliste — Bauteil · Material · Paletten/m³ mit Verschnitt (für den Einkauf)">Bestellung</button>
-        </div>
-        <div class="ml-board-tools">
-          <label class="ml-tool"><input type="checkbox" id="ml-only-sure"> nur Sichere</label>
-          <label class="ml-tool"><input type="checkbox" id="ml-formel-toggle"> &#129518; Aufma&szlig;/Rechenweg</label>
-        </div>
-      </div>
-      <!-- prüfbare Mengenermittlung nach Gewerk/Position (primär) -->
-      <div class="mengen-board" id="mengen-board"></div>
-      <!-- Bestell-Materialliste nach Bauteil (auf Umschalten) -->
-      <div class="ml-board hidden" id="ml-board"></div>
-
-      <!-- KENNZAHLEN: immer sichtbar am Ende der Auswertung (Höhe + Wandflächen) -->
-      <div class="auswertung-kennzahlen" id="auswertung-kennzahlen"></div>
 
       <!-- CHATBOT: Fragen zur fertigen Auswertung (read-only, gegroundet) -->
       <div class="projekt-chat" id="projekt-chat">

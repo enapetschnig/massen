@@ -2500,6 +2500,14 @@ img {
 .ml-board {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.9rem;
 }
+/* ── Haupt-Raster: Mengen (breit) + Geometrie/Prüfen-Rail ── */
+.result-grid { display: grid; grid-template-columns: minmax(0, 1fr) 352px; gap: 1.2rem;
+  align-items: start; margin-bottom: 1.2rem; }
+@media (max-width: 980px) { .result-grid { grid-template-columns: 1fr; } }
+.result-main { min-width: 0; display: flex; flex-direction: column; gap: 0.9rem; }
+.result-rail { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+.result-rail .geo-box { grid-template-columns: 1fr; }   /* Tiles in der schmalen Rail untereinander */
+.result-rail .fact-strip { margin: 0; }
 /* ── Konfidenz-Kopf: „kann ich das übernehmen?" zuerst ── */
 .konf-kopf { display: grid; grid-template-columns: auto 1fr; gap: 1.25rem; align-items: center;
   background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
