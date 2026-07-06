@@ -1594,14 +1594,14 @@
     var html = '<h4 class="advanced-h" style="margin-top:1.1rem">Wand-Aufmaß — jede Wand einzeln ' +
       '(aus der Planansicht · Höhe ' + fmtNum(h) + ' m · aktualisiert sich mit deinen Korrekturen)</h4>' +
       '<div class="oa-summe">' + Object.keys(sums).sort(function (a, b) { return b - a; }).map(function (t) {
-        return 'HLZ ' + t + ': ' + sums[t].n + ' Wände · Σ ' + fmtNum(Math.round(sums[t].l * 100) / 100) +
+        return _nzTLabel(t) + ': ' + sums[t].n + ' Wände · Σ ' + fmtNum(Math.round(sums[t].l * 100) / 100) +
           ' m · <strong>' + fmtNum(Math.round(sums[t].m2 * 100) / 100) + ' m²</strong> netto';
       }).join(' &nbsp;|&nbsp; ') + '</div>' +
       '<table class="oa-tab"><thead><tr><th>Wand</th><th>Stärke</th><th>Länge</th><th>Höhe</th>' +
       '<th>brutto</th><th>Öffnungen</th><th>Abzug >4m²</th><th>netto</th><th>Quelle</th></tr></thead><tbody>';
     rows.forEach(function (r) {
       html += '<tr><td>W' + r.id + ' (' + (r.achse === 'v' ? 'vert.' : 'horiz.') + ')</td>' +
-        '<td>HLZ ' + r.cm + '</td>' +
+        '<td>' + _nzTLabel(r.cm) + '</td>' +
         '<td>' + fmtNum(r.l) + ' m' + (r.exakt ? ' <span title="Länge = byte-exakte Plan-Maßzahl">✓</span>' : '') + '</td>' +
         '<td>' + fmtNum(h) + ' m</td>' +
         '<td>' + fmtNum(r.brutto) + ' m²</td>' +
@@ -1723,6 +1723,46 @@
   var _nzGeladen = false, _nzLaeuft = false;
   var _nzData = null;
   var _nzEdit = { removed: {}, thick: {}, aussen: {} };  // id → bool / cm / bool
+
+  // ── GENERALISIERUNG für Pläne OHNE Mauerwerks-Legende (Breiten-Test Holzbau 1:50):
+  // schnappt KEINE Wand auf die Legende, werden die gemessenen Stärken geclustert und
+  // als neutrale "d X cm"-Wände (statt "HLZ", was Ziegel behauptet) dargestellt.
+  // Nur dann aktiv → Mauerwerks-Pläne (Angerer) unverändert (strikt monoton, wie Backend).
+  var _nzLegendlos = false;   // true = kein einziger Legenden-Snap auf diesem Plan
+  var _nzMessMap = {};        // wand.id → repräsentative gemessene Stärke (cm)
+  var _NZ_PAL = ['#0d9488', '#7c3aed', '#c2410c', '#0369a1', '#4d7c0f', '#a21caf'];
+  function _nzFarbe(cm) {
+    return NZ_FARBE[cm] != null ? NZ_FARBE[cm] : _NZ_PAL[Math.abs(Math.round(cm || 0)) % _NZ_PAL.length];
+  }
+  function _nzTLabel(cm) { return _nzLegendlos ? ('d ' + cm + ' cm') : ('HLZ ' + cm); }
+  function _nzStaerkeOptionen() {
+    if (!_nzLegendlos) return [50, 38, 25, 20, 12];
+    var s = {};
+    Object.keys(_nzMessMap).forEach(function (k) { s[_nzMessMap[k]] = 1; });
+    var arr = Object.keys(s).map(Number).sort(function (a, b) { return b - a; });
+    return arr.length ? arr : [50, 38, 25, 20, 12];
+  }
+  function _nzBaueMessCluster() {
+    _nzLegendlos = false; _nzMessMap = {};
+    var ws = (_nzData && _nzData.waende) || [];
+    if (!ws.length || ws.some(function (w) { return w.snap_cm != null; })) return;
+    _nzLegendlos = true;   // gemessene Stärken längen-gewichtet zu Buckets clustern (±2cm)
+    var pts = ws.filter(function (w) { return (w.dicke_cm || 0) >= 5; })
+      .map(function (w) { return { id: w.id, d: Math.round(w.dicke_cm), l: w.laenge_m || 0 }; })
+      .sort(function (a, b) { return a.d - b.d; });
+    var grp = [];
+    function flush(g) {
+      if (!g.length) return;
+      var L = g.reduce(function (s, x) { return s + x.l; }, 0) || 1;
+      var rep = Math.round(g.reduce(function (s, x) { return s + x.d * x.l; }, 0) / L);
+      g.forEach(function (x) { _nzMessMap[x.id] = rep; });
+    }
+    pts.forEach(function (x) {
+      if (grp.length && x.d - grp[grp.length - 1].d > 2) { flush(grp); grp = []; }
+      grp.push(x);
+    });
+    flush(grp);
+  }
   var _nzSel = null;
   var _nzZoom = { s: 1, x: 0, y: 0 }, _nzMoved = false;   // Zoom/Pan-Zustand + Drag-Erkennung
   var _nzWrap = null, _nzPan = null, _nzZoomWinBound = false;
@@ -1790,7 +1830,11 @@
     if (out) out.innerHTML = '<strong style="color:#166534">✓ Außenumfang ' + fmtNum(u) + ' m übernommen — Materialliste neu gerechnet</strong>';
   };
 
-  function _nzCm(w) { return _nzEdit.thick[w.id] != null ? _nzEdit.thick[w.id] : w.snap_cm; }
+  function _nzCm(w) {
+    if (_nzEdit.thick[w.id] != null) return _nzEdit.thick[w.id];
+    if (w.snap_cm != null) return w.snap_cm;
+    return _nzLegendlos && _nzMessMap[w.id] != null ? _nzMessMap[w.id] : null;
+  }
   function _nzAussenDefault(cm) { return cm === 50 || cm === 38; }  // 20/12 immer innen, 25 default innen
   function _nzIstAussen(w, cm) {
     if (cm === 20 || cm === 12) return false;
@@ -1804,7 +1848,8 @@
     (_nzData.waende || []).forEach(function (w) {
       if (_nzEdit.removed[w.id]) return;
       var cm = _nzCm(w);
-      if ([50, 38, 25, 20, 12].indexOf(cm) < 0) return;
+      if (!cm) return;
+      if (!_nzLegendlos && [50, 38, 25, 20, 12].indexOf(cm) < 0) return;
       ges[cm] = (ges[cm] || 0) + w.laenge_m;
       if (_nzIstAussen(w, cm)) o[cm] = (o[cm] || 0) + w.laenge_m;
       else i[cm] = (i[cm] || 0) + w.laenge_m;
@@ -1877,19 +1922,19 @@
     });
     (_nzData.waende || []).forEach(function (w) {
       var cm = _nzCm(w), rm = !!_nzEdit.removed[w.id], sel = (_nzSel === w.id);
-      var col = rm ? '#b8c0cc' : (NZ_FARBE[cm] || '#888');
+      var col = rm ? '#b8c0cc' : (cm ? _nzFarbe(cm) : '#888');
       var unsicher = !cm || (w.hatch_dichte != null && w.hatch_dichte < 1.5);
       var p = w.px;
       lines += '<line data-wid="' + w.id + '" data-cm="' + (cm || '') + '" x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
         '" stroke="' + col + '" stroke-width="' + Math.max(2, w.staerke_px) + '" stroke-linecap="round"' +
         ' stroke-opacity="' + (rm ? 0.3 : 0.82) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
         ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
-        (cm ? 'HLZ ' + cm + 'cm' : '~' + w.dicke_cm + 'cm') + ' · ' + w.laenge_m + ' m' +
+        (cm ? _nzTLabel(cm) : '~' + w.dicke_cm + ' cm') + ' · ' + w.laenge_m + ' m' +
         (w.mass_exakt ? ' (= Maßzahl lt. Plan)' : '') + ' — klicken zum Korrigieren</title></line>';
       // Sichtbares Längen-/Stärke-Label auf der Wand (1:1 zum Plan vergleichbar)
       if (!rm && cm && w.laenge_m >= 1.2) {
         var mx = (p[0] + p[2]) / 2, my = (p[1] + p[3]) / 2;
-        var txt = 'HLZ' + cm + ' · ' + fmtNum(w.laenge_m) + 'm';
+        var txt = _nzTLabel(cm) + ' · ' + fmtNum(w.laenge_m) + 'm';
         labels += '<text x="' + mx + '" y="' + my + '" font-size="' + fs + '" text-anchor="middle" dy="' +
           (w.achse === 'h' ? -fs * 0.5 : fs * 0.35) + '" paint-order="stroke" stroke="#fff" stroke-width="' +
           Math.round(fs / 3.5) + '" fill="' + col + '" style="font-weight:600;pointer-events:none">' + txt + '</text>';
@@ -1988,10 +2033,10 @@
         '<strong>' + nRaumF + '</strong>&nbsp;Fläche exakt (Umfang prüfen)</span>' +
         '<span class="nz-leg-item">von <strong>' + _nzData.raeume.length + '</strong> Räumen</span>';
     }
-    [50, 38, 25, 20, 12].forEach(function (t) {
+    Object.keys(ges).map(Number).sort(function (a, b) { return b - a; }).forEach(function (t) {
       if (!ges[t]) return;
-      legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + NZ_FARBE[t] + '"></span>' +
-        'HLZ ' + t + 'cm: <strong>' + fmtNum(ges[t]) + ' m</strong></span>';
+      legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + _nzFarbe(t) + '"></span>' +
+        _nzTLabel(t) + ': <strong>' + fmtNum(ges[t]) + ' m</strong></span>';
     });
     if (_nzData.oeffnungen && _nzData.oeffnungen.length) {
       legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:#0284c7;border-radius:50%"></span>' +
@@ -2011,11 +2056,11 @@
       var btn = function (lab, act, on) {
         return '<button type="button" class="nz-btn' + (on ? ' nz-btn-on' : '') + '" data-act="' + act + '">' + lab + '</button>';
       };
-      tb = '<div class="nz-toolbar"><span class="nz-tb-info">Wand: ' + (cm ? 'HLZ ' + cm : '~' + w.dicke_cm) + 'cm · ' +
+      tb = '<div class="nz-toolbar"><span class="nz-tb-info">Wand: ' + (cm ? _nzTLabel(cm) : '~' + w.dicke_cm + ' cm') + ' · ' +
         fmtNum(w.laenge_m) + ' m</span>' +
         btn(rm ? '↩ wiederherstellen' : '✕ keine Wand', 'rm', rm) +
         '<span class="nz-tb-sep">Stärke:</span>' +
-        [50, 38, 25, 20, 12].map(function (t) { return btn(String(t), 'cm' + t, cm === t); }).join('') +
+        _nzStaerkeOptionen().map(function (t) { return btn(String(t), 'cm' + t, cm === t); }).join('') +
         (cm === 25 ? '<span class="nz-tb-sep"></span>' + btn(_nzIstAussen(w, 25) ? 'außen' : 'innen', 'ai', false) : '') +
         '</div>';
     }
@@ -2373,6 +2418,7 @@
           if (changed) { _filterState.materialliste_override = ov; refreshProjektMassen(); }
         }
       }
+      _nzBaueMessCluster();   // NACH dem Restore: legendenlose Pläne (Holzbau) → Stärke-Cluster
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
       var schnittHint = d.typ === 'schnitt'
