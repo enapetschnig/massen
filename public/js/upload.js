@@ -362,8 +362,8 @@
     if (g.aussenumfang_m) {
       var cls, mark, note;
       if (gq.umfang_validiert) { cls = 'ok2'; mark = '✓✓'; note = 'aus den Maßen im Plan bestätigt'; }
-      else if (gq.umfang_verdacht_niedrig) { cls = 'warn'; mark = '⚠'; note = 'wirkt zu klein für die Fläche — am Plan prüfen oder unten eintragen'; }
-      else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'unsicher — am Plan prüfen'; }
+      else if (gq.umfang_verdacht_niedrig) { cls = 'warn'; mark = '⚠'; note = 'wirkt zu klein für die Fläche (L-/U-Form?) — <button type="button" class="nz-btn" style="padding:.05rem .45rem;font-size:.76rem" onclick="_nzMessenStart()" title="Gebäude-Außenkante am Plan abklicken → byte-exakter Umfang in die Materialliste">📏 jetzt nachmessen</button>'; }
+      else if (gq.cross_check_warnung) { cls = 'warn'; mark = '⚠'; note = 'unsicher — <button type="button" class="nz-btn" style="padding:.05rem .45rem;font-size:.76rem" onclick="_nzMessenStart()">📏 jetzt nachmessen</button>'; }
       else { cls = 'ok'; mark = '✓'; note = 'Umfang der Außenwände'; }
       if (opusGarage.length && gq.opus_mauerwerk_zusatz_m) {
         note += ' · inkl. ' + esc(opusGarage.join(', ')) + ' (im Schnitt gemauert, +' +
@@ -1658,6 +1658,17 @@
   // Backend-Override markiert 'user-gemessen' (Konfidenz 0,98) und schlägt
   // die Vision-Schätzung. So schließt sich die HasenbeinPlan-Schleife:
   // Messung → Berechnung — für genau die unsicheren Fälle.
+  // Proaktiver Weg von der Unsicherheit zur Lösung: wenn der Geo-Kasten den
+  // Umfang als verdächtig flaggt, aktiviert dieser CTA direkt den Mess-Modus
+  // und scrollt zum Plan — die App sagt WAS unsicher ist UND gibt den Klick-Weg.
+  window._nzMessenStart = function () {
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (_nzWrap && _nzData) {
+      _nzMeasMode = true; _nzAddMode = false; _nzMeasPts = []; _nzSel = null;
+      _nzPaint();
+    }
+  };
   window._nzMessUmfangUebernehmen = function () {
     var u = Math.round(_nzMessUmfang() * 100) / 100;
     if (!(u >= 10 && u <= 400)) { alert('Gemessener Umfang ' + u + ' m außerhalb 10–400 m — bitte Gebäude-Außenkante abklicken.'); return; }
