@@ -777,6 +777,43 @@ def rotated_claims_fill(rooms: list[dict], spans: list[dict]) -> None:
             used_r.add(mi)
             used_c.add(ci)
 
+    # POLIERPLAN-KONVENTION (AP.01, Harness-Sync mit raumnetz.raum_stempel):
+    # 'BF:' (Bodenfläche) / 'RH:' (Raumhöhe) als Solo-Anker, der WERT steht
+    # als Tab-Spalte 0-40pt RECHTS (nicht darüber). Produktion liest so 9/9.
+    def _value_right(label_s, y_tol=2.5, x_max=40):
+        lx = (label_s.get("bbox") or (0, 0, label_s["cx"], 0))[2]
+        ly = label_s["cy"]
+        best, bd = None, float("inf")
+        for o in spans:
+            if o is label_s:
+                continue
+            if abs(o["cy"] - ly) > y_tol:
+                continue
+            dx = (o.get("bbox") or (o["cx"], 0, 0, 0))[0] - lx
+            if -0.5 <= dx < x_max and dx < bd:
+                m = re.search(r"([0-9]+[,.][0-9]+)", o["text"])
+                if m:
+                    bd = dx
+                    best = float(m.group(1).replace(",", "."))
+        return best
+
+    for s2 in spans:
+        t2 = s2["text"].strip()
+        if re.match(r"^BF\s*[.:]?$", t2, re.I):
+            v = _value_right(s2)
+            if v is not None:
+                claims.append({"kind": "F", "value": v, "cx": s2["cx"], "cy": s2["cy"]})
+        elif re.match(r"^RH\s*[.:]?$", t2, re.I):
+            v = _value_right(s2)
+            if v is not None:
+                claims.append({"kind": "H", "value": v if v < 20 else v / 100.0,
+                               "cx": s2["cx"], "cy": s2["cy"]})
+        else:
+            m = re.match(r"^BF\s*[.:]?\s*([0-9]+[,.][0-9]+)", t2, re.I)
+            if m:
+                claims.append({"kind": "F", "value": float(m.group(1).replace(",", ".")),
+                               "cx": s2["cx"], "cy": s2["cy"]})
+
     _greedy_fill("F", "flaeche_m2")
     _greedy_fill("U", "umfang_m")
     _greedy_fill("H", "hoehe_m")
