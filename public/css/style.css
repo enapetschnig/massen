@@ -1410,6 +1410,9 @@ img {
   font-size: 2rem;
   font-weight: 700;
   color: var(--primary);
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .stat-label {
@@ -2421,8 +2424,47 @@ img {
 .summary-confidence-dot.red { background: var(--red); }
 
 /* --- Trust Banner (Login) --- */
-.trust-banner { text-align: center; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
-.trust-banner p { font-size: 0.85rem; color: var(--text-light); letter-spacing: 0.02em; }
+.trust-banner { text-align: center; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid rgba(255,255,255,0.12); }
+.trust-banner p { font-size: 0.82rem; color: rgba(255,255,255,0.62); letter-spacing: 0.03em; }
+
+/* Login-Capability-Leiste (seriös, emoji-frei): drei faktische Aussagen auf dem
+   Stahlblau-Verlauf, ein zurückhaltender Orange-Akzent als einziger Farbtupfer. */
+.cap-strip {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin: 2rem auto 0;
+  max-width: 720px;
+  flex-wrap: wrap;
+}
+.cap {
+  flex: 1 1 200px;
+  max-width: 232px;
+  padding: 0.85rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: var(--radius);
+  text-align: left;
+}
+.cap-eyebrow {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.3rem;
+}
+.cap-line {
+  display: block;
+  font-size: 0.82rem;
+  line-height: 1.42;
+  color: rgba(255, 255, 255, 0.82);
+}
+@media (max-width: 640px) {
+  .cap-strip { flex-direction: column; align-items: stretch; gap: 0.6rem; }
+  .cap { max-width: none; }
+}
 
 /* ============================================================
    ERGEBNIS V2 — aufgeräumte Material-Ansicht (Hero · Facts · Board)
