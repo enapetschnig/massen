@@ -4781,7 +4781,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 27  # bei Pipeline-Änderungen erhöhen → Cache invalidiert (27: Glasfront-Unskip + Front-Linien-Snap + Balken-Fallback-Snap)
+_NZ_CACHE_V = 28  # Dach-Ansicht (typ/dach_marker) + Bad-Roh-F-Telemetrie + Harness-Sync
 
 
 def _nachzeichnen_roh(body):

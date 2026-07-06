@@ -1650,6 +1650,18 @@
         ' fill-opacity="0.55" stroke="#fff" stroke-width="1"><title>Höhenkote ' +
         esc(k.wert) + ' m (byte-exakt)</title></circle>';
     });
+    // DACH-/ZIMMERER-MARKER (byte-exakt am Dachplan eingezeichnet): Velux-Fenster
+    // am Fensterort, Dachflächen-Summe als Callout — der Dachdecker sieht, WO
+    // die Mengen herkommen (Nachvollziehbarkeit für den neuen Sektor).
+    (_nzData.dach_marker || []).forEach(function (m2) {
+      var col = m2.art === 'fenster' ? '#ea580c' : '#166534';
+      lines += '<circle cx="' + m2.px[0] + '" cy="' + m2.px[1] + '" r="7" fill="' + col +
+        '" fill-opacity="0.5" stroke="#fff" stroke-width="1.5"><title>' + esc(m2.label) +
+        ' (byte-exakt vom Plan)</title></circle>';
+      labels += '<text x="' + (m2.px[0] + 10) + '" y="' + (m2.px[1] + 4) + '" font-size="' +
+        Math.round(fs * 0.9) + '" fill="' + col + '" stroke="#fff" stroke-width="0.6"' +
+        ' paint-order="stroke">' + esc(m2.label) + '</text>';
+    });
     // GEMAUERTE HÜLLE (Kontur der Wand-Maske): der Außenumfang treibt die
     // halbe Materialliste — hier ist er am Plan sichtbar und gegen die
     // gerechnete Zahl prüfbar (ÖNORM-B-2110-Prinzip: prüfbare Mengen).

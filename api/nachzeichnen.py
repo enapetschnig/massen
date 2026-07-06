@@ -542,6 +542,75 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     }
 
 
+def _dach_ansicht(doc, max_px=1800):
+    """DACH-/ZIMMERER-PLAN als beschriftete Ansicht (Nachvollziehbarkeit: der
+    Dachdecker-Sektor lieferte Mengen, aber die Planansicht zeigte '0 Räume').
+    Wählt die roof-PLAN-Seite (Sparrenlage/Draufsicht mit den meisten Velux-/
+    Sparren-Labels), rendert sie und legt die byte-exakten Positionen als
+    Marker darüber: Velux-Fenster am Fensterort, Dachflächen als Summen-Callout.
+    → {ok, typ:'dach', basis_png, dach_marker[], dach_positionen, meta} oder None."""
+    try:
+        from dach_positionen import dach_positionen as _dp
+    except Exception:
+        return None
+    dp = _dp(doc)
+    if not dp:
+        return None
+    # Beste roof-PLAN-Seite: die mit den meisten Velux-/Sparren-Wort-Treffern
+    # (Draufsicht > Ansicht/Schnitt). Fallback: erste Seite mit Dach-Text.
+    best, best_score, best_words = None, -1, None
+    for page in doc:
+        try:
+            worte = page.get_text("words")
+        except Exception:
+            continue
+        txt = " ".join(w[4] for w in worte).lower()
+        if "dach" not in txt and "sparren" not in txt and "velux" not in txt:
+            continue
+        score = (sum(1 for w in worte if w[4].lower() in ("velux", "roto", "fakro")) * 3
+                 + sum(1 for w in worte if "sparren" in w[4].lower()))
+        if score > best_score:
+            best, best_score, best_words = page, score, worte
+    if best is None:
+        return None
+    W, H = best.rect.width, best.rect.height
+    scale = max(0.5, min(max_px / max(W, 1), max_px / max(H, 1), 4.0))
+    try:
+        import fitz as _fz
+        pix = best.get_pixmap(matrix=_fz.Matrix(scale, scale))
+        basis_png = pix.tobytes("png")
+    except Exception:
+        return None
+    marker = []
+    # Velux/Dachfenster am Fensterort (Wortposition 'Velux')
+    n_fe = sum(fe.get("anzahl", 0) for fe in (dp.get("fenster") or []))
+    fe_typ = (dp.get("fenster") or [{}])[0].get("typ") if dp.get("fenster") else None
+    for w in (best_words or []):
+        if w[4].lower() in ("velux", "roto", "fakro"):
+            marker.append({"px": [round(w[0] * scale, 1), round(w[1] * scale, 1)],
+                           "label": "Dachfenster" + (f" {fe_typ}" if fe_typ else ""),
+                           "art": "fenster"})
+    # Dachflächen-Summe als Callout (Wortposition der Gesamt-/Teilflächen)
+    for w in (best_words or []):
+        if w[4] in ("Sparrenlage", "Dachflächen", "Sparren") and not any(
+                m["art"] == "flaeche" for m in marker):
+            ges = dp.get("gesamt_m2")
+            marker.append({"px": [round(w[0] * scale, 1), round(w[1] * scale, 1)],
+                           "label": f"Σ Dachfläche {ges} m²" if ges else "Dachplan",
+                           "art": "flaeche"})
+    return {
+        "ok": True, "typ": "dach",
+        "basis_png": basis_png,
+        "bild_w": pix.width, "bild_h": pix.height,
+        "dach_marker": marker,
+        "dach_positionen": dp,
+        "raeume": [], "waende": [],
+        "dateiname": None,
+        "meta": {"seite": best.number, "sektor": "Dach/Zimmerer",
+                 "massstab": _massstab(best)},
+    }
+
+
 def analysiere_doc(doc, seite=None, **kw):
     """Ganzes PDF → Seiten nach Größe probieren, die erste ANALYSIERBARE gewinnt.
     (Breiten-Sweep-Fall Mitterwurzerweg4: Dachplan-Satz mit 3 gleich großen
@@ -565,6 +634,13 @@ def analysiere_doc(doc, seite=None, **kw):
     for page in seiten[:8]:
         res = analysiere_seite(page, **kw)
         if res.get("ok"):
+            # DACH-/ZIMMERER-PLAN: findet die Grundriss-Analyse KEINE Räume
+            # (Dachplan hat keine Raumstempel), aber der Satz trägt Dach-
+            # Positionen → beschriftete Dach-Ansicht statt leerer Grundriss.
+            if not (res.get("raeume") or []):
+                da = _dach_ansicht(doc)
+                if da and da.get("dach_marker"):
+                    return da
             res["meta"]["seite"] = page.number
             # WEITERE GESCHOSSE (billige Probe, nur Raumwort-Box): Einreich-
             # Sätze tragen EG/OG/KG auf eigenen Seiten — die UI bietet sie
