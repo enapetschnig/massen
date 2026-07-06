@@ -174,25 +174,28 @@ def parse_legende(spans: list) -> dict:
             break
 
     # 3b) Sauberkeitsschicht / Estrich — global aus Legende (eindeutige Begriffe)
+    # JEDES (Wort, cm)-Paar EINZELN über sein ANLIEGENDES Wort zuordnen. Früher las
+    # SCHICHT_RX.search nur das ERSTE cm im Span und verzweigte über die Ganz-Span-
+    # Substring-Präsenz → 'Trittschalldämmung 3,0 cm Zementestrich 6,0 cm' setzte
+    # estrich_cm=3,0 (statt 6,0), weil 'estrich' irgendwo im Span vorkam.
+    _paar_rx = re.compile(r"([A-Za-zÄÖÜäöüß]{3,})[\s:.\-]{0,3}(\d+(?:[,.]\d+)?)\s*cm", re.I)
     for s in spans:
-        low = s["text"].lower()
-        sm = SCHICHT_RX.search(s["text"])
-        if not sm:
-            continue
-        d = _num(sm.group(2))
-        if d is None:
-            continue
-        if "sauberkeit" in low and result["sauberkeitsschicht_cm"] is None and 3 <= d <= 20:
-            result["sauberkeitsschicht_cm"] = d
-        elif "estrich" in low and result["estrich_cm"] is None and 3 <= d <= 12:
-            result["estrich_cm"] = d
-        elif ("belag" in low or "steinzeug" in low or "parkett" in low or "fliesen" in low) \
-                and result["belag_cm"] is None and 0.5 <= d <= 5:
-            result["belag_cm"] = d
-        elif ("schüttung" in low or "schuettung" in low) and result["schuettung_cm"] is None and 2 <= d <= 20:
-            result["schuettung_cm"] = d
-        elif "trittschall" in low and result["trittschall_cm"] is None and 1 <= d <= 8:
-            result["trittschall_cm"] = d
+        for pm in _paar_rx.finditer(s["text"]):
+            wort = pm.group(1).lower()
+            d = _num(pm.group(2))
+            if d is None:
+                continue
+            if "sauberkeit" in wort and result["sauberkeitsschicht_cm"] is None and 3 <= d <= 20:
+                result["sauberkeitsschicht_cm"] = d
+            elif "estrich" in wort and result["estrich_cm"] is None and 3 <= d <= 12:
+                result["estrich_cm"] = d
+            elif ("belag" in wort or "steinzeug" in wort or "parkett" in wort or "fliesen" in wort) \
+                    and result["belag_cm"] is None and 0.5 <= d <= 5:
+                result["belag_cm"] = d
+            elif ("schüttung" in wort or "schuettung" in wort) and result["schuettung_cm"] is None and 2 <= d <= 20:
+                result["schuettung_cm"] = d
+            elif "trittschall" in wort and result["trittschall_cm"] is None and 1 <= d <= 8:
+                result["trittschall_cm"] = d
 
     # 3c) Infrastruktur-Objekte zählen (Position-dedupliziert — dasselbe Objekt
     # wird oft mehrfach beschriftet). Wie ein Mensch: zählt Kamine/Schächte.

@@ -65,12 +65,21 @@ def check_hoehen_konsistenz(rooms):
     if not h_values:
         return findings
     for name, h in h_values:
-        if h < H_MIN_M or h > H_MAX_M:
+        # Zweistufig: KLAR unmögliche Höhe (<1,8 / >5,0 m) = Vision-Halluzination →
+        # 'fehler'. Ungewöhnlich-aber-möglich (niedriger Keller/Technik, hohe Halle/
+        # Loggia außerhalb 2,20-4,00) → nur 'warnung' statt Falsch-Alarm 'fehler'
+        # (der Check hat keine Raum-Kategorie; eine 2,10-m-Garage ist kein Fehler).
+        if h < 1.8 or h > 5.0:
             findings.append({
-                "check": "hoehen",
-                "schwere": "fehler",
-                "msg": f"Raum '{name}' hat unplausible Höhe {h:.2f} m "
-                       f"(erwartet {H_MIN_M}-{H_MAX_M} m)",
+                "check": "hoehen", "schwere": "fehler",
+                "msg": f"Raum '{name}' hat unmögliche Höhe {h:.2f} m — Vision-Fehler?",
+                "betroffen": [name],
+            })
+        elif h < H_MIN_M or h > H_MAX_M:
+            findings.append({
+                "check": "hoehen", "schwere": "warnung",
+                "msg": f"Raum '{name}' hat ungewöhnliche Höhe {h:.2f} m "
+                       f"(übliche EFH/MFH-Spanne {H_MIN_M}-{H_MAX_M} m) — am Plan prüfen",
                 "betroffen": [name],
             })
     if len(h_values) >= 3:

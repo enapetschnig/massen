@@ -150,12 +150,23 @@ def reconcile_opus_urteile(urteile):
     if dts:
         base["dach"] = dict(base.get("dach") or {})
         base["dach"]["dach_typ"] = Counter(dts).most_common(1)[0][0]
+    # SICHERE Zahl-Konvertierung: rohbau_m/saeulen_anzahl können aus verschiedenen
+    # Opus-Lesungen einheiten-behaftet ('2,80 m') oder nicht-numerisch ankommen —
+    # ein nacktes float() crashte reconcile_opus_urteile (kein Guard). Bad → None → raus.
+    def _num(x):
+        if isinstance(x, (int, float)):
+            return float(x)
+        try:
+            return float(str(x).replace(",", ".").split()[0])
+        except (ValueError, TypeError, IndexError):
+            return None
     hs = [(u.get("hoehe") or {}).get("rohbau_m") for u in us if (u.get("hoehe") or {}).get("rohbau_m")]
-    if hs:
+    hs_num = [v for v in map(_num, hs) if v is not None]
+    if hs_num:
         base["hoehe"] = dict(base.get("hoehe") or {})
-        base["hoehe"]["rohbau_m"] = median_bucket([float(h) for h in hs], 0.05)
+        base["hoehe"]["rohbau_m"] = median_bucket(hs_num, 0.05)
     base["_ensemble_n"] = len(us)
-    base["_ensemble_saeulen"] = sorted(int(round(float(s))) for s in saeulen) if saeulen else []
+    base["_ensemble_saeulen"] = sorted(int(round(v)) for v in map(_num, saeulen or []) if v is not None)
     return base
 
 

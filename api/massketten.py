@@ -181,7 +181,13 @@ def wand_fluchten(words, box, ptm, grid, W, H, cell_pt,
     spans = [(x, y, v) for (x, y, v) in spans
              if bx0 - m3 <= x <= bx1 + m3 and by0 - m3 <= y <= by1 + m3]
     k = ptm / 100.0
-    min_lauf = int(min_lauf_m / zm)
+    # zm (Raster-Zellgröße in m) aus der TATSÄCHLICHEN Zelle ableiten statt vom
+    # Default 0.02 — das Raster ist adaptiv (bis 0.06 m auf Großplänen). Sonst
+    # verlangte min_lauf auf einem großen Plan real bis 1,2 m statt 0,4 m
+    # Wandlauf → echte kurze Fluchten fälschlich als 'kurz/unbestätigt'.
+    if cell_pt and ptm:
+        zm = cell_pt / ptm
+    min_lauf = max(1, int(min_lauf_m / zm))
     tol_z = max(1, int(tol_m / zm))
     out = []
     for achse in ("h", "v"):      # Ketten-Achse; Fluchten stehen QUER dazu
