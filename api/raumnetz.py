@@ -1446,7 +1446,7 @@ def _kanten_begradigen(m, bw, bh, tol=5, quote=0.5):
     snap_cols(False)
 
 
-def _loecher_fuellen_und_messen(grid, label, rst, stempel):
+def _loecher_fuellen_und_messen(grid, label, rst, stempel, r_gl_gross=0.25):
     """Je Raum: eingeschlossene Löcher (Möbel-Inseln + deren Innenraum) zählen zur
     Raumfläche (so misst der Plan sein F), U wird die ÄUSSERE Wandlinie. Loch =
     Komponente von Nicht-Raum-Zellen, die die Raum-BBox nicht erreicht."""
@@ -1509,7 +1509,7 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
         # Sezierung): heilt WM-Schacht-Buchten (50→51), kostet aber am TG
         # einen Raum (Stellplatz-Poché) — Seitwärts-Tausch, kein sauberer
         # Gewinn. Bleibt 0,25 bis das TG-Gating gebaut ist.
-        r_gl = 0.25 if st["f_m2"] >= 4.0 else 0.12
+        r_gl = r_gl_gross if st["f_m2"] >= 4.0 else 0.12
         glatt, bw, bh = _region_glaetten(is_room, i0, j0, i1, j1, W,
                                          max(2, int(r_gl / rst.zm)))
         _kanten_begradigen(glatt, bw, bh, tol=max(3, int(0.10 / rst.zm)))
@@ -1847,8 +1847,9 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 return True
         return False
 
-    def _messen_und_status(grid, label, ok_start, versch):
-        masse = _loecher_fuellen_und_messen(grid, label, rst, stempel)
+    def _messen_und_status(grid, label, ok_start, versch, r_gl_gross=0.25):
+        masse = _loecher_fuellen_und_messen(grid, label, rst, stempel,
+                                            r_gl_gross=r_gl_gross)
         # Kredit nur BALKEN-NAH (WM-Sezierung: die 2,29-m-Haustür kreditierte via
         # Vollkreis-Zone 13,3 m² Wandfläche → Stiegenhaus +1,65 m²; die Kreiszone
         # wächst QUADRATISCH mit der Türbreite). Tür-Zonen-Zellen zählen nur noch
@@ -1927,6 +1928,23 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     for r in out:
         if r["status"] == "verifiziert":
             r["ebene"] = "roh"
+    # SCHACHT-GLÄTTUNGS-EBENE (Bad-Roh-F-Sezierung, monoton wie Roh/Fertig):
+    # kleine Räume mit Installations-/Schacht-BUCHTEN (0,6-0,8m) tragen bei
+    # EXAKTEM F ein raster-krenelliertes U (+33% gemessen) — die 0,25er-
+    # Glättung schließt die Buchten nicht. Dasselbe Grid mit 0,40er-Glättung
+    # NEU vermessen (kein zweiter Watershed — nur die Silhouetten-Glättung der
+    # Messung) und NUR dazu-mergen. Global auf 0,40 gestellt kostet den TG
+    # einen Raum (Stellplatz-Poché); als reiner ADD-Merge kann er NICHTS
+    # verlieren (TG-Grüne kommen aus der 0,25er-Ebene, hier unangetastet).
+    if any(r["status"] not in ("verifiziert", "kein_start") for r in out):
+        try:
+            out_g = _messen_und_status(grid, label, ok_start, versch, r_gl_gross=0.40)
+            for r1, rg in zip(out, out_g):
+                if r1["status"] != "verifiziert" and rg["status"] == "verifiziert":
+                    r1.update(status="verifiziert", f_ist=rg["f_ist"],
+                              u_ist=rg["u_ist"], ebene="schacht")
+        except Exception:
+            pass
     # ZWEI-EBENEN-VERIFIKATION (Bad-Anatomie-Sezierung): Stempel messen FERTIG-
     # Maße, die Maske ROHBAU. Pass 2 brennt zusätzlich die unpochierten
     # Doppellinien (Vorwände/leichte Trennwände = Fertig-Grenzen) und darf

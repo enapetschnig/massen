@@ -4781,7 +4781,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 28  # Dach-Ansicht (typ/dach_marker) + Bad-Roh-F-Telemetrie + Harness-Sync
+_NZ_CACHE_V = 29  # Schacht-Glättungs-Ebene (monotoner ADD-Merge) + Dach-Export
 
 
 def _nachzeichnen_roh(body):
