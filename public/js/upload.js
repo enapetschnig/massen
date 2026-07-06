@@ -778,7 +778,13 @@
       (ml.bauteile[b] || []).forEach(function (p) { if (p && p.konfidenz != null) konfs.push(p.konfidenz); });
     });
     konfs.sort(function (a, b) { return a - b; });
-    var med = konfs.length ? konfs[Math.floor(konfs.length / 2)] : (g.konfidenz || 0);
+    // ECHTER Median: bei GERADER Anzahl das Mittel der zwei zentralen Werte (vorher
+    // wurde das obere mittlere Element genommen — als 'Median' gelabelt, aber leicht
+    // verzerrt nach oben).
+    var med;
+    if (!konfs.length) med = (g.konfidenz || 0);
+    else if (konfs.length % 2) med = konfs[(konfs.length - 1) / 2];
+    else med = (konfs[konfs.length / 2 - 1] + konfs[konfs.length / 2]) / 2;
     var pct = Math.round(med * 100);
     var stufe = pct >= 80 ? 'ok' : (pct >= 65 ? 'warn' : 'idle');
     // Sektor
@@ -1598,7 +1604,11 @@
       if (!cm) return;
       var brutto = Math.round(w.laenge_m * h * 100) / 100;
       var oe = wandOeff[w.id] || [];
-      var abzug = Math.round(oe.reduce(function (a, x) { return a + x.abzug; }, 0) * 100) / 100;
+      // Abzug auf die eigene Brutto-Wandfläche deckeln → netto nie NEGATIV: eine
+      // kurze Wand, der eine große (>4 m²) Öffnung zugeordnet wurde, zeigte sonst
+      // eine negative Fläche (die Öffnung überlappt evtl. eine Nachbarwand).
+      var abzug = Math.round(Math.min(brutto,
+        oe.reduce(function (a, x) { return a + x.abzug; }, 0)) * 100) / 100;
       var netto = Math.round((brutto - abzug) * 100) / 100;
       rows.push({ id: w.id, cm: cm, l: w.laenge_m, exakt: !!w.mass_exakt,
         manuell: !!w.manuell, achse: w.achse, brutto: brutto,

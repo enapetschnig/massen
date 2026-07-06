@@ -353,8 +353,15 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
         })
 
     def _same_fph_stuk(a, b, tol_m=0.05):
+        # Anker-Match braucht einen ECHTEN (non-None) gemeinsamen STUK. Sonst
+        # koaleszieren zwei ankerlose Standard-Tür-Marker (stuk_m=None→0) zu
+        # 'gleichem Anker' → Dedup-Klausel 3 verschmilzt sie fälschlich (eine Tür
+        # verschwindet). Gleiche echte STUK/FPH = wirklich dieselbe Öffnung.
+        sa, sb = a.get("stuk_m"), b.get("stuk_m")
+        if sa is None or sb is None:
+            return False
         return (abs((a.get("fph_m") or 0) - (b.get("fph_m") or 0)) < tol_m
-                and abs((a.get("stuk_m") or 0) - (b.get("stuk_m") or 0)) < tol_m)
+                and abs(sa - sb) < tol_m)
 
     cleaned = []
     used = [False] * len(oeffnungen)

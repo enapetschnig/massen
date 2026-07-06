@@ -4266,7 +4266,16 @@ async def projekt_massen(body: ProjektMassenRequest):
     if _OPUS_KONSUM_OK and _ok.opus_usable(best_opus):
         o_roh = _ok.hoehe_rohbau(best_opus)
         _q = (best_baudaten.get("_quellen") or {}).get("geschosshoehe_m")
-        if o_roh and _q not in ("schnitt", "legende"):
+        _cur = best_baudaten.get("geschosshoehe_m") or 0
+        # 'raumhoehen-max' ist byte-exakt (lichte Raumhöhe aus dem Text-Layer). Die
+        # ROHBAU-Höhe kann physikalisch NIE darunter liegen → eine Opus-Vision-
+        # FEHLLESUNG, die TIEFER als die bekannte lichte Höhe liest, darf sie NICHT
+        # überschreiben (sonst wären ALLE wandhöhen-getriebenen Massen ~15% zu
+        # niedrig — Außen-/Innenwand, HLZ, Putz, Maler). Nach OBEN korrigieren
+        # (Opus rohbau > lichte Raumhöhe, +Deckenstärke) bleibt erlaubt.
+        _blockt = _q in ("schnitt", "legende") or (
+            _q == "raumhoehen-max" and o_roh < _cur - 0.05)
+        if o_roh and not _blockt:
             best_baudaten["geschosshoehe_m"] = o_roh
             best_baudaten.setdefault("_quellen", {})["geschosshoehe_m"] = "opus"
         if _ok.dach_typ(best_opus) == "flach":

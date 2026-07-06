@@ -285,6 +285,23 @@ def _wort_anzahl(doc, praefixe):
     return n
 
 
+def _wort_anzahl_max_seite(doc, praefixe):
+    """Maximale Vorkommen auf EINER Seite (statt Dokument-Summe). Ein reiner Neubau-
+    Plan mit der Boilerplate-Legende 'Neubau/Bestand/Abbruch' im Plankopf JEDER Seite
+    hätte dokumentweit ≥2 'Bestand' (je 1 pro Blatt) und riebe das Boilerplate-Gate
+    auf. Pro-Seite-Max bleibt für reine Boilerplate = 1; echter Bestand (Legende +
+    ≥1 Objekt-Label auf DEMSELBEN Blatt) erreicht ≥2 auf einer Seite."""
+    best = 0
+    for page in doc:
+        try:
+            c = sum(1 for w in page.get_text("words")
+                    if any((w[4] or "").lower().startswith(p) for p in praefixe))
+            best = max(best, c)
+        except Exception:
+            continue
+    return best
+
+
 _NEUTRAL = {"hat_bestand": False, "hat_abbruch": False, "mapping": {},
             "seite": None, "hinweis": None}
 
@@ -320,8 +337,11 @@ def analysiere_dokument(doc):
             return dict(_NEUTRAL)
 
         # ── Präzisions-Gate: Legende-Wort UND tatsächlich gezeichnet ──
-        n_best = _wort_anzahl(doc, ("bestand",))
-        n_abb = _wort_anzahl(doc, ("abbruch", "abzubrech", "rückbau", "ruckbau"))
+        # PER-SEITE-Max (nicht Dokument-Summe): sonst zählt die wiederholte Plankopf-
+        # Boilerplate über mehrere Blätter fälschlich als Objekt-Labels (Mehrblatt-
+        # Neubau-Set → falsche 'Umbau/Sanierung'-Warnung).
+        n_best = _wort_anzahl_max_seite(doc, ("bestand",))
+        n_abb = _wort_anzahl_max_seite(doc, ("abbruch", "abzubrech", "rückbau", "ruckbau"))
         hat_b = ("bestand" in best_map) and (n_best >= _WORT_MIN_ECHT)
         leg_pos = [d.get("wort_pos") or (0, 0) for d in best_map.values()]
         abb_rgb = (best_map.get("abbruch") or {}).get("rgb")
