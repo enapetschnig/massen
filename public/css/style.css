@@ -2500,6 +2500,29 @@ img {
 .ml-board {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.9rem;
 }
+/* ── Konfidenz-Kopf: „kann ich das übernehmen?" zuerst ── */
+.konf-kopf { display: grid; grid-template-columns: auto 1fr; gap: 1.25rem; align-items: center;
+  background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 1.1rem 1.35rem; margin-bottom: 1.1rem; }
+.konf-kopf:empty { display: none; }
+.konf-score { display: grid; place-items: center; width: 78px; height: 78px; border-radius: 50%;
+  border: 3px solid var(--border); position: relative; }
+.konf-score b { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums;
+  font-size: 1.5rem; font-weight: 700; line-height: 1; color: var(--text); }
+.konf-score b small { font-size: 0.72rem; font-weight: 600; color: var(--text-faint); }
+.konf-score span { font-size: 0.6rem; letter-spacing: .07em; text-transform: uppercase; color: var(--text-faint);
+  position: absolute; bottom: 12px; }
+.konf-score.konf-ok { border-color: #1c7a49; } .konf-score.konf-warn { border-color: #b4770a; }
+.konf-score.konf-idle { border-color: #64788f; }
+.konf-eyebrow { font-size: 0.68rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--text-faint); }
+.konf-satz { font-size: 1.02rem; font-weight: 600; color: var(--text); margin: 2px 0 9px; letter-spacing: -.01em; }
+.konf-facts { display: flex; flex-wrap: wrap; gap: 7px; }
+.konf-facts .kf { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 600;
+  padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2, #f6f8fb); color: var(--text-light); }
+.konf-facts .kf i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.konf-facts .kf.ok { background: #e2f2e8; border-color: transparent; color: #1c7a49; }
+.konf-facts .kf.warn { background: #faf0da; border-color: transparent; color: #b4770a; }
+.konf-facts .kf.sector { background: var(--primary); border-color: transparent; color: #fff; }
 /* ── Ansichts-Umschalter Mengen ↔ Bestellung ── */
 .view-switch { display: inline-flex; background: var(--surface-2, #f1f5f9); border: 1px solid var(--border);
   border-radius: 9px; padding: 3px; gap: 2px; }

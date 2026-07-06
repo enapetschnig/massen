@@ -763,9 +763,49 @@
       detail.innerHTML = html || '<p style="color:#92400e">Keine ÖNORM-Massen ermittelt.</p>';
     }
 
+    renderKonfidenzKopf(data);
     renderReadData(data);
     renderMengenermittlung(data);
     renderMaterialliste(data.materialliste, data.gemessen);
+  }
+
+  // KONFIDENZ-KOPF: beantwortet „kann ich das übernehmen?" in einem Blick —
+  // Gesamt-Konfidenz + die tragenden Signale (Maßstab, gelesene Räume,
+  // Geometrie-Flags). Zurückhaltend/seriös, nicht als Deko: der Wert leitet
+  // den Nutzer, WO er prüfen muss.
+  function renderKonfidenzKopf(data) {
+    var el = document.getElementById('konf-kopf');
+    if (!el) return;
+    var g = data.gemessen || {}, gq = g.geometrie_qualitaet || {};
+    var ml = data.materialliste || {}, kz = ml.kennzahlen || {};
+    var raeume = data.raeume || [];
+    // Gesamt-Konfidenz: Median der Positions-Konfidenzen (robust gg. Ausreißer)
+    var konfs = [];
+    Object.keys(ml.bauteile || {}).forEach(function (b) {
+      (ml.bauteile[b] || []).forEach(function (p) { if (p && p.konfidenz != null) konfs.push(p.konfidenz); });
+    });
+    konfs.sort(function (a, b) { return a - b; });
+    var med = konfs.length ? konfs[Math.floor(konfs.length / 2)] : (g.konfidenz || 0);
+    var pct = Math.round(med * 100);
+    var stufe = pct >= 80 ? 'ok' : (pct >= 65 ? 'warn' : 'idle');
+    // Sektor
+    var sektor = (data.dach_positionen || []).length ? { i: '🏠', t: 'Dachplan · Zimmerer/Dachdecker' }
+      : (kz.sektor === 'STB/Tiefgarage' ? { i: '🅿️', t: 'Tiefgarage · Stahlbeton' }
+        : { i: '🏗️', t: 'Rohbau · Hochbau' });
+    var facts = [];
+    facts.push('<span class="kf sector">' + sektor.i + ' ' + esc(sektor.t) + '</span>');
+    if (raeume.length) facts.push('<span class="kf ok"><i></i>' + raeume.length + ' Räume byte-exakt gelesen</span>');
+    if (gq.umfang_validiert) facts.push('<span class="kf ok"><i></i>Außenumfang aus Plan-Maßen bestätigt</span>');
+    else if (gq.umfang_verdacht_niedrig) facts.push('<span class="kf warn"><i></i>Außenumfang unsicher → nachmessen</span>');
+    if (g.bodenplatte_flaeche_m2) facts.push('<span class="kf ok"><i></i>Grundfläche aus Raumflächen exakt</span>');
+    var satz = pct >= 80 ? 'Belastbar — bestellfertig, Prüfpunkte markiert.'
+      : (pct >= 65 ? 'Weitgehend belastbar — die markierten Stellen kurz prüfen.'
+        : 'Erste Auswertung — bitte die markierten Stellen prüfen/nachmessen.');
+    el.innerHTML =
+      '<div class="konf-score konf-' + stufe + '"><b>' + pct + '<small>%</small></b><span>Konfidenz</span></div>' +
+      '<div class="konf-body"><div class="konf-eyebrow">Auswertung geprüft</div>' +
+      '<div class="konf-satz">' + satz + '</div>' +
+      '<div class="konf-facts">' + facts.join('') + '</div></div>';
   }
 
   // PRÜFBARE MENGENERMITTLUNG (ÖNORM A 2063 / LB-Hochbau): Gewerk (LG) →
