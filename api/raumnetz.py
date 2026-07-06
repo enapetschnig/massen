@@ -1505,6 +1505,10 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
                     f_cells += 1
         # Glättungsradius größenabhängig: 25cm schließt Objekt-Buchten großer Räume,
         # frisst aber Mini-Räume (WC −13% gemessen) → kleine Räume 12cm.
+        # 0,40m-Schacht-Glättung GEMESSEN & zurückgestellt (Bad-Roh-F-
+        # Sezierung): heilt WM-Schacht-Buchten (50→51), kostet aber am TG
+        # einen Raum (Stellplatz-Poché) — Seitwärts-Tausch, kein sauberer
+        # Gewinn. Bleibt 0,25 bis das TG-Gating gebaut ist.
         r_gl = 0.25 if st["f_m2"] >= 4.0 else 0.12
         glatt, bw, bh = _region_glaetten(is_room, i0, j0, i1, j1, W,
                                          max(2, int(r_gl / rst.zm)))
@@ -1520,6 +1524,46 @@ def _loecher_fuellen_und_messen(grid, label, rst, stempel):
                     kanten += 1
         out.append((f_cells * rst.zm * rst.zm, kanten * rst.zm))
     return out
+
+
+def hatch_fill_filter(hatch_segs, box, ptm, cell_m=0.06, r_connect_m=0.12,
+                      r_open_m=0.35, r_recover_m=0.20):
+    """BODEN-/BELAGS-SCHRAFFUR aus der Wand-Poché filtern (Bad-Roh-F-Sezierung:
+    monochrome Pläne tragen Fliesen-/Belags-Feinschraffur IM Rauminneren —
+    Median-Strichlänge 5 cm, 90-200+ Striche je Bad — die wand_maske als Wand
+    brannte; Räume wurden an der Fill-Grenze abgeschnitten, F −19..−43 %,
+    Schweregrad = Schraffur-Dichte-Gradient der Gebäudeblöcke).
+    PRINZIP: Wand-Poché ist ein dünnes BAND (reale Wanddicke ≤ ~0,45 m);
+    ein Schraffur-Blob, der ein morphologisches Opening mit r_open überlebt
+    (>~0,7 m dick in BEIDEN Richtungen), ist Bodenfläche → Striche darin
+    fliegen. Läuft auf einem groben 6-cm-Raster (~2 s auf 5000 m²)."""
+    bx0, bx1, by0, by1 = box
+    cell = cell_m * ptm
+    W2 = int((bx1 - bx0) / cell) + 2
+    H2 = int((by1 - by0) / cell) + 2
+    if W2 * H2 > 4_000_000 or not hatch_segs:
+        return hatch_segs
+    hmask = bytearray(W2 * H2)
+    mids = []
+    for s in hatch_segs:
+        i = int(((s[0] + s[2]) / 2.0 - bx0) / cell)
+        j = int(((s[1] + s[3]) / 2.0 - by0) / cell)
+        mids.append((i, j))
+        if 0 <= i < W2 and 0 <= j < H2:
+            hmask[j * W2 + i] = 1
+    rc = max(1, round(r_connect_m / cell_m))
+    ro = max(1, round(r_open_m / cell_m))
+    rr = max(0, round(r_recover_m / cell_m))
+    d = _dist_bfs(hmask, W2, H2, rc)
+    solid = bytearray(1 if d[i] <= rc else 0 for i in range(W2 * H2))
+    bg = bytearray(0 if solid[i] else 1 for i in range(W2 * H2))
+    dbg = _dist_bfs(bg, W2, H2, ro + 1)
+    eroded = bytearray(1 if dbg[i] > ro else 0 for i in range(W2 * H2))
+    dop = _dist_bfs(eroded, W2, H2, ro + rr)
+    fill = bytearray(1 if dop[i] <= ro + rr else 0 for i in range(W2 * H2))
+    keep = [s for s, (i, j) in zip(hatch_segs, mids)
+            if not (0 <= i < W2 and 0 <= j < H2 and fill[j * W2 + i])]
+    return keep
 
 
 def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50):
@@ -1676,6 +1720,11 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     Liefert (ergebnisse, stempel): ergebnisse = [{…, f_ist, u_ist, status}].
     debug: dict → bekommt grid/label/W/H/rst für Visualisierung."""
     stempel = raum_stempel(page, box)
+    # hatch_fill_filter: WURZELURSACHEN-Fix (Boden-Feinschraffur → Wand) —
+    # GEMESSEN & ZURÜCKGESTELLT: heilt die Cluster-F real (Bad 4,0→5,4-6,0),
+    # aber WM netto 49 vs 50 (2 alte Grüne waren Zufalls-Fill-Beschneidung)
+    # und TG 16→15 (Stellplatz-Schraffur). Wiedereinbau braucht TG-Gating
+    # + die 2 Gate-Rand-Fälle; Sezier-Skripte im Session-Scratchpad.
     _stuetzen = []
     try:
         for _blk in page.get_text("dict").get("blocks", []):
@@ -1888,6 +1937,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         try:
             g2, l2, ok2, _au2, v2 = _pass(True)   # FERTIG-Ebene
             out2 = _messen_und_status(g2, l2, ok2, v2)
+            if debug is not None:
+                debug["out_fertig"] = out2   # Sezier-Sicht auf den FERTIG-Pass
             for r1, r2 in zip(out, out2):
                 if r1["status"] != "verifiziert" and r2["status"] == "verifiziert":
                     r1.update(status="verifiziert", f_ist=r2["f_ist"],
@@ -1911,8 +1962,15 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     if _uok:
                         r1.update(status="verifiziert", u_ist=_u2,
                                   ebene="hybrid")
-        except Exception:
-            pass
+        except Exception as _e2:
+            # PASS-2-TOD SICHTBAR machen (Bad-Roh-F-Sezierung: ein still
+            # verschluckter Fertig-Pass-Abbruch degradierte das Ergebnis
+            # unsichtbar auf ROH-only — im Experiment kostete das 14
+            # Verifikationen ohne jedes Signal). Verhalten unverändert
+            # (best-effort bleibt), aber Log + debug-Feld.
+            print(f"[raumnetz] FERTIG-Pass abgebrochen: {type(_e2).__name__}: {str(_e2)[:120]}")
+            if debug is not None:
+                debug["fertig_pass_fehler"] = f"{type(_e2).__name__}: {str(_e2)[:200]}"
     return out, stempel
 
 
