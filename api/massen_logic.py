@@ -660,6 +660,47 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
     return positionen
 
 
+def gewerk_fenster(rooms, windows, baudaten, geschoss="EG", tueren=None):
+    """Fensterbau / Bauelemente (LG 09 Fenster/Türen — STÜCK-Liste): die byte-exakt
+    aus dem Plan extrahierten Öffnungen (Maße + Codes) als Fenster-/Türliste, nach
+    Maß gruppiert mit Stückzahl + Σ Ansichtsfläche. Ein Fensterbau-Betrieb braucht
+    genau diese Zusammenstellung. Leer (→ Gewerk ausgelassen), wenn keine bemaßten
+    Öffnungen erkannt wurden."""
+    oeffnungen = _oeffnungen_kombi(windows, tueren)
+    fenster = [o for o in oeffnungen if (o.get("_art") or "fenster") != "tuer"]
+    tueren_a = [o for o in oeffnungen if o.get("_art") == "tuer" and _ist_aussenwand(o)]
+    tueren_i = [o for o in oeffnungen if o.get("_art") == "tuer" and not _ist_aussenwand(o)]
+    positionen = []
+
+    def _liste(posnr, titel, quelle, items, konf):
+        if not items:
+            return
+        grp = {}
+        for o in items:
+            bw, hw = round(o.get("breite_m") or 0, 2), round(o.get("hoehe_m") or 0, 2)
+            g = grp.setdefault((bw, hw), {"n": 0, "codes": set()})
+            g["n"] += 1
+            if o.get("code"):
+                g["codes"].add(str(o.get("code")))
+        pos = LVPosition(posnr, f"{titel} — {geschoss}", "Stk")
+        pos.quelle = quelle
+        for (bw, hw), g in sorted(grp.items(), key=lambda x: -(x[0][0] * x[0][1])):
+            m2 = round(bw * hw, 2)
+            masz = f"{bw:.2f}×{hw:.2f} m" if (bw and hw) else "ohne Maß"
+            codes = ", ".join(sorted(g["codes"]))
+            pos.add_zeile(f"{masz}{(' [' + codes + ']') if codes else ''}",
+                          anzahl=g["n"], summe=g["n"],
+                          quelle=(f"{g['n']}× à {m2} m² = {round(g['n'] * m2, 2)} m² Ansichtsfläche"
+                                  if m2 else f"{g['n']} Stk (Maß am Plan prüfen)"))
+        pos.konfidenz = konf
+        positionen.append(pos)
+
+    _liste("1.1", "Fenster", "byte-exakt aus dem Plan (Fenster-Codes/Maße) · Stück-Liste", fenster, 0.85)
+    _liste("1.2", "Außentüren", "byte-exakt · Türen in Außenwänden · Stück-Liste", tueren_a, 0.8)
+    _liste("1.3", "Innentüren", "byte-exakt · Innentüren · Stück-Liste", tueren_i, 0.8)
+    return positionen
+
+
 # LG-Nummern = offizielle Standardisierte LB-Hochbau (StLB-HB Version 020,
 # BMWET) — byte-exakt aus der Leistungsbeschreibung gelesen. Öffentlicher
 # Standard (keine ONLV-Lizenz nötig, die betrifft nur die Positions-TEXTE);
@@ -672,6 +713,7 @@ GEWERKE = {
     "estrich": ("Estrich / Boden (LG 11 Estricharbeiten — in Anlehnung an ÖNORM B 2232)", gewerk_estrich, "11"),
     "maler":   ("Maler / Anstrich (LG 46 Beschichtung auf Mauerwerk, Putz und Beton)", gewerk_maler, "46"),
     "fliesen": ("Fliesenleger (LG 27 Fliesen- und Plattenarbeiten — in Anlehnung an ÖNORM B 2207)", gewerk_fliesen, "27"),
+    "fenster": ("Fensterbau / Bauelemente (LG 09 Fenster, Fenstertüren — Stück-Liste)", gewerk_fenster, "09"),
 }
 
 

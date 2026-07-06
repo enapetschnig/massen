@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(ROOT, "api"))
 import massen_logic as ML
 from massen_logic import (gewerk_putz, gewerk_maler, gewerk_estrich,
                           gewerk_rohbau, gewerk_beton, gewerk_fliesen,
-                          berechne_gewerke)
+                          gewerk_fenster, berechne_gewerke)
 
 BAUDATEN = {"aussenwand_cm": 50.0, "geschosshoehe_m": 2.70, "decke_cm": 20.0,
             "bodenplatte_cm": 25.0}
@@ -123,6 +123,22 @@ def run():
     fw_ab = next(p for p in fl_ab if p.posnr == "1.2")
     check("Fliesen: Wand 24,0 − Tür 1,6 − Fenster 0,5 (im Band) = 21,9",
           abs(fw_ab.endsumme - 21.9) < 0.05)
+
+    # ── FENSTER/TÜREN (LG 09): Stück-Liste nach Maß gruppiert ──
+    FEN = [{"breite_m": 1.0, "hoehe_m": 1.2, "code": "F1", "_art": "fenster"},
+           {"breite_m": 1.0, "hoehe_m": 1.2, "code": "F1", "_art": "fenster"},
+           {"breite_m": 2.5, "hoehe_m": 2.0, "code": "HST", "_art": "fenster"}]
+    TUE = [{"breite_m": 1.0, "hoehe_m": 2.1, "_art": "tuer", "wand_typ": "aussen"},
+           {"breite_m": 0.9, "hoehe_m": 2.0, "_art": "tuer"},
+           {"breite_m": 0.9, "hoehe_m": 2.0, "_art": "tuer"}]
+    fen = gewerk_fenster([], FEN, BAUDATEN, tueren=TUE)
+    fpos = next(p for p in fen if p.posnr == "1.1")
+    check("Fenster: 3 Stück (2×F1 + 1×HST), nach Maß gruppiert",
+          abs(fpos.endsumme - 3) < 0.01 and len(fpos.zeilen) == 2)
+    check("Fenster: Innentüren = 2 Stück (Pos 1.3)",
+          next(p for p in fen if p.posnr == "1.3").endsumme == 2)
+    check("Fenster: KEIN Gewerk ohne Öffnungen (leer → ausgelassen)",
+          gewerk_fenster([], [], BAUDATEN) == [])
 
     # ── CROSS-DEDUP Fenster↔Tür (dieselbe Hebeschiebetür in beiden Listen) ──
     _kom = ML._oeffnungen_kombi(
