@@ -144,7 +144,14 @@ class MaterialPos:
         self.bauteil = bauteil
         self.material = material
         self.einheit = einheit
-        self.menge = round(float(menge or 0), 2)
+        # Menge nie negativ/NaN/inf (Fuzz-Test: negative/absurde Baudaten sollen
+        # keine unsinnige Bestellmenge erzeugen). Eine Materialmenge ist ≥ 0.
+        try:
+            _m = float(menge or 0)
+            _m = 0.0 if _m != _m or _m in (float("inf"), float("-inf")) else max(0.0, _m)
+        except (TypeError, ValueError):
+            _m = 0.0
+        self.menge = round(_m, 2)
         self.formel = formel
         self.konfidenz = konfidenz
         self.plan_ref = None   # {"layer": "waende|oeffnungen|konturen", …}
@@ -247,6 +254,26 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
               ersetzen diese Werte die Schätzformeln (sqrt × 1.55 etc).
               Konfidenz steigt entsprechend von 55-65% auf 85-95%.
     """
+    # DEFENSIVE EINGANGS-NORMALISIERUNG (Fuzz-Test der Mengen-Engine: baudaten=
+    # None → AttributeError, Zahl-Strings '50' → TypeError beim Rechnen, negative
+    # Baudaten → negative Mengen). Das Kernprodukt darf NIE crashen, egal was
+    # Vision/Text/Merge liefert. Zahl-Strings → float; echte Strings (dach_typ,
+    # wandmaterial) + _quellen bleiben; None/nicht-dict → {}.
+    def _mknum(v):
+        if isinstance(v, str):
+            try:
+                return float(v.replace(",", "."))
+            except ValueError:
+                return v
+        return v
+    baudaten = {k: _mknum(v) for k, v in baudaten.items()} \
+        if isinstance(baudaten, dict) else {}
+    _rn = []
+    for r in (rooms or []):
+        if isinstance(r, dict):
+            _rn.append({k: (_mknum(v) if k in ("flaeche_m2", "umfang_m", "hoehe_m")
+                            else v) for k, v in r.items()})
+    rooms = _rn
     tueren = tueren or []
     gemessen = gemessen or {}
     legende = legende or {}

@@ -24,6 +24,7 @@ GUARDS = [
     ("Kalibrier-Mechanik", "test_kalibrierung.py", "dormant, aber intakt"),
     ("Dach-Sektor (byte-exakt)", "test_dach_positionen.py", "Σ=Gesamt + Sparren + Velux"),
     ("Edge-Case-Robustheit", "test_edgecases.py", "leer/Scan/rotiert — nie crashen"),
+    ("Mengen-Engine-Fuzz", "test_materialliste_fuzz.py", "None/Strings/negativ — nie crashen/negativ"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
