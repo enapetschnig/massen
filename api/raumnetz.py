@@ -1240,10 +1240,22 @@ def _streifen_ausgleich(grid, label, rst, stempel, AUSSEN, max_runden=40):
 
     for _ in range(max_runden):
         bewegt = False
+        # WM-PERF (Profiling: dieser Schritt war 143s von 428s Gesamtlaufzeit): die
+        # Raum-Zellen EINMAL je Runde in EINEM Grid-Durchlauf sammeln, statt für jeden
+        # Raum den ganzen Grid neu zu scannen (O(W·H) statt O(n·W·H) je Runde). Der
+        # label[idx]==b-Filter unten hält es exakt: ein Taker-Raum verliert nie Zellen
+        # (niemand nimmt einem Unterfüller Zellen) und gewinnt sie erst BEI seiner
+        # Verarbeitung → der Round-Start-Snapshot ist für den verarbeiteten Raum
+        # deckungsgleich mit dem Live-Stand (verifiziert: Angerer/WM Grün-Zahl gleich).
+        zellen_je = {}
+        for idx in range(W * H):
+            lab = label[idx]
+            if 0 <= lab < n:
+                zellen_je.setdefault(lab, []).append(idx)
         for b in range(n):
             if fl[b] >= soll[b]:
                 continue
-            zellen = [idx for idx in range(W * H) if label[idx] == b]
+            zellen = [idx for idx in zellen_je.get(b, ()) if label[idx] == b]
             if not zellen:
                 continue
             # Kandidaten je Richtung: (dir, feste Linie) → Positionen entlang der Linie
