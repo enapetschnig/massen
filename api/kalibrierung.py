@@ -88,6 +88,13 @@ def _to_float(s):
         t = t.replace(".", "").replace(",", ".")
     elif "," in t:                      # 123,4 → 123.4
         t = t.replace(",", ".")
+    elif "." in t and re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", t):
+        # NUR Punkt, exakt 3er-Gruppen = deutscher TAUSENDERpunkt (Excel "#.##0"):
+        # '2.400'→2400, '12.000'→12000. Ohne diese Weiche las _to_float sie als
+        # Dezimal (2,4) → ratio soll/ist ×1000 daneben → die Firmen-Kalibrierung
+        # lernte dauerhaft einen ~40%-Falsch-Faktor. Ein einzelner Punkt mit ≠3
+        # Nachkommastellen ('123.4', '48.5') bleibt Dezimal.
+        t = t.replace(".", "")
     try:
         return float(t)
     except ValueError:

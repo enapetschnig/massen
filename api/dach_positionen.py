@@ -19,6 +19,7 @@ _HOLZ_RX = re.compile(
     r"Deckenbalken|Gratsparren|Schifter|Steher|Zange[n]?|Wechsel|Aufdoppelung)"
     r"\s{0,3}B\s*/\s*H\s*:?\s*(\d+)\s*/\s*(\d+)\s*cm", re.I)
 _FENSTER_RX = re.compile(
+    r"(?:(\d+)\s*(?:x|×|stk\.?|st[üu]ck)\s*)?"     # optionale Vorzahl '3x'/'3 Stk'
     r"(Velux|Roto|Fakro)\s*((?:[A-Z]{2,4}\s+)?[A-Z0-9]{3,6})?\s*"
     r"(\d{2,3})\s*/\s*(\d{2,3})\s*cm", re.I)
 _POS_RX = re.compile(
@@ -31,8 +32,12 @@ _SCHICHT_RX = re.compile(
 
 def _f(s):
     try:
-        return float(str(s).replace(".", "").replace(",", ".")) \
-            if "," in str(s) else float(s)
+        t = str(s).strip()
+        if "," in t:                       # deutsche Dezimalzahl (Punkt=Tausender)
+            return float(t.replace(".", "").replace(",", "."))
+        if re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", t):
+            return float(t.replace(".", ""))   # 1.234 = Tausenderpunkt → 1234
+        return float(t)                    # einzelner Punkt ≠3 Nachk. = Dezimal
     except (TypeError, ValueError):
         return None
 
@@ -66,9 +71,10 @@ def dach_positionen(doc):
                 "seite": nr, "quelle": "byte-exakt",
             })
         for m in _FENSTER_RX.finditer(txt):
-            key = (m.group(1).title(), (m.group(2) or "").strip(),
-                   m.group(3), m.group(4), nr)
-            fenster_roh[key] = fenster_roh.get(key, 0) + 1
+            key = (m.group(2).title(), (m.group(3) or "").strip(),
+                   m.group(4), m.group(5), nr)
+            # Vorzahl '3x Velux …' zählt als 3 (früher als 1 unterzählt)
+            fenster_roh[key] = fenster_roh.get(key, 0) + (int(m.group(1)) if m.group(1) else 1)
         for m in _POS_RX.finditer(txt):
             positionen.append({
                 "pos": int(m.group(1)), "text": m.group(2).strip(),
@@ -104,7 +110,10 @@ def dach_positionen(doc):
     flaechen = _fl
     _hz, _seen = [], set()
     for x in sorted(hoelzer, key=lambda h2: -h2["anzahl"]):
-        k = (x["bauteil"].lower(), x["b_cm"], x["h_cm"])
+        # Anzahl im Dedupe-Key: zwei ECHT verschiedene Abschnitte gleichen
+        # Querschnitts ('12 Sparren 8/16' + '8 Sparren 8/16') sind nicht dieselbe
+        # Angabe → nicht mergen (früher kollabierten sie zu einem, ~40% Holz fehlte).
+        k = (x["bauteil"].lower(), x["b_cm"], x["h_cm"], x["anzahl"])
         if k in _seen:
             continue
         _seen.add(k)
@@ -191,11 +200,19 @@ def dach_materialliste(dp, kw=None):
         _pos("Unterdach", "Unterspannbahn", "m²", A * k["unterspann_verschnitt"],
              f"{A} m² × {k['unterspann_verschnitt']} Überlappung", 0.8)
         # Schicht-Dicken (byte-exakt aus dem Systemschnitt) → Dämmung/Schalung m³/m²
+        # NICHT-DACH-Filter: der Schnitt trägt oft auch Fassaden-/Boden-/Wand-
+        # Schichten (…dämmung), die NICHT zur Dachfläche gehören — sonst würde z.B.
+        # Fassaden-/Trittschalldämmung mit der DACHfläche multipliziert (falsches m³).
+        _nicht_dach = ("fassad", "trennwand", "trittschall", "perimeter", "estrich",
+                       "sockel", "kellerdeck", "bodenplatt", "innenputz",
+                       "außenputz", "aussenputz", "wandputz", "vorsatzschal")
         for s in schichten:
             mn = (s.get("material") or "").lower()
             dcm = s.get("dicke_cm")
             if not dcm:
                 continue
+            if any(t in mn for t in _nicht_dach):
+                continue   # kein Dach-Aufbau → nicht × Dachfläche rechnen
             if any(t in mn for t in ("dämmung", "daemmung", "mineralwolle",
                                      "pur", "xps", "gefälle")):
                 _pos("Dämmung", f"{s['material']} {dcm}cm", "m³",
