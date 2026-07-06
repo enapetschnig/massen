@@ -534,11 +534,17 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     out.append(sum(cl) / len(cl))
                 return out
 
-            if dbg_r.get("label") is not None and not grossplan:
-                # Großpläne (>600m² Box): IoU-Kandidatensuche skaliert noch
-                # nicht (kombinatorisch) — ehrlich überspringen statt hängen.
+            if dbg_r.get("label") is not None:
+                # Der räumliche IoU-Beweis läuft jetzt AUCH auf Großplänen — dort
+                # aber raum-lokal (nur_bbox): der teure Full-Pool-Fallback
+                # (O(dichte⁴), einst die Grossplan-Sperre) bleibt aus, der
+                # bbox-lokale Pass entfernt die Fluchten-Ambiguität, an der die
+                # F+U-Beweise auf dichten Plänen scheitern. So gewinnt der
+                # Goldstandard genau dort Räume, wo Roh-Status+rohbau_ok null
+                # tragen (WM/TG). EFH bleibt beim vollen Beweis (nur_bbox=False).
                 raumnetz.raum_iou_beweis(raeume, dbg_r["label"], dbg_r["rst"],
-                                         _ddp(fv2), _ddp(fh2), ptm)
+                                         _ddp(fv2), _ddp(fh2), ptm,
+                                         nur_bbox=grossplan)
         except Exception as e:  # pragma: no cover
             print(f"[nachzeichnen] IoU-Beweis fehlgeschlagen: {e}")
         for r in raeume:

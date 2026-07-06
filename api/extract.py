@@ -4781,7 +4781,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 32  # Wandlängen-Summe-Fallback für legendenlose Pläne (Holzbau 1:50)
+_NZ_CACHE_V = 33  # IoU-Goldstandard auch auf Großplänen (nur_bbox) — TG 16→17 grün
 
 
 def _nachzeichnen_roh(body):

@@ -2132,8 +2132,16 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
 # ────────────────────────────────────────────────────────────────────
 # RÄUMLICHER IoU-BEWEIS (v3, Juli 2026) — der Goldstandard der Verifikation
 # ────────────────────────────────────────────────────────────────────
-def raum_iou_beweis(res_liste, label, rst, fv, fh, ptm, iou_min=0.85):
+def raum_iou_beweis(res_liste, label, rst, fv, fh, ptm, iou_min=0.85, nur_bbox=False):
     """Annotiert res_liste-Einträge mit iou_bewiesen/iou_wert/iou_form.
+
+    nur_bbox=True (GROSSPLÄNE, WM/TG): nur der raum-LOKALE erste Pass läuft — die
+    Fluchten werden auf die Raum-Bounding-Box ±0,5m beschränkt. Das entfernt die
+    globale Fluchten-Ambiguität (der Grund, warum F+U-Beweise auf dichten Plänen
+    versagen), OHNE den kombinatorischen Full-Pool-Fallback (O(dichte⁴), der die
+    Grossplan-Sperre auslöste). Damit greift der Goldstandard-Beweis auch auf den
+    großen Plänen, wo Roh-Status + rohbau_ok null tragen (gemessen: TG 16/25, WM
+    55/70 — Zusatz-Beweise 0). Streng monoton: setzt nur iou_bewiesen (add-only).
 
     Beweis: eine Rect- oder L-Form aus FLUCHT-Paaren muss die Raum-REGION
     räumlich decken (exakte IoU auf Zeilen-Runs, Schwelle kalibriert 0,85;
@@ -2264,6 +2272,10 @@ def raum_iou_beweis(res_liste, label, rst, fv, fh, ptm, iou_min=0.85):
         ry1 = rst.by0 + (rj[-1] + 1) * rst.cell + 0.5 * ptm
         top, ok1 = _entscheide(_rank([p for p in fv if rx0 <= p <= rx1],
                                      [p for p in fh if ry0 <= p <= ry1]))
+        if not ok1 and nur_bbox:
+            # GROSSPLAN: nur der raum-lokale Pass (Perf) — der kombinatorische
+            # Full-Pool-Fallback bleibt aus, Raum ehrlich unbewiesen statt teuer.
+            continue
         if not ok1:
             # Form-Obergrenzen-Skip: erschöpfende BBox-Ecken-Suche
             bx0_, bx1_ = rx0 + 0.5 * ptm, rx1 - 0.5 * ptm
