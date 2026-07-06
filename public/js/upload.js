@@ -780,6 +780,16 @@
         : { i: '🏗️', t: 'Rohbau · Hochbau' });
     var facts = [];
     facts.push('<span class="kf sector">' + sektor.i + ' ' + esc(sektor.t) + '</span>');
+    // Bau-Status prominent (wichtigste Interpretations-Warnung): enthält der Plan
+    // laut Farb-Legende ECHTEN Bestand/Abbruch, beziehen sich die Mengen auf den
+    // NEUBAU — auf einem Umbauplan zählte der Polier sonst Bestandswände mit.
+    if (data.farben && (data.farben.hat_bestand || data.farben.hat_abbruch)) {
+      var _ba = [];
+      if (data.farben.hat_bestand) _ba.push('Bestand');
+      if (data.farben.hat_abbruch) _ba.push('Abbruch');
+      facts.push('<span class="kf warn" title="Farb-Legende Neubau/Bestand/Abbruch — die Mengen umfassen den NEUBAU; Bestand/Abbruch sind NICHT herausgerechnet">'
+        + '<i></i>Umbau/Sanierung: ' + _ba.join(' + ') + ' im Plan → Mengen = Neubau</span>');
+    }
     if (raeume.length) facts.push('<span class="kf ok"><i></i>' + raeume.length + ' Räume byte-exakt gelesen</span>');
     if (gq.umfang_validiert) facts.push('<span class="kf ok"><i></i>Außenumfang aus Plan-Maßen bestätigt</span>');
     else if (gq.umfang_verdacht_niedrig) facts.push('<span class="kf warn"><i></i>Außenumfang unsicher → nachmessen</span>');
