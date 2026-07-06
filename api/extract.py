@@ -4781,7 +4781,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 31  # Rekonstruierte Raum-Regionen als Umriss (region_px)
+_NZ_CACHE_V = 32  # Wandlängen-Summe-Fallback für legendenlose Pläne (Holzbau 1:50)
 
 
 def _nachzeichnen_roh(body):

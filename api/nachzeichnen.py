@@ -242,6 +242,32 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         if sn:
             summe[sn] = round(summe.get(sn, 0) + laenge_m, 2)
 
+    # FALLBACK-SUMME für Grundriss-Pläne OHNE Mauerwerks-Legende (Breiten-Test Holzbau
+    # 'EG-Wand-Grundriss' 1:50, Holzerleben): dessen Wände messen ~9cm (Ständer/Innen)
+    # und ~34cm (gedämmte Außenwand) — keine davon schnappt auf LEG=[50,38,25,20,12],
+    # also blieb die Wandlängen-Summe LEER, obwohl 13 echte Wände getrace't wurden.
+    # Nur wenn summe SONST leer wäre → strikt monoton (jeder Plan mit ≥1 Legenden-Snap
+    # bleibt unberührt, Angerer/TG/Dach unverändert). Nahe Mess-Cluster (8/9, 33.8/33.9)
+    # werden längen-gewichtet zu einem Bucket zusammengeführt (Vektor-Rauschen ±1cm).
+    if not summe and waende:
+        paare = sorted(((round(w.get("dicke_cm") or 0), w["laenge_m"]) for w in waende
+                        if (w.get("dicke_cm") or 0) >= 5.0), key=lambda t: t[0])
+
+        def _flush(grp):
+            if not grp:
+                return
+            L = sum(l for _, l in grp)
+            rep = round(sum(d * l for d, l in grp) / L)
+            summe[rep] = round(summe.get(rep, 0) + L, 2)
+
+        grp = []
+        for dc, lm in paare:
+            if grp and dc - grp[-1][0] > 2:
+                _flush(grp)
+                grp = []
+            grp.append((dc, lm))
+        _flush(grp)
+
     # Öffnungen (Fenster/Türen) aus dem Text-Layer (STUK/FPH-Codes stehen an der Öffnung,
     # byte-exakt) → klickbare Marker. Best-effort, bricht nie.
     oeffnungen = []
