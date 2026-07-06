@@ -32,6 +32,17 @@ def run():
     r5 = nachzeichnen.analysiere_doc(d5)
     assert r5.get("ok") is False
 
+    # 4b) UNGÜLTIGER MASSSTAB '1:00'/'1:0' (Robustheits-Sweep: ein Werbe-Folder
+    # trug '1:00' → 2835/0 = ZeroDivisionError-Crash). Muss ehrlich ✗, kein Crash.
+    import vektor    # noqa: E402
+    assert vektor._label_ptm("1:0") is None
+    assert vektor._label_ptm("1:00") is None
+    assert vektor._label_ptm("1:50") is not None   # echter Maßstab bleibt gültig
+    d6 = fitz.open(); p6 = d6.new_page(width=842, height=595)
+    p6.insert_text((50, 100), "Leistungsschau 1:00 Programm 2025")
+    r6 = nachzeichnen.analysiere_doc(d6)   # darf NICHT crashen
+    assert r6.get("ok") is False
+
     # 5) Rotierte Seite eines ECHTEN Plans → funktioniert weiterhin
     g = sorted(glob.glob(os.path.expanduser(
         "~/Downloads/*A-5_Einreichplan_Alfred-Angerer*")))

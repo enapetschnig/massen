@@ -137,7 +137,14 @@ def _label_ptm(massstab_label):
     if not massstab_label:
         return None
     m = re.search(r"1\s*:\s*(\d+)", str(massstab_label))
-    return round(2835.0 / int(m.group(1)), 2) if m else None
+    if not m:
+        return None
+    nenner = int(m.group(1))
+    # '1:0' (Robustheits-Sweep: ein Werbe-Folder trug '1:0' im Text) oder
+    # absurde Maßstäbe → kein tragfähiger Anker, kein Crash.
+    if not (10 <= nenner <= 5000):
+        return None
+    return round(2835.0 / nenner, 2)
 
 
 def _dominant_cluster(slopes_ptm, label_ptm=None, rel_tol=0.05):
