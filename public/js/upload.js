@@ -521,10 +521,17 @@
       var baTeile = [];
       if (data.farben.hat_bestand) baTeile.push('Bestand');
       if (data.farben.hat_abbruch) baTeile.push('Abbruch');
+      // Abbruch/Rückbau ist eine bezahlte ÖNORM-Leistung, lässt sich aber aus der
+      // (mehrdeutigen) Farb-Kodierung NICHT zuverlässig auto-quantifizieren
+      // (gemessen: Abbruch-Gelb pervasiv/nicht wand-paarbar) → ehrlich: am Plan
+      // nachmessen statt eine falsche Rückbau-Menge zu behaupten.
+      var messCta = data.farben.hat_abbruch
+        ? ' <button type="button" class="nz-btn" style="padding:.05rem .45rem;font-size:.76rem" onclick="_nzMessenStart()" title="Abbruch-/Rückbau-Kanten am Plan abklicken → Länge/Fläche">📏 Rückbau am Plan nachmessen</button>'
+        : '';
       hints.push('<div class="status-warn">🎨 <strong>' + baTeile.join(' + ') +
         ' im Plan erkannt</strong> — ' + esc(data.farben.hinweis ||
         ('laut Legende. Die Massen beziehen sich auf den NEUBAU; ' + baTeile.join('/') +
-         ' ist nicht automatisch herausgerechnet, bitte separat prüfen.')) + '</div>');
+         ' ist nicht automatisch herausgerechnet, bitte separat prüfen.')) + messCta + '</div>');
     }
     // Nur INNENRÄUME ohne Höhe sind ein Problem — überdachte Außenflächen
     // (Terrasse/Parkplatz/Loggia) haben korrekt keine Raumhöhe.
