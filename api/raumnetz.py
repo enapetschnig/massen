@@ -2050,6 +2050,9 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     # Messung) und NUR dazu-mergen. Global auf 0,40 gestellt kostet den TG
     # einen Raum (Stellplatz-Poché); als reiner ADD-Merge kann er NICHTS
     # verlieren (TG-Grüne kommen aus der 0,25er-Ebene, hier unangetastet).
+    # (0,55er-Zweitstufe gemessen & verworfen: die WM-Zimmer mit U +60% bei
+    # exaktem F sind echte große Buchten, keine glättbare Krenellierung —
+    # 0,55 heilte 0 Räume, nur Latenz. 0,40 bleibt die Schacht-Ebene.)
     if any(r["status"] not in ("verifiziert", "kein_start") for r in out):
         try:
             out_g = _messen_und_status(grid, label, ok_start, versch, r_gl_gross=0.40)
