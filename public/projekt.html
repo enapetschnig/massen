@@ -147,8 +147,8 @@
       </section>
 
       <!-- CHATBOT: Fragen zur fertigen Auswertung (read-only, gegroundet) -->
-      <div class="projekt-chat" id="projekt-chat">
-        <div class="chat-head">💬 Fragen zur Auswertung</div>
+      <details class="projekt-chat" id="projekt-chat">
+        <summary class="chat-head">💬 Fragen zur Auswertung <span class="chat-open-hint">— öffnen</span></summary>
         <div class="chat-sub">Frag zu diesem Projekt — der Assistent erklärt Mengen, Formeln und wo du prüfen solltest. Er greift nur auf diese Auswertung zu und rechnet nichts neu.</div>
         <div class="chat-log" id="chat-log"></div>
         <div class="chat-suggest" id="chat-suggest"></div>
@@ -156,7 +156,7 @@
           <input type="text" id="chat-input" class="form-control" placeholder="z.B. Wie viel Beton brauche ich für die Decke — und warum?">
           <button class="btn btn-accent" id="chat-send">Fragen</button>
         </div>
-      </div>
+      </details>
 
       <!-- ERWEITERT: alles Optionale in EINEM Drawer, standardmäßig zu -->
       <details class="advanced-drawer">
