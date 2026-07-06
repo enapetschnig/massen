@@ -1305,7 +1305,7 @@
 
     // Zoom-Section Analyse: rendert PDF in High-DPI Abschnitten und lässt Claude jeden lesen
     setStepActive(0);
-    if (progressStatus) progressStatus.textContent = 'Schritt 1/2: PDF-Abschnitte werden in hoher Auflösung analysiert (Zoom)...';
+    if (progressStatus) progressStatus.textContent = 'Schritt 1/2: PDF-Abschnitte werden in hoher Auflösung analysiert — bei detailreichen/großen Plänen ein bis mehrere Minuten, bitte warten …';
     if (analysisBar) { analysisBar.style.width = '10%'; analysisBar.textContent = '10%'; }
 
     fetch('/api/analyse-zoom', {
@@ -1395,9 +1395,10 @@
       var el = document.getElementById(id);
       if (el) { el.classList.remove('active', 'done', 'error'); }
     });
-
-    // Simulierte Schritte
-    simulateSteps();
+    // KEINE fake simulateSteps mehr: sie raste in ~8s auf 90% und kollidierte mit
+    // den ECHTEN Meilensteinen (10→40→70→100%) → die Bar sprang und stand dann bei
+    // 90%, während die echte Analyse (bei Großplänen Minuten) noch lief = 'hängt'.
+    // Der reale Analyse-Flow treibt Bar + Agent-Stepper jetzt allein und ehrlich.
   }
 
   function simulateSteps() {
