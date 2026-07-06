@@ -73,6 +73,16 @@ def run():
     # Brutto-Wand 22×2,70=59,4 − 6,0 = 53,4 (Laibung separat in 1.1a)
     check("Putz: Wand-Endsumme = Brutto − Abzug (Leibung separat)",
           abs(wand.endsumme - 53.4) < 0.1)
+    # ÖNORM-Ausbau-Vollständigkeit: Außenputz/Fassade (der Verputzer macht auch die
+    # Fassade — Außenwand-Ansichtsfläche brutto − Fassaden-Öffnungen>Schwelle).
+    putz_f = gewerk_putz(ROOMS, WINDOWS, dict(BAUDATEN, _basis_aussenwand_flaeche_m2=100.0))
+    aussen = next((p for p in putz_f if p.posnr == "1.3"), None)
+    check("Putz: Außenputz-Fassade 1.3 mit Fassaden-Basis vorhanden",
+          aussen is not None and aussen.beschreibung.startswith("Außenputz"))
+    check("Putz: Außenputz = Brutto 100 − Fassaden-Fenster 6,0 = 94,0",
+          aussen is not None and abs(aussen.endsumme - 94.0) < 0.1)
+    check("Putz: KEIN Außenputz ohne durchgereichte Fassaden-Basis",
+          not any(p.posnr == "1.3" for p in gewerk_putz(ROOMS, WINDOWS, BAUDATEN)))
 
     # ── MALER: > 4 m² abziehen, MIT Laibung (ÖNORM-konsistent zum Putz, Phase 1) ──
     maler = gewerk_maler(ROOMS, WINDOWS, BAUDATEN)

@@ -323,6 +323,34 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             pos.add_zeile(_room_name(r), summe=f, quelle=f"F={f}")
     pos.konfidenz = 0.97
     positionen.append(pos)
+
+    # AUSSENPUTZ / FASSADE (B 2204: der Verputzer macht auch die Fassade, nicht nur
+    # den Innenputz — bisher fehlte die größte Putz-Position ganz). Fläche = Außenwand-
+    # Ansichtsfläche brutto (Außenumfang × Höhe, DIESELBE durchgereichte Basis wie das
+    # Rohbau-Gewerk → keine widersprüchlichen Zahlen) − Fassaden-Öffnungen>Schwelle.
+    # Konfidenz bewusst niedriger: OB die Fassade verputzt wird (statt Klinker/Holz/
+    # Sichtbeton/WDVS-Deckschicht) ist Bauweise — als Position anbieten, Kunde prüft.
+    _aw_brutto = baudaten.get("_basis_aussenwand_flaeche_m2")
+    if _aw_brutto:
+        pos = LVPosition("1.3", f"Außenputz Fassade — {geschoss}", "m²")
+        pos.quelle = (f"in Anlehnung an ÖNORM B 2204 · Außenwand-Ansichtsfläche brutto "
+                      f"− Fassaden-Öffnungen>{schwelle:.1f} m² (Fassaden-Bauweise prüfen)")
+        pos.add_zeile("Außenwand Ansichtsfläche brutto", summe=round(_aw_brutto, 2),
+                      quelle="Außenumfang × Höhe (gemeinsame Basis)")
+        for w in oeffnungen:
+            if not _ist_aussenwand(w):
+                continue
+            netto = oeffnung_netto(w.get("breite_m", 0), w.get("hoehe_m", 0),
+                                   baudaten.get("aussenwand_cm", 38),
+                                   w.get("fph_m", 0), schwelle)
+            if netto["uebermessen"] or netto["abzug"] <= 0:
+                continue
+            _art = (w.get("_art") or "Öffnung").capitalize()
+            pos.add_zeile(f"  Abzug {_art} {w.get('code', '')}".rstrip(),
+                          summe=-netto["abzug"],
+                          quelle=f"Fassaden-Öffnung >{schwelle:.1f} m²")
+        pos.konfidenz = 0.75
+        positionen.append(pos)
     return positionen
 
 
