@@ -114,6 +114,15 @@ def run():
     check("berechne_gewerke: leeres Fliesen-Gewerk generell ausgelassen",
           "fliesen" not in berechne_gewerke(
               [{"name": "Wohnen", "flaeche_m2": 30.0, "umfang_m": 22.0}], [], BAUDATEN)["gewerke"])
+    # Öffnungs-Abzug im Fliesenband: Tür (fph=0) → volle Bandhöhe, Fenster ab
+    # Parapet nur der Teil UNTER der Fliesenhöhe (2,0 m).
+    BAD1 = [{"name": "Bad", "flaeche_m2": 8.0, "umfang_m": 12.0, "cx": 100, "cy": 100}]
+    T1 = [{"breite_m": 0.8, "hoehe_m": 2.0, "fph_m": 0, "_art": "tuer", "cx": 100, "cy": 94}]
+    W1 = [{"breite_m": 1.0, "hoehe_m": 0.6, "fph_m": 1.5, "_art": "fenster", "cx": 100, "cy": 106}]
+    fl_ab = gewerk_fliesen(BAD1, W1, BAUDATEN, tueren=T1)
+    fw_ab = next(p for p in fl_ab if p.posnr == "1.2")
+    check("Fliesen: Wand 24,0 − Tür 1,6 − Fenster 0,5 (im Band) = 21,9",
+          abs(fw_ab.endsumme - 21.9) < 0.05)
 
     # ── PHASE 1: zentraler Helfer oeffnung_netto (ÖNORM B 2204) ──
     n_klein = ML.oeffnung_netto(1.5, 2.0, wand_cm=50, schwelle=4.0)   # 3,0 m²

@@ -594,7 +594,10 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
 
     pos_w = LVPosition("1.2", f"Wandfliesen Nassräume — {geschoss}", "m²")
     pos_w.quelle = ("in Anlehnung an ÖNORM B 2207 · Nassraum-Umfang × Fliesenhöhe "
-                    "(Annahme Bad/Dusche 2,0 m, WC 1,5 m — Höhe/Öffnungen bauseits prüfen)")
+                    "− Öffnungen im Fliesenband (Annahme Bad/Dusche 2,0 m, WC 1,5 m — "
+                    "Fliesenhöhe bauseits prüfen)")
+    oeffnungen = _oeffnungen_kombi(windows, tueren)
+    fzuord = fenster_pro_raum(nass, oeffnungen)
     for r in nass:
         u = _room_value(r, "umfang_m")
         if not u:
@@ -603,8 +606,22 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
         h = 1.5 if ("wc" in nm and "bad" not in nm and "dusch" not in nm) else 2.0
         pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h,
                         summe=u * h, quelle=f"U={u} × h={h} (angenommen)")
+        # Öffnungen im Fliesenband [0..h] abziehen: Tür (fph=0) → volle Bandhöhe,
+        # Fenster ab Parapet fph → nur der Teil unter der Fliesenhöhe ist gefliest.
+        for w in fzuord.get(id(r), []):
+            bw, hw = w.get("breite_m", 0), w.get("hoehe_m", 0)
+            fph = w.get("fph_m", 0) or 0
+            band = min(h, fph + hw) - max(0.0, fph)   # Öffnungshöhe innerhalb des Bands
+            if bw <= 0 or band <= 0:
+                continue
+            abzug = round(bw * band, 2)
+            if abzug < 0.1:
+                continue
+            _art = (w.get("_art") or "Öffnung").capitalize()
+            pos_w.add_zeile(f"  Abzug {_art} {w.get('code', '')}".rstrip(),
+                            summe=-abzug, quelle=f"{bw}×{round(band, 2)} m im Fliesenband")
     if pos_w.zeilen:
-        pos_w.konfidenz = 0.7
+        pos_w.konfidenz = 0.75
         positionen.append(pos_w)
     return positionen
 
