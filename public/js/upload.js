@@ -446,6 +446,13 @@
       (dp.positionen || []).forEach(function (po) {
         z.push('Pos. ' + po.pos + ') ' + esc(po.text) + (po.m2 ? ' — ca. ' + po.m2 + ' m²' : ''));
       });
+      // Abgeleitete Material-Mengen (bestellbar) — mit Rechenweg & Konfidenz
+      (dp.materialliste || []).forEach(function (mp) {
+        var kf = mp.konfidenz != null ? Math.round(mp.konfidenz * 100) + '%' : '';
+        z.push('<strong>' + esc(mp.material) + ': ' + mp.menge + ' ' + esc(mp.einheit) +
+          '</strong> <span style="color:#6b7280">[' + kf + ']' +
+          (mp.formel ? ' = ' + esc(mp.formel) : '') + '</span>');
+      });
       if (z.length) {
         html += '<div class="kz-sub" style="margin:.2rem 0 .5rem">' +
           (dp.plan ? esc(dp.plan) + ': ' : '') + '</div><ul style="margin:.1rem 0 .6rem 1.1rem;font-size:.86rem;line-height:1.5">' +

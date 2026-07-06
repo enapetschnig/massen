@@ -16,8 +16,8 @@ _FLAECHE_RX = re.compile(
     r"(?:([\d.,]+)\s*[x×]\s*([\d.,]+)\s*=\s*)?([\d.,]+)\s*m[²2]", re.I)
 _HOLZ_RX = re.compile(
     r"(?:(\d+)\s*[x×]?\s*)?(Sparren(?:abst[üu]tzung)?|Pfette[n]?|Mauerbank|"
-    r"Gratsparren|Schifter|Steher|Zange[n]?|Wechsel|Aufdoppelung)\s*"
-    r".{0,24}?B\s*/\s*H\s*:?\s*(\d+)\s*/\s*(\d+)\s*cm", re.I | re.S)
+    r"Deckenbalken|Gratsparren|Schifter|Steher|Zange[n]?|Wechsel|Aufdoppelung)"
+    r"\s{0,3}B\s*/\s*H\s*:?\s*(\d+)\s*/\s*(\d+)\s*cm", re.I)
 _FENSTER_RX = re.compile(
     r"(Velux|Roto|Fakro)\s*((?:[A-Z]{2,4}\s+)?[A-Z0-9]{3,6})?\s*"
     r"(\d{2,3})\s*/\s*(\d{2,3})\s*cm", re.I)
@@ -147,4 +147,87 @@ def dach_positionen(doc):
         out["kamine"] = kamine
     if schichten:
         out["schichten"] = schichten[:40]
+    ml = dach_materialliste(out)
+    if ml:
+        out["materialliste"] = ml
+    return out
+
+
+# Dachdecker-/Zimmerer-KENNWERTE (österreichische Praxis; jede Firma kann sie
+# über den Kalibrierungs-Moat justieren — Default = gängige Werte).
+_DACH_KW = {
+    "dachlatten_lfm_pro_m2": 3.3,     # 30-cm-Lattung
+    "konterlatten_lfm_pro_m2": 2.6,   # ~40-cm-Sparrenabstand
+    "unterspann_verschnitt": 1.15,    # Überlappung + Verschnitt
+    "deckung_verschnitt": 1.05,
+    "sparren_ueberstand_m": 0.50,     # Dachvorsprung je Sparren
+}
+
+
+def dach_materialliste(dp, kw=None):
+    """Dach-Positionen (byte-exakt) → bestellbare Material-Mengen mit Rechenweg.
+    Ein Dachdecker/Zimmerer braucht m²/lfm/m³, nicht nur die Roh-Zahlen.
+    Flächen-basiert = hohe Konfidenz (Fläche byte-exakt × Kennwert); Holz =
+    mittel (Länge aus der Dachflächen-Rechnung abgeleitet, am Plan prüfbar)."""
+    k = dict(_DACH_KW, **(kw or {}))
+    A = dp.get("gesamt_m2")
+    schichten = dp.get("schichten") or []
+    flaechen = dp.get("flaechen") or []
+    out = []
+
+    def _pos(bauteil, material, einheit, menge, formel, konf):
+        out.append({"bauteil": bauteil, "material": material, "einheit": einheit,
+                    "menge": round(float(menge), 2), "formel": formel,
+                    "konfidenz": konf, "quelle": "dach-byte-exakt"})
+
+    if A and A > 0:
+        _pos("Dachdeckung", "Dacheindeckung (Ziegel/Blech lt. Wahl)", "m²",
+             A * k["deckung_verschnitt"],
+             f"{A} m² × {k['deckung_verschnitt']} Verschnitt", 0.85)
+        _pos("Dachlattung", "Dachlatten", "lfm", A * k["dachlatten_lfm_pro_m2"],
+             f"{A} m² × {k['dachlatten_lfm_pro_m2']} lfm/m²", 0.75)
+        _pos("Dachlattung", "Konterlatten", "lfm", A * k["konterlatten_lfm_pro_m2"],
+             f"{A} m² × {k['konterlatten_lfm_pro_m2']} lfm/m²", 0.75)
+        _pos("Unterdach", "Unterspannbahn", "m²", A * k["unterspann_verschnitt"],
+             f"{A} m² × {k['unterspann_verschnitt']} Überlappung", 0.8)
+        # Schicht-Dicken (byte-exakt aus dem Systemschnitt) → Dämmung/Schalung m³/m²
+        for s in schichten:
+            mn = (s.get("material") or "").lower()
+            dcm = s.get("dicke_cm")
+            if not dcm:
+                continue
+            if any(t in mn for t in ("dämmung", "daemmung", "mineralwolle",
+                                     "pur", "xps", "gefälle")):
+                _pos("Dämmung", f"{s['material']} {dcm}cm", "m³",
+                     A * dcm / 100.0, f"{A} m² × {dcm}cm", 0.7)
+            elif "schalung" in mn:
+                _pos("Schalung", f"{s['material']} {dcm}cm", "m²", A,
+                     f"= Dachfläche {A} m²", 0.75)
+
+    # Konstruktionsholz m³: Anzahl × Querschnitt × Länge (Länge aus der
+    # Dachflächen-Rechnung — Schräg-Länge für Sparren, First-Länge für
+    # liegende Hölzer; am Plan prüfbar, daher Konfidenz 0,5).
+    schraeg = first = None
+    for f in flaechen:
+        r = f.get("rechnung")
+        if r and "×" in r:
+            try:
+                a, b = [_f(x) for x in r.split("×")]
+                if a and b:
+                    schraeg = schraeg or min(a, b)   # Schräglänge (Sparren-Lauf)
+                    first = first or max(a, b)       # First-/Traufenlänge
+            except Exception:
+                pass
+    LIEGEND = ("mauerbank", "pfette", "zange", "deckenbalken")
+    for h in (dp.get("hoelzer") or []):
+        b, hh, n = h.get("b_cm"), h.get("h_cm"), h.get("anzahl") or 1
+        if not (b and hh):
+            continue
+        ist_liegend = any(t in h["bauteil"].lower() for t in LIEGEND)
+        L = (first if ist_liegend else (schraeg + k["sparren_ueberstand_m"])) \
+            if (first and schraeg) else None
+        if L:
+            _pos("Konstruktionsholz", f"{h['bauteil']} {b}/{hh} cm", "m³",
+                 n * (b / 100.0) * (hh / 100.0) * L,
+                 f"{n}× {b}/{hh}cm × {round(L, 2)}m Länge", 0.5)
     return out

@@ -3723,8 +3723,18 @@ async def projekt_massen(body: ProjektMassenRequest):
         # (validiert: aus Kettenbemaßung gelesen + an Grundfläche verankert).
         # Dach-Positionen (Zimmerer/Dachdecker) des Plans einsammeln
         if log.get("dach_positionen"):
-            _dach_gesamt.append(dict(log["dach_positionen"],
-                                     plan=p.get("dateiname")))
+            _dp0 = dict(log["dach_positionen"], plan=p.get("dateiname"))
+            # Material-Mengen bei alt-gecachten Logs nachrechnen (die Positionen
+            # sind byte-exakt gespeichert; die abgeleitete Liste kam erst später)
+            if not _dp0.get("materialliste"):
+                try:
+                    from dach_positionen import dach_materialliste as _dml
+                    _ml0 = _dml(_dp0)
+                    if _ml0:
+                        _dp0["materialliste"] = _ml0
+                except Exception:
+                    pass
+            _dach_gesamt.append(_dp0)
         mk = log.get("massketten_bbox")
         if mk and mk.get("umfang_m"):
             aussenmasse_kandidaten.append({
