@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.join(ROOT, "api"))
 
 import massen_logic as ML
 from massen_logic import (gewerk_putz, gewerk_maler, gewerk_estrich,
-                          gewerk_rohbau, gewerk_beton, berechne_gewerke)
+                          gewerk_rohbau, gewerk_beton, gewerk_fliesen,
+                          berechne_gewerke)
 
 BAUDATEN = {"aussenwand_cm": 50.0, "geschosshoehe_m": 2.70, "decke_cm": 20.0,
             "bodenplatte_cm": 25.0}
@@ -96,6 +97,23 @@ def run():
     check("Estrich: Fläche = Raumfläche 30,0 (kein Öffnungseinfluss)",
           abs(eflaeche.endsumme - 30.0) < 0.01)
     check("Estrich: keine negativen Zeilen", len(_negative_zeilen(eflaeche)) == 0)
+
+    # ── FLIESEN (LG 27 / ÖNORM B 2207): Nassraum-Boden + -Wand (Höhe angenommen) ──
+    NASS = [{"name": "Bad", "flaeche_m2": 8.0, "umfang_m": 12.0, "hoehe_m": 2.65},
+            {"name": "WC", "flaeche_m2": 2.0, "umfang_m": 6.0, "hoehe_m": 2.65},
+            {"name": "Wohnen", "flaeche_m2": 30.0, "umfang_m": 22.0, "hoehe_m": 2.65}]
+    fliesen = gewerk_fliesen(NASS, [], BAUDATEN)
+    fboden = next((p for p in fliesen if p.posnr == "1.1"), None)
+    fwand = next((p for p in fliesen if p.posnr == "1.2"), None)
+    check("Fliesen: Boden = Bad+WC-Fläche 10,0 (Wohnen NICHT nass)",
+          fboden is not None and abs(fboden.endsumme - 10.0) < 0.01)
+    check("Fliesen: Wand = Bad 12×2,0 + WC 6×1,5 = 33,0 (Höhe angenommen)",
+          fwand is not None and abs(fwand.endsumme - 33.0) < 0.01)
+    check("Fliesen: KEIN Gewerk ohne Nassräume (leer → ausgelassen)",
+          gewerk_fliesen([{"name": "Wohnen", "flaeche_m2": 30.0, "umfang_m": 22.0}], [], BAUDATEN) == [])
+    check("berechne_gewerke: leeres Fliesen-Gewerk generell ausgelassen",
+          "fliesen" not in berechne_gewerke(
+              [{"name": "Wohnen", "flaeche_m2": 30.0, "umfang_m": 22.0}], [], BAUDATEN)["gewerke"])
 
     # ── PHASE 1: zentraler Helfer oeffnung_netto (ÖNORM B 2204) ──
     n_klein = ML.oeffnung_netto(1.5, 2.0, wand_cm=50, schwelle=4.0)   # 3,0 m²

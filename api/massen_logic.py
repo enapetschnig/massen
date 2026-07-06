@@ -557,6 +557,58 @@ def gewerk_beton(rooms, windows, baudaten, geschoss="EG", tueren=None):
     return positionen
 
 
+# Nassraum-Namen für den Fliesenleger (aus dem Raumnamen — die Kategorie
+# 'Innenraum_warm' mischt trockene und nasse Räume, daher eine eigene Liste).
+_NASSRAEUME = {
+    "Bad", "Badezimmer", "WC", "Dusche", "Duschbad", "Sauna", "Nassraum",
+    "Waschküche", "Waschkueche", "Waschraum", "Waschen", "Kiwa", "Sanitär", "Sanitaer",
+}
+
+
+def _ist_nassraum(name):
+    nm = (name or "").strip()
+    teile = [nm] + nm.split() + [p.strip() for p in nm.split("-")]
+    return any(t in _NASSRAEUME for t in teile)
+
+
+def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
+    """Fliesenleger (LG 27 / ÖNORM B 2207): Nassraum-Böden (Raumfläche) + Nassraum-
+    Wände (Umfang × Fliesenhöhe). Nassräume aus dem Raumnamen. Die Fliesenhöhe ist
+    eine DOKUMENTIERTE Annahme (Bad/Dusche 2,0 m, WC 1,5 m) — bauseits zu prüfen,
+    daher niedrigere Konfidenz bei den Wandfliesen. Leer (→ Gewerk ausgelassen),
+    wenn der Plan keine Nassräume trägt."""
+    nass = [r for r in rooms if _ist_nassraum(_room_name(r))]
+    if not nass:
+        return []
+    positionen = []
+
+    pos_b = LVPosition("1.1", f"Bodenfliesen Nassräume — {geschoss}", "m²")
+    pos_b.quelle = "in Anlehnung an ÖNORM B 2207 · Σ Nassraum-Bodenfläche"
+    for r in nass:
+        f = _room_value(r, "flaeche_m2")
+        if f:
+            pos_b.add_zeile(_room_name(r), summe=f, quelle=f"F={f}")
+    if pos_b.zeilen:
+        pos_b.konfidenz = 0.9
+        positionen.append(pos_b)
+
+    pos_w = LVPosition("1.2", f"Wandfliesen Nassräume — {geschoss}", "m²")
+    pos_w.quelle = ("in Anlehnung an ÖNORM B 2207 · Nassraum-Umfang × Fliesenhöhe "
+                    "(Annahme Bad/Dusche 2,0 m, WC 1,5 m — Höhe/Öffnungen bauseits prüfen)")
+    for r in nass:
+        u = _room_value(r, "umfang_m")
+        if not u:
+            continue
+        nm = (_room_name(r) or "").lower()
+        h = 1.5 if ("wc" in nm and "bad" not in nm and "dusch" not in nm) else 2.0
+        pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h,
+                        summe=u * h, quelle=f"U={u} × h={h} (angenommen)")
+    if pos_w.zeilen:
+        pos_w.konfidenz = 0.7
+        positionen.append(pos_w)
+    return positionen
+
+
 # LG-Nummern = offizielle Standardisierte LB-Hochbau (StLB-HB Version 020,
 # BMWET) — byte-exakt aus der Leistungsbeschreibung gelesen. Öffentlicher
 # Standard (keine ONLV-Lizenz nötig, die betrifft nur die Positions-TEXTE);
@@ -568,6 +620,7 @@ GEWERKE = {
     "beton":   ("Stahlbeton (LG 07 Beton- und Stahlbetonarbeiten)", gewerk_beton, "07"),
     "estrich": ("Estrich / Boden (LG 11 Estricharbeiten — in Anlehnung an ÖNORM B 2232)", gewerk_estrich, "11"),
     "maler":   ("Maler / Anstrich (LG 46 Beschichtung auf Mauerwerk, Putz und Beton)", gewerk_maler, "46"),
+    "fliesen": ("Fliesenleger (LG 27 Fliesen- und Plattenarbeiten — in Anlehnung an ÖNORM B 2207)", gewerk_fliesen, "27"),
 }
 
 
@@ -615,8 +668,11 @@ def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None, tuer
         label, fn, lg = GEWERKE[g]
         try:
             positionen = fn(rooms, windows or [], bd, geschoss, tueren=tueren)
-            if not positionen and g == "beton":
-                continue   # kein Säulen/Kamin erkannt → leeres Beton-Gewerk auslassen
+            if not positionen:
+                # Leeres Gewerk auslassen — Beton ohne Säulen/Kamin, Fliesen ohne
+                # Nassräume: eine leere LV-Sektion ist nie nützlich (vorher nur für
+                # Beton; generalisiert, seit Fliesen dazukam).
+                continue
             result["gewerke"][g] = {
                 "label": label, "lg": lg,
                 "positionen": [p.to_dict() for p in positionen],
