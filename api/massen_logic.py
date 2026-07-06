@@ -186,8 +186,11 @@ def oeffnung_netto(breite_m, hoehe_m, wand_cm, fph_m=0.0, schwelle=None,
     s = OEFFNUNG_ABZUG_SCHWELLE_M2 if schwelle is None else schwelle
     flaeche = (breite_m or 0) * (hoehe_m or 0)
     if flaeche <= 0:
+        # maßlose Öffnung: kein Abzug, keine Laibung — konsistent zum ≤Schwelle-Zweig
+        # als 'übermessen' labeln (sonst zeigt das Öffnungs-Aufmaß fälschlich '>Schwelle
+        # abgezogen' bei 0-Abzug). Verhalten der Abzugs-Logik unverändert (abzug=0).
         return {"flaeche": 0.0, "abzug": 0.0, "laibung": 0.0,
-                "uebermessen": False, "tiefe": 0.0, "sohlbank": False}
+                "uebermessen": True, "tiefe": 0.0, "sohlbank": False}
     if flaeche <= s:
         return {"flaeche": round(flaeche, 3), "abzug": 0.0, "laibung": 0.0,
                 "uebermessen": True, "tiefe": 0.0, "sohlbank": False}

@@ -695,7 +695,11 @@ def analysiere_doc(doc, seite=None, **kw):
             # DACH-/ZIMMERER-PLAN: findet die Grundriss-Analyse KEINE Räume
             # (Dachplan hat keine Raumstempel), aber der Satz trägt Dach-
             # Positionen → beschriftete Dach-Ansicht statt leerer Grundriss.
-            if not (res.get("raeume") or []):
+            # DACH-Substitution NUR, wenn die Seite KEIN echter Grundriss ist (kaum
+            # Wände). Ein realer EG-Grundriss (viele Wände), dessen Raumstempel nur
+            # nicht parsbar sind (kein 'Fl:'-Anker), blieb sonst nicht Grundriss,
+            # sondern wurde fälschlich durch die Dach-Ansicht ersetzt (Audit).
+            if not (res.get("raeume") or []) and (res.get("meta", {}).get("n_waende") or 0) < 5:
                 da = _dach_ansicht(doc)
                 if da and da.get("dach_marker"):
                     return da

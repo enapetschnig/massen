@@ -4482,8 +4482,12 @@ async def projekt_massen(body: ProjektMassenRequest):
     # 7b) ÖNORM-Gewerke mit der gemeinsamen Basis — nur ausgewählte Gewerke
     gewerke_keys = body.gewerke_filter if body.gewerke_filter else None
     try:
+        # rohbau_rooms (NICHT merged_rooms): konsistent zur Rohbau-Materialliste
+        # (Z.4446) und den _basis_*/Kennzahlen. Bei Multi-Top-/EFH-Ausschluss zählte
+        # merged_rooms die AUSGESCHLOSSENE Zweiteinheit mit → aufgeblähte Gewerke-
+        # Mengen. Single-Top (z.B. Angerer): rohbau_rooms == merged_rooms → unverändert.
         gewerke_result = _berechne_gewerke(
-            merged_rooms, alle_fenster, best_baudaten, geschoss, gewerke_keys,
+            rohbau_rooms, alle_fenster, best_baudaten, geschoss, gewerke_keys,
             tueren=alle_tueren
         )
     except Exception as e:
