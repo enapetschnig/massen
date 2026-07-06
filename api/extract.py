@@ -4994,11 +4994,14 @@ async def projekt_export(body: ProjektMassenRequest):
     # CLEAN "OENORM"-FORMAT: nur die ÖNORM-Massenermittlung als prüfbares LV
     # (Gewerk → Positionen mit ÖNORM-Bezug + Aufmaß-Zeilen). Ohne Bestell-Einheiten.
     if (body.export_format or "").lower() in ("oenorm", "önorm", "massen"):
-        rl = ["Gewerk;Pos;Beschreibung;Menge;Einheit;ÖNORM-Bezug;Konfidenz %"]
+        # LG-Spalte (Standardisierte LB-Hochbau Leistungsgruppe) voran — damit
+        # der Export nach LG/Position gliedert wie die AVA-Software (ORCA/ABK).
+        rl = ["LG;Gewerk;Pos;Beschreibung;Menge;Einheit;ÖNORM-Bezug;Konfidenz %"]
         for gk, ginfo in (data.get("gewerke") or {}).items():
             label = (ginfo.get("label") or gk)
+            lg = ginfo.get("lg") or ""
             for p in ginfo.get("positionen") or []:
-                rl.append(";".join([esc(label), esc(p.get("posnr")), esc(p.get("beschreibung")),
+                rl.append(";".join([esc(lg), esc(label), esc(p.get("posnr")), esc(p.get("beschreibung")),
                                     fmt(p.get("endsumme")), esc(p.get("einheit")),
                                     esc(p.get("quelle")), fmt((p.get("konfidenz") or 0) * 100, 0)]))
                 for z in p.get("zeilen") or []:
@@ -5007,7 +5010,7 @@ async def projekt_export(body: ProjektMassenRequest):
                         fmt(z.get("laenge")) if z.get("laenge") else "",
                         ("×" + fmt(z["breite"])) if z.get("breite") else "",
                         ("×" + fmt(z["hoehe"])) if z.get("hoehe") else ""] if s])
-                    rl.append(";".join(["", "", "  " + esc(z.get("text")), fmt(z.get("wert")), "",
+                    rl.append(";".join(["", "", "", "  " + esc(z.get("text")), fmt(z.get("wert")), "",
                                         esc((masse + "  " + (z.get("quelle") or "")).strip()), ""]))
         csv_o = "﻿" + "\r\n".join(rl) + "\r\n"
         fn_o = f"oenorm-massenermittlung-{(data.get('projekt_id') or 'export')[:8]}.csv"

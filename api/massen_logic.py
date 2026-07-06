@@ -529,12 +529,17 @@ def gewerk_beton(rooms, windows, baudaten, geschoss="EG", tueren=None):
     return positionen
 
 
+# LG-Nummern = offizielle Standardisierte LB-Hochbau (StLB-HB Version 020,
+# BMWET) — byte-exakt aus der Leistungsbeschreibung gelesen. Öffentlicher
+# Standard (keine ONLV-Lizenz nötig, die betrifft nur die Positions-TEXTE);
+# damit mappt der ÖNORM-Export sauber in die AVA-Software der Baubetriebe
+# (ORCA/ABK/Bau-SU), die nach LG/ULG/Position gliedern.
 GEWERKE = {
-    "putz":    ("Verputzer (in Anlehnung an ÖNORM B 2204 (vormals B 2210))", gewerk_putz),
-    "rohbau":  ("Maurer / Rohbau (in Anlehnung an ÖNORM B 2204 (vormals B 2211))", gewerk_rohbau),
-    "beton":   ("Stahlbeton-Bauteile (Stützen / Kamin)", gewerk_beton),
-    "estrich": ("Estrich / Boden (in Anlehnung an ÖNORM B 2232)", gewerk_estrich),
-    "maler":   ("Maler / Anstrich", gewerk_maler),
+    "putz":    ("Verputzer (LG 10 Putz — in Anlehnung an ÖNORM B 2204)", gewerk_putz, "10"),
+    "rohbau":  ("Maurer / Rohbau (LG 08 Mauerarbeiten — in Anlehnung an ÖNORM B 2204)", gewerk_rohbau, "08"),
+    "beton":   ("Stahlbeton (LG 07 Beton- und Stahlbetonarbeiten)", gewerk_beton, "07"),
+    "estrich": ("Estrich / Boden (LG 11 Estricharbeiten — in Anlehnung an ÖNORM B 2232)", gewerk_estrich, "11"),
+    "maler":   ("Maler / Anstrich (LG 46 Beschichtung auf Mauerwerk, Putz und Beton)", gewerk_maler, "46"),
 }
 
 
@@ -579,17 +584,17 @@ def berechne_gewerke(rooms, windows, baudaten, geschoss="EG", gewerke=None, tuer
     for g in gewerke:
         if g not in GEWERKE:
             continue
-        label, fn = GEWERKE[g]
+        label, fn, lg = GEWERKE[g]
         try:
             positionen = fn(rooms, windows or [], bd, geschoss, tueren=tueren)
             if not positionen and g == "beton":
                 continue   # kein Säulen/Kamin erkannt → leeres Beton-Gewerk auslassen
             result["gewerke"][g] = {
-                "label": label,
+                "label": label, "lg": lg,
                 "positionen": [p.to_dict() for p in positionen],
             }
         except Exception as e:
-            result["gewerke"][g] = {"label": label, "positionen": [], "error": str(e)}
+            result["gewerke"][g] = {"label": label, "lg": lg, "positionen": [], "error": str(e)}
     return result
 
 
