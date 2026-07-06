@@ -1768,6 +1768,16 @@
       tip += ok ? ' — ✓ Fläche+Umfang bestätigt'
         : (fOk ? ' — ✓ Fläche exakt; Umfang weicht ab → Form prüfen (mögliche Phantom-Wand/offene Stelle)'
                : ' — bitte prüfen');
+      // BEWEIS-EBENE (nachvollziehbar: WIE wurde der Raum bestätigt?) — die
+      // gestaffelten monotonen Ebenen der Erkennung, für den Prüfer sichtbar.
+      var EBENE = {
+        roh: 'Rohbau-Ebene (Wand-Poché + Watershed)',
+        fertig: 'Fertig-Ebene (Vorwände/leichte Trennwände als Grenze)',
+        schacht: 'Schacht-Glättung (Installations-Buchten geschlossen)',
+        boden: 'Boden-Schraffur gefiltert (Fliesen-Textur ≠ Wand)',
+        hybrid: 'Hybrid (Fläche aus Rohbau, Umfang aus Fertig-Pass)'
+      };
+      if (ok && r.ebene && EBENE[r.ebene]) tip += '  ·  Beweis: ' + EBENE[r.ebene];
       raumBadges += '<g><circle cx="' + r.px[0] + '" cy="' + (r.px[1] - fs * 1.6) + '" r="' + (fs * 0.62) + '"' +
         ' fill="' + col + '" stroke="#fff" stroke-width="2"/>' +
         '<text x="' + r.px[0] + '" y="' + (r.px[1] - fs * 1.6) + '" font-size="' + Math.round(fs * 0.75) + '"' +
