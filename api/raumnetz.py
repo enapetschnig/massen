@@ -1643,8 +1643,120 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
     return n_neu, luecken
 
 
+def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0):
+    """Pro Raum den REKONSTRUIERTEN Region-Umriss als Polygon in pt
+    (Nachvollziehbarkeit: der Prüfer sieht die geometrische Lesart der App
+    ÜBER dem Plan — verifizierte Räume decken sich, Prüf-Räume zeigen exakt,
+    wo die Rekonstruktion abweicht). Moore-Verfolgung je Label; nur die
+    GRÖSSTE Komponente je Raum (Fransen/Inseln fallen raus). → {idx: [(x,y)…]}."""
+    W, H = rst.W, rst.H
+    MN = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
+    zm2 = rst.zm * rst.zm
+    out = {}
+    for ridx in range(n_stempel):
+        # Randzellen dieses Raums (Raum-Zelle mit Nicht-Raum-Nachbar)
+        rand = bytearray(W * H)
+        n_cells = 0
+        for j in range(H):
+            base = j * W
+            for i in range(W):
+                if label[base + i] != ridx:
+                    continue
+                n_cells += 1
+                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ni, nj = i + di, j + dj
+                    if not (0 <= ni < W and 0 <= nj < H) or label[nj * W + ni] != ridx:
+                        rand[base + i] = 1
+                        break
+        if n_cells * zm2 < min_flaeche_m2:
+            continue
+        # Start = oberste-linkeste Randzelle → Moore-Trace im Uhrzeigersinn
+        start = next((idx for idx in range(W * H) if rand[idx]), None)
+        if start is None:
+            continue
+        pfad = []
+        i, j = start % W, start // W
+        cur, richtung = (i, j), 0
+        for _s in range(4 * (W + H)):
+            pfad.append(cur)
+            gefunden = False
+            for k in range(8):
+                d = MN[(richtung + k) % 8]
+                ni, nj = cur[0] + d[0], cur[1] + d[1]
+                if 0 <= ni < W and 0 <= nj < H and rand[nj * W + ni]:
+                    cur = (ni, nj)
+                    richtung = (richtung + k + 6) % 8
+                    gefunden = True
+                    break
+            if not gefunden or (cur == (i, j) and len(pfad) > 2):
+                break
+        if len(pfad) < 6:
+            continue
+        # DOUGLAS-PEUCKER: die Raster-Treppung (1-Zell-Stufen an achsparallelen
+        # Wänden) auf glatte Linien reduzieren, echte L-/Kerben-Ecken behalten.
+        # Toleranz 2 Zellen → Stufen (≤1 Zelle Abweichung) kollabieren, reale
+        # Ecken (große Abweichung) bleiben.
+        def _dp(pts, eps):
+            if len(pts) < 3:
+                return pts
+            ax, ay = pts[0]
+            bx, by = pts[-1]
+            dx, dy = bx - ax, by - ay
+            L = (dx * dx + dy * dy) ** 0.5 or 1.0
+            dmax, imax = 0.0, 0
+            for k in range(1, len(pts) - 1):
+                px, py = pts[k]
+                d = abs((px - ax) * dy - (py - ay) * dx) / L
+                if d > dmax:
+                    dmax, imax = d, k
+            if dmax > eps:
+                return _dp(pts[:imax + 1], eps)[:-1] + _dp(pts[imax:], eps)
+            return [pts[0], pts[-1]]
+
+        # DP auf den OFFENEN Trace-Pfad (Start/Ende sind benachbart) — bei
+        # geschlossenem Polygon würde Start==Ende die Rekursion degenerieren.
+        vereinfacht = _dp(pfad, 2.0)
+        if len(vereinfacht) < 3:
+            continue
+        # VERLÄSSLICHKEITS-GATE: die Polygon-Fläche (Shoelace) muss zur echten
+        # Region-Fläche (Zellzahl) passen — offene/zerfranste Räume (Carport)
+        # ergeben selbst-schneidende Traces, deren Umriss visuell irreführt.
+        # Nur kompakte, flächen-treue Umrisse zeigen (sonst kein Umriss).
+        A2 = 0.0
+        m = len(vereinfacht)
+        for k in range(m):
+            x1, y1 = vereinfacht[k]
+            x2, y2 = vereinfacht[(k + 1) % m]
+            A2 += x1 * y2 - x2 * y1
+        poly_flaeche = abs(A2) / 2.0 * zm2
+        region_flaeche = n_cells * zm2
+        # ACHS-AUSRICHTUNGS-GATE: echte Raumwände sind waagrecht/senkrecht →
+        # ein sauberer Umriss besteht fast nur aus achsparallelen Kanten.
+        # OFFENE Räume (Carport/Terrasse ohne Wandgrenze) ergeben einen
+        # Zickzack-Trace mit langen DIAGONALEN durch den Freiraum — visuell
+        # irreführend. ≥75% achsparallele Kantenlänge nötig (Flur-Korridor
+        # bleibt, Park-Zickzack fällt).
+        len_axis, len_ges = 0.0, 0.0
+        for k in range(m):
+            x1, y1 = vereinfacht[k]
+            x2, y2 = vereinfacht[(k + 1) % m]
+            dx, dy = abs(x2 - x1), abs(y2 - y1)
+            L = (dx * dx + dy * dy) ** 0.5
+            len_ges += L
+            if dx < 0.35 * dy or dy < 0.35 * dx:
+                len_axis += L
+        axis_frac = (len_axis / len_ges) if len_ges else 0
+        if (region_flaeche > 0
+                and abs(poly_flaeche - region_flaeche) / region_flaeche <= 0.20
+                and len(vereinfacht) <= 40 and axis_frac >= 0.75):
+            out[ridx] = [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
+                         for p in vereinfacht]
+    return out
+
+
 def huellen_kontur(grid, label, rst, AUSSEN, min_umfang_m=8.0):
     """GEMAUERTE HÜLLE als Polylinie(n) in pt (Nachvollziehbarkeits-Audit P1:
+    der Außenumfang treibt ~20 der 35 Material-Positionen, war aber nie am
     der Außenumfang treibt ~20 der 35 Material-Positionen, war aber nie am
     Plan eingezeichnet). Kontur = Wand-Zellen mit AUSSEN-Nachbar, verfolgt
     per Moore-Nachbarschaft; nur Konturen ≥min_umfang (Nebengebäude bleiben,

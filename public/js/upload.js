@@ -1740,6 +1740,19 @@
     // RAUM-VERIFIKATION: grün = Geometrie gegen die Plan-Stempel (F+U) BEWIESEN,
     // gelb = prüfen. Der Plan validiert sich selbst.
     var nRaumOk = 0, nRaumF = 0, raumBadges = '';
+    // REKONSTRUIERTE RAUM-REGIONEN als Umriss ÜBER dem Plan (nachvollziehbar:
+    // die geometrische Lesart der App — grün deckt sich mit dem Raum, Prüf-Farbe
+    // zeigt, wo die Rekonstruktion abweicht). Nur verlässliche, achsparallele
+    // Umrisse (offene/zackige Räume werden vom Backend ausgelassen).
+    (_nzData.raeume || []).forEach(function (r) {
+      if (!r.region_px || r.region_px.length < 3) return;
+      var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
+      var rcol = rok ? '#16a34a' : (r.status === 'u_daneben' ? '#0d9488' : '#d97706');
+      var pts = r.region_px.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+      lines += '<polygon points="' + pts + '" fill="' + rcol + '" fill-opacity="0.07"' +
+        ' stroke="' + rcol + '" stroke-width="1.6" stroke-opacity="0.5"' +
+        ' stroke-dasharray="7 4" pointer-events="none"/>';
+    });
     (_nzData.raeume || []).forEach(function (r) {
       // 3 Stufen: voll verifiziert (F+U) · Fläche bestätigt (F exakt, U prüfen) · prüfen
       var ok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;

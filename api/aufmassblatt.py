@@ -135,6 +135,16 @@ def erzeuge(nz, projekt_name="", firmen_name="", massen=None):
         elif f_ok:
             n_f += 1
         col = GRUEN if ok else (TEAL if f_ok else AMBER)
+        # REKONSTRUIERTER RAUM-UMRISS (Nachvollziehbarkeit auf dem Ausdruck:
+        # die geometrische Lesart der App über dem Plan; nur verlässliche
+        # achsparallele Umrisse liefert das Backend).
+        _reg = r.get("region_px")
+        if _reg and len(_reg) >= 3:
+            for _n in range(len(_reg)):
+                _a, _b = _reg[_n], _reg[(_n + 1) % len(_reg)]
+                page.draw_line(pt(_a[0], _a[1]), pt(_b[0], _b[1]),
+                               color=col, width=0.8, stroke_opacity=0.5,
+                               dashes="[4 2] 0")
         c = pt(r["px"][0], r["px"][1] - 14)
         page.draw_circle(c, 5.5, color=(1, 1, 1), fill=col, width=1)
         page.insert_text(fitz.Point(c.x - 2.2, c.y + 2.4), "✓" if (ok or f_ok) else "?",

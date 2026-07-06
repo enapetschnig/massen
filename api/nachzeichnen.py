@@ -289,13 +289,26 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         rres, _st = raumnetz.verifiziere_seite(page, ptm, (bx0, bx1, by0, by1),
                                                dark, hatch, oeff_pt, zelle_m=zelle_r,
                                                debug=dbg_r, pfade=pfade)
-        for r in rres:
+        # REKONSTRUIERTE RAUM-REGIONEN als Umriss (Nachvollziehbarkeit: die
+        # geometrische Lesart der App über dem Plan — grün deckt sich, Prüf-
+        # Räume zeigen die Abweichung). Aus dem finalen Label-Grid des Roh-
+        # Passes (dbg_r); best-effort, große Pläne nicht (Latenz/Rausch).
+        regionen = {}
+        try:
+            if dbg_r.get("label") is not None and not grossplan:
+                regionen = raumnetz.raum_regionen(dbg_r["label"], dbg_r["rst"],
+                                                  len(rres))
+        except Exception as _er:
+            regionen = {}
+        for i, r in enumerate(rres):
+            reg = regionen.get(i)
             raeume.append({
                 "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
                 "f_ist": r.get("f_ist"), "u_ist": r.get("u_ist"),
                 "status": r.get("status"),
                 "ebene": r.get("ebene"),   # 'roh'|'fertig' — welche Ebene bewies
                 "px": to_px(r["cx"], r["cy"]),
+                "region_px": [to_px(x, y) for (x, y) in reg] if reg else None,
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
             })
     except Exception as e:  # pragma: no cover
