@@ -1746,9 +1746,15 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0):
             if dx < 0.35 * dy or dy < 0.35 * dx:
                 len_axis += L
         axis_frac = (len_axis / len_ges) if len_ges else 0
-        if (region_flaeche > 0
-                and abs(poly_flaeche - region_flaeche) / region_flaeche <= 0.20
-                and len(vereinfacht) <= 40 and axis_frac >= 0.75):
+        _fr = abs(poly_flaeche - region_flaeche) / region_flaeche if region_flaeche > 0 else 9
+        # Ecken-Deckel: ≤40 immer. Ein FLÄCHEN-TREUER (fr≤0,08), achsparalleler
+        # (≥0,75) Raum mit vielen Installations-/Schacht-NISCHEN ist legitim komplex
+        # — bis 90 Ecken zeigen (WM-Gate-Diagnose 2026-07-06: 4 verifizierte Räume,
+        # 47-50 Ecken, fr 0,003-0,007, wurden fälschlich vom starren 40er-Deckel
+        # gefiltert). Zickzack-Räume (axis<0,75) bleiben via dem UNVERÄNDERTEN
+        # Achs-Gate draußen; grob falsche Rekonstruktionen via fr≤0,08.
+        ecken_ok = len(vereinfacht) <= 40 or (len(vereinfacht) <= 90 and _fr <= 0.08)
+        if region_flaeche > 0 and _fr <= 0.20 and ecken_ok and axis_frac >= 0.75:
             out[ridx] = [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
                          for p in vereinfacht]
     return out

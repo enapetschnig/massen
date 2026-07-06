@@ -4781,7 +4781,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 34  # Raum-Konturen auch auf Großplänen gezeichnet — WM 0→49/70 sichtbar
+_NZ_CACHE_V = 35  # Ecken-Deckel gelockert für flächen-treue Nischen-Räume — WM 49→52
 
 
 def _nachzeichnen_roh(body):
