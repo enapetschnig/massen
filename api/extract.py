@@ -3971,6 +3971,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         return 2                          # OG/DG/Obergeschoss
     _gesch_labels = {_nk(r.get("_geschoss") or "") for r in rohbau_rooms}
     _gesch_labels.discard("")
+    footprint_hinweis = None
     if len(_gesch_labels) > 1:
         _fp_groups = {}
         for r in rohbau_rooms:
@@ -3980,6 +3981,16 @@ async def projekt_massen(body: ProjektMassenRequest):
                       key=lambda it: (_gesch_rang(it[0]),
                                       -sum(r.get("flaeche_m2") or 0 for r in it[1])))[0]
         footprint_rooms = _fp_groups[_fp_key]
+        # TRANSPARENZ (nachvollziehbar): warum die Platte EIN Geschoss ist, die
+        # Wände aber alle. Der Nutzer sieht die Geschoss-Zuordnung, statt dass die
+        # Bodenplatte kommentarlos kleiner ist als die Summe aller Räume.
+        _ander = sorted(g.upper() for g in _fp_groups if g != _fp_key)
+        footprint_hinweis = (
+            f"Bodenplatte/Decke beziehen sich auf das {(_fp_key or 'Erd').upper()}-"
+            f"Geschoss ({len(footprint_rooms)} Räume) — die Platte liegt unter EINEM "
+            f"Grundriss. Räume weiterer Geschosse ("
+            + (", ".join(_ander) if _ander else "—")
+            + ") zählen bei Wänden/Putz/Estrich mit, aber NICHT nochmal bei der Platte.")
     else:
         footprint_rooms = rohbau_rooms
     f_innen_check = sum(r.get("flaeche_m2") or 0 for r in footprint_rooms
@@ -4892,6 +4903,7 @@ async def projekt_massen(body: ProjektMassenRequest):
             "hinweis": farb_hinweis,             # Massen = Neubau; Bestand/Abbruch separat prüfen
         },
         "ausgeschlossene_einheiten": ausgeschlossene_einheiten,
+        "footprint_hinweis": footprint_hinweis,   # warum Platte 1 Geschoss, Wände alle
         "materialliste": materialliste_result,
         **gewerke_result,
     }

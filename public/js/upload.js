@@ -365,7 +365,7 @@
       t.push(tile('📐', 'Außenwand-Umfang', fmtNum(g.aussenumfang_m) + ' m', cls, mark, note));
     }
     if (g.bodenplatte_flaeche_m2) t.push(tile('⬛', 'Grundfläche', fmtNum(g.bodenplatte_flaeche_m2) + ' m²',
-      'ok2', '✓✓', 'aus den Raumflächen im Plan'));
+      'ok2', '✓✓', data.footprint_hinweis || 'aus den Raumflächen im Plan'));
     if (g.fundament_umfang_m) {
       if (gq.fundament_unsicher) {
         t.push(tile('🔲', 'Bodenplatten-Kante', fmtNum(g.fundament_umfang_m) + ' m', 'warn', '⚠',
