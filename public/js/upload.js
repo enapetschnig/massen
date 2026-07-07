@@ -138,7 +138,14 @@
       apply.dataset.bound = '1';
       apply.addEventListener('click', function () {
         var inputs = document.querySelectorAll('#filter-baudaten input[data-bd]');
-        var ov = {};
+        // Nicht-Formular-Overrides BEWAHREN — v.a. den am Plan GEMESSENEN
+        // aussenumfang_m (aus _nzMessUmfangUebernehmen). Ohne das würde jeder
+        // Feld-Apply die Overrides aus null neu bauen und das Nachmess-Ergebnis
+        // still wegwerfen (HasenbeinPlan-Schleife: Messung → Berechnung bräche).
+        var formKeys = {};
+        Array.prototype.forEach.call(inputs, function (i) { formKeys[i.getAttribute('data-bd')] = 1; });
+        var ov = {}, prev = _filterState.baudaten_override || {};
+        Object.keys(prev).forEach(function (k) { if (!formKeys[k]) ov[k] = prev[k]; });
         inputs.forEach(function (i) {
           var v = i.value.trim();
           if (v !== '') {
@@ -1803,8 +1810,15 @@
   // kalibriert ist). laenge in px → m; Polygon-Fläche via Shoelace → m².
   function _nzPxProM() {
     var m = _nzData && _nzData.meta || {};
-    return (m.scale || 1) * (m.ptm || 1);   // px pro Meter
+    var s = +m.scale, p = +m.ptm;
+    // Beide müssen echte Kalibrierwerte (>0) sein. Fehlt einer — z.B. bei einem
+    // nicht kalibrierten Dach-/Schnitt-Plan-Tab — ist die Strecke NICHT in Meter
+    // umrechenbar. Dann 0 (falsy) zurückgeben statt still px==m (das alte "|| 1")
+    // anzunehmen, was aus 500 px fälschlich "500 m" gemacht hätte.
+    if (!(s > 0) || !(p > 0)) return 0;
+    return s * p;   // px pro Meter
   }
+  function _nzKalibriert() { return _nzPxProM() > 0; }
   function _nzMessStrecke() {
     var k = _nzPxProM(), L = 0;
     for (var i = 1; i < _nzMeasPts.length; i++) {
@@ -1848,16 +1862,31 @@
     }
   };
   window._nzMessUmfangUebernehmen = function () {
+    if (!_nzKalibriert()) { alert('Dieser Plan ist nicht auf einen Maßstab kalibriert — die Messung lässt sich nicht in Meter umrechnen. Bitte auf dem kalibrierten Grundriss-Tab messen.'); return; }
     var u = Math.round(_nzMessUmfang() * 100) / 100;
     if (!(u >= 10 && u <= 400)) { alert('Gemessener Umfang ' + u + ' m außerhalb 10–400 m — bitte Gebäude-Außenkante abklicken.'); return; }
     var ov = _filterState.baudaten_override || {};
     ov.aussenumfang_m = u;
     _filterState.baudaten_override = ov;
+    // Messwert AUCH ins Baudaten-Formularfeld spiegeln (data-bd="aussenumfang_m").
+    // Sonst wirft der nächste Baudaten-Apply — der die Overrides aus den Feldern
+    // neu baut — den nur in _filterState gehaltenen Messwert wieder weg. Genau
+    // das meint das Feld-Label „am Plan messen und hier eintragen".
+    var fld = document.querySelector('#filter-baudaten input[data-bd="aussenumfang_m"]');
+    if (fld) fld.value = String(u).replace('.', ',');
     refreshProjektMassen();
     var out = document.getElementById('nz-mess-out');
     if (out) out.innerHTML = '<strong style="color:#166534">✓ Außenumfang ' + fmtNum(u) + ' m übernommen — Materialliste neu gerechnet</strong>';
   };
 
+  // Wand nach IDENTITÄT (w.id) finden — NICHT nach Array-Position. Backend-IDs
+  // sind 1-basiert/beliebig und nach Löschen/Hinzufügen ≠ Index; ein direkter
+  // waende[id]-Zugriff griff die falsche Wand (Auswahl-Panel + Außen/Innen-Toggle).
+  function _nzWandById(id) {
+    var a = _nzData && _nzData.waende || [];
+    for (var i = 0; i < a.length; i++) if (a[i].id === id) return a[i];
+    return null;
+  }
   function _nzCm(w) {
     if (_nzEdit.thick[w.id] != null) return _nzEdit.thick[w.id];
     if (w.snap_cm != null) return w.snap_cm;
@@ -1867,6 +1896,7 @@
   function _nzIstAussen(w, cm) {
     if (cm === 20 || cm === 12) return false;
     if (cm === 50 || cm === 38) return true;
+    if (!w) return false;   // Wand zwischenzeitlich entfernt → nie crashen (Default innen)
     return _nzEdit.aussen[w.id] != null ? _nzEdit.aussen[w.id] : false;  // 25cm: default innen
   }
 
@@ -2079,8 +2109,8 @@
     }
     // Auswahl-Toolbar
     var tb = '';
-    if (_nzSel != null) {
-      var w = _nzData.waende[_nzSel], cm = _nzCm(w), rm = !!_nzEdit.removed[w.id];
+    if (_nzSel != null && _nzWandById(_nzSel)) {
+      var w = _nzWandById(_nzSel), cm = _nzCm(w), rm = !!_nzEdit.removed[w.id];
       var btn = function (lab, act, on) {
         return '<button type="button" class="nz-btn' + (on ? ' nz-btn-on' : '') + '" data-act="' + act + '">' + lab + '</button>';
       };
@@ -2146,7 +2176,7 @@
       b.addEventListener('click', function () {
         var act = b.getAttribute('data-act'), id = _nzSel;
         if (act === 'rm') _nzEdit.removed[id] = !_nzEdit.removed[id];
-        else if (act === 'ai') _nzEdit.aussen[id] = !_nzIstAussen(_nzData.waende[id], 25);
+        else if (act === 'ai') _nzEdit.aussen[id] = !_nzIstAussen(_nzWandById(id), 25);
         else if (act.indexOf('cm') === 0) _nzEdit.thick[id] = parseInt(act.slice(2), 10);
         _nzPaint();
       });
@@ -2251,7 +2281,8 @@
     svg.appendChild(g);
     var out = document.getElementById('nz-mess-out');
     if (out) {
-      if (n < 2) out.innerHTML = '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>';
+      if (!_nzKalibriert()) out.innerHTML = '<strong style="color:#b45309">⚠ Dieser Plan ist nicht auf einen Maßstab kalibriert — Messung in Meter nicht möglich. Bitte auf dem kalibrierten Grundriss-Tab messen.</strong>';
+      else if (n < 2) out.innerHTML = '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>';
       else {
         var s = 'Strecke <strong>' + fmtNum(Math.round(_nzMessStrecke() * 100) / 100) + ' m</strong>';
         if (n >= 3) s += ' · Umriss-Fläche <strong style="color:#7c3aed">' + fmtNum(Math.round(_nzMessFlaeche() * 100) / 100) + ' m²</strong>' +
@@ -2292,11 +2323,13 @@
   function _nzAddWall(p0, p1) {
     var dx = Math.abs(p1[0] - p0[0]), dy = Math.abs(p1[1] - p0[1]);
     if (Math.max(dx, dy) < 8) { _nzPaint(); return; }   // zu kurz → verwerfen
-    var m = _nzData.meta || {}, scale = m.scale || 1, ptm = m.ptm || 1;
+    var pxProM = _nzPxProM();
+    if (!pxProM) { alert('Dieser Plan ist nicht kalibriert — eine Wandlänge in Meter lässt sich nicht bestimmen. Bitte auf dem kalibrierten Grundriss-Tab zeichnen.'); _nzPaint(); return; }
+    var m = _nzData.meta || {}, scale = +m.scale, ptm = +m.ptm;
     var px, achse, lenpx;
     if (dx >= dy) { var ym = (p0[1] + p1[1]) / 2; px = [Math.min(p0[0], p1[0]), ym, Math.max(p0[0], p1[0]), ym]; achse = 'h'; lenpx = dx; }
     else { var xm = (p0[0] + p1[0]) / 2; px = [xm, Math.min(p0[1], p1[1]), xm, Math.max(p0[1], p1[1])]; achse = 'v'; lenpx = dy; }
-    var laenge_m = Math.round(lenpx / (scale * ptm) * 100) / 100;
+    var laenge_m = Math.round(lenpx / pxProM * 100) / 100;
     if (laenge_m < 0.3) { _nzPaint(); return; }
     var cm = 12;   // Default 12cm — Nutzer korrigiert die Stärke gleich in der Auswahl-Leiste
     var w = { id: _nzNextId(), achse: achse, px: px, dicke_cm: cm, snap_cm: cm, laenge_m: laenge_m,

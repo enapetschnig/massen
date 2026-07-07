@@ -1498,10 +1498,29 @@ REGELN:
     # ═══ CONSENSUS GROUPING ═══
     # Key: (normalized name, normalized wohnung, F-bucket of 0.2m2).
     # Same identity seen in multiple tiles → consensus_count increases.
+    def _to_num(v):
+        # Vision-Tiles liefern Zahlen manchmal als STRING mit deutschem Komma/Einheit
+        # ('24,13', '24.13 m²') — rohes float() crashte den ganzen /analyse-zoom-
+        # Endpoint (HTTP 500 → Plan = 0 Massen). Robust normalisieren, nie crashen.
+        if isinstance(v, (int, float)):
+            return float(v)
+        if v is None:
+            return None
+        try:
+            s = re.sub(r"[^0-9,.\-]", "", str(v))
+            if "," in s and "." in s:
+                s = s.replace(".", "").replace(",", ".")
+            elif "," in s:
+                s = s.replace(",", ".")
+            return float(s) if s not in ("", "-", ".", "-.") else None
+        except (ValueError, TypeError):
+            return None
+
     def _fbucket(f):
+        f = _to_num(f)
         if not f:
             return 0
-        return round(float(f) * 5) / 5  # 0.2 m2 bucket
+        return round(f * 5) / 5  # 0.2 m2 bucket
 
     groups = {}
     for r in all_rooms:
@@ -1519,9 +1538,10 @@ REGELN:
             vals = [o.get(fld) for o in obs_list if o.get(fld)]
             if vals:
                 merged[fld] = Counter(vals).most_common(1)[0][0]
-        # Numeric fields: median of non-null values (robust to outliers)
+        # Numeric fields: median of non-null values (robust to outliers).
+        # _to_num statt float(): Vision-Komma-/Einheit-Strings dürfen nicht crashen.
         for fld in ("flaeche_m2", "umfang_m", "hoehe_m"):
-            vals = sorted([float(o.get(fld)) for o in obs_list if o.get(fld)])
+            vals = sorted(x for o in obs_list if (x := _to_num(o.get(fld))) is not None)
             if vals:
                 merged[fld] = vals[(len(vals) - 1) // 2]   # unteres Mittel (gleiche Konvention)
         # KONSTANZ: Konfidenz deterministisch aus der Konsens-Anzahl ableiten —
@@ -1546,14 +1566,24 @@ REGELN:
             full_text_lower = " ".join(s["text"] for s in spans_all).lower()
 
             def vision_has_evidence(r):
-                # STRICT: room name must appear in PDF text layer.
+                # (a) Raumname erscheint im Text-Layer.
                 name = (r.get("name") or "").strip().lower()
-                if len(name) < 4:
-                    return False
-                if name in full_text_lower:
-                    return True
-                for w in re.split(r"[\s/+\-]+", name):
-                    if len(w) >= 5 and w in full_text_lower:
+                if len(name) >= 4:
+                    if name in full_text_lower:
+                        return True
+                    for w in re.split(r"[\s/+\-]+", name):
+                        if len(w) >= 5 and w in full_text_lower:
+                            return True
+                # (b) ODER die abgelesene Fläche steht als F-Stempel im Text-Layer.
+                # Der Kommentar oben verspricht "room name OR F-value" — ohne diesen
+                # Zweig wurden real erkannte Räume verworfen, deren Name rotiert/
+                # abgekürzt/gedreht im Text-Layer nicht matcht, obwohl ihr F-Wert
+                # byte-exakt dasteht. Nur spezifische 2-Nachkomma-Werte zählen
+                # (runde Zahlen sind zu häufig, um Halluzinationen auszuschließen).
+                f = _to_num(r.get("flaeche_m2"))
+                if f and f > 0.5 and round(f - int(f), 2) != 0.0:
+                    fstr = f"{f:.2f}".replace(".", ",")
+                    if fstr in full_text_lower:
                         return True
                 return False
 
@@ -2931,21 +2961,24 @@ async def projekt_massen(body: ProjektMassenRequest):
         m = re.search(r"(\d+)\s*$", (s or "").strip())
         return m.group(1) if m else None
 
-    def _fuzzy_merge_key(name, wohnung, mergedmap, efh):
+    def _fuzzy_merge_key(name, wohnung, mergedmap, efh, gesch=None):
         # Findet einen bestehenden Schlüssel, der DENSELBEN Raum bezeichnet,
         # auch wenn die Pläne ihn unterschiedlich benennen ("Wohnraum Küche"
         # im Einreichplan, "Küche" im Polierplan). Sonst landet die Höhe im
         # einen, Fläche/Umfang im anderen Eintrag und der Cousin-Filter
         # verwirft den kürzeren BEVOR die Werte zusammenfinden.
         # Sicher gehalten: Token-Teilmenge MIT gleichem Kopf-Nomen (letztes
-        # Wort), gleiche trailing-Nummer (Zimmer 1 ≠ Zimmer 2) und — bei MFH —
-        # gleiche Wohnung.
+        # Wort), gleiche trailing-Nummer (Zimmer 1 ≠ Zimmer 2), — bei MFH —
+        # gleiche Wohnung, UND (falls bekannt) gleiches GESCHOSS (EG-Küche ≠ OG-Küche).
         toks_new = _tokens(name)
         if not toks_new:
             return None
         ti_new = _trailing_int(name)
         nkw = _nk(wohnung)
         for k, ex in mergedmap.items():
+            eg = ex.get("_geschoss")
+            if eg and gesch and eg != gesch:
+                continue   # anderes Geschoss → NICHT derselbe Raum
             if not efh and len(k) > 1 and k[1] != nkw:
                 continue
             ex_name = ex.get("name") or ""
@@ -2963,17 +2996,39 @@ async def projekt_massen(body: ProjektMassenRequest):
                 return k
         return None
 
+    # plan_id → Geschoss (aus agent_log) — Merge-Diskriminator gegen EG/OG-Kollision:
+    # ohne ihn kollabierten gleichnamige Räume verschiedener Geschosse (EG-'Bad' +
+    # OG-'Bad') zu EINEM → ein ganzes Stockwerk ging mengenmäßig verloren.
+    _plan_geschoss = {}
+    for _p in plaene:
+        _lg = _p.get("agent_log") or {}
+        _pg = (_lg.get("geo") or {}).get("geschoss") or _lg.get("geschoss")
+        if _pg:
+            _plan_geschoss[_p["id"]] = _nk(_pg)
+
+    def _gesch_konflikt(ex, g):
+        eg = ex.get("_geschoss")
+        return bool(eg and g and eg != g)
+
     merged = {}  # key -> raum-dict
     for row in raum_rows:
         d = row.get("daten") or {}
         name = row.get("bezeichnung") or d.get("name") or ""
         wohnung = d.get("wohnung") or ""
-        key = (_nk(name),) if is_efh else (_nk(name), _nk(wohnung))
-        if not key[0]:
+        _gesch = _plan_geschoss.get(row.get("plan_id"))
+        base = (_nk(name),) if is_efh else (_nk(name), _nk(wohnung))
+        if not base[0]:
             continue
+        # Basis-Key mergt Einreich+Polierplan DERSELBEN Etage. Kollidiert er mit
+        # einem bekannt ANDEREN Geschoss, geht der Raum in einen geschoss-getrennten
+        # Key; fehlt das Geschoss (None), bleibt es beim Basis-Key (Fallback).
+        key = base
         ex = merged.get(key)
-        if ex is None:
-            fk = _fuzzy_merge_key(name, wohnung, merged, is_efh)
+        if ex is not None and _gesch_konflikt(ex, _gesch):
+            key = base + (_gesch,)
+            ex = merged.get(key)
+        if ex is None and key == base:
+            fk = _fuzzy_merge_key(name, wohnung, merged, is_efh, _gesch)
             if fk is not None:
                 ex = merged[fk]
                 # längeren, spezifischeren Namen behalten
@@ -2983,12 +3038,16 @@ async def projekt_massen(body: ProjektMassenRequest):
             merged[key] = dict(d)
             merged[key]["name"] = name
             merged[key]["_quellen_plaene"] = [row["plan_id"]]
+            if _gesch:
+                merged[key]["_geschoss"] = _gesch
             continue
         # Lücken füllen — wer einen Wert hat, gewinnt
         for fld in ("flaeche_m2", "umfang_m", "hoehe_m", "bodenbelag", "cx", "cy"):
             if ex.get(fld) in (None, "", 0) and d.get(fld) not in (None, "", 0):
                 ex[fld] = d[fld]
                 ex.setdefault("_merged_from", []).append(fld)
+        if not ex.get("_geschoss") and _gesch:
+            ex["_geschoss"] = _gesch
         if row["plan_id"] not in ex["_quellen_plaene"]:
             ex["_quellen_plaene"].append(row["plan_id"])
 
@@ -3335,7 +3394,12 @@ async def projekt_massen(body: ProjektMassenRequest):
             if k == dom_key:
                 continue
             hat_code = bool(re.search(r"(w\d|top\d|og|kg|ug|dg|\dog)", k))
-            nur_ein_plan = all(len(r.get("_quellen_plaene") or []) <= 1 for r in rs)
+            # "Nur aus einem Plan" ist nur dann ein Indiz, wenn es ÜBERHAUPT mehrere
+            # Pläne gibt (sonst hat trivial JEDER Raum genau 1 Quelle → das Indiz wäre
+            # auf Einzelplan-Projekten gratis True und würde echte EG-Nebenbereiche
+            # wie eine Garage mit leicht anderer Höhe fälschlich ausschließen).
+            nur_ein_plan = (len(plaene) > 1
+                            and all(len(r.get("_quellen_plaene") or []) <= 1 for r in rs))
             gh = _median_h(rs)
             hoehe_abweichend = bool(dom_h and gh and abs(gh - dom_h) > 0.15)
             indizien = sum([hat_code, nur_ein_plan, hoehe_abweichend])
@@ -3560,19 +3624,33 @@ async def projekt_massen(body: ProjektMassenRequest):
     # auffüllen, nie eine Öffnung erfinden. Konservativ: nur ab Konfidenz 0.6.
     oeff_cap = []  # doppelcheck-Einträge für Öffnungen
     def _symbol_max(key):
-        vals = []
+        buckets = {}
         for p in plaene:
-            sym = (p.get("agent_log") or {}).get("oeffnungs_symbole") or {}
+            log = p.get("agent_log") or {}
+            sym = log.get("oeffnungs_symbole") or {}
             if sym.get("kein_grundriss"):
                 continue
             v = sym.get(key)
             k = sym.get("konfidenz")
-            if v is not None and (k is None or float(k) >= 0.6):
-                try:
-                    vals.append(int(v))
-                except (TypeError, ValueError):
-                    pass
-        return max(vals) if vals else None  # ein Plan = ganzes Geschoss → max, nicht Summe
+            if v is None or (k is not None and float(k) < 0.6):
+                continue
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                continue
+            g = _nk((log.get("geo") or {}).get("geschoss") or log.get("geschoss") or "")
+            buckets.setdefault(g, []).append(v)
+        if not buckets:
+            return None
+        # max INNERHALB eines Geschosses (dieselbe Ebene mehrfach hochgeladen, z.B.
+        # Einreich- + Polierplan → Dedup, nicht doppelt zählen), SUMME ÜBER
+        # verschiedene Geschosse. alle_tueren/alle_fenster sind bereits geschoss-
+        # übergreifend zusammengeführt; das reine max() hätte die Gebäude-Gesamtliste
+        # auf EIN Stockwerk gekappt (EG 9 + OG 9 = 18 → fälschlich auf 9 halbiert).
+        labeled = {g: max(vs) for g, vs in buckets.items() if g}
+        if len(labeled) >= 2:
+            return sum(labeled.values())
+        return max(max(vs) for vs in buckets.values())
     def _cap_liste(liste, symbol_n, label, key):
         if symbol_n is None or symbol_n <= 0 or len(liste) <= symbol_n:
             if symbol_n == len(liste):
@@ -4807,7 +4885,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 35  # Ecken-Deckel gelockert für flächen-treue Nischen-Räume — WM 49→52
+_NZ_CACHE_V = 36  # Welle-4-Korrektheit: Geschoss-Merge (Multi-FL), Symbol-Cap je-Geschoss-Summe, F-Wert-Evidenz
 
 
 def _nachzeichnen_roh(body):

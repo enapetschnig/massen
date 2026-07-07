@@ -481,6 +481,12 @@ def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_
     (Angerer): trennt echte Maurer-Hülle (~45m, Dichte 3-15/m) von ~9m Geister-50cm
     (Dichte 0-0.7/m) → die Außenwand nähert sich der echten Hülle statt des Footprints."""
     out = []
+    # Das Schraffur-Gate ist nur ein VERLÄSSLICHER Diskriminator, wenn überhaupt
+    # nennenswert Poché-Schraffur vorhanden ist. Bei leerer/kaum vorhandener
+    # Schraffur (anderer Zeichenstil, Hatch-Erkennung greift nicht) würde
+    # _hatch_dichte für JEDE Wand 0.0 liefern und das Gate ALLE Wände verwerfen →
+    # 0 Wände statt geometrischem Fallback. Dann Gate aus (hatch=[] wie hatch=None).
+    _gate_aktiv = hatch is not None and len(hatch) >= 8
     for achse in ("v", "h"):
         faces = sorted(_faces(segmente, achse))
         dmin = dicke_min_cm / 100.0 * pt_per_m
@@ -533,7 +539,7 @@ def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_
             if laenge_m < min_len_m:
                 continue
             dichte = None
-            if hatch is not None:
+            if _gate_aktiv:
                 dichte = _hatch_dichte(hatch, achse, center, d, lo, hi, laenge_m)
                 if dichte < min_hatch_dichte:
                     continue   # Geister-Paar (keine Poché): Bemaßung/Terrasse/Grundstück

@@ -339,9 +339,12 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     bp_inkl_loggia = bool(f("include_loggia_bodenplatte", override))
     dk_inkl_loggia = bool(f("include_loggia_decke", override))
     f_bp_base = f_sum_innen + (f_sum_loggia if bp_inkl_loggia else 0)
-    f_dk_base = f_sum_innen + (f_sum_loggia if dk_inkl_loggia else 0)
     bp_faktor = f("bodenplatte_aufschlag", override)
-    dk_faktor = f("decke_aufschlag", override)
+    # Überdachte Loggia/Terrasse kragt über die EG-Decke — aber NUR wenn der Toggle
+    # include_loggia_decke es will (Default 1). Vorher ging die Loggia UNBEDINGT ein
+    # und der Toggle war wirkungslos (dk_inkl_loggia/f_dk_base wurden nie gelesen).
+    _loggia_decke = (f_sum_loggia * f("loggia_decke_aufschlag", override)
+                     if dk_inkl_loggia else 0.0)
 
     # GEMESSEN ÜBERSTEUERT GESCHÄTZT:
     # Wenn PASS-4-Bemaßung oder Vision-Polygon eine echte Bodenplatten-
@@ -353,7 +356,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         # Parkplatz, Loggia). Diese sind im Bodenplatten-Footprint NICHT
         # enthalten (eigene Fundamente), aber die EG-Decke kragt darüber.
         # Decke = Bodenplatte + überdachte Loggia + Auskragungs-Aufschlag.
-        decke_m2 = round((bodenplatte_m2 + f_sum_loggia * f("loggia_decke_aufschlag", override))
+        decke_m2 = round((bodenplatte_m2 + _loggia_decke)
                          * f("decke_auskragung", override), 2)
         geometrie_quelle = gemessen.get("quelle", "gemessen")
         geometrie_konfidenz = float(gemessen.get("konfidenz") or 0.85)
@@ -364,7 +367,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
         # Auskragung. Vorher nahm der Fallback die LICHTE Σ-Raumfläche × anderem
         # Faktor → unterschätzte die Rohbau-Decke um die Wand-Querschnitte und
         # flackerte mit dem gemessen-vorhanden/-nicht-vorhanden-Zustand.
-        decke_m2 = round((bodenplatte_m2 + f_sum_loggia * f("loggia_decke_aufschlag", override))
+        decke_m2 = round((bodenplatte_m2 + _loggia_decke)
                          * f("decke_auskragung", override), 2)
         geometrie_quelle = f"Σ Raum-F × {bp_faktor:.2f}-Aufschlag"
         geometrie_konfidenz = 0.65
@@ -373,7 +376,7 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # darf die BESTELL-Aufschläge (decke_auskragung 1,05 / loggia 1,15) nicht
     # enthalten — Norm verlangt Planmaß ab Außenkante. Bestell-Position behält
     # decke_m2 (mit Reserve), die LV bekommt das aufschlagfreie Planmaß.
-    decke_planmass_m2 = round(bodenplatte_m2 + f_sum_loggia, 2)
+    decke_planmass_m2 = round(bodenplatte_m2 + (f_sum_loggia if dk_inkl_loggia else 0), 2)
 
     if gemessen.get("aussenumfang_m"):
         aussenumfang_m = round(float(gemessen["aussenumfang_m"]), 2)
@@ -423,13 +426,15 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # bestell_oeffnung_schwelle (Default = Rohbau-Schwelle 4,0).
     abzug_aw_m2, abzug_iw_m2 = 0.0, 0.0
     try:
-        from massen_logic import oeffnung_netto, _wand_cm_of, _schwelle_fuer
+        from massen_logic import (oeffnung_netto, _wand_cm_of, _schwelle_fuer,
+                                   _oeffnungen_kombi)
         _bs = float((baudaten or {}).get("bestell_oeffnung_schwelle")
                     or _schwelle_fuer(baudaten or {}, "rohbau"))
-        for _o, _art in ([(o, "fenster") for o in (windows or [])]
-                         + [(o, "tuer") for o in (tueren or [])]):
-            _o2 = dict(_o)
-            _o2["_art"] = _art
+        # _oeffnungen_kombi statt roher windows+tueren-Verkettung: es CROSS-DEDUPt
+        # (eine Hebe-/Schiebetür, die als Fenster UND Tür erfasst wurde, würde sonst
+        # DOPPELT von der Bestell-Wandfläche abgezogen).
+        for _o2 in _oeffnungen_kombi(windows, tueren):
+            _art = _o2.get("_art") or "fenster"
             _n = oeffnung_netto(_o2.get("breite_m") or 0, _o2.get("hoehe_m") or 0,
                                 _wand_cm_of(_o2, baudaten), _o2.get("fph_m", 0), _bs)
             if not _n["abzug"]:
