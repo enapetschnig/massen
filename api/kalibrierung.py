@@ -40,7 +40,11 @@ FAKTOR_REGELN = [
     {"faktor": "bodenplatte_aufschlag", "default": 1.15, "familie": "flaeche",
      "ist": {"bauteil": "bodenplatte", "material": ("xps-sf g30 120", "g30 120", "120mm")},
      "soll": ("xps-sf g30 120", "g30 120", "120mm")},
-    {"faktor": "decke_aufschlag", "default": 1.10, "familie": "flaeche",
+    # Decke: auf decke_auskragung (den REAL in materialliste angewandten Faktor,
+    # Default 1.05) kalibrieren — NICHT decke_aufschlag (1.10, wurde nie gerechnet,
+    # der gelernte Wert verpuffte folgenlos). ist = Engine-Schaltafel = decke_m2;
+    # gelernt = 1.05 × soll/ist → angewandt auf denselben Footprint ergibt exakt soll.
+    {"faktor": "decke_auskragung", "default": 1.05, "familie": "flaeche",
      "ist": {"bauteil": "decke", "material": ("schaltafel",)},
      "soll": ("schaltafel",)},
     {"faktor": "frostgraben_aufschlag", "default": 1.15, "familie": "laenge",
@@ -282,7 +286,7 @@ def lerne_faktoren(ratios_je_faktor, min_belege=MIN_BELEGE):
 
 _FAKTOR_LABEL = {
     "bodenplatte_aufschlag": "Bodenplatte",
-    "decke_aufschlag": "Decke",
+    "decke_auskragung": "Decke",
     "frostgraben_aufschlag": "Frostschürze",
     "aussenumfang_aufschlag": "Außenwand/Mauerwerk",
 }

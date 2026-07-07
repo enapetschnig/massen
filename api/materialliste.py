@@ -32,7 +32,8 @@ DEFAULTS = {
     #   die meist eigenständige Fundamente haben).
     # Decke EG = inkl. überdachte Außenbereiche (sie liegen UNTER der Decke).
     "bodenplatte_aufschlag": 1.15,     # Σ F_innen × Faktor (Aufschlag für Außenwand-Bereich)
-    "decke_aufschlag": 1.10,           # Σ F_innen+loggia × Faktor
+    # (decke_aufschlag entfernt — war nie in einer Rechnung; die Decke wird über
+    #  decke_auskragung (s.u.) getrieben, das jetzt auch der Kalibrier-Hebel ist.)
     "include_loggia_decke": 1,          # 1 = Terrasse/Parkplatz für Decke mitzählen
     "include_loggia_bodenplatte": 0,    # 0 = Terrasse/Parkplatz NICHT für Bodenplatte
     "sauberkeitsschicht_cm": 5.0,      # C16/20 Untergrund unter Bodenplatte
@@ -343,31 +344,33 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # Überdachte Loggia/Terrasse kragt über die EG-Decke — aber NUR wenn der Toggle
     # include_loggia_decke es will (Default 1). Vorher ging die Loggia UNBEDINGT ein
     # und der Toggle war wirkungslos (dk_inkl_loggia/f_dk_base wurden nie gelesen).
-    _loggia_decke = (f_sum_loggia * f("loggia_decke_aufschlag", override)
-                     if dk_inkl_loggia else 0.0)
+    _loggia_term = (f_sum_loggia * f("loggia_decke_aufschlag", override)
+                    if dk_inkl_loggia else 0.0)
 
     # GEMESSEN ÜBERSTEUERT GESCHÄTZT:
     # Wenn PASS-4-Bemaßung oder Vision-Polygon eine echte Bodenplatten-
     # Fläche / einen echten Außenumfang liefert → nutzen statt Schätzung.
     # Die Quelle wird transparent im "geometrie_quelle" hinterlegt.
+    # _loggia_in_bp = ob die Loggia BEREITS in bodenplatte_m2 steckt (dann NICHT
+    # nochmal in die Decke addieren, sonst Terrassenfläche doppelt).
     if gemessen.get("bodenplatte_flaeche_m2"):
         bodenplatte_m2 = round(float(gemessen["bodenplatte_flaeche_m2"]), 2)
+        # Der gemessene Footprint ist Plausi-gestrippt (überdachte Außenbereiche
+        # sind NICHT enthalten), also kragt die Loggia hier separat über die Decke.
+        _loggia_in_bp = False
         # Decke liegt ÜBER Innenräumen + überdachten Außenbereichen (Terrasse,
-        # Parkplatz, Loggia). Diese sind im Bodenplatten-Footprint NICHT
-        # enthalten (eigene Fundamente), aber die EG-Decke kragt darüber.
-        # Decke = Bodenplatte + überdachte Loggia + Auskragungs-Aufschlag.
-        decke_m2 = round((bodenplatte_m2 + _loggia_decke)
+        # Parkplatz, Loggia). Decke = Bodenplatte + überdachte Loggia + Auskragung.
+        decke_m2 = round((bodenplatte_m2 + _loggia_term)
                          * f("decke_auskragung", override), 2)
         geometrie_quelle = gemessen.get("quelle", "gemessen")
         geometrie_konfidenz = float(gemessen.get("konfidenz") or 0.85)
     else:
         bodenplatte_m2 = round(f_bp_base * bp_faktor, 2)
-        # KONSTANZ + GENAUIGKEIT: dieselbe Decken-Formel wie im gemessen-Zweig —
-        # Footprint-Basis (bodenplatte_m2, schon inkl. Wand-Band) + Loggia ×
-        # Auskragung. Vorher nahm der Fallback die LICHTE Σ-Raumfläche × anderem
-        # Faktor → unterschätzte die Rohbau-Decke um die Wand-Querschnitte und
-        # flackerte mit dem gemessen-vorhanden/-nicht-vorhanden-Zustand.
-        decke_m2 = round((bodenplatte_m2 + _loggia_decke)
+        # Bei bp_inkl_loggia steckt die Loggia SCHON in f_bp_base → bodenplatte_m2.
+        # Dann NICHT zusätzlich _loggia_term addieren (sonst Doppelzählung der
+        # Terrasse in der Decke — Beton/Schalung/Bewehrung ~Loggia-Fläche zu hoch).
+        _loggia_in_bp = bp_inkl_loggia
+        decke_m2 = round((bodenplatte_m2 + (0.0 if _loggia_in_bp else _loggia_term))
                          * f("decke_auskragung", override), 2)
         geometrie_quelle = f"Σ Raum-F × {bp_faktor:.2f}-Aufschlag"
         geometrie_konfidenz = 0.65
@@ -376,7 +379,8 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
     # darf die BESTELL-Aufschläge (decke_auskragung 1,05 / loggia 1,15) nicht
     # enthalten — Norm verlangt Planmaß ab Außenkante. Bestell-Position behält
     # decke_m2 (mit Reserve), die LV bekommt das aufschlagfreie Planmaß.
-    decke_planmass_m2 = round(bodenplatte_m2 + (f_sum_loggia if dk_inkl_loggia else 0), 2)
+    decke_planmass_m2 = round(
+        bodenplatte_m2 + (0 if _loggia_in_bp else (f_sum_loggia if dk_inkl_loggia else 0)), 2)
 
     if gemessen.get("aussenumfang_m"):
         aussenumfang_m = round(float(gemessen["aussenumfang_m"]), 2)
@@ -1039,7 +1043,7 @@ def build_materialliste(rooms, windows, baudaten, override=None, geschoss="EG",
         "kennzahlen": kennzahlen,
         "annahmen": {
             "bodenplatte_aufschlag": f("bodenplatte_aufschlag", override),
-            "decke_aufschlag": f("decke_aufschlag", override),
+            "decke_auskragung": f("decke_auskragung", override),
             "wand_verteilung": {
                 "50cm_aussen": f("wand_anteil_50cm", override),
                 "38cm_aussen": f("wand_anteil_38cm", override),

@@ -2950,10 +2950,14 @@ async def projekt_massen(body: ProjektMassenRequest):
         w = (d.get("wohnung") or "").strip().lower() or "_default_"
         _woh_counts[w] += 1
     _echte_wohnungen = [w for w, n in _woh_counts.items() if n >= 2]
-    # EFH, wenn höchstens 2 Wohnungen (Haus + Einliegerwohnung) ODER höchstens EINE
-    # Wohnung mehrere Räume trägt (die übrigen sind 1-Raum-TOP-Phantome). Erst echtes
-    # MFH (≥3 Wohnungen mit JE mehreren Räumen) schaltet die wohnung-basierte Logik.
-    is_efh = len(_woh_counts) <= 2 or len(_echte_wohnungen) <= 1
+    # EFH ⇔ höchstens EINE Wohnung trägt MEHRERE Räume; die übrigen sind 1-Raum-
+    # TOP-Phantome (Vision-Fehllesung) und kollabieren gefahrlos name-basiert.
+    # WICHTIG: NICHT zusätzlich `len(_woh_counts) <= 2` — das kippte ein echtes
+    # Zweifamilienhaus/Doppelhaus (TOP 1 + TOP 2, JE viele Räume) fälschlich auf
+    # EFH → gleichnamige Räume (Küche/Bad/WC) der zweiten Einheit kollidierten im
+    # name-basierten Merge-Key und wurden spurlos absorbiert (halbe Wohnung weg).
+    # Zwei ECHTE Einheiten (auch "Haus + Einliegerwohnung") → wohnung-basiert mergen.
+    is_efh = len(_echte_wohnungen) <= 1
 
     def _tokens(s):
         return [t for t in re.findall(r"[a-z0-9]+", _deumlaut(s)) if t]
@@ -3951,9 +3955,34 @@ async def projekt_massen(body: ProjektMassenRequest):
     # sonst hat Vision überdachte Außenbereiche (Terrasse/Parkplatz) mit-
     # erfasst — die gehören nicht in die Bodenplatte.
     from massen_logic import kategorie_of as _kat_check
-    # Footprint-Anker = NUR die dominante EG-Einheit (rohbau_rooms), nicht
-    # zusätzliche Einheiten/Geschosse (W02 etc.) — sonst zu große Bodenplatte.
-    f_innen_check = sum(r.get("flaeche_m2") or 0 for r in rohbau_rooms
+    # Footprint-Anker (Bodenplatte/Decke) = NUR EIN Geschoss. Die Wohnungs-
+    # Dominanz oben trennt andere EINHEITEN (W02), aber rohbau_rooms enthält nach
+    # der GESCHOSS-Trennung ggf. mehrere Stockwerke DERSELBEN Einheit (EG+OG eines
+    # EFH) — deren Wände zählen ALLE (richtig), aber die Bodenplatte ist EIN
+    # Grundriss-Footprint. Ohne diese Beschränkung summierte f_innen_check EG+OG
+    # → Bodenplatte/Decke ~2× (Beton/Bewehrung verdoppelt). Nur greifen, wenn es
+    # ≥2 DISTINKTE, benannte Geschosse gibt (sonst Footprint = alle Räume).
+    def _gesch_rang(g):
+        g = (g or "").lower()
+        if not g or "eg" in g or "erd" in g or "parterre" in g:
+            return 0                      # erdnächst zuerst (Bodenplatte liegt hier)
+        if "ug" in g or "kg" in g or "keller" in g or "souter" in g:
+            return 1
+        return 2                          # OG/DG/Obergeschoss
+    _gesch_labels = {_nk(r.get("_geschoss") or "") for r in rohbau_rooms}
+    _gesch_labels.discard("")
+    if len(_gesch_labels) > 1:
+        _fp_groups = {}
+        for r in rohbau_rooms:
+            _fp_groups.setdefault(_nk(r.get("_geschoss") or ""), []).append(r)
+        # erdnächstes Geschoss, bei Gleichrang das flächengrößte
+        _fp_key = min(_fp_groups.items(),
+                      key=lambda it: (_gesch_rang(it[0]),
+                                      -sum(r.get("flaeche_m2") or 0 for r in it[1])))[0]
+        footprint_rooms = _fp_groups[_fp_key]
+    else:
+        footprint_rooms = rohbau_rooms
+    f_innen_check = sum(r.get("flaeche_m2") or 0 for r in footprint_rooms
                          if _kat_check(r.get("name") or "") == "Innenraum_warm")
 
     def _median(xs):
@@ -5652,7 +5681,7 @@ async def kalibrierung_reset(body: KalibrierungUploadRequest):
 # Nur bekannte, sinnvolle Materiallisten-Faktoren als manuelle Korrektur merken
 # (keine beliebigen Keys; byte-exakte cm-Werte gehören nicht hierher).
 _MERKBARE_KEYS = {
-    "bodenplatte_aufschlag", "decke_aufschlag", "decke_auskragung", "ekv_decke_aufschlag",
+    "bodenplatte_aufschlag", "decke_auskragung", "ekv_decke_aufschlag",
     "loggia_decke_aufschlag", "hlz_verschnitt",
     "aussenumfang_aufschlag", "frostgraben_aufschlag", "frostschuerze_tiefe_m",
     "frostschuerze_breite_m", "xps_frostschuerze_tiefe_m", "iso_korb_anteil",

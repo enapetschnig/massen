@@ -74,7 +74,8 @@ bm = {b["faktor"]: b["ratio"] for b in belege}
 check("Bodenplatte ratio 1.10 (XPS-120, kein EKV-Quersummen)", abs(bm.get("bodenplatte_aufschlag", 0) - 1.10) < 0.01, f"got {bm}")
 check("Frostschürze ratio 1.20 (Noppenfolie)", abs(bm.get("frostgraben_aufschlag", 0) - 1.20) < 0.01, f"got {bm}")
 check("Außenumfang ratio 1.10 (HLZ-50 Paletten)", abs(bm.get("aussenumfang_aufschlag", 0) - 1.10) < 0.01, f"got {bm}")
-check("Decke ratio 1.15 (Schaltafel)", abs(bm.get("decke_aufschlag", 0) - 1.15) < 0.01, f"got {bm}")
+check("Decke ratio 1.15 (Schaltafel → decke_auskragung, der REAL angewandte Faktor)",
+      abs(bm.get("decke_auskragung", 0) - 1.15) < 0.01, f"got {bm}")
 # Einheiten-Guard: HLZ-50 als m² (statt Paletten) → falsche Familie → KEIN Beleg
 ist_falsch = {"Mauerwerk EG": [{"material": "HLZ 50cm Plan", "menge": 100.0, "einheit": "m²"}]}
 soll_falsch = [{"bezeichnung": "HLZ 50cm Plan", "menge": 110.0, "einheit": "m²"}]
@@ -110,11 +111,11 @@ g3 = kal.lerne_faktoren({"bodenplatte_aufschlag": [1.6, 1.6]})
 check("gelernter Faktor im Sanity-Band [0.5,2.5]", 0.5 <= g3["bodenplatte_aufschlag"]["wert"] <= 2.5)
 
 print("\n6) Auflösung: Firma schlägt Global, beides flach:")
-glob = {"frostgraben_aufschlag": {"wert": 1.25}, "decke_aufschlag": {"wert": 1.05}}
+glob = {"frostgraben_aufschlag": {"wert": 1.25}, "decke_auskragung": {"wert": 1.05}}
 firma = {"frostgraben_aufschlag": {"wert": 1.40}}
 res = kal.resolve_kalibrierung(firma, glob)
 check("Firma-Wert schlägt Global", res["frostgraben_aufschlag"] == 1.40, f"got {res}")
-check("Global-Wert bleibt, wo Firma nichts hat", res["decke_aufschlag"] == 1.05, f"got {res}")
+check("Global-Wert bleibt, wo Firma nichts hat", res["decke_auskragung"] == 1.05, f"got {res}")
 
 print("\n7) Einweben in build_materialliste — Reihenfolge Override > Kalibrierung > Default:")
 ROOMS = [{"name": "Wohnen", "flaeche_m2": 40.0, "umfang_m": 26.0, "hoehe_m": 2.7, "bodenbelag": "Fliesen"}]
@@ -180,7 +181,7 @@ check("mit Kalibrierung 12cm=100%: 12cm-Menge steigt, 20cm→0",
 
 print("\n11) GEMESSENE Genauigkeit aus Belegen (Ground-Truth gegen Engine):")
 bel = [{"faktor": "bodenplatte_aufschlag", "ratio": 1.0, "ist": 125.0, "soll": 125.0},   # exakt → 100%
-       {"faktor": "decke_aufschlag", "ratio": 1.07, "ist": 232.89, "soll": 250.0},        # ~93%
+       {"faktor": "decke_auskragung", "ratio": 1.07, "ist": 232.89, "soll": 250.0},       # ~93%
        {"faktor": "aussenumfang_aufschlag", "ratio": 1.2, "ist": 40.0, "soll": 48.0}]      # ~83%
 g = kal.genauigkeit_aus_belegen(bel)
 check("Bodenplatte 100% (Ist=Soll)", any(p["label"] == "Bodenplatte" and p["pct"] == 100.0 for p in g["pro_bauteil"]), f"got {g}")
