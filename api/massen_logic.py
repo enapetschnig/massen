@@ -701,6 +701,67 @@ def gewerk_fenster(rooms, windows, baudaten, geschoss="EG", tueren=None):
     return positionen
 
 
+def gewerk_daemmung(rooms, windows, baudaten, geschoss="EG", tueren=None):
+    """Fassadendämmung / WDVS (LG 44 Wärmedämmverbundsysteme). Fläche = Außenwand-
+    Ansichtsfläche brutto − Fassaden-Öffnungen>Schwelle (DIESELBE Basis wie Rohbau/
+    Außenputz → keine widersprüchlichen Zahlen), plus separate Laibungsdämmung
+    (WDVS-Leibungen werden mitgedämmt). OB die Fassade ein WDVS bekommt (statt
+    Klinker/Sichtbeton/hinterlüftet/Holz) ist Bauweise → als Position anbieten, der
+    Kunde prüft. Leer (→ Gewerk ausgelassen), wenn keine Außenwand-Basis da ist."""
+    _aw_brutto = baudaten.get("_basis_aussenwand_flaeche_m2")
+    if not _aw_brutto:
+        return []
+    schwelle = _schwelle_fuer(baudaten, "putz")   # WDVS folgt der Putz-Öffnungslogik
+    oeffnungen = _oeffnungen_kombi(windows, tueren)
+    positionen = []
+    pos = LVPosition("1.1", f"WDVS Fassadendämmung — {geschoss}", "m²")
+    pos.quelle = (f"LG 44 WDVS · Außenwand-Ansichtsfläche brutto − Fassaden-"
+                  f"Öffnungen>{schwelle:.1f} m² (Fassaden-Bauweise prüfen)")
+    pos.add_zeile("Außenwand Ansichtsfläche brutto", summe=round(_aw_brutto, 2),
+                  quelle="Außenumfang × Höhe (gemeinsame Basis wie Rohbau/Außenputz)")
+    pos_laib = LVPosition("1.1a", f"Laibungsdämmung — {geschoss}", "m²")
+    pos_laib.quelle = ("WDVS-Leibungen an Fassaden-Öffnungen (Öffnung>Schwelle "
+                       "abgezogen, Leibung separat gedämmt)")
+    for w in oeffnungen:
+        if not _ist_aussenwand(w):
+            continue
+        netto = oeffnung_netto(w.get("breite_m", 0), w.get("hoehe_m", 0),
+                               baudaten.get("aussenwand_cm", 38),
+                               w.get("fph_m", 0), schwelle)
+        if netto["uebermessen"] or netto["abzug"] <= 0:
+            continue
+        _art = (w.get("_art") or "Öffnung").capitalize()
+        pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
+                      summe=-netto["abzug"], quelle=f"Fassaden-Öffnung >{schwelle:.1f} m²")
+        pos_laib.add_zeile(f"{_art} {w.get('code','')}".rstrip(" —"),
+                           summe=netto["laibung"],
+                           quelle=f"Tiefe {netto['tiefe']:.2f}m × Abwicklung")
+    pos.konfidenz = 0.7
+    positionen.append(pos)
+    if pos_laib.zeilen:
+        pos_laib.konfidenz = 0.65
+        positionen.append(pos_laib)
+    return positionen
+
+
+def gewerk_geruest(rooms, windows, baudaten, geschoss="EG", tueren=None):
+    """Fassadengerüst (LG 04 Gerüste). Eingerüstete Fläche = Außenwand-Ansichts-
+    fläche brutto; Öffnungen werden NICHT abgezogen — das Gerüst läuft davor durch
+    (übermessen). DIESELBE Basis wie Rohbau/Außenputz → keine Widersprüche. OB ein
+    Fassadengerüst nötig ist (Geschossanzahl, Fassadenarbeiten), ist Projekt-Sache
+    → als Position anbieten. Leer (→ ausgelassen) ohne Außenwand-Basis."""
+    _aw_brutto = baudaten.get("_basis_aussenwand_flaeche_m2")
+    if not _aw_brutto:
+        return []
+    pos = LVPosition("1.1", f"Fassadengerüst — {geschoss}", "m²")
+    pos.quelle = ("LG 04 Gerüste · eingerüstete Ansichtsfläche = Außenumfang × Höhe · "
+                  "Öffnungen übermessen (Gerüst läuft durch)")
+    pos.add_zeile("Eingerüstete Fassadenfläche", summe=round(_aw_brutto, 2),
+                  quelle="Außenwand-Ansichtsfläche brutto (gemeinsame Basis)")
+    pos.konfidenz = 0.7
+    return [pos]
+
+
 # LG-Nummern = offizielle Standardisierte LB-Hochbau (StLB-HB Version 020,
 # BMWET) — byte-exakt aus der Leistungsbeschreibung gelesen. Öffentlicher
 # Standard (keine ONLV-Lizenz nötig, die betrifft nur die Positions-TEXTE);
@@ -714,6 +775,8 @@ GEWERKE = {
     "maler":   ("Maler / Anstrich (LG 46 Beschichtung auf Mauerwerk, Putz und Beton)", gewerk_maler, "46"),
     "fliesen": ("Fliesenleger (LG 27 Fliesen- und Plattenarbeiten — in Anlehnung an ÖNORM B 2207)", gewerk_fliesen, "27"),
     "fenster": ("Fensterbau / Bauelemente (LG 09 Fenster, Fenstertüren — Stück-Liste)", gewerk_fenster, "09"),
+    "daemmung": ("Fassadendämmung / WDVS (LG 44 Wärmedämmverbundsysteme)", gewerk_daemmung, "44"),
+    "geruest": ("Gerüstbau (LG 04 Gerüste — Fassadengerüst, eingerüstete Ansichtsfläche)", gewerk_geruest, "04"),
 }
 
 

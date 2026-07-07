@@ -22,7 +22,8 @@ sys.path.insert(0, os.path.join(ROOT, "api"))
 import massen_logic as ML
 from massen_logic import (gewerk_putz, gewerk_maler, gewerk_estrich,
                           gewerk_rohbau, gewerk_beton, gewerk_fliesen,
-                          gewerk_fenster, berechne_gewerke)
+                          gewerk_fenster, gewerk_daemmung, gewerk_geruest,
+                          berechne_gewerke)
 
 BAUDATEN = {"aussenwand_cm": 50.0, "geschosshoehe_m": 2.70, "decke_cm": 20.0,
             "bodenplatte_cm": 25.0}
@@ -222,6 +223,28 @@ def run():
     res2 = berechne_gewerke(ROOMS, WINDOWS, dict(BAUDATEN, anzahl_saeulen=3))
     check("berechne_gewerke: Beton-Gewerk erscheint mit Säulen",
           "beton" in res2["gewerke"] and res2["gewerke"]["beton"]["positionen"])
+
+    # ── PHASE 3: Fassaden-Sektoren (Gerüst LG04 übermisst, WDVS LG44 zieht ab) ──
+    _bd_fas = dict(BAUDATEN, _basis_aussenwand_flaeche_m2=100.0)
+    ger = gewerk_geruest(ROOMS, WINDOWS, _bd_fas)
+    check("Gerüst: eingerüstete Fläche = brutto 100 (Öffnungen übermessen, kein Abzug)",
+          ger and abs(ger[0].endsumme - 100.0) < 0.01)
+    check("Gerüst: leer ohne Außenwand-Basis (→ ausgelassen)",
+          gewerk_geruest(ROOMS, WINDOWS, BAUDATEN) == [])
+    # WINDOWS: GROSS 6,0 m² (Außenwand, wand_typ default→Fenster=außen) wird abgezogen
+    wd = gewerk_daemmung(ROOMS, WINDOWS, _bd_fas)
+    wd_haupt = next(p for p in wd if p.posnr == "1.1")
+    check("WDVS: Fläche = brutto 100 − 6,0 (großes Fenster) = 94",
+          abs(wd_haupt.endsumme - 94.0) < 0.01)
+    check("WDVS: Laibungsdämmung als eigene Position 1.1a",
+          any(p.posnr == "1.1a" and p.endsumme > 0 for p in wd))
+    check("WDVS: leer ohne Außenwand-Basis (→ ausgelassen)",
+          gewerk_daemmung(ROOMS, WINDOWS, BAUDATEN) == [])
+    resF = berechne_gewerke(ROOMS, WINDOWS, _bd_fas)
+    check("berechne_gewerke: daemmung + geruest erscheinen mit Fassaden-Basis",
+          "daemmung" in resF["gewerke"] and "geruest" in resF["gewerke"])
+    check("berechne_gewerke: LG-Nummern 44 (WDVS) + 04 (Gerüst) korrekt",
+          resF["gewerke"]["daemmung"]["lg"] == "44" and resF["gewerke"]["geruest"]["lg"] == "04")
 
     print("-" * 62)
     if fails:
