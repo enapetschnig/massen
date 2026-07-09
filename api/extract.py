@@ -2770,8 +2770,15 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
     _rooms_conf = [r for r in unique_rooms if (r.get("flaeche_m2") or r.get("umfang_m"))]
     _avg_v = (sum(_vscore(r) for r in _rooms_conf) / len(_rooms_conf)) if _rooms_conf else 0.5
     gesamt_konf = int(round(max(55, min(98, 60 + _avg_v * 38))))
+    # verarbeitet=True HIER setzen — analyse-zoom IST die Analyse (Räume + ÖNORM-LV
+    # + Konfidenz sind ab jetzt vollständig in agent_log/elemente). Vorher setzte
+    # das nur die orchestrator-Edge-Function in Step 3; als deren Claude-Modell
+    # abgeschaltet wurde ("Claude 404"), blieb JEDER Plan für immer "nicht
+    # analysiert" und Ergebnis + Planansicht erschienen nie. Die Edge-Steps 2/3
+    # (massen-Tabelle, Kritik) bleiben Bonus und dürfen nichts mehr gaten.
     sb.table("plaene").update({
         "agent_log": log, "gesamt_konfidenz": gesamt_konf, "input_hash": input_hash,
+        "verarbeitet": True,
     }).eq("id", body.plan_id).execute()
 
     return {

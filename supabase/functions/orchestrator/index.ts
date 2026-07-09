@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
-const MODEL = "claude-sonnet-4-20250514"
+const MODEL = "claude-sonnet-5"  // aktuelles Modell — der alte Sonnet-4-Snapshot wurde abgeschaltet (Claude 404 → Step 3 tot)
 
 function parseJson(raw: string): any {
   try { return JSON.parse(raw) } catch {}
