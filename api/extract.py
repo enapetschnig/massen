@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.6"
+APP_REV = "2026-07-09.8"
 
 
 @app.get("/api/extract-health")
@@ -2784,6 +2784,47 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
                 })
             if all_tueren:
                 print(f"[oeffnungs-symbole] {len(all_tueren)} Türen aus Symbolen übernommen (Scan-Fallback, maßlos)")
+
+        # VARIANZ-KLAMMER (Konsens statt Einzel-Lesung): Vision-Zählungen
+        # streuen lauf-zu-lauf (Sonnet 5 erlaubt kein temperature=0 mehr;
+        # gemessen: Fenster-Pass 20→26 auf identischem Blatt). Die raumgenau
+        # verankerte SYMBOL-Zählung ist die stabilste Öffnungs-Referenz →
+        # sie KAPPT die Fenster-Liste schon auf PLAN-Ebene (Text-Layer-Fenster
+        # mit Code zuerst — byte-exakt; dann nach Konfidenz). Kappen ist
+        # einseitig sicher: Überzählung (Ansichten-Doppel) ist der Fehler-Modus.
+        # Persistenz wird SYNCHRON gehalten (fenster-elemente neu geschrieben).
+        try:
+            _sym_f = None
+            if isinstance(oeffnungs_symbole, dict):
+                _sf = oeffnungs_symbole.get("fenster_gesamt")
+                if _sf is not None:
+                    _sym_f = max(0, min(60, int(_sf)))
+            if _sym_f and len(alle_fenster) > _sym_f:
+                def _f_rang(f_):
+                    ist_text = "stuk" in (f_.get("quelle") or "").lower() or bool(f_.get("code"))
+                    try:
+                        kf = float(f_.get("konfidenz") or 0)
+                    except (TypeError, ValueError):
+                        kf = 0.0
+                    return (1 if ist_text else 0, kf)
+                _vorher = len(alle_fenster)
+                alle_fenster = sorted(alle_fenster, key=_f_rang, reverse=True)[:_sym_f]
+                unique_fenster = alle_fenster
+                try:
+                    sb.table("elemente").delete().eq("plan_id", body.plan_id) \
+                        .eq("typ", "fenster").execute()
+                    if alle_fenster:
+                        sb.table("elemente").insert([{
+                            "plan_id": body.plan_id, "typ": "fenster",
+                            "bezeichnung": f_.get("bezeichnung") or f_.get("code") or "F",
+                            "daten": f_,
+                            "konfidenz": int(float(f_.get("konfidenz") or 0.7) * 100),
+                        } for f_ in alle_fenster]).execute()
+                except Exception as _pe:
+                    print(f"[fenster-klammer] Persistenz: {_pe!r}")
+                print(f"[fenster-klammer] {_vorher} → {_sym_f} (Symbol-Zählung als Konsens-Kappe)")
+        except Exception as _ke:
+            print(f"[fenster-klammer] übersprungen: {_ke!r}")
 
         # OPUS-BAUINGENIEUR: läuft jetzt PRO PROJEKT (1× in projekt_massen, nach
         # dem Merge aller Pläne), NICHT mehr pro Plan — spart bei Multi-Plan-Projekten
