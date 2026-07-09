@@ -785,6 +785,13 @@ async def extract(body: ExtractRequest):
     }
 
 
+# Bei JEDEM Deploy-relevanten Code-Push hochzählen — /api/extract-health
+# liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
+# (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
+# Minuten; SDK-Version taugt nur bei SDK-Wechseln).
+APP_REV = "2026-07-09.2"
+
+
 @app.get("/api/extract-health")
 async def health():
     import anthropic as _an
@@ -792,7 +799,8 @@ async def health():
     # nach einem Push binnen Sekunden live, der Python-Lambda-Build braucht
     # Minuten — wer "deployed?" prüfen will, prüft DIESES Feld, nicht die CSS.
     return {"status": "ok", "pdfplumber": True,
-            "anthropic_sdk": getattr(_an, "__version__", "?")}
+            "anthropic_sdk": getattr(_an, "__version__", "?"),
+            "rev": APP_REV}
 
 
 @app.get("/api/diag")
@@ -2241,10 +2249,16 @@ Finde JEDES einzelne Fenster im Grundriss. Fenster sind im Plan dargestellt als:
   - Brüstungshoehe-Codes neben dem Fenster: RB/AL/RPH/FPH gefolgt von Wert
 
 Wichtig:
-- Vergiss KEIN Fenster — auch Bad/WC/Speisekammer-Fenster mitnehmen.
+- NUR aus dem GRUNDRISS (Draufsicht) zaehlen! Zeigt das Blatt zusaetzlich
+  ANSICHTEN oder SCHNITTE (Fassaden mit sichtbaren Fensterrechtecken,
+  Dachschraegen, Gelaendelinien): deren Fenster NICHT melden — jedes Fenster
+  existiert im Grundriss genau einmal, in der Ansicht nochmal (Doppelzaehlung!).
+- Vergiss KEIN Grundriss-Fenster — auch Bad/WC/Speisekammer-Fenster mitnehmen.
 - Wenn mehrere Fenster in einem Raum sind, jedes EINZELN auflisten.
 - Schiebetueren zu Terrasse/Loggia sind AUCH Fenster (oft 240cm breit).
 - Tueren (Drehfluegel, dicker Bogen) sind KEINE Fenster.
+- Bei MEHREREN Grundrissen auf dem Blatt (KG/EG/OG): alle Grundrisse zaehlen,
+  je Fenster das Geschoss angeben ("geschoss": "EG").
 
 JSON-Antwort, kein Markdown:
 {
