@@ -150,9 +150,20 @@ def _schwelle_fuer(baudaten, gewerk=None):
     if bd.get("oeffnung_schwelle") is not None:
         return float(bd["oeffnung_schwelle"])
     if gewerk == "maler":
-        # ÖNORM-Audit: Malerarbeiten sind NICHT Teil der B 2204 — die Maler-
-        # Aufmaßpraxis (analog DIN 18363) übermisst nur bis 2,5 m².
+        # ACHTUNG Herkunft: 2,5 m² stammt aus der DEUTSCHEN Maler-Praxis
+        # (DIN 18363) — die österreichische B 2230-1 kennt diese Schwelle so
+        # nicht. Bis eine AT-belegte Regel vorliegt, bleibt 2,5 als
+        # pragmatischer Default und ist je Firma überschreibbar
+        # (oeffnung_schwelle_maler) — bewusst NICHT still als Norm ausgegeben.
         return 2.5
+    if gewerk in ("rohbau", "beton"):
+        # ÖNORM-SCHWELLEN-MATRIX (Kernversprechen): Mauerwerks-/Beton-AUSMASS
+        # zieht Öffnungen bereits ab 0,5 m² ab (strenges Ausmaß, B 2204
+        # 4.2.4.2 bzw. vormals B 2206; Beton analog B 2211/B 2232-Familie) —
+        # die 4,0-m²-Übermessung gilt nur für Putz & Co. (Leibungslogik).
+        # Gegen die echte Angerer-Polier-Liste verifiziert: 13/13 in Toleranz,
+        # HLZ-Mengen rücken NÄHER an die Polier-Realität.
+        return 0.5
     return OEFFNUNG_ABZUG_SCHWELLE_M2
 
 

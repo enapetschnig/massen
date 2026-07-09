@@ -194,8 +194,23 @@ def run():
     roh = gewerk_rohbau(ROOMS, WINDOWS, basis)   # WINDOWS: 6,0 m² (Abzug) + 1,0 m² (übermessen)
     mw = next((p for p in roh if p.posnr == "1.0"), None)
     check("Rohbau: Mauerwerk-Netto-Position (1.0) bei vorhandener Basis", mw is not None)
-    check("Rohbau: Außenwand netto = 180 − 6 (große Öffnung) = 174",
-          mw and abs(mw.endsumme - 174.0) < 0.1)
+    # ÖNORM-SCHWELLEN-MATRIX: Mauerwerks-Ausmaß zieht ab 0,5 m² ab (B 2204
+    # 4.2.4.2) → BEIDE Fenster (6,0 + 1,0 m²) werden abgezogen, nicht nur das
+    # große. Bewusste Zusagen-Änderung ggü. der alten 4,0-m²-Pauschale;
+    # gegen die echte Angerer-Polier-Liste 13/13 verifiziert.
+    check("Rohbau: Außenwand netto = 180 − 6 − 1 (Mauerwerk ab 0,5 m²) = 173",
+          mw and abs(mw.endsumme - 173.0) < 0.1)
+    # Roadmap-Verifikations-Fixture: Öffnung 1,0×2,01 m = 2,01 m² — muss bei
+    # MAUERWERK abgezogen, bei PUTZ übermessen werden (gewerksrichtige Matrix).
+    _fix_win = [{"raum": "Zimmer 1", "breite_m": 1.0, "hoehe_m": 2.01, "code": "FIX"}]
+    _roh_fix = gewerk_rohbau(ROOMS, _fix_win, basis)
+    _mw_fix = next(p for p in _roh_fix if p.posnr == "1.0")
+    check("Matrix: 2,01 m² wird bei Mauerwerk ABGEZOGEN (180−2,01)",
+          abs(_mw_fix.endsumme - 177.99) < 0.1)
+    _putz_fix = gewerk_putz(ROOMS, _fix_win, BAUDATEN)
+    _pw_fix = next(p for p in _putz_fix if p.posnr == "1.1")
+    check("Matrix: 2,01 m² wird bei Putz ÜBERMESSEN (Wand bleibt 59,4)",
+          abs(_pw_fix.endsumme - 59.4) < 0.1)
     decke = next(p for p in roh if p.posnr == "1.2")
     check("Rohbau: Decke = gemeinsame Basis 240 × 0,20",
           abs(decke.endsumme - 240.0 * basis["decke_cm"] / 100.0) < 0.01)
