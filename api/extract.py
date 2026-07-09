@@ -5884,6 +5884,58 @@ async def admin_firmen(body: AdminRequest):
     return {"firmen": firmen, "anzahl": len(firmen)}
 
 
+class DemoProjektRequest(BaseModel):
+    firma_id: str
+
+
+# Quell-Projekt fürs Beispielprojekt neuer Konten (fertig analysierter
+# Angerer-Showcase im Demo-Account — Pläne/elemente/massen werden kopiert,
+# storage_path bleibt geteilt, die PDFs existieren nur einmal im Storage).
+_DEMO_QUELLE_PROJEKT = "1a934045-83a5-475f-a6b1-6f0782bc4252"
+
+
+@app.post("/api/demo-projekt")
+async def demo_projekt(body: DemoProjektRequest):
+    """Kopiert das fertig analysierte Beispielprojekt in ein NEUES Konto —
+    der erste Login zeigt sofort ein komplettes Ergebnis (Mengen, Planansicht,
+    Exporte) statt einer leeren Seite. Nur für Konten ohne eigene Projekte
+    (sonst no-op) — kein Auth-Risiko: erzeugt ausschließlich eine Kopie
+    öffentlicher Demo-Daten im eigenen Konto."""
+    if not sb:
+        raise HTTPException(500, "Supabase nicht konfiguriert")
+    if not body.firma_id:
+        raise HTTPException(400, "firma_id erforderlich")
+    try:
+        vorhandene = sb.table("projekte").select("id").eq(
+            "firma_id", body.firma_id).limit(1).execute().data or []
+        if vorhandene:
+            return {"ok": True, "uebersprungen": "Konto hat schon Projekte"}
+        neu = sb.table("projekte").insert({
+            "firma_id": body.firma_id,
+            "name": "Beispielprojekt: EFH Angerer (fertig analysiert)",
+            "adresse": "Zum Ausprobieren — eigene Pläne einfach hochladen",
+            "gewerk": "Rohbau", "status": "fertig",
+        }).execute().data[0]
+        quell_plaene = sb.table("plaene").select("*").eq(
+            "projekt_id", _DEMO_QUELLE_PROJEKT).execute().data or []
+        for qp in quell_plaene:
+            alt_id = qp.pop("id")
+            qp["projekt_id"] = neu["id"]
+            np = sb.table("plaene").insert(qp).execute().data[0]
+            for tabelle in ("elemente", "massen"):
+                zeilen = sb.table(tabelle).select("*").eq(
+                    "plan_id", alt_id).execute().data or []
+                for z in zeilen:
+                    z.pop("id", None)
+                    z["plan_id"] = np["id"]
+                if zeilen:
+                    sb.table(tabelle).insert(zeilen).execute()
+        return {"ok": True, "projekt_id": neu["id"], "plaene": len(quell_plaene)}
+    except Exception as e:  # pragma: no cover — Beispielprojekt ist Komfort, nie Blocker
+        print(f"[demo-projekt] fehlgeschlagen: {e}")
+        return {"ok": False, "grund": str(e)[:200]}
+
+
 @app.post("/api/admin/firma-anlegen")
 async def admin_firma_anlegen(body: AdminRequest):
     """Legt einen Kunden-Account an (e-power steuert, wer das Produkt nutzt).

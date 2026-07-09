@@ -79,6 +79,17 @@
     sbRpc('register_firma', { p_name: company, p_email: email, p_passwort: password })
       .then(function (firma) {
         setSession(firma);
+        // Beispielprojekt (fertig analysiert) ins neue Konto legen — der erste
+        // Login zeigt sofort Mengen + Planansicht statt einer leeren Seite.
+        // Fire-and-forget mit keepalive: überlebt die sofortige Navigation;
+        // schlägt es fehl, bleibt das Konto einfach leer (nie blockieren).
+        try {
+          fetch('/api/demo-projekt', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ firma_id: firma.id }),
+            keepalive: true
+          }).catch(function () {});
+        } catch (e) { /* nie blockieren */ }
         window.location.href = 'dashboard.html';
       })
       .catch(function (err) {
