@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.5"
+APP_REV = "2026-07-09.6"
 
 
 @app.get("/api/extract-health")
@@ -2388,6 +2388,8 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                 "konfidenz": float(_vf.get("konfidenz") or 0.75),
                 "quelle": quelle,
             }
+            if _vf.get("geschoss"):
+                entry["geschoss"] = _vf.get("geschoss")
             k = _fkey(entry)
             if k in existing_keys:
                 return
@@ -2406,8 +2408,13 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
 
         for _vf in vision_fenster:
             _add_vision_fenster(_vf, quelle="fenster-vision")
-        for _vf in (baudaten.get("fenster") or []):
-            _add_vision_fenster(_vf, quelle="baudaten-vision")
+        # Baudaten-Fenster NUR als Fallback: dieser Pass sieht das GANZE Blatt
+        # (inkl. Ansichten) und speiste gemessen +11 Ansichts-Doppel ein, die
+        # am Maß-Dedup vorbeigehen. Hat der dedizierte Grundriss-Crop-Pass
+        # geliefert, ist er die sauberere Quelle.
+        if not vision_fenster:
+            for _vf in (baudaten.get("fenster") or []):
+                _add_vision_fenster(_vf, quelle="baudaten-vision")
 
         alle_fenster = list(unique_fenster)
 
