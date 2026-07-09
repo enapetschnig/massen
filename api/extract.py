@@ -1418,6 +1418,10 @@ REGELN:
 - Fuer Loggia/Balkon: U und H trotzdem eintragen falls sichtbar.
 - Zeigt das Blatt MEHRERE Grundrisse (KG/EG/OG nebeneinander): je Raum das
   Geschoss aus der Grundriss-Ueberschrift ("GRUNDRISS ERDGESCHOSS") mitgeben.
+- FENSTER/TUEREN NUR AUS GRUNDRISSEN zaehlen (Draufsicht: Fenster = Doppelstrich-
+  Unterbrechung in der Wand, Tuer = Viertelkreis-Aufschlag). Fenster in
+  ANSICHTEN/SCHNITTEN NICHT melden — sie wuerden doppelt gezaehlt. Wenn der
+  Ausschnitt NUR Ansichten/Schnitte zeigt: leere Listen zurueckgeben.
 - Erfinde niemals Werte die du nicht siehst."""
 
     _t_tiles0 = time.time()
@@ -1556,7 +1560,8 @@ REGELN:
 
     groups = {}
     for r in all_rooms:
-        key = (_norm_name(r.get("name")), _norm_name(r.get("wohnung")), _fbucket(r.get("flaeche_m2")))
+        key = (_norm_name(r.get("name")), _norm_name(r.get("wohnung")),
+               _norm_name(r.get("geschoss")), _fbucket(r.get("flaeche_m2")))
         if key not in groups:
             groups[key] = []
         groups[key].append(r)
@@ -1566,7 +1571,7 @@ REGELN:
         from collections import Counter
         merged = {}
         # Name/wohnung: take most common non-empty
-        for fld in ("name", "wohnung", "bodenbelag"):
+        for fld in ("name", "wohnung", "bodenbelag", "geschoss"):
             vals = [o.get(fld) for o in obs_list if o.get(fld)]
             if vals:
                 merged[fld] = Counter(vals).most_common(1)[0][0]
@@ -3058,7 +3063,10 @@ async def projekt_massen(body: ProjektMassenRequest):
         d = row.get("daten") or {}
         name = row.get("bezeichnung") or d.get("name") or ""
         wohnung = d.get("wohnung") or ""
-        _gesch = _plan_geschoss.get(row.get("plan_id"))
+        # Raum-eigenes Geschoss (Vision liest es je Raum aus der Grundriss-
+        # Überschrift — entscheidend bei EG+OG auf EINEM Blatt) schlägt das
+        # Plan-Level-Geschoss; Fallback bleibt der Plan.
+        _gesch = _nk(d.get("geschoss") or "") or _plan_geschoss.get(row.get("plan_id"))
         base = (_nk(name),) if is_efh else (_nk(name), _nk(wohnung))
         if not base[0]:
             continue
