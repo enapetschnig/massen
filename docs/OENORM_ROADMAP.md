@@ -198,4 +198,4 @@ Ergebnis mit Banner 'vorläufig — 2/3 Pläne' schon vor Abschluss aller Pläne
 - Kalibrierung in den Flow verlinken (Navbar + CTA im Konfidenz-Kopf + Dashboard-Stat): der Moat ist heute nur per URL-Eingabe erreichbar — rein additives UI, null Rechenweg-Risiko
 - Positions-Anker generalisieren (api/massen_logic.py add_zeile + upload.js nzHighlight auf alle Gewerk-Zeilen): jede Estrich-/Maler-/Fliesen-Position wird per Klick am Plan sichtbar — größter Traceability-Hebel, beide Enden existieren bereits, rein additiv
 
-*Erledigt seit Erstellung: Korrektur-Seiten-Key-Bugfix ✓ · Kalibrierung-Navbar-Links ✓ (Commit 1f31ae0)*
+*Erledigt seit Erstellung: Korrektur-Seiten-Key-Bugfix ✓ · Kalibrierung-Navbar-Links ✓ (Commit 1f31ae0) · #9 Workflow-Stepper aktiviert ✓ (b9608f9 + 5dc46d4, live verifiziert: Übersicht-Default unverändert, Schritt 2 = Prüfliste-Kartenraster + Planansicht mit Overlay, Übersicht stellt alles wieder her — Seitenhöhe 2553→5041px gemessen; Export-Konsolidierung auf 1 Primär-Button + .xlsx noch offen)*
