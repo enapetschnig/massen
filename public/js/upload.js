@@ -930,7 +930,7 @@
            '<th style="' + THn + '">FPH</th><th style="' + THn + '">STUK</th><th style="' + TH + '">Quelle</th></tr></thead><tbody>';
       arr.forEach(function (o) {
         var q = (o.quelle || '').indexOf('stuk') >= 0 ? '<span style="color:#0f766e">Text/STUK</span>' :
-                ((o.quelle || '').indexOf('vision') >= 0 ? '<span style="color:#1e40af">Vision</span>' : esc(o.quelle || ''));
+                ((o.quelle || '').indexOf('vision') >= 0 ? '<span style="color:#34363d">Vision</span>' : esc(o.quelle || ''));
         h += '<tr><td style="' + TD + '">' + esc(o.bezeichnung || '') + '</td>' +
           '<td style="' + TD + '">' + esc(o.raum || '') + '</td>' +
           '<td style="' + TDn + '">' + dash(o.breite_m) + '</td>' +

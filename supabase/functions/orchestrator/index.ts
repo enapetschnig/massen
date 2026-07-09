@@ -1291,12 +1291,18 @@ Antworte NUR mit validem JSON, KEIN Markdown.`,
 
       const k = Math.round((kritik.gesamt_konfidenz || 0.5) * 100)
 
-      // Delete geo data to save space but keep pdf_text reference
-      delete log.geo
+      // WICHTIG (Regression-Fixes):
+      // 1) log.geo NIEMALS löschen — die Projekt-Aggregation (projekt-massen)
+      //    liest geo.geschoss/raeume daraus; das frühere "save space"-Delete
+      //    zerstörte die Geometrie-Basis jedes analysierten Plans.
+      // 2) gesamt_konfidenz NICHT überschreiben — der autoritative Wert kommt
+      //    aus analyse-zoom (byte-exakte F/U/H-Verifikation). Die Legacy-Kritik
+      //    kennt das neue Datenformat nicht (rooms_total=0) und schrieb
+      //    pauschal ~50 über echte 98.
       log.step3 = { ts: new Date().toISOString(), ...kritik }
       log.kritik = kritik
       log.dimension_validation = dimensionValidation
-      await sb.from("plaene").update({ verarbeitet: true, gesamt_konfidenz: k, agent_log: log }).eq("id", plan_id)
+      await sb.from("plaene").update({ verarbeitet: true, agent_log: log }).eq("id", plan_id)
 
       return new Response(JSON.stringify({
         status: kritik.status || "AKZEPTIERT",

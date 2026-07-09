@@ -734,7 +734,7 @@ img {
 
 .progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), #f9b44e);
+  background: linear-gradient(90deg, var(--accent), #d98a3a);
   border-radius: 20px;
   width: 0%;
   transition: width 0.4s ease;
@@ -2542,10 +2542,15 @@ img {
 .result-hero {
   display: flex; align-items: center; justify-content: space-between;
   gap: 1.5rem; flex-wrap: wrap;
+  /* dunkles Reißbrett wie die Login-Seite: Graphit + Blueprint-Raster + Ocker-Glow */
   background:
-    radial-gradient(140% 120% at 100% 0%, rgba(239, 125, 18, 0.18) 0%, rgba(239, 125, 18, 0) 55%),
+    radial-gradient(140% 120% at 100% 0%, rgba(189, 106, 31, 0.22) 0%, rgba(189, 106, 31, 0) 55%),
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
     linear-gradient(135deg, var(--primary-dark), var(--primary-light));
+  background-size: auto, 30px 30px, 30px 30px, auto;
   color: #fff; border-radius: var(--radius-lg);
+  border-top: 3px solid var(--accent);
   padding: 1.6rem 1.8rem; margin-bottom: 1.25rem;
   box-shadow: var(--shadow-lg);
 }
@@ -2593,7 +2598,7 @@ img {
 .fact-v { font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
 .fact-src { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 6px; border-radius: 999px; }
 .fact-src.read { background: #ccfbf1; color: #0f766e; }
-.fact-src.measured { background: #dbeafe; color: #1e40af; }
+.fact-src.measured { background: var(--verified-soft); color: var(--verified); }
 .fact-src.assumed { background: #f1f5f9; color: #64748b; }
 
 /* MATERIAL-BOARD --------------------------------------------- */
@@ -2858,9 +2863,9 @@ line.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 10 !important
 /* ── Referenz-Upload CTA (prominent) + "merken" ───────────────────────── */
 .referenz-cta { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   flex-wrap: wrap; margin: 1rem 0; padding: 1rem 1.25rem; border-radius: 12px;
-  background: linear-gradient(135deg, #eff6ff, #f0fdf4); border: 1px solid #bfdbfe; }
+  background: linear-gradient(135deg, var(--surface-2), var(--verified-soft)); border: 1px solid var(--border-strong); }
 .referenz-cta-text { display: flex; flex-direction: column; gap: .15rem; }
-.referenz-cta-text strong { font-size: .95rem; color: #1e3a8a; }
+.referenz-cta-text strong { font-size: .95rem; color: var(--ink); }
 .referenz-cta-text span { font-size: .8rem; color: #475569; }
 .referenz-cta .btn { white-space: nowrap; }
 .ml-merken-label { font-size: .8rem; color: #334155; display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
