@@ -3118,3 +3118,9 @@ g[data-raum].nz-hi circle {
 .wf-step:hover { background: var(--surface-2); color: var(--text); }
 .wf-step.wf-on { background: var(--ink); color: #fff; }
 .wf-step:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 4px var(--accent); }
+/* Schritt 2 (Plan prüfen): nur die Rail-Prüfliste bleibt aus dem Ergebnis-Grid —
+   Grid auflösen und Prüfliste in voller Breite zeigen statt einer leeren Spalte. */
+.result-grid.wf-rail-only { display: block; }
+.result-grid.wf-rail-only .result-main { display: none; }
+.result-grid.wf-rail-only .pruefliste { margin-top: 0; }
+.result-grid.wf-rail-only .pl-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.7rem; }

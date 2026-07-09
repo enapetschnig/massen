@@ -2712,6 +2712,10 @@
     document.querySelectorAll('#workflow-steps .wf-step').forEach(function (b) {
       b.classList.toggle('wf-on', b.getAttribute('data-wf') === String(step));
     });
+    // Schritt 2 zeigt aus dem Ergebnis-Grid nur die Rail (Prüfliste) — Grid
+    // einspaltig machen, sonst bleibt die ausgeblendete Hauptspalte als Loch stehen.
+    var rg = document.querySelector('.result-grid');
+    if (rg) rg.classList.toggle('wf-rail-only', step === 2);
     if (step === 1) {
       var up = document.getElementById('upload-section');
       if (up) up.scrollIntoView({ behavior: 'smooth', block: 'start' });
