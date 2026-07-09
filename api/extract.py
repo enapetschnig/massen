@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.2"
+APP_REV = "2026-07-09.3"
 
 
 @app.get("/api/extract-health")
@@ -2703,6 +2703,27 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
             print(f"[oeffnungs-symbole] failed: {_exc!r}")
             oeffnungs_symbole = {}
 
+        # TÜR-FALLBACK AUS SYMBOLEN (Scans!): der STUK/FPH-Cluster braucht einen
+        # Text-Layer — auf Scans ist all_tueren leer, obwohl die Symbol-Zählung
+        # die Tür-Aufschläge raumgenau sieht (gemessen: 2510-Scan 14 Türen
+        # gezählt, 0 übernommen). Maßlose Übernahme: Stückzahl fürs Fenster-/
+        # Türen-Gewerk, KEIN Mengen-Abzug (breite/hoehe fehlen bewusst — kein
+        # erfundener Wandabzug).
+        if not all_tueren and isinstance(oeffnungs_symbole, dict):
+            for _st in (oeffnungs_symbole.get("tueren") or []):
+                try:
+                    if float(_st.get("konfidenz") or 0) < 0.4:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                all_tueren.append({
+                    "code": None, "raum": _st.get("raum"),
+                    "konfidenz": round(min(0.6, float(_st.get("konfidenz") or 0.4)), 2),
+                    "quelle": "symbol", "_art": "tuer",
+                })
+            if all_tueren:
+                print(f"[oeffnungs-symbole] {len(all_tueren)} Türen aus Symbolen übernommen (Scan-Fallback, maßlos)")
+
         # OPUS-BAUINGENIEUR: läuft jetzt PRO PROJEKT (1× in projekt_massen, nach
         # dem Merge aller Pläne), NICHT mehr pro Plan — spart bei Multi-Plan-Projekten
         # N−1 teure Opus-Calls. Pro-Plan nur noch optional via env OPUS_PER_PLAN=1
@@ -3704,7 +3725,12 @@ async def projekt_massen(body: ProjektMassenRequest):
                 continue
             v = sym.get(key)
             k = sym.get("konfidenz")
-            if v is None or (k is not None and float(k) < 0.6):
+            # Schwelle 0,4 statt 0,6: der Cap KAPPT nur (verhindert Überzählung
+            # durch Ansichten-Doppelfenster) und füllt nie auf — einseitig
+            # sicher, darf also auch mittlere Konfidenz nutzen. Gemessen: die
+            # raumgenaue Symbol-Zählung (konf 0,45) war korrekt, während der
+            # Fenster-Pass 30 statt ~20 lieferte — der Cap wurde weggeworfen.
+            if v is None or (k is not None and float(k) < 0.4):
                 continue
             try:
                 v = int(v)
