@@ -320,6 +320,14 @@ def _room_name(r):
     return r.get("name") or r.get("bezeichnung") or (r.get("daten") or {}).get("name") or "?"
 
 
+def _u_lbl(r, u):
+    """Aufmaß-Herleitung ehrlich halten: byte-exakter U-Stempel → 'U=…',
+    Proportions-Schätzung (Scan ohne U-Stempel) → 'U≈… (geschätzt)'."""
+    if r.get("umfang_geschaetzt") or (r.get("daten") or {}).get("umfang_geschaetzt"):
+        return f"U≈{u} (geschätzt)"
+    return f"U={u}"
+
+
 # ════════════════════════════════════════════════════════════════════════
 # GEWERKE
 # ════════════════════════════════════════════════════════════════════════
@@ -348,7 +356,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             continue
         _ziel = pos_hoch if h > 3.2 else pos
         _ziel.add_zeile(f"{_room_name(r)} — Wand brutto", laenge=u, hoehe=h,
-                        summe=u * h, quelle=f"U={u} × H={h}",
+                        summe=u * h, quelle=f"{_u_lbl(r, u)} × H={h}",
                         anker={"raum": _room_name(r)})
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
@@ -456,7 +464,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
         hh = _room_value(r, "hoehe_m") or h_def
         if u:
             pos.add_zeile(_room_name(r), laenge=u, hoehe=hh, summe=u * hh, anker={"raum": _room_name(r)},
-                          quelle=f"U={u} × H={hh}")
+                          quelle=f"{_u_lbl(r, u)} × H={hh}")
     # Σ(U×H) ist byte-exakt: Raum-Umfänge kommen aus dem Text-Layer, die Höhe je Raum
     # aus dem Text oder — uniform — aus der verifizierten Geschoss-Höhe. Das ist ein
     # exakter Kontrollwert, kein wackeliger Schätzwert. Konfidenz nach Höhen-Herkunft:
@@ -548,7 +556,7 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in innen:
         u = _room_value(r, "umfang_m")
         if u:
-            pos.add_zeile(_room_name(r), laenge=u, summe=u, quelle=f"U={u}", anker={"raum": _room_name(r)})
+            pos.add_zeile(_room_name(r), laenge=u, summe=u, quelle=_u_lbl(r, u), anker={"raum": _room_name(r)})
     pos.konfidenz = 0.95
     positionen.append(pos)
     return positionen
@@ -575,7 +583,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
             continue
         _ziel = pos_hoch if h > 3.2 else pos
         _ziel.add_zeile(f"{_room_name(r)} — Wand", laenge=u, hoehe=h, summe=u * h,
-                        quelle=f"U={u} × H={h}", anker={"raum": _room_name(r)})
+                        quelle=f"{_u_lbl(r, u)} × H={h}", anker={"raum": _room_name(r)})
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
@@ -677,7 +685,7 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
         nm = (_room_name(r) or "").lower()
         h = 1.5 if ("wc" in nm and "bad" not in nm and "dusch" not in nm) else 2.0
         pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h, anker={"raum": _room_name(r)},
-                        summe=u * h, quelle=f"U={u} × h={h} (angenommen)")
+                        summe=u * h, quelle=f"{_u_lbl(r, u)} × h={h} (angenommen)")
         # Öffnungen im Fliesenband [0..h] abziehen: Tür (fph=0) → volle Bandhöhe,
         # Fenster ab Parapet fph → nur der Teil unter der Fliesenhöhe ist gefliest.
         for w in fzuord.get(id(r), []):
