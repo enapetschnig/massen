@@ -3101,3 +3101,20 @@ g[data-raum].nz-hi circle {
 @media (prefers-reduced-motion: reduce) {
   g[data-raum].nz-hi circle { animation: none; stroke-width: 6; }
 }
+
+/* ── Workflow-Stepper (Fokus-Ansichten; Übersicht = Default) ────────────── */
+.workflow-steps {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  margin: 0 0 1.1rem; padding: 6px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-sm);
+  position: sticky; top: 68px; z-index: 40;
+}
+.wf-step {
+  border: 1px solid transparent; background: transparent; cursor: pointer;
+  font: inherit; font-size: 0.86rem; font-weight: 600; color: var(--text-light);
+  padding: 6px 14px; border-radius: 7px;
+  transition: background var(--transition), color var(--transition);
+}
+.wf-step:hover { background: var(--surface-2); color: var(--text); }
+.wf-step.wf-on { background: var(--ink); color: #fff; }
+.wf-step:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 4px var(--accent); }

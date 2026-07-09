@@ -2692,13 +2692,19 @@
   // zeigen. Schritt 2 (Plan prüfen) ist der Default nach der Analyse: ERST die
   // Planansicht verifizieren/korrigieren, DANN die Massen ansehen.
   var WF_GRUPPEN = {
+    1: ['#upload-section', '#plans-section'],
     2: ['#ergebnis-status-banner', '#pruefliste', '#nachzeichnen-section'],
-    3: ['#zielgruppen-presets', '#geo-box', '#fact-strip', '.ml-board-toolbar', '#ml-board', '#auswertung-kennzahlen', '.advanced-drawer'],
+    3: ['#zielgruppen-presets', '#geo-box', '#fact-strip', '.ml-board-toolbar',
+        '#mengen-board', '#ml-board', '#konf-kopf', '#auswertung-kennzahlen',
+        '#raum-aufmass', '.advanced-drawer'],
     4: ['#projekt-chat']
   };
   function wfShow(step) {
+    // step 0 = ÜBERSICHT (Default): ALLES sichtbar — exakt die bisherige Seite.
+    // Die Schritte 1-4 sind FOKUS-Ansichten (blenden fremde Gruppen aus) —
+    // additiv: wer nichts klickt, verliert nichts.
     Object.keys(WF_GRUPPEN).forEach(function (s) {
-      var an = String(step) === s;
+      var an = step === 0 || String(step) === s;
       WF_GRUPPEN[s].forEach(function (sel) {
         document.querySelectorAll(sel).forEach(function (el) { el.classList.toggle('wf-hidden', !an); });
       });
@@ -2709,8 +2715,10 @@
     if (step === 1) {
       var up = document.getElementById('upload-section');
       if (up) up.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else if (step === 2 && typeof _nzApplyZoom === 'function') {
-      _nzApplyZoom();   // Zoom-Transform neu anwenden (Element war ggf. unsichtbar)
+    } else if (step === 2) {
+      if (typeof _nzApplyZoom === 'function') _nzApplyZoom();
+      var nz = document.getElementById('nachzeichnen-section');
+      if (nz) nz.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
   (function wireWorkflow() {
@@ -2719,7 +2727,7 @@
     bar.querySelectorAll('.wf-step').forEach(function (b) {
       b.addEventListener('click', function () { wfShow(parseInt(b.getAttribute('data-wf'), 10)); });
     });
-    wfShow(2);   // initial: Plan prüfen (Bereiche der anderen Schritte ausblenden)
+    wfShow(0);   // Default: Übersicht — Seite wie bisher, kein Demo-Bruch
   })();
 
   // ── ZIELGRUPPEN-PRESETS: gleiche Daten, passende Sicht je Branche-Bereich ──
