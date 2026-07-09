@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.11"
+APP_REV = "2026-07-09.12"
 
 
 @app.get("/api/extract-health")
@@ -2429,21 +2429,60 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                     for r in _ohne_u:
                         _rn[_norm_name(r.get("name") or "")].append(r)
                     _gefuellt = 0
+
+                    def _u_setzen(r, _asp, _quelle):
+                        _F = float(r["flaeche_m2"])
+                        r["umfang_m"] = round(2.0 * (math.sqrt(_F * _asp) + math.sqrt(_F / _asp)), 2)
+                        r["umfang_geschaetzt"] = True
+                        r["umfang_quelle"] = _quelle
+
+                    def _g_passt(k_g, r):
+                        _rg = str(r.get("geschoss") or "").strip().upper()
+                        return not k_g or not _rg or str(k_g).strip().upper() == _rg
+
                     for _nn, _rooms in _rn.items():
                         _rooms.sort(key=lambda r: -float(r.get("flaeche_m2") or 0))
-                        _kand = list(_bx.get(_nn) or [])
+                        _kand = _bx.get(_nn) or []
                         for r in _rooms:
-                            _rg = str(r.get("geschoss") or "").strip().upper()
                             _gi = next((i for i, k in enumerate(_kand)
-                                        if not k[0] or not _rg
-                                        or str(k[0]).strip().upper() == _rg), None)
+                                        if _g_passt(k[0], r)), None)
                             if _gi is None:
                                 continue
-                            _asp = _kand.pop(_gi)[1]
-                            _F = float(r["flaeche_m2"])
-                            r["umfang_m"] = round(2.0 * (math.sqrt(_F * _asp) + math.sqrt(_F / _asp)), 2)
-                            r["umfang_geschaetzt"] = True
-                            r["umfang_quelle"] = "proportion-vision"
+                            _u_setzen(r, _kand.pop(_gi)[1], "proportion-vision")
+                            _gefuellt += 1
+                    # Stufe 2b — FUZZY-NAME: Vision nennt Räume oft leicht anders
+                    # ("Zimmer 1" vs "Zimmer", "Wohnen/Essen" vs "Wohnessraum") →
+                    # contains-Match auf unverbrauchte Boxen (min. 4 Zeichen).
+                    for _nn, _rooms in _rn.items():
+                        for r in _rooms:
+                            if r.get("umfang_m") or len(_nn) < 4:
+                                continue
+                            _tref = None
+                            for _bn, _kand in _bx.items():
+                                if _bn == _nn or len(_bn) < 4:
+                                    continue
+                                if _nn in _bn or _bn in _nn:
+                                    _gi = next((i for i, k in enumerate(_kand)
+                                                if _g_passt(k[0], r)), None)
+                                    if _gi is not None:
+                                        _tref = (_kand, _gi)
+                                        break
+                            if _tref:
+                                _u_setzen(r, _tref[0].pop(_tref[1])[1], "proportion-vision-fuzzy")
+                                _gefuellt += 1
+                    # Stufe 2c — DEFAULT-PROPORTION: Rest ohne Box bekommt das
+                    # typische Wohnraum-Seitenverhältnis 1,35 (≈4,06·√F) — immer
+                    # noch geflaggte Schätzung, aber Wandmenge statt Null. Flure/
+                    # Gänge (gestreckt) NICHT pauschal schätzen — dort wäre 1,35
+                    # systematisch zu wenig.
+                    for _rooms in _rn.values():
+                        for r in _rooms:
+                            if r.get("umfang_m"):
+                                continue
+                            _name_l = (r.get("name") or "").lower()
+                            if any(t in _name_l for t in ("gang", "flur", "diele", "korridor")):
+                                continue
+                            _u_setzen(r, 1.35, "proportion-default")
                             _gefuellt += 1
                     if _gefuellt:
                         print(f"[scan-geometrie] {_gefuellt}/{len(_ohne_u)} Umfänge aus "
