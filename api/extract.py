@@ -787,7 +787,12 @@ async def extract(body: ExtractRequest):
 
 @app.get("/api/extract-health")
 async def health():
-    return {"status": "ok", "pdfplumber": True}
+    import anthropic as _an
+    # anthropic_sdk dient zugleich als DEPLOY-MARKER: statische Dateien sind
+    # nach einem Push binnen Sekunden live, der Python-Lambda-Build braucht
+    # Minuten — wer "deployed?" prüfen will, prüft DIESES Feld, nicht die CSS.
+    return {"status": "ok", "pdfplumber": True,
+            "anthropic_sdk": getattr(_an, "__version__", "?")}
 
 
 @app.get("/api/diag")
@@ -1469,9 +1474,15 @@ REGELN:
                     try:
                         return json.loads(m.group())
                     except Exception:
+                        print(f"[tile] JSON-Parse fehlgeschlagen: {raw[:120]!r}")
                         return None
+            print(f"[tile] kein JSON in Antwort: {raw[:120]!r}")
             return None
-        except Exception:
+        except Exception as _te:
+            # NIE wieder still schlucken: ein toter Vision-Call (Modell 404,
+            # SDK-TypeError, Timeout) muss im Log sichtbar sein — das stille
+            # except hat den Total-Ausfall der Vision monatelang maskiert.
+            print(f"[tile] Vision-Call fehlgeschlagen: {type(_te).__name__}: {str(_te)[:200]}")
             return None
 
     # ── PHASE B (parallel): die langsamen Vision-Calls nebenläufig. Der anthropic-
@@ -4964,6 +4975,24 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
 _NZ_CACHE_V = 36  # Welle-4-Korrektheit: Geschoss-Merge (Multi-FL), Symbol-Cap je-Geschoss-Summe, F-Wert-Evidenz
 
 
+def _korrekturen_fuer_seite(log, seite):
+    """Korrekturen sind je Seite gespeichert (Wand-IDs nur je Seite eindeutig):
+    Default-Ansicht (seite None) → un-suffixter Key. Explizite Seite → _s<N>-Key;
+    ist die explizit angeforderte Seite die HAUPTSEITE (Default-Cache meta.seite),
+    greifen als Fallback die un-suffixten Korrekturen (dort speichert das
+    Frontend, wenn der Nutzer auf der Hauptseite arbeitet)."""
+    if seite is None:
+        return log.get("nachzeichnen_korrekturen")
+    k = log.get(f"nachzeichnen_korrekturen_s{seite}")
+    if k is not None:
+        return k
+    haupt = (((log.get("nachzeichnen_cache") or {}).get("daten") or {})
+             .get("meta") or {}).get("seite")
+    if haupt is not None and haupt == seite:
+        return log.get("nachzeichnen_korrekturen")
+    return None
+
+
 def _nachzeichnen_roh(body):
     """Gemeinsame Plan-Auswahl + Vektor-Analyse für plan-nachzeichnen UND Aufmaßblatt.
     Liefert das Ergebnis-Dict MIT basis_png-BYTES (Aufrufer kodiert/verwendet)."""
@@ -5025,7 +5054,7 @@ def _nachzeichnen_roh(body):
                 doc.close()
                 r["plan_id"] = plan.get("id")
                 r["dateiname"] = plan.get("dateiname")
-                r["korrekturen"] = log.get("nachzeichnen_korrekturen") if body.seite is None else None
+                r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
                 return r
             except Exception as e:  # pragma: no cover — Cache kaputt → frischer Lauf
                 print(f"[nachzeichnen] Cache-Rehydrierung fehlgeschlagen: {e}")
@@ -5053,7 +5082,7 @@ def _nachzeichnen_roh(body):
             print(f"[nachzeichnen] Cache-Schreiben fehlgeschlagen: {e}")
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
-        r["korrekturen"] = log.get("nachzeichnen_korrekturen") if body.seite is None else None
+        r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
         return r
     return {"ok": False, "grund": letzter_grund}
 
@@ -5098,6 +5127,10 @@ async def plan_aufmassblatt(body: NachzeichnenRequest):
 class NachzeichnenKorrekturRequest(BaseModel):
     plan_id: str
     korrekturen: dict | None = None
+    # Seite, auf der korrigiert wurde. OHNE Seiten-Key landeten Korrekturen von
+    # Blatt 2 (OG) beim nächsten Laden auf Blatt 1 (EG) — Wand-IDs sind nur je
+    # Seite eindeutig. None = Default-Seite (bestehender Key, rückwärtskompatibel).
+    seite: int | None = None
 
 
 @app.post("/api/nachzeichnen-korrektur")
@@ -5112,7 +5145,9 @@ async def nachzeichnen_korrektur(body: NachzeichnenKorrekturRequest):
     try:
         res = sb.table("plaene").select("agent_log").eq("id", body.plan_id).single().execute()
         log = (res.data or {}).get("agent_log") or {}
-        log["nachzeichnen_korrekturen"] = body.korrekturen or None
+        _key = ("nachzeichnen_korrekturen" if body.seite is None
+                else f"nachzeichnen_korrekturen_s{body.seite}")
+        log[_key] = body.korrekturen or None
         sb.table("plaene").update({"agent_log": log}).eq("id", body.plan_id).execute()
         return {"ok": True}
     except Exception as e:  # pragma: no cover

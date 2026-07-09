@@ -2367,7 +2367,11 @@
       !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile;
     fetch('/api/nachzeichnen-korrektur', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // seite mitschicken: Wand-IDs sind nur JE SEITE eindeutig — ohne Seiten-Key
+      // landeten OG-Korrekturen (Blatt 2) beim nächsten Laden auf EG-Wänden (Blatt 1).
+      // Hauptseite → null (bestehender, un-suffixter Key: Default-Load bleibt kompatibel).
       body: JSON.stringify({ plan_id: _nzData.plan_id,
+        seite: (_nzAktivSeite != null && _nzAktivSeite !== _nzHauptSeite) ? _nzAktivSeite : null,
         korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null } })
     }).catch(function () { /* Speichern ist best-effort */ });
   }
