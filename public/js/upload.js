@@ -1574,7 +1574,9 @@
         (aussen ? ' <span title="überdachte Außenfläche">☂</span>' : '') + '</td>' +
         '<td>' + fmtNum(r.flaeche_m2) + ' m² ✓</td>' +
         '<td>' + (aussen ? '–' : fmtNum(r.flaeche_m2) + ' m²') + '</td>' +
-        '<td>' + (u ? fmtNum(u) + ' m ✓' : '–') + '</td>' +
+        '<td>' + (u ? fmtNum(u) + ' m ' + (r.umfang_geschaetzt
+          ? '<span title="aus Raum-Proportion geschätzt (kein U-Stempel im Plan) — bitte prüfen">≈</span>'
+          : '✓') : '–') + '</td>' +
         '<td>' + (h ? fmtNum(h) + ' m' + (r.hoehe_m ? ' ✓' : ' ≈') : '–') + '</td>' +
         '<td>' + (wf ? fmtNum(wf) + ' m²' : '–') + '</td>' +
         '<td>' + (u && !aussen ? fmtNum(u) + ' lfm' : '–') + '</td></tr>';
@@ -1583,7 +1585,8 @@
       fmtNum(Math.round(sF * 100) / 100) + ' m²</strong> · Wandabwicklung <strong>' +
       fmtNum(Math.round(sW * 100) / 100) + ' m²</strong> · Sockel <strong>' +
       fmtNum(Math.round(sU * 100) / 100) + ' lfm</strong> — ✓ = byte-exakt aus dem Plan-Text, ' +
-      '≈ = Geschoss-Höhe übernommen. Öffnungs-Abzüge: siehe Öffnungs-Aufmaß.</div>';
+      '≈ = geschätzt (Geschoss-Höhe übernommen bzw. Umfang aus Raum-Proportion). ' +
+      'Öffnungs-Abzüge: siehe Öffnungs-Aufmaß.</div>';
     el.innerHTML = html;
   }
 
