@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.10"
+APP_REV = "2026-07-09.11"
 
 
 @app.get("/api/extract-health")
@@ -2376,6 +2376,94 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                     except (KeyError, TypeError, ValueError):
                         pass
                     vision_fenster.append(_vf)
+
+            # SCAN-GEOMETRIE Stufe 1 (Roadmap #15): Räume mit gelesener Fläche F,
+            # aber OHNE U-Stempel (Scans: 23/23 ohne Umfang gemessen) bekommen
+            # einen GESCHÄTZTEN Umfang aus der Raum-Proportion — Vision liefert
+            # die Raum-Bounding-Box im Grundriss-Crop, F ist bekannt, also
+            # U ≈ 2·(√(F·r)+√(F/r)) mit r = Seitenverhältnis (exakt für Rechteck-
+            # räume, Untergrenze für L-Formen). NUR Lücken füllen — byte-exakte
+            # U bleiben unangetastet; klar geflaggt (umfang_geschaetzt), damit
+            # UI/Filter die Schätzung ausweisen. Aktivierung erst bei struktu-
+            # rellem U-Ausfall (≥3 Räume), nicht bei Einzel-Lücken nativer Pläne.
+            try:
+                _ohne_u = [r for r in unique_rooms
+                           if r.get("flaeche_m2") and not r.get("umfang_m")]
+                if len(_ohne_u) >= 3:
+                    RAUM_BBOX_PROMPT = """Du siehst einen Grundriss-Ausschnitt eines Bauplans.
+Gib fuer JEDEN beschrifteten RAUM (Raumname steht im Raum) seine Bounding-Box an.
+JSON, kein Markdown:
+{"raeume": [
+  {"name": "Wohnraum", "x0_pct": 12, "y0_pct": 30, "x1_pct": 44, "y1_pct": 66}
+]}
+Koordinaten in PROZENT der Bildbreite/-hoehe (0-100). Box = INNENKANTE des
+Raums (Wandinnenseite zu Wandinnenseite, OHNE Waende/Bemassung).
+Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
+                    from collections import defaultdict as _dd
+                    _bx = _dd(list)   # norm_name → [(geschoss, aspect, area)]
+                    for _clip, _gesch in (regionen if regionen else [(None, None)]):
+                        b_img = _render(_clip, 200, budget_mb=4.0)
+                        if not b_img:
+                            continue
+                        bp = _frage(RAUM_BBOX_PROMPT, b_img,
+                                    "Bounding-Box jedes beschrifteten Raums.", max_tok=2000)
+                        _cw = _clip.width if _clip is not None else pw3
+                        _ch = _clip.height if _clip is not None else ph3
+                        for rb in (bp.get("raeume") or []):
+                            try:
+                                dx = (float(rb["x1_pct"]) - float(rb["x0_pct"])) / 100.0 * _cw
+                                dy = (float(rb["y1_pct"]) - float(rb["y0_pct"])) / 100.0 * _ch
+                                if dx <= 0 or dy <= 0:
+                                    continue
+                                _asp = max(dx, dy) / min(dx, dy)
+                                _nn = _norm_name(rb.get("name") or "")
+                                if _nn and 1.0 <= _asp <= 8.0:
+                                    _bx[_nn].append((_gesch, _asp, dx * dy))
+                            except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                                continue
+                    # Zuordnung je (Name): beide Seiten größensortiert zippen
+                    # (zwei "Zimmer" im OG → größte Fläche bekommt größte Box)
+                    for _nn in _bx:
+                        _bx[_nn].sort(key=lambda t: -t[2])
+                    _rn = _dd(list)
+                    for r in _ohne_u:
+                        _rn[_norm_name(r.get("name") or "")].append(r)
+                    _gefuellt = 0
+                    for _nn, _rooms in _rn.items():
+                        _rooms.sort(key=lambda r: -float(r.get("flaeche_m2") or 0))
+                        _kand = list(_bx.get(_nn) or [])
+                        for r in _rooms:
+                            _rg = str(r.get("geschoss") or "").strip().upper()
+                            _gi = next((i for i, k in enumerate(_kand)
+                                        if not k[0] or not _rg
+                                        or str(k[0]).strip().upper() == _rg), None)
+                            if _gi is None:
+                                continue
+                            _asp = _kand.pop(_gi)[1]
+                            _F = float(r["flaeche_m2"])
+                            r["umfang_m"] = round(2.0 * (math.sqrt(_F * _asp) + math.sqrt(_F / _asp)), 2)
+                            r["umfang_geschaetzt"] = True
+                            r["umfang_quelle"] = "proportion-vision"
+                            _gefuellt += 1
+                    if _gefuellt:
+                        print(f"[scan-geometrie] {_gefuellt}/{len(_ohne_u)} Umfänge aus "
+                              f"Raum-Proportion geschätzt (Rechteck-Annahme, geflaggt)")
+                        # Räume wurden VOR diesem Pass persistiert → synchron
+                        # neu schreiben (gleiches Muster wie die Fenster-Klammer)
+                        try:
+                            sb.table("elemente").delete().eq("plan_id", body.plan_id) \
+                                .eq("typ", "raum").execute()
+                            sb.table("elemente").insert([{
+                                "plan_id": body.plan_id, "typ": "raum",
+                                "bezeichnung": r.get("name", ""),
+                                "daten": r,
+                                "konfidenz": int(r.get("konfidenz", 0.8) * 100),
+                            } for r in unique_rooms]).execute()
+                        except Exception as _pe:
+                            print(f"[scan-geometrie] Persistenz: {_pe!r}")
+            except Exception as _se:
+                print(f"[scan-geometrie] übersprungen: {_se!r}")
+
             doc3.close()
             print(f"[fenster-vision] {len(vision_fenster)} Fenster aus Vision "
                   f"({'Grundriss-Crops' if regionen else 'Ganzblatt-Fallback'})")
