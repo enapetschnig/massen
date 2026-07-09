@@ -196,7 +196,7 @@ def erzeuge(nz, projekt_name="", firmen_name="", massen=None):
                    f"Umfang ≈ {_kont[0].get('umfang_m')} m")
     page.insert_text((M, y),
                      f"Räume: {n_ok} voll bestätigt (Fläche+Umfang) · {n_f} Fläche exakt (Umfang prüfen) · von {len(raeume)}   ·   "
-                     f"Öffnungen: {len(nz.get('oeffnungen') or [])} (byte-exakt aus STUK/FPH-Codes)   ·   "
+                     f"Öffnungen: {len(nz.get('oeffnungen') or [])} (Text-Codes byte-exakt + KI-Bildlesung)   ·   "
                      f"* = Länge byte-exakt aus der Plan-Maßzahl übernommen" + fl_txt,
                      fontsize=8.5)
     y += 14

@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.8"
+APP_REV = "2026-07-09.9"
 
 
 @app.get("/api/extract-health")
@@ -2263,12 +2263,14 @@ Wichtig:
 JSON-Antwort, kein Markdown:
 {
   "fenster": [
-    {"bezeichnung": "F1", "raum": "Wohnraum Küche", "breite_cm": 240, "hoehe_cm": 210, "konfidenz": 0.9},
-    {"bezeichnung": "F2", "raum": "Zimmer 1", "breite_cm": 120, "hoehe_cm": 140, "konfidenz": 0.85}
+    {"bezeichnung": "F1", "raum": "Wohnraum Küche", "breite_cm": 240, "hoehe_cm": 210, "konfidenz": 0.9, "x_pct": 12, "y_pct": 48},
+    {"bezeichnung": "F2", "raum": "Zimmer 1", "breite_cm": 120, "hoehe_cm": 140, "konfidenz": 0.85, "x_pct": 71, "y_pct": 9}
   ]
 }
 Werte in cm. Wenn Bemassung nicht lesbar: Wert schätzen aus Wand-Anteil
 (z.B. Wand 4m, Fenster nimmt 1/3 ein → ca. 130cm Breite).
+x_pct/y_pct = MITTELPUNKT des Fenster-Symbols im gezeigten Bild, in Prozent
+der Bildbreite/-hoehe (0-100, x nach rechts, y nach unten).
 NIEMALS erfinden, nur was im Plan sichtbar ist."""
 
         # ZWEI-STUFEN-PASS gegen Ansichten-Doppelzählung: (0) Grundriss-REGIONEN
@@ -2356,6 +2358,20 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                 for _vf in (parsed.get("fenster") or []):
                     if _gesch and not _vf.get("geschoss"):
                         _vf["geschoss"] = _gesch
+                    # F-MARKER AM PLAN (Traceability): Crop-Prozente → Seiten-pt.
+                    # Das Overlay zeichnet damit jedes Vision-Fenster klickbar ein.
+                    try:
+                        _xp, _yp = float(_vf["x_pct"]), float(_vf["y_pct"])
+                        if 0.0 <= _xp <= 100.0 and 0.0 <= _yp <= 100.0:
+                            if _clip is not None:
+                                _vf["pos_pt"] = [round(_clip.x0 + _xp / 100.0 * _clip.width, 1),
+                                                 round(_clip.y0 + _yp / 100.0 * _clip.height, 1)]
+                            else:
+                                _vf["pos_pt"] = [round(_xp / 100.0 * pw3, 1),
+                                                 round(_yp / 100.0 * ph3, 1)]
+                            _vf["pos_seite"] = 0
+                    except (KeyError, TypeError, ValueError):
+                        pass
                     vision_fenster.append(_vf)
             doc3.close()
             print(f"[fenster-vision] {len(vision_fenster)} Fenster aus Vision "
@@ -2390,6 +2406,9 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
             }
             if _vf.get("geschoss"):
                 entry["geschoss"] = _vf.get("geschoss")
+            if _vf.get("pos_pt"):
+                entry["pos_pt"] = _vf["pos_pt"]
+                entry["pos_seite"] = _vf.get("pos_seite", 0)
             k = _fkey(entry)
             if k in existing_keys:
                 return
@@ -5143,6 +5162,50 @@ def _korrekturen_fuer_seite(log, seite):
     return None
 
 
+def _vision_fenster_marker(plan_id, r, seite):
+    """VISION-F-MARKER (Traceability): Fenster aus dem Vision-Pass tragen seit
+    Cache v38 ihre Plan-Position (elemente.daten.pos_pt, Seiten-pt) — hier werden
+    sie ins Overlay eingezeichnet. Läuft NACH dem Nachzeichnen-Cache (Decorator),
+    damit neue Analysen ohne Cache-Bump sichtbar werden. Text-Layer-Öffnungen
+    bleiben unberührt; Vision-Marker bekommen den id-Namensraum 'v<i>'
+    (kollisionsfrei, deterministisch sortiert → Korrektur-Klicks bleiben stabil).
+    Best-effort, bricht nie."""
+    try:
+        meta = r.get("meta") or {}
+        # Der Vision-Pass liest Seite 0 — nur einzeichnen, wenn das Overlay
+        # dieselbe Seite zeigt (Multi-Seiten-PDFs: falsche Seite = falsche Marker).
+        if (meta.get("seite") or 0) != 0 or seite not in (None, 0):
+            return
+        b, sc = meta.get("box_pt"), meta.get("scale")
+        if not b or not sc:
+            return
+        res = sb.table("elemente").select("daten").eq("plan_id", plan_id) \
+            .eq("typ", "fenster").execute()
+        rows = sorted([(row.get("daten") or {}) for row in (res.data or [])],
+                      key=lambda d: (str(d.get("bezeichnung") or ""),
+                                     float(d.get("breite_m") or 0)))
+        oeff = r.get("oeffnungen") or []
+        n = 0
+        for d in rows:
+            p = d.get("pos_pt")
+            if not p or (d.get("pos_seite") or 0) != 0:
+                continue
+            cx, cy = float(p[0]), float(p[1])
+            if not (b[0] <= cx <= b[2] and b[1] <= cy <= b[3]):
+                continue
+            oeff.append({
+                "id": "v%d" % n, "typ": "fenster", "quelle": "vision",
+                "breite_m": d.get("breite_m"), "hoehe_m": d.get("hoehe_m"),
+                "px": [round((cx - b[0]) * sc, 1), round((cy - b[1]) * sc, 1)],
+            })
+            n += 1
+        if n:
+            r["oeffnungen"] = oeff
+            print(f"[nachzeichnen] {n} Vision-F-Marker eingezeichnet")
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Vision-F-Marker fehlgeschlagen: {e!r}")
+
+
 def _nachzeichnen_roh(body):
     """Gemeinsame Plan-Auswahl + Vektor-Analyse für plan-nachzeichnen UND Aufmaßblatt.
     Liefert das Ergebnis-Dict MIT basis_png-BYTES (Aufrufer kodiert/verwendet)."""
@@ -5205,6 +5268,7 @@ def _nachzeichnen_roh(body):
                 r["plan_id"] = plan.get("id")
                 r["dateiname"] = plan.get("dateiname")
                 r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
+                _vision_fenster_marker(plan["id"], r, body.seite)
                 return r
             except Exception as e:  # pragma: no cover — Cache kaputt → frischer Lauf
                 print(f"[nachzeichnen] Cache-Rehydrierung fehlgeschlagen: {e}")
@@ -5233,6 +5297,7 @@ def _nachzeichnen_roh(body):
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
         r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
+        _vision_fenster_marker(plan["id"], r, body.seite)
         return r
     return {"ok": False, "grund": letzter_grund}
 

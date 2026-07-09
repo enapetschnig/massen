@@ -2045,6 +2045,7 @@
           ' stroke="#fff" stroke-width="0.8" paint-order="stroke" style="pointer-events:none">' + abz + '</text>' : '') +
         '<title>' + (istF ? 'Fenster' : 'Tür') + (o.breite_m ? ' ' + fmtNum(o.breite_m) + '×' + fmtNum(o.hoehe_m) + 'm' : '') +
         (abz ? ' · ' + abz + ' (ÖNORM B 2204)' : '') +
+        (o.quelle === 'vision' ? ' · KI-Bildlesung (Position ungefähr)' : '') +
         ' — klicken = keine Öffnung</title></g>';
     });
     // RAUM-VERIFIKATION: grün = Geometrie gegen die Plan-Stempel (F+U) BEWIESEN,
