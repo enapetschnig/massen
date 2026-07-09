@@ -101,6 +101,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from supabase import create_client
+
+def _resp_text(resp):
+    """Text-Inhalt einer Claude-Antwort — NIE content[0] direkt: neuere Modelle
+    können Thinking-Blöcke voranstellen, dann wäre content[0].text ein Crash
+    bzw. leer und die Extraktion fiele still auf 0 Räume zurück."""
+    return next((b.text for b in (resp.content or []) if getattr(b, "type", "") == "text"), "")
+
+
 import traceback
 
 app = FastAPI()
@@ -353,7 +361,7 @@ def _opus_call(content, api_key: str) -> dict:
         # claude-opus-4-8 akzeptiert KEIN temperature (deprecated → 400) → weglassen.
         resp = client.messages.create(model="claude-opus-4-8", max_tokens=3000,
             system=OPUS_BAUINGENIEUR_PROMPT, messages=[{"role": "user", "content": content}])
-        raw = resp.content[0].text if resp.content else "{}"
+        raw = _resp_text(resp) or "{}"
         try:
             urteil = json.loads(raw)
         except Exception:
@@ -499,7 +507,7 @@ def _run_opus_review(pdf_bytes: bytes, fakten: dict, materialliste: dict, api_ke
         content.append({"type": "text", "text": _schluss})
         resp = client.messages.create(model="claude-opus-4-8", max_tokens=2000,
             system=OPUS_REVIEW_PROMPT, messages=[{"role": "user", "content": content}])
-        raw = resp.content[0].text if resp.content else "{}"
+        raw = _resp_text(resp) or "{}"
         try:
             urteil = json.loads(raw)
         except Exception:
@@ -1440,9 +1448,9 @@ REGELN:
         t_idx, sec, img_b64 = item
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-5",
                 max_tokens=8192,
-                temperature=0,   # KONSTANZ: gleicher Plan → gleiche Raumliste (Tile-Backbone)
+                thinking={"type": "disabled"},   # KONSTANZ: deterministisch (Sonnet 5: temperature≠default → 400; adaptive Thinking fräße max_tokens)
                 system=SYSTEM_PROMPT,
                 messages=[{
                     "role": "user",
@@ -1452,7 +1460,7 @@ REGELN:
                     ]
                 }]
             )
-            raw = response.content[0].text if response.content else "{}"
+            raw = _resp_text(response) or "{}"
             try:
                 return json.loads(raw)
             except Exception:
@@ -1670,9 +1678,9 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
                 zb = pix.tobytes("jpeg", jpg_quality=80)
             zb64 = base64.standard_b64encode(zb).decode("utf-8")
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-5",
                 max_tokens=512,
-                temperature=0,   # KONSTANZ: deterministischer Ultra-Zoom (PASS 3)
+                thinking={"type": "disabled"},   # KONSTANZ: deterministischer Ultra-Zoom (PASS 3)
                 system=ULTRA_PROMPT,
                 messages=[{
                     "role": "user",
@@ -1682,7 +1690,7 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
                     ]
                 }]
             )
-            raw = response.content[0].text if response.content else "{}"
+            raw = _resp_text(response) or "{}"
             sub = None
             try:
                 sub = json.loads(raw)
@@ -1981,9 +1989,9 @@ Wichtig:
 
                 try:
                     resp = client.messages.create(
-                        model="claude-sonnet-4-20250514",
+                        model="claude-sonnet-5",
                         max_tokens=512,
-                        temperature=0,   # KONSTANZ: deterministische Wandbemaßung (PASS 4)
+                        thinking={"type": "disabled"},   # KONSTANZ: deterministische Wandbemaßung (PASS 4)
                         system=BEMASSUNG_PROMPT,
                         messages=[{
                             "role": "user",
@@ -1994,7 +2002,7 @@ Wichtig:
                             ],
                         }],
                     )
-                    raw = resp.content[0].text if resp.content else "{}"
+                    raw = _resp_text(resp) or "{}"
                     parsed = None
                     try:
                         parsed = json.loads(raw)
@@ -2162,7 +2170,7 @@ im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
             if bd_img:
                 bd_b64 = base64.standard_b64encode(bd_img).decode("utf-8")
                 resp = client.messages.create(
-                    model="claude-sonnet-4-20250514", max_tokens=1024, temperature=0,
+                    model="claude-sonnet-5", max_tokens=1024, thinking={"type": "disabled"},
                     system=BAUDATEN_PROMPT,
                     messages=[{"role": "user", "content": [
                         {"type": "image", "source": {"type": "base64",
@@ -2170,7 +2178,7 @@ im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
                         {"type": "text", "text": "Bestimme die Bau-Kenndaten dieses Plans."}
                     ]}],
                 )
-                raw = resp.content[0].text if resp.content else "{}"
+                raw = _resp_text(resp) or "{}"
                 try:
                     baudaten = json.loads(raw)
                 except Exception:
@@ -2252,7 +2260,7 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
             if f_img:
                 f_b64 = base64.standard_b64encode(f_img).decode("utf-8")
                 resp = client.messages.create(
-                    model="claude-sonnet-4-20250514", max_tokens=2048, temperature=0,
+                    model="claude-sonnet-5", max_tokens=2048, thinking={"type": "disabled"},
                     system=FENSTER_PROMPT,
                     messages=[{"role": "user", "content": [
                         {"type": "image", "source": {"type": "base64",
@@ -2260,7 +2268,7 @@ NIEMALS erfinden, nur was im Plan sichtbar ist."""
                         {"type": "text", "text": "Finde jedes Fenster in diesem Plan."}
                     ]}],
                 )
-                raw = resp.content[0].text if resp.content else "{}"
+                raw = _resp_text(resp) or "{}"
                 try:
                     parsed = json.loads(raw)
                 except Exception:
@@ -2439,7 +2447,7 @@ Wichtig:
             if ak_img:
                 ak_b64 = base64.standard_b64encode(ak_img).decode("utf-8")
                 resp = client.messages.create(
-                    model="claude-sonnet-4-20250514", max_tokens=1024, temperature=0,
+                    model="claude-sonnet-5", max_tokens=1024, thinking={"type": "disabled"},
                     system=AUSSENKONTUR_PROMPT,
                     messages=[{"role": "user", "content": [
                         {"type": "image", "source": {"type": "base64",
@@ -2447,7 +2455,7 @@ Wichtig:
                         {"type": "text", "text": "Bestimme die Außenkontur und Außenmaße."}
                     ]}],
                 )
-                raw = resp.content[0].text if resp.content else "{}"
+                raw = _resp_text(resp) or "{}"
                 try:
                     aussenkontur_vision = json.loads(raw)
                 except Exception:
@@ -2548,7 +2556,7 @@ Regeln:
             if s_img:
                 s_b64 = base64.standard_b64encode(s_img).decode("utf-8")
                 resp = client.messages.create(
-                    model="claude-sonnet-4-20250514", max_tokens=700, temperature=0,
+                    model="claude-sonnet-5", max_tokens=700, thinking={"type": "disabled"},
                     system=SCHNITT_PROMPT,
                     messages=[{"role": "user", "content": [
                         {"type": "image", "source": {"type": "base64",
@@ -2556,7 +2564,7 @@ Regeln:
                         {"type": "text", "text": "Lies Geschoss-Höhe, Dachtyp/Attika, Säulen-Anzahl und Schichtdicken aus den Schnitten/Ansichten."}
                     ]}],
                 )
-                raw = resp.content[0].text if resp.content else "{}"
+                raw = _resp_text(resp) or "{}"
                 try:
                     schnitt_vision = json.loads(raw)
                 except Exception:
@@ -2637,7 +2645,7 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
             if o_img:
                 o_b64 = base64.standard_b64encode(o_img).decode("utf-8")
                 resp = client.messages.create(
-                    model="claude-sonnet-4-20250514", max_tokens=2048, temperature=0,
+                    model="claude-sonnet-5", max_tokens=2048, thinking={"type": "disabled"},
                     system=OEFFNUNGS_SYMBOL_PROMPT,
                     messages=[{"role": "user", "content": [
                         {"type": "image", "source": {"type": "base64",
@@ -2645,7 +2653,7 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
                         {"type": "text", "text": "Zähle die Tür- und Fenster-Symbole im Grundriss."}
                     ]}],
                 )
-                raw = resp.content[0].text if resp.content else "{}"
+                raw = _resp_text(resp) or "{}"
                 try:
                     oeffnungs_symbole = json.loads(raw)
                 except Exception:
@@ -3380,6 +3388,13 @@ async def projekt_massen(body: ProjektMassenRequest):
     for r in merged_rooms:
         f, u = r.get("flaeche_m2"), r.get("umfang_m")
         if f and u and u < 4.0 * (float(f) ** 0.5) * 0.98:
+            r["_umfang_implausibel"] = round(float(u), 2)
+            r["umfang_m"] = None
+        elif f and u and float(u) > 5.0 * float(f) + 2.0:
+            # OBERE Schranke: selbst ein extrem schmaler Raum (0,4m Gänge) hat
+            # U ≈ 5·F. Ein U weit darüber ist eine als Umfang fehlgelesene
+            # Maßketten-/cm-Zahl (Vision auf stempel-losen Plänen: "U=848" bei
+            # 9m² Flur) → verwerfen, sonst explodieren die Wandflächen.
             r["_umfang_implausibel"] = round(float(u), 2)
             r["umfang_m"] = None
 
@@ -5456,7 +5471,7 @@ async def projekt_chat(body: ProjektChatRequest):
                  "\n\nFRAGE DES BAUBETRIEBS:\n" + frage})
     try:
         resp = client.messages.create(
-            model="claude-sonnet-4-20250514", max_tokens=900, temperature=0,
+            model="claude-sonnet-5", max_tokens=900, thinking={"type": "disabled"},
             system=PROJEKT_CHAT_SYSTEM, messages=msgs)
         antwort = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
     except Exception as exc:
