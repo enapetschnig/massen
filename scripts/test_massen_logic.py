@@ -243,6 +243,24 @@ def run():
     resF = berechne_gewerke(ROOMS, WINDOWS, _bd_fas)
     check("berechne_gewerke: daemmung + geruest erscheinen mit Fassaden-Basis",
           "daemmung" in resF["gewerke"] and "geruest" in resF["gewerke"])
+
+    # ── PHASE 4: ÖNORM-3,2-m-Höhensplit (lotrechte Abgrenzung) ──
+    _rooms_hoch = [{"name": "Zimmer 1", "flaeche_m2": 30.0, "umfang_m": 22.0, "hoehe_m": 2.70},
+                   {"name": "Wohnzimmer", "flaeche_m2": 50.0, "umfang_m": 30.0, "hoehe_m": 3.50}]
+    putz_h = gewerk_putz(_rooms_hoch, [], BAUDATEN)
+    p_bis = next(p for p in putz_h if p.posnr == "1.1")
+    p_ueb = next((p for p in putz_h if p.posnr == "1.1h"), None)
+    check("Höhensplit Putz: Raum H=3,5 → GANZE Wandfläche in 1.1h (30×3,5=105)",
+          p_ueb is not None and abs(p_ueb.endsumme - 105.0) < 0.01)
+    check("Höhensplit Putz: Raum H=2,7 bleibt in 1.1 (22×2,7=59,4)",
+          abs(p_bis.endsumme - 59.4) < 0.01)
+    putz_n = gewerk_putz(ROOMS, WINDOWS, BAUDATEN)
+    check("Höhensplit Putz: ohne hohe Räume KEINE 1.1h-Position",
+          not any(p.posnr == "1.1h" for p in putz_n))
+    maler_h = gewerk_maler(_rooms_hoch, [], BAUDATEN)
+    m_ueb = next((p for p in maler_h if p.posnr == "1.1h"), None)
+    check("Höhensplit Maler: Wohnzimmer H=3,5 zur Gänze in 1.1h",
+          m_ueb is not None and abs(m_ueb.endsumme - 105.0) < 0.01)
     check("berechne_gewerke: LG-Nummern 44 (WDVS) + 04 (Gerüst) korrekt",
           resF["gewerke"]["daemmung"]["lg"] == "44" and resF["gewerke"]["geruest"]["lg"] == "04")
 

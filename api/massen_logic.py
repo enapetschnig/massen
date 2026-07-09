@@ -98,11 +98,11 @@ class LVPosition:
         self.konfidenz = 1.0
 
     def add_zeile(self, text, anzahl=0, laenge=0, breite=0, hoehe=0,
-                  summe=None, quelle=""):
+                  summe=None, quelle="", anker=None):
         wert = summe
         if wert is None:
             wert = (anzahl or 1) * (laenge or 1) * (breite or 1) * (hoehe or 1)
-        self.zeilen.append({
+        z = {
             "text": text,
             "anzahl": anzahl or None,
             "laenge": laenge or None,
@@ -110,7 +110,13 @@ class LVPosition:
             "hoehe": hoehe or None,
             "wert": round(wert, 4),
             "quelle": quelle,
-        })
+        }
+        # Plan-Anker (Traceability): {"raum": <Name>} koppelt die Aufmaß-Zeile an
+        # ihr Plan-Element — das Frontend macht die Zeile klickbar und lässt den
+        # Raum im Nachzeichnen-Overlay pulsieren. Jede Menge hat einen Beleg-Ort.
+        if anker:
+            z["anker"] = anker
+        self.zeilen.append(z)
 
     @property
     def endsumme(self):
@@ -313,8 +319,14 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     fzuord = fenster_pro_raum(rooms, oeffnungen)
     innen = [r for r in rooms if kategorie_of(_room_name(r)) == "Innenraum_warm"]
 
-    pos = LVPosition("1.1", f"Innenputz Wände — {geschoss}", "m²")
+    pos = LVPosition("1.1", f"Innenputz Wände bis 3,2 m — {geschoss}", "m²")
     pos.quelle = f"in Anlehnung an ÖNORM B 2204 (vormals B 2210) · Σ(U×H) − Öffnungen>{schwelle:.1f}m²"
+    # ÖNORM-HÖHENSPLIT: Arbeiten in Räumen über 3,2 m lichter Höhe sind eine
+    # EIGENE (teurere) Position — lotrechte Abgrenzung: die Wand eines hohen
+    # Raums zählt zur GÄNZE in die Über-Position, kein anteiliger Split.
+    pos_hoch = LVPosition("1.1h", f"Innenputz Wände über 3,2 m Raumhöhe — {geschoss}", "m²")
+    pos_hoch.quelle = ("in Anlehnung an ÖNORM B 2204 · Räume >3,2 m lichte Höhe "
+                       "(lotrechte Abgrenzung, gesamte Wandfläche)")
     pos_laib = LVPosition("1.1a", f"Leibungsputz — {geschoss}", "m²")
     pos_laib.quelle = ("ÖNORM B 2204 §5.5.1.3 (eigene Leibungs-Position: "
                        "Öffnung > Schwelle abgezogen, Leibung separat)")
@@ -323,8 +335,10 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
         if not u:
             continue
-        pos.add_zeile(f"{_room_name(r)} — Wand brutto", laenge=u, hoehe=h,
-                      summe=u * h, quelle=f"U={u} × H={h}")
+        _ziel = pos_hoch if h > 3.2 else pos
+        _ziel.add_zeile(f"{_room_name(r)} — Wand brutto", laenge=u, hoehe=h,
+                        summe=u * h, quelle=f"U={u} × H={h}",
+                        anker={"raum": _room_name(r)})
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
@@ -332,9 +346,9 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             if netto["uebermessen"] or netto["abzug"] <= 0:
                 continue
             _art = (w.get("_art") or "Öffnung").capitalize()
-            pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
-                          laenge=bw, hoehe=-hw, summe=-netto["abzug"],
-                          quelle=f"Öffnung >{schwelle:.1f} m²")
+            _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
+                            laenge=bw, hoehe=-hw, summe=-netto["abzug"],
+                            quelle=f"Öffnung >{schwelle:.1f} m²")
             # Leibung → EIGENE Position 1.1a (B 2204 §5.5.1.3 ist zweigleisig:
             # MIT Leibungs-Positionen wird abgezogen UND die Leibung separat
             # verrechnet — vorher steckte sie in der Wandputz-Position, das
@@ -345,6 +359,9 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
                                        + (" +Sohlbank" if netto["sohlbank"] else "")))
     pos.konfidenz = 0.9
     positionen.append(pos)
+    if pos_hoch.zeilen:
+        pos_hoch.konfidenz = 0.88
+        positionen.append(pos_hoch)
     if pos_laib.zeilen:
         pos_laib.konfidenz = 0.85
         positionen.append(pos_laib)
@@ -354,7 +371,8 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in innen:
         f = _room_value(r, "flaeche_m2")
         if f:
-            pos.add_zeile(_room_name(r), summe=f, quelle=f"F={f}")
+            pos.add_zeile(_room_name(r), summe=f, quelle=f"F={f}",
+                          anker={"raum": _room_name(r)})
     pos.konfidenz = 0.97
     positionen.append(pos)
 
@@ -426,7 +444,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
         u = _room_value(r, "umfang_m")
         hh = _room_value(r, "hoehe_m") or h_def
         if u:
-            pos.add_zeile(_room_name(r), laenge=u, hoehe=hh, summe=u * hh,
+            pos.add_zeile(_room_name(r), laenge=u, hoehe=hh, summe=u * hh, anker={"raum": _room_name(r)},
                           quelle=f"U={u} × H={hh}")
     # Σ(U×H) ist byte-exakt: Raum-Umfänge kommen aus dem Text-Layer, die Höhe je Raum
     # aus dem Text oder — uniform — aus der verifizierten Geschoss-Höhe. Das ist ein
@@ -470,7 +488,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
         for r in innen:
             f = _room_value(r, "flaeche_m2")
             if f:
-                pos.add_zeile(_room_name(r), laenge=f, hoehe=decke_m, summe=f * decke_m,
+                pos.add_zeile(_room_name(r), laenge=f, hoehe=decke_m, summe=f * decke_m, anker={"raum": _room_name(r)},
                               quelle=f"F={f} × d={decke_m:.2f}")
     # Fläche byte-exakt (Σ Raumfläche) × Dicke. Konfidenz nach DICKE-Quelle:
     # Legende/Doppelcheck = byte-exakt (hoch), Schnitt/Vision = mittel, sonst Default.
@@ -509,7 +527,8 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in innen:
         f = _room_value(r, "flaeche_m2")
         if f:
-            pos.add_zeile(_room_name(r), summe=f, quelle=f"F={f}")
+            pos.add_zeile(_room_name(r), summe=f, quelle=f"F={f}",
+                          anker={"raum": _room_name(r)})
     pos.konfidenz = 0.97
     positionen.append(pos)
 
@@ -518,7 +537,7 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in innen:
         u = _room_value(r, "umfang_m")
         if u:
-            pos.add_zeile(_room_name(r), laenge=u, summe=u, quelle=f"U={u}")
+            pos.add_zeile(_room_name(r), laenge=u, summe=u, quelle=f"U={u}", anker={"raum": _room_name(r)})
     pos.konfidenz = 0.95
     positionen.append(pos)
     return positionen
@@ -531,16 +550,21 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
     oeffnungen = _oeffnungen_kombi(windows, tueren)
     fzuord = fenster_pro_raum(rooms, oeffnungen)
 
-    pos = LVPosition("1.1", f"Anstrich Wände — {geschoss}", "m²")
+    pos = LVPosition("1.1", f"Anstrich Wände bis 3,2 m — {geschoss}", "m²")
     pos.quelle = (f"Maler-Aufmaßpraxis (analog DIN 18363) · "
                   f"Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen")
+    # ÖNORM-HÖHENSPLIT (wie Putz): Räume >3,2 m lichte Höhe zur Gänze in die
+    # eigene, teurere Position (Gerüst-/Steigaufwand — lotrechte Abgrenzung).
+    pos_hoch = LVPosition("1.1h", f"Anstrich Wände über 3,2 m Raumhöhe — {geschoss}", "m²")
+    pos_hoch.quelle = "Räume >3,2 m lichte Höhe (lotrechte Abgrenzung, gesamte Wandfläche)"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
         if not u:
             continue
-        pos.add_zeile(f"{_room_name(r)} — Wand", laenge=u, hoehe=h, summe=u * h,
-                      quelle=f"U={u} × H={h}")
+        _ziel = pos_hoch if h > 3.2 else pos
+        _ziel.add_zeile(f"{_room_name(r)} — Wand", laenge=u, hoehe=h, summe=u * h,
+                        quelle=f"U={u} × H={h}", anker={"raum": _room_name(r)})
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
@@ -548,19 +572,22 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
             if netto["uebermessen"] or netto["abzug"] <= 0:
                 continue
             _art = (w.get("_art") or "Öffnung").capitalize()
-            pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
-                          laenge=bw, hoehe=-hw, summe=-netto["abzug"])
-            pos.add_zeile(f"  Laibung {w.get('code','')}".rstrip(), summe=netto["laibung"],
-                          quelle=f"Tiefe {netto['tiefe']:.2f}m × Abwicklung")
+            _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
+                            laenge=bw, hoehe=-hw, summe=-netto["abzug"])
+            _ziel.add_zeile(f"  Laibung {w.get('code','')}".rstrip(), summe=netto["laibung"],
+                            quelle=f"Tiefe {netto['tiefe']:.2f}m × Abwicklung")
     pos.konfidenz = 0.88
     positionen.append(pos)
+    if pos_hoch.zeilen:
+        pos_hoch.konfidenz = 0.85
+        positionen.append(pos_hoch)
 
     pos = LVPosition("1.2", f"Anstrich Decken — {geschoss}", "m²")
     pos.quelle = "Σ Raumfläche"
     for r in innen:
         f = _room_value(r, "flaeche_m2")
         if f:
-            pos.add_zeile(_room_name(r), summe=f)
+            pos.add_zeile(_room_name(r), summe=f, anker={"raum": _room_name(r)})
     pos.konfidenz = 0.97
     positionen.append(pos)
     return positionen
@@ -621,7 +648,7 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in nass:
         f = _room_value(r, "flaeche_m2")
         if f:
-            pos_b.add_zeile(_room_name(r), summe=f, quelle=f"F={f}")
+            pos_b.add_zeile(_room_name(r), summe=f, quelle=f"F={f}", anker={"raum": _room_name(r)})
     if pos_b.zeilen:
         pos_b.konfidenz = 0.9
         positionen.append(pos_b)
@@ -638,7 +665,7 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
             continue
         nm = (_room_name(r) or "").lower()
         h = 1.5 if ("wc" in nm and "bad" not in nm and "dusch" not in nm) else 2.0
-        pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h,
+        pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h, anker={"raum": _room_name(r)},
                         summe=u * h, quelle=f"U={u} × h={h} (angenommen)")
         # Öffnungen im Fliesenband [0..h] abziehen: Tür (fph=0) → volle Bandhöhe,
         # Fenster ab Parapet fph → nur der Teil unter der Fliesenhöhe ist gefliest.

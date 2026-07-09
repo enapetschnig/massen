@@ -3085,3 +3085,19 @@ line.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 10 !important
 .oa-tab td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
 .oa-tab tr.oa-abzug { background: #fff7ed; }
 .oa-formel { font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-light); }
+
+/* ── Plan-Anker (Traceability): Aufmaß-Zeile ↔ Raum am Plan ────────────── */
+.auf-z-anker { cursor: pointer; border-radius: 4px; transition: background var(--transition); }
+.auf-z-anker:hover { background: var(--accent-soft); }
+.auf-z-anker:hover .az-t { color: var(--accent-hover); }
+g[data-raum].nz-hi circle {
+  animation: nz-raum-puls 0.8s ease-in-out 4;
+  stroke: var(--accent, #bd6a1f); stroke-width: 4;
+  transform-box: fill-box; transform-origin: center;
+}
+@keyframes nz-raum-puls {
+  0%, 100% { transform: scale(1); } 50% { transform: scale(1.9); }
+}
+@media (prefers-reduced-motion: reduce) {
+  g[data-raum].nz-hi circle { animation: none; stroke-width: 6; }
+}

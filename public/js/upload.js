@@ -873,7 +873,12 @@
         if (showAuf && (p.zeilen || []).length) {
           html += '<div class="m-auf">';
           (p.zeilen || []).forEach(function (z) {
-            html += '<div class="auf-z"><span class="az-t">' + esc(z.text || '') + '</span>' +
+            // Plan-Anker: Zeile mit anker.raum ist klickbar → Raum pulst am Plan.
+            var ank = z.anker && z.anker.raum;
+            html += '<div class="auf-z' + (ank ? ' auf-z-anker' : '') + '"' +
+              (ank ? ' onclick="nzHighlightRaum(\'' + esc(z.anker.raum).replace(/'/g, "\\'") + '\')"' +
+                ' title="Am Plan zeigen: ' + esc(z.anker.raum) + '"' : '') +
+              '><span class="az-t">' + (ank ? '📍 ' : '') + esc(z.text || '') + '</span>' +
               '<span class="az-q">' + esc(z.quelle || '') + '</span>' +
               '<span class="az-w">' + fmtNum(z.wert) + '</span></div>';
           });
@@ -2066,7 +2071,7 @@
         hybrid: 'Hybrid (Fläche aus Rohbau, Umfang aus Fertig-Pass)'
       };
       if (ok && r.ebene && EBENE[r.ebene]) tip += '  ·  Beweis: ' + EBENE[r.ebene];
-      raumBadges += '<g><circle cx="' + r.px[0] + '" cy="' + (r.px[1] - fs * 1.6) + '" r="' + (fs * 0.62) + '"' +
+      raumBadges += '<g data-raum="' + esc(_nrmRaum(r.name)) + '"><circle cx="' + r.px[0] + '" cy="' + (r.px[1] - fs * 1.6) + '" r="' + (fs * 0.62) + '"' +
         ' fill="' + col + '" stroke="#fff" stroke-width="2"/>' +
         '<text x="' + r.px[0] + '" y="' + (r.px[1] - fs * 1.6) + '" font-size="' + Math.round(fs * 0.75) + '"' +
         ' text-anchor="middle" dy="' + Math.round(fs * 0.26) + '" fill="#fff" style="font-weight:700;pointer-events:none">' +
@@ -2376,6 +2381,32 @@
     }).catch(function () { /* Speichern ist best-effort */ });
   }
 
+  // Raumnamen-Normalisierung für den Plan-Anker-Abgleich (Aufmaß-Zeile ↔ Overlay).
+  function _nrmRaum(s) {
+    return (s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe')
+      .replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]/g, '');
+  }
+  // Kopplung Aufmaß-Zeile → Plan: den belegten RAUM am Plan pulsieren lassen.
+  // (Traceability-Anker: jede Raum-Zeile der Gewerke trägt anker.raum.)
+  window.nzHighlightRaum = function (name) {
+    var key = _nrmRaum(name);
+    if (!key) return;
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var cont = document.getElementById('nachzeichnen-container');
+    if (!cont) return;
+    if (_nzWrap) { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
+    var alle = cont.querySelectorAll('g[data-raum]');
+    var sel = [];
+    Array.prototype.forEach.call(alle, function (g) {
+      g.classList.remove('nz-hi');
+      var k = g.getAttribute('data-raum') || '';
+      if (k === key || (k && (k.indexOf(key) === 0 || key.indexOf(k) === 0))) sel.push(g);
+    });
+    if (!sel.length) return;
+    sel.forEach(function (g) { g.classList.add('nz-hi'); });
+    setTimeout(function () { sel.forEach(function (g) { g.classList.remove('nz-hi'); }); }, 3200);
+  };
   // Kopplung Liste → Plan: die Wände einer HLZ-Stärke am Plan pulsieren lassen.
   function nzHighlight(cm) {
     var sec = document.getElementById('nachzeichnen-section');
