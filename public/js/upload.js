@@ -2112,6 +2112,28 @@
         '<span class="nz-sw" style="background:repeating-linear-gradient(90deg,#16a34a 0 3px,transparent 3px 6px)"></span>' +
         'Maßketten-Fluchten: <strong>' + nFlOk + '/' + nFl + '</strong> bestätigt</span>';
     }
+    // AUTO-ABGLEICH Overlay ↔ Mengen (Prüf-Gate): Σ der als AUSSEN erkannten
+    // Overlay-Wände gegen den Außenumfang der Mengen-Welt. Δ ≤ 8% = die zwei
+    // unabhängigen Wege bestätigen sich; darüber = rotes Prüfsignal.
+    try {
+      var _gemU = _lastGemessen && _lastGemessen.aussenumfang_m;
+      if (_gemU) {
+        var _ovU = 0;
+        (_nzData.waende || []).forEach(function (w) {
+          if (_nzEdit.removed[w.id]) return;
+          var cm = _nzCm(w);
+          if (cm != null && _nzIstAussen(w, cm)) _ovU += (w.laenge_m || 0);
+        });
+        if (_ovU > 3) {
+          var _d = Math.abs(_ovU - _gemU) / _gemU * 100;
+          var _ok = _d <= 8;
+          legend += '<span class="nz-leg-item" title="Zwei unabhängige Wege: Σ der im Overlay als AUSSEN erkannten Wände vs. Außenumfang der Mengenermittlung (Plan-Maße). Kleine Abweichung = gegenseitige Bestätigung.">' +
+            '<span class="nz-sw" style="background:' + (_ok ? '#0f766e' : '#b42318') + ';border-radius:50%"></span>' +
+            'Abgleich Außenwand: Overlay <strong>' + fmtNum(Math.round(_ovU * 10) / 10) + ' m</strong> vs. Mengen <strong>' +
+            fmtNum(_gemU) + ' m</strong> (Δ ' + Math.round(_d) + '%' + (_ok ? ' ✓' : ' — prüfen!') + ')</span>';
+        }
+      }
+    } catch (e) { /* Abgleich ist Zusatzinfo — nie das Rendern brechen */ }
     // Auswahl-Toolbar
     var tb = '';
     if (_nzSel != null && _nzWandById(_nzSel)) {
