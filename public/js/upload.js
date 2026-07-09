@@ -2010,11 +2010,23 @@
       var rm = !!_nzEdit.oeffRemoved[o.id], istF = o.typ === 'fenster';
       if (!rm) { if (istF) nF++; else nT++; }
       var mcol = istF ? '#0284c7' : '#b45309', rad = Math.max(9, fs * 0.72);
+      // ÖNORM-ABZUG AM PLAN (Traceability): jede Öffnung zeigt direkt, ob sie
+      // abgezogen (>4 m² → „−X m²") oder übermessen wird (≤4 m²). Dieselbe
+      // Regel wie in den Gewerke-Positionen (B 2204 §5.5.1.3, Default 4,0).
+      var abz = '';
+      if (o.breite_m && o.hoehe_m) {
+        var om2 = Math.round(o.breite_m * o.hoehe_m * 100) / 100;
+        abz = om2 > 4.0 ? ('Abzug −' + fmtNum(om2) + ' m²') : ('übermessen (' + fmtNum(om2) + ' m² ≤ 4)');
+      }
       marker += '<g data-oid="' + o.id + '" cursor="pointer" opacity="' + (rm ? 0.28 : 0.95) + '">' +
         '<circle cx="' + o.px[0] + '" cy="' + o.px[1] + '" r="' + rad + '" fill="' + mcol + '" stroke="#fff" stroke-width="2"/>' +
         '<text x="' + o.px[0] + '" y="' + o.px[1] + '" font-size="' + Math.round(rad * 1.1) + '" text-anchor="middle" dy="' +
         Math.round(rad * 0.38) + '" fill="#fff" style="font-weight:700;pointer-events:none">' + (istF ? 'F' : 'T') + '</text>' +
+        (abz && !rm ? '<text x="' + (o.px[0] + rad * 1.35) + '" y="' + o.px[1] + '" font-size="' + Math.round(rad * 0.82) + '" dy="' +
+          Math.round(rad * 0.3) + '" fill="' + (abz.indexOf('Abzug') === 0 ? '#b42318' : '#63666c') + '"' +
+          ' stroke="#fff" stroke-width="0.8" paint-order="stroke" style="pointer-events:none">' + abz + '</text>' : '') +
         '<title>' + (istF ? 'Fenster' : 'Tür') + (o.breite_m ? ' ' + fmtNum(o.breite_m) + '×' + fmtNum(o.hoehe_m) + 'm' : '') +
+        (abz ? ' · ' + abz + ' (ÖNORM B 2204)' : '') +
         ' — klicken = keine Öffnung</title></g>';
     });
     // RAUM-VERIFIKATION: grün = Geometrie gegen die Plan-Stempel (F+U) BEWIESEN,
