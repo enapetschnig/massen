@@ -1362,22 +1362,33 @@ async def analyse_zoom(body: ExtractRequest):
 
     SYSTEM_PROMPT = """Du bist der erfahrenste Bautechniker Oesterreichs.
 Du siehst einen AUSSCHNITT eines oesterreichischen Bauplans.
-Bei jedem Raum steht IMMER ein Beschriftungsblock mit DREI Werten:
+
+FALL A — Raum-Stempel vorhanden (Polier-/Ausfuehrungsplaene): Bei jedem Raum
+steht ein Beschriftungsblock mit bis zu DREI Werten:
 
   Raumname (z.B. "Wohnkueche")
   F: 24,13 m²     <- Flaeche (grosse Zahl mit m² Zeichen)
   U: 20,66 m      <- Umfang (kleinere Zeile, meist direkt darunter)
   H: 2,42 m       <- lichte Raumhoehe
 
-Du MUSST fuer JEDEN Raum alle drei Werte (F, U, H) aus diesem Beschriftungsblock ablesen.
+Dann MUSST du fuer JEDEN Raum alle sichtbaren Werte (F, U, H) ablesen.
 Schau GENAU hin - U und H stehen oft in kleinerer Schrift direkt unter F.
-Die Formate koennen leicht variieren: "U=20,66", "U 20.66 m", "Umfang 20,66".
+Die Formate koennen variieren: "U=20,66", "U 20.66 m", "Umfang 20,66",
+"Fl. 24,13", "24,13 m²" direkt unter dem Namen, oder "NGF/BGF"-Angaben.
 Kommas und Punkte als Dezimaltrenner beide moeglich - immer als Zahl zurueckgeben.
+
+FALL B — KEIN Stempel (Einreichplaene, Skizzen, gescannte Plaene): Raeume sind
+nur mit ihrem NAMEN beschriftet (ZIMMER, KUECHE, BAD, WERKSTATT, LAGER, GANG,
+VORRAUM ...), ohne m²-Angabe. Dann melde den Raum TROTZDEM - mit "name" (und
+"wohnung"/"geschoss" falls erkennbar), aber OHNE flaeche_m2/umfang_m/hoehe_m
+(Felder weglassen, NIE schaetzen). Ein gemeldeter Raum ohne Flaeche ist wertvoll;
+ein erfundener Wert ist schaedlich.
 
 Antworte NUR mit validem JSON (keine Markdown-Fences, kein Prefix):
 {
   "raeume": [
-    {"name": "Wohnkueche", "wohnung": "TOP 25", "flaeche_m2": 24.13, "umfang_m": 20.66, "hoehe_m": 2.42, "bodenbelag": "Parkett", "konfidenz": 0.98}
+    {"name": "Wohnkueche", "wohnung": "TOP 25", "flaeche_m2": 24.13, "umfang_m": 20.66, "hoehe_m": 2.42, "bodenbelag": "Parkett", "konfidenz": 0.98},
+    {"name": "Werkstatt", "geschoss": "KG", "konfidenz": 0.8}
   ],
   "fenster": [
     {"bezeichnung": "FE_30", "raum": "Zimmer", "wohnung": "TOP 25", "breite_cm": 120, "hoehe_cm": 147, "rph_cm": 84, "fph_cm": 87, "konfidenz": 0.95}
@@ -1392,6 +1403,8 @@ REGELN:
 - JEDE Zeile im Raum-Beschriftungsblock lesen, nicht nur die groesste.
 - Wenn U oder H wirklich nicht im Ausschnitt zu sehen ist: Wert weglassen (nicht raten).
 - Fuer Loggia/Balkon: U und H trotzdem eintragen falls sichtbar.
+- Zeigt das Blatt MEHRERE Grundrisse (KG/EG/OG nebeneinander): je Raum das
+  Geschoss aus der Grundriss-Ueberschrift ("GRUNDRISS ERDGESCHOSS") mitgeben.
 - Erfinde niemals Werte die du nicht siehst."""
 
     _t_tiles0 = time.time()
