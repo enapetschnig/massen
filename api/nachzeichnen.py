@@ -174,6 +174,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             and vektor._laenge(s) / ptm > 0.5 and inb(s)]
     # farb-gefilterte Wand-Poché (Neubau rot/orange auf farbigen Plänen; Fallback alle)
     hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1), pfade=pfade, ptm=ptm)
+    # span_chain (Roadmap #8) bleibt AUS: Hypothese "Hatch-Band als Ketten-
+    # Diskriminator" am 3-Plan-Korpus falsifiziert (Angerer 50er 41,4→24,8 m,
+    # Holzbau-34er weg) — nächster Kandidat: Fill-Rect-Spannen statt Hatch-Dichte.
     roh = vektor.wand_paare(arch, ptm, min_len_m=min_len_m, legende_dicken=LEG,
                             hatch=hatch, min_hatch_dichte=min_hatch_dichte, mit_geometrie=True)
 

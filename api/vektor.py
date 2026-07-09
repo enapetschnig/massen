@@ -468,7 +468,8 @@ def _hatch_dichte(hatch, achse, center, dist, lo, hi, laenge_m):
 
 def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_m=0.3,
                legende_dicken=None, snap_tol_cm=2.0, band_tol_cm=4.0,
-               hatch=None, min_hatch_dichte=1.0, mit_geometrie=False):
+               hatch=None, min_hatch_dichte=1.0, mit_geometrie=False,
+               span_chain=False, chain_gap_cm=28.0):
     """Parallele Flächen-Paare = Wände. GLOBAL-greedy nach Überlappungs-LÄNGE: erst ALLE
     gültigen Kandidaten, dann nach Überlappung absteigend zuweisen (lange, sichere Wände —
     die Außenwand — zuerst; jede Fläche genau einmal). Empirisch (Angerer-Harness): bringt
@@ -510,13 +511,71 @@ def wand_paare(segmente, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0, min_len_
         kand.sort(reverse=True)               # längste Überlappung (sicherste Wand) zuerst
         used = set()
         roh = []   # (center_pos, lo, hi, ov_pt, dist_pt)
+        # LAYER-ASSEMBLY-SPANNE (Roadmap #8, Holzbau/WDVS): mehrschichtige Auf-
+        # bauten zeichnen 3-6 parallele Linien (Beplankung/Ständer/Dämmebene).
+        # Der Greedy paart dann Ständer-Linien als eigene 9-cm-Wände (gemessen:
+        # 34-cm-Außenwand → Σ 6,95 m statt ~42 m; Σ 9 cm ≈ 37 m = die Hülle!).
+        # Eine akzeptierte Paarung wird auf die ÄUSSERSTE Spanne der ko-extenten
+        # Linien-Kette erweitert (Nachbar-Gap ≤ chain_gap_cm, Spanne ≤ dicke_max)
+        # und ALLE Zwischenlinien verbraucht. MAUERWERKS-SCHUTZ: bei aktivem
+        # Schraffur-Gate darf die Kette eine Lücke nur überspringen, wenn das
+        # BAND dazwischen selbst Poché-gefüllt ist — zwischen Putz- und Ziegel-
+        # linie ist keine Schraffur (Kette stoppt an der Ziegellinie, Angerer
+        # bleibt exakt), der grau gefüllte Holzbau-Aufbau ist über die volle
+        # Tiefe gefüllt (Kette wächst bis zur Gesamtspanne).
+        _kette_an = span_chain
+        _gap_pt = chain_gap_cm / 100.0 * pt_per_m
         for ov, i, j, d in kand:
             if i in used or j in used:
                 continue
-            used.add(i); used.add(j)
             fa, fb = faces[i], faces[j]
-            center = (fa[0] + fb[0]) / 2.0
             lo, hi = max(fa[1], fb[1]), min(fa[2], fb[2])
+            block = [i, j]
+            if _kette_an:
+                # ko-extente, unverbrauchte Nachbar-Linien (≥70% Fenster-Deckung)
+                _win = hi - lo
+                _ko = sorted((faces[k][0], k) for k in range(len(faces))
+                             if k not in used
+                             and min(faces[k][2], hi) - max(faces[k][1], lo) >= 0.7 * _win)
+                _idx = [t[1] for t in _ko]
+                _p = [t[0] for t in _ko]
+                _win_m = _win / pt_per_m
+
+                def _band_ok(pa, pb):
+                    # Gate aus → kleiner Gap reicht; Gate an → das Band zwischen
+                    # den Linien muss selbst gefüllt sein (Mauerwerks-Schutz).
+                    if not _gate_aktiv:
+                        return True
+                    if pb - pa <= 0:
+                        return False
+                    return _hatch_dichte(hatch, achse, (pa + pb) / 2.0, pb - pa,
+                                         lo, hi, _win_m) >= min_hatch_dichte
+                try:
+                    _a = _b = _idx.index(i if fa[0] <= fb[0] else j)
+                    _bj = _idx.index(j if fa[0] <= fb[0] else i)
+                    _b = max(_b, _bj)
+                    # nach außen wachsen, solange Gap klein, Band gefüllt, Spanne erlaubt
+                    while _a > 0 and (_p[_a] - _p[_a - 1]) <= _gap_pt \
+                            and (_p[_b] - _p[_a - 1]) <= dmax \
+                            and _band_ok(_p[_a - 1], _p[_a]):
+                        _a -= 1
+                    while _b < len(_p) - 1 and (_p[_b + 1] - _p[_b]) <= _gap_pt \
+                            and (_p[_b + 1] - _p[_a]) <= dmax \
+                            and _band_ok(_p[_b], _p[_b + 1]):
+                        _b += 1
+                    if _b > _a and (_p[_b] - _p[_a]) >= dmin:
+                        block = _idx[_a:_b + 1]
+                        fa, fb = faces[block[0]], faces[block[-1]]
+                        d = abs(fb[0] - fa[0])
+                        lo = max(fa[1], fb[1])
+                        hi = min(fa[2], fb[2])
+                        ov = hi - lo
+                        if ov <= 0:
+                            continue
+                except ValueError:
+                    pass
+            used.update(block)
+            center = (fa[0] + fb[0]) / 2.0
             roh.append([center, lo, hi, ov, d])
         # Doppel-Zeichnung dedup: dieselbe Wand 2× gezeichnet (Ziegel- + Putzlinie, Doppel-
         # Layer) ergibt zwei Paare mit ~gleicher Mitte, gleicher Stärke, überlappendem
