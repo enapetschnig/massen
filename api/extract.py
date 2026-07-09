@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.13"
+APP_REV = "2026-07-09.14"
 
 
 @app.get("/api/extract-health")
@@ -1826,6 +1826,50 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
                     "name": "Haus", "cx": sum(xs)/len(xs), "cy": sum(ys)/len(ys),
                     "_synthetic": True,
                 })
+
+    # NAMENS-DUBLETTEN (Scan-Konsens-Rest, gemessen am 2510-Scan): Vision
+    # benennt denselben Raum lauf-intern doppelt ("Vorr." + "Vorraum",
+    # je EXAKT F=15,15) → doppelte Wandflächen in den Gewerke-Summen.
+    # Verschmelzen NUR bei identischer Fläche (±1 cm²) + gleichem Geschoss
+    # + vollem Namens-Präfix (kurz ⊂ lang, min. 3 Zeichen). Symmetrische
+    # Grundrisse ("Zimmer 1"/"Zimmer 2" mit gleicher F) haben verschiedene
+    # Suffixe → bleiben getrennt.
+    def _dedup_nm(s):
+        return re.sub(r"[^a-zäöüß0-9]", "", (s or "").lower())
+
+    def _feld_score(x):
+        return (sum(1 for f in ("umfang_m", "hoehe_m", "bodenbelag") if x.get(f)),
+                len(x.get("name") or ""))
+    _verschmolzen = 0
+    _dedup_out = []
+    for r in unique_rooms:
+        _rn, _rf = _dedup_nm(r.get("name")), r.get("flaeche_m2")
+        _rg = _norm_name(r.get("geschoss") or "")
+        _dup = None
+        if _rf and len(_rn) >= 3:
+            for q in _dedup_out:
+                _qn, _qf = _dedup_nm(q.get("name")), q.get("flaeche_m2")
+                if (_qf and len(_qn) >= 3 and _rn != _qn
+                        and abs(float(_rf) - float(_qf)) <= 0.011
+                        and _norm_name(q.get("geschoss") or "") == _rg
+                        and (_rn.startswith(_qn) or _qn.startswith(_rn))):
+                    _dup = q
+                    break
+        if _dup is None:
+            _dedup_out.append(r)
+            continue
+        _keep, _drop = (_dup, r) if _feld_score(_dup) >= _feld_score(r) else (r, _dup)
+        for f in ("umfang_m", "hoehe_m", "bodenbelag", "wohnung", "geschoss"):
+            if not _keep.get(f) and _drop.get(f):
+                _keep[f] = _drop[f]
+        _keep["konfidenz"] = max(_keep.get("konfidenz") or 0, _drop.get("konfidenz") or 0)
+        if _keep is r:
+            _dedup_out[_dedup_out.index(_dup)] = r
+        _verschmolzen += 1
+    if _verschmolzen:
+        print(f"[raum-dedup] {_verschmolzen} Namens-Dublette(n) verschmolzen "
+              f"(identische Fläche + Geschoss + Namens-Präfix)")
+    unique_rooms = _dedup_out
 
     # Fenster dedup — KONSTANZ: deterministisch. Vorher gewann „höchste Konfidenz",
     # was bei lauf-variablen Konfidenzen die Auswahl springen ließ. Jetzt: stabile

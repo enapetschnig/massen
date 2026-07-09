@@ -875,12 +875,16 @@
         if (showAuf && (p.zeilen || []).length) {
           html += '<div class="m-auf">';
           (p.zeilen || []).forEach(function (z) {
-            // Plan-Anker: Zeile mit anker.raum ist klickbar → Raum pulst am Plan.
+            // Plan-Anker: anker.raum → Raum pulst; anker.ebene='konturen' →
+            // Gebäude-Hülle (blaue Kontur) pulst (Bodenplatte/Decke/WDVS/Gerüst).
             var ank = z.anker && z.anker.raum;
-            html += '<div class="auf-z' + (ank ? ' auf-z-anker' : '') + '"' +
+            var ankK = !ank && z.anker && z.anker.ebene === 'konturen';
+            html += '<div class="auf-z' + ((ank || ankK) ? ' auf-z-anker' : '') + '"' +
               (ank ? ' onclick="nzHighlightRaum(\'' + esc(z.anker.raum).replace(/'/g, "\\'") + '\')"' +
                 ' title="Am Plan zeigen: ' + esc(z.anker.raum) + '"' : '') +
-              '><span class="az-t">' + (ank ? '📍 ' : '') + esc(z.text || '') + '</span>' +
+              (ankK ? ' onclick="nzHighlightKontur()"' +
+                ' title="Am Plan zeigen: Gebäude-Hülle (blaue Kontur)"' : '') +
+              '><span class="az-t">' + ((ank || ankK) ? '📍 ' : '') + esc(z.text || '') + '</span>' +
               '<span class="az-q">' + esc(z.quelle || '') + '</span>' +
               '<span class="az-w">' + fmtNum(z.wert) + '</span></div>';
           });
@@ -2462,6 +2466,20 @@
     if (!sel.length) return;
     sel.forEach(function (g) { g.classList.add('nz-hi'); });
     setTimeout(function () { sel.forEach(function (g) { g.classList.remove('nz-hi'); }); }, 3200);
+  };
+  // Kopplung Aufmaß-Zeile → Plan: die GEBÄUDE-HÜLLE (blaue Kontur) pulsieren
+  // lassen — Beleg-Ort für flächige Mengen (Bodenplatte/Decke/WDVS/Gerüst).
+  window.nzHighlightKontur = function () {
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var cont = document.getElementById('nachzeichnen-container');
+    if (!cont) return;
+    var sel = cont.querySelectorAll('polyline');
+    if (!sel.length) return;
+    Array.prototype.forEach.call(sel, function (el) { el.classList.add('nz-hi'); });
+    setTimeout(function () {
+      Array.prototype.forEach.call(sel, function (el) { el.classList.remove('nz-hi'); });
+    }, 3200);
   };
   // Kopplung Liste → Plan: die Wände einer HLZ-Stärke am Plan pulsieren lassen.
   function nzHighlight(cm) {

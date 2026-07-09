@@ -2783,6 +2783,8 @@ img {
 .nz-zoomctl .nz-btn { min-width: 2rem; font-weight: 700; }
 @keyframes nzpulse { 0%, 100% { filter: none; stroke-opacity: 0.85; } 50% { filter: drop-shadow(0 0 7px #111); stroke-opacity: 1; } }
 line.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 10 !important; }
+/* Hüllen-Kontur (Bodenplatte/Decke/WDVS/Gerüst-Anker) pulst mit */
+polyline.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 8 !important; stroke-opacity: 1 !important; }
 /* HLZ-Position anklickbar → am Plan zeigen */
 .ml-row-hlz { cursor: pointer; }
 .ml-row-hlz:hover { background: #eff6ff; border-radius: 6px; }

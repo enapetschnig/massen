@@ -497,7 +497,8 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
     if _basis_decke:
         pos.quelle = f"in Anlehnung an ÖNORM B 2204 (vormals B 2211) · Decken-Fläche × Dicke {decke_m:.2f}m (gemeinsame Basis)"
         pos.add_zeile("Decke gesamt", laenge=round(_basis_decke, 2), hoehe=decke_m,
-                      summe=_basis_decke * decke_m, quelle=f"F={_basis_decke:.2f} × d={decke_m:.2f}")
+                      summe=_basis_decke * decke_m, quelle=f"F={_basis_decke:.2f} × d={decke_m:.2f}",
+                      anker={"ebene": "konturen"})
         if _stiege_f:
             pos.add_zeile("abzügl. Deckenöffnung Stiege", laenge=-round(_stiege_f, 2),
                           hoehe=decke_m, summe=-_stiege_f * decke_m,
@@ -528,7 +529,8 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
         pos.quelle = f"Grundfläche × Plattendicke {bopl_m:.2f}m{_gb}"
         pos.add_zeile("Bodenplatte gesamt", laenge=round(grundflaeche, 2), hoehe=bopl_m,
                       summe=grundflaeche * bopl_m,
-                      quelle=f"ΣF={grundflaeche:.2f} × d={bopl_m:.2f}")
+                      quelle=f"ΣF={grundflaeche:.2f} × d={bopl_m:.2f}",
+                      anker={"ebene": "konturen"})
         # Grundfläche byte-exakt × Dicke. Konfidenz nach DICKE-Quelle wie bei der Decke.
         _bq = (baudaten.get("_quellen", {}).get("bodenplatte_cm") or "").lower()
         pos.konfidenz = (0.9 if ("legende" in _bq or "doppelcheck" in _bq)
@@ -764,7 +766,8 @@ def gewerk_daemmung(rooms, windows, baudaten, geschoss="EG", tueren=None):
     pos.quelle = (f"LG 44 WDVS · Außenwand-Ansichtsfläche brutto − Fassaden-"
                   f"Öffnungen>{schwelle:.1f} m² (Fassaden-Bauweise prüfen)")
     pos.add_zeile("Außenwand Ansichtsfläche brutto", summe=round(_aw_brutto, 2),
-                  quelle="Außenumfang × Höhe (gemeinsame Basis wie Rohbau/Außenputz)")
+                  quelle="Außenumfang × Höhe (gemeinsame Basis wie Rohbau/Außenputz)",
+                  anker={"ebene": "konturen"})
     pos_laib = LVPosition("1.1a", f"Laibungsdämmung — {geschoss}", "m²")
     pos_laib.quelle = ("WDVS-Leibungen an Fassaden-Öffnungen (Öffnung>Schwelle "
                        "abgezogen, Leibung separat gedämmt)")
@@ -803,7 +806,8 @@ def gewerk_geruest(rooms, windows, baudaten, geschoss="EG", tueren=None):
     pos.quelle = ("LG 04 Gerüste · eingerüstete Ansichtsfläche = Außenumfang × Höhe · "
                   "Öffnungen übermessen (Gerüst läuft durch)")
     pos.add_zeile("Eingerüstete Fassadenfläche", summe=round(_aw_brutto, 2),
-                  quelle="Außenwand-Ansichtsfläche brutto (gemeinsame Basis)")
+                  quelle="Außenwand-Ansichtsfläche brutto (gemeinsame Basis)",
+                  anker={"ebene": "konturen"})
     pos.konfidenz = 0.7
     return [pos]
 
