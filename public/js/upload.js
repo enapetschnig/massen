@@ -49,10 +49,12 @@
   });
 
   // Projekt laden
+  var _projGewerk = '';   // Sektor des Projekts → fließt in die Analyse (statt still 'allgemein')
   _sb.from('projekte').select('*').eq('id', projectId).single().then(function (res) {
     if (res.data) {
       projectNameEl.textContent = res.data.name || '';
       projectAddressEl.textContent = res.data.adresse || '';
+      _projGewerk = (res.data.gewerk || '').toLowerCase().trim();
       var status = res.data.status || 'Neu';
       projectStatusEl.textContent = status;
       projectStatusEl.className = 'badge badge-' + statusClass(status);
@@ -1292,10 +1294,16 @@
 
     // Parameter aus DOM-Inputs lesen, falls vorhanden — sonst Defaults.
     // Beim Auto-Flow existieren die Karten-Inputs noch nicht.
+    // SEKTOR-VERDRAHTUNG: das bei der Projektanlage gewählte Gewerk fließt in
+    // die Analyse (vorher lief ALLES still als 'allgemein'). Nur bekannte
+    // Pipeline-Sektoren durchlassen; alles andere → 'allgemein' (Demo-Default).
+    var _SEKTOREN = ['rohbau','putz','estrich','maler','beton','fliesen','fenster',
+                     'daemmung','geruest','trockenbau','dach','allgemein'];
+    var _pg = _SEKTOREN.indexOf(_projGewerk) >= 0 ? _projGewerk : 'allgemein';
     var gewSel = document.querySelector('.gewerk-select[data-id="'+planId+'"]');
     var gesInp = document.querySelector('.geschoss-input[data-id="'+planId+'"]');
     var whgInp = document.querySelector('.whg-og-input[data-id="'+planId+'"]');
-    var gewerk = gewSel ? gewSel.value : 'allgemein';
+    var gewerk = gewSel ? gewSel.value : _pg;
     var geschosse = gesInp ? (parseInt(gesInp.value) || 3) : 3;
     var whg_pro_og = whgInp ? (parseInt(whgInp.value) || 4) : 4;
 
