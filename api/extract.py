@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.4"
+APP_REV = "2026-07-09.5"
 
 
 @app.get("/api/extract-health")
@@ -2271,41 +2271,95 @@ Werte in cm. Wenn Bemassung nicht lesbar: Wert schätzen aus Wand-Anteil
 (z.B. Wand 4m, Fenster nimmt 1/3 ein → ca. 130cm Breite).
 NIEMALS erfinden, nur was im Plan sichtbar ist."""
 
+        # ZWEI-STUFEN-PASS gegen Ansichten-Doppelzählung: (0) Grundriss-REGIONEN
+        # auf dem Blatt lokalisieren (billig, kleines Bild), (1) den Fenster-Pass
+        # NUR auf diesen Crops fahren. Ein Einreichplan-Blatt zeigt jedes Fenster
+        # zweimal (Grundriss + Ansicht) — Prompt-Regeln allein reichten gemessen
+        # nicht (Sadiku 30 statt ~20). Fallback: Ganzblatt wie bisher.
+        GRUNDRISS_REGION_PROMPT = """Du siehst ein oesterreichisches Bauplan-BLATT.
+Lokalisiere ALLE GRUNDRISSE (Draufsichten mit Raeumen/Waenden von oben).
+KEINE Ansichten (Fassaden), KEINE Schnitte, KEIN Lageplan, KEINE Tabellen.
+JSON, kein Markdown:
+{"grundrisse": [
+  {"geschoss": "EG", "x0_pct": 5, "y0_pct": 40, "x1_pct": 35, "y1_pct": 95}
+]}
+Koordinaten in PROZENT der Blattbreite/-hoehe (0-100), grosszuegig geschnitten
+(Bemassung am Rand einschliessen). Geschoss aus der Ueberschrift ("GRUNDRISS
+ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."""
+
         vision_fenster = []
         try:
             doc3 = fitz.open(stream=pdf_bytes, filetype="pdf")
             p3 = doc3[0]
-            # Höhere Standard-DPI für Fenster (250 statt 200) damit dünne
-            # Glas-Linien lesbar sind
-            dpi_f = 250
-            f_img = None
-            while dpi_f >= 100:
-                mat = fitz.Matrix(dpi_f / 72, dpi_f / 72)
-                pix = p3.get_pixmap(matrix=mat)
-                f_img = pix.tobytes("jpeg", jpg_quality=85)
-                if len(f_img) < 4.5 * 1024 * 1024 and pix.width <= 8000 and pix.height <= 8000:
-                    break
-                dpi_f -= 30
-            doc3.close()
-            if f_img:
-                f_b64 = base64.standard_b64encode(f_img).decode("utf-8")
-                resp = client.messages.create(
-                    model="claude-sonnet-5", max_tokens=2048, thinking={"type": "disabled"},
-                    system=FENSTER_PROMPT,
+            pw3, ph3 = p3.rect.width, p3.rect.height
+
+            def _render(clip, ziel_dpi, budget_mb=4.5):
+                d = ziel_dpi
+                while d >= 90:
+                    mat = fitz.Matrix(d / 72, d / 72)
+                    px_ = p3.get_pixmap(matrix=mat, clip=clip)
+                    img_ = px_.tobytes("jpeg", jpg_quality=85)
+                    if len(img_) < budget_mb * 1024 * 1024 and px_.width <= 8000 and px_.height <= 8000:
+                        return img_
+                    d -= 30
+                return None
+
+            def _frage(system_prompt, img_bytes, frage_text, max_tok=2048):
+                b64_ = base64.standard_b64encode(img_bytes).decode("utf-8")
+                resp_ = client.messages.create(
+                    model="claude-sonnet-5", max_tokens=max_tok, thinking={"type": "disabled"},
+                    system=system_prompt,
                     messages=[{"role": "user", "content": [
                         {"type": "image", "source": {"type": "base64",
-                         "media_type": "image/jpeg", "data": f_b64}},
-                        {"type": "text", "text": "Finde jedes Fenster in diesem Plan."}
+                         "media_type": "image/jpeg", "data": b64_}},
+                        {"type": "text", "text": frage_text}
                     ]}],
                 )
-                raw = _resp_text(resp) or "{}"
+                raw_ = _resp_text(resp_) or "{}"
                 try:
-                    parsed = json.loads(raw)
+                    return json.loads(raw_)
                 except Exception:
-                    m = re.search(r"\{[\s\S]*\}", raw)
-                    parsed = json.loads(m.group()) if m else {}
-                vision_fenster = parsed.get("fenster") or []
-                print(f"[fenster-vision] {len(vision_fenster)} Fenster aus Vision")
+                    m_ = re.search(r"\{[\s\S]*\}", raw_)
+                    return json.loads(m_.group()) if m_ else {}
+
+            # Stufe 0: Grundriss-Regionen (kleines Ganzblatt-Bild reicht)
+            regionen = []
+            try:
+                uebersicht = _render(None, 110, budget_mb=3.0)
+                if uebersicht:
+                    reg = _frage(GRUNDRISS_REGION_PROMPT, uebersicht,
+                                 "Lokalisiere alle Grundrisse auf diesem Blatt.", max_tok=800)
+                    for g in (reg.get("grundrisse") or [])[:4]:
+                        try:
+                            x0 = max(0.0, float(g["x0_pct"])) / 100.0 * pw3
+                            y0 = max(0.0, float(g["y0_pct"])) / 100.0 * ph3
+                            x1 = min(100.0, float(g["x1_pct"])) / 100.0 * pw3
+                            y1 = min(100.0, float(g["y1_pct"])) / 100.0 * ph3
+                            if (x1 - x0) > 0.08 * pw3 and (y1 - y0) > 0.08 * ph3:
+                                regionen.append((fitz.Rect(x0, y0, x1, y1), g.get("geschoss")))
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                print(f"[fenster-vision] {len(regionen)} Grundriss-Region(en) lokalisiert")
+            except Exception as _re:
+                print(f"[fenster-vision] Region-Pass fehlgeschlagen: {_re!r}")
+                regionen = []
+
+            # Stufe 1: Fenster je Region — sonst Ganzblatt-Fallback
+            ziele = regionen if regionen else [(None, None)]
+            for _clip, _gesch in ziele:
+                f_img = _render(_clip, 250)
+                if not f_img:
+                    continue
+                parsed = _frage(FENSTER_PROMPT, f_img,
+                                "Finde jedes Fenster in diesem Grundriss-Ausschnitt."
+                                if _clip is not None else "Finde jedes Fenster in diesem Plan.")
+                for _vf in (parsed.get("fenster") or []):
+                    if _gesch and not _vf.get("geschoss"):
+                        _vf["geschoss"] = _gesch
+                    vision_fenster.append(_vf)
+            doc3.close()
+            print(f"[fenster-vision] {len(vision_fenster)} Fenster aus Vision "
+                  f"({'Grundriss-Crops' if regionen else 'Ganzblatt-Fallback'})")
         except Exception as _exc:
             print(f"[fenster-vision] fehlgeschlagen: {_exc!r}")
             vision_fenster = []
