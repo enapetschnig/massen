@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.9"
+APP_REV = "2026-07-09.10"
 
 
 @app.get("/api/extract-health")
@@ -2352,9 +2352,12 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                 f_img = _render(_clip, 250)
                 if not f_img:
                     continue
+                # max_tok 4096: die Positionsfelder (x_pct/y_pct) verlängern die
+                # Antwort ~20 Tokens/Fenster — 2048 schnitt bei 20+ Fenstern ab.
                 parsed = _frage(FENSTER_PROMPT, f_img,
                                 "Finde jedes Fenster in diesem Grundriss-Ausschnitt."
-                                if _clip is not None else "Finde jedes Fenster in diesem Plan.")
+                                if _clip is not None else "Finde jedes Fenster in diesem Plan.",
+                                max_tok=4096)
                 for _vf in (parsed.get("fenster") or []):
                     if _gesch and not _vf.get("geschoss"):
                         _vf["geschoss"] = _gesch
