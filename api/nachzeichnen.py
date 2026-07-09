@@ -209,8 +209,10 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     continue
             d = abs(vm - laenge_m)
             if best is None or d < best[0]:
-                best = (d, vm)
-        return best[1] if best else None
+                best = (d, vm, mx, my)
+        # (Wert, x, y) — die KOORDINATEN der verwendeten Maßzahl machen die
+        # Lesung am Plan nachweisbar (Ring im Overlay: "diese Zahl wurde gelesen").
+        return (best[1], best[2], best[3]) if best else None
 
     waende = []
     summe = {}
@@ -227,8 +229,11 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         else:
             laenge_m = round(abs(x1c - x0c) / ptm, 2)
             exakt = mass_snap("h", y0c, min(x0c, x1c), max(x0c, x1c), laenge_m)
+        mass_px = None
         if exakt is not None:
-            laenge_m = round(exakt, 2)
+            laenge_m = round(exakt[0], 2)
+            _mp = to_px(exakt[1], exakt[2])
+            mass_px = [_mp[0], _mp[1]]
         if laenge_m < min_len_m:
             continue
         sn = vektor._snap_legende(w["dicke_cm"], LEG, 2.0)
@@ -242,6 +247,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             "snap_cm": sn,
             "laenge_m": laenge_m,
             "mass_exakt": exakt is not None,     # Länge = byte-exakte Plan-Maßzahl
+            "mass_px": mass_px,                  # Ort der verwendeten Maßzahl (Beweis-Ring)
             "staerke_px": round((sn or w["dicke_cm"]) / 100.0 * ptm * scale, 1),
             "hatch_dichte": w.get("hatch_dichte"),
         })

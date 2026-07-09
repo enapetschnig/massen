@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.3"
+APP_REV = "2026-07-09.4"
 
 
 @app.get("/api/extract-health")
@@ -5020,7 +5020,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 36  # Welle-4-Korrektheit: Geschoss-Merge (Multi-FL), Symbol-Cap je-Geschoss-Summe, F-Wert-Evidenz
+_NZ_CACHE_V = 37  # mass_px (Beweis-Ring der verwendeten Maßzahl) im Wand-Record
 
 
 def _korrekturen_fuer_seite(log, seite):

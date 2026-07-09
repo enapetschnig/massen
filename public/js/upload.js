@@ -2002,6 +2002,16 @@
         ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
         (cm ? _nzTLabel(cm) : '~' + w.dicke_cm + ' cm') + ' · ' + w.laenge_m + ' m' +
         (w.mass_exakt ? ' (= Maßzahl lt. Plan)' : '') + ' — klicken zum Korrigieren</title></line>';
+      // BEWEIS-RING: markiert die PLAN-MASSZAHL, aus der die Wandlänge byte-exakt
+      // gelesen wurde ("diese Zahl im Plan wurde verwendet") — Traceability der
+      // Lesung selbst. Dezent (dünner Teal-Ring); pulst mit, wenn die Wand
+      // selektiert ist.
+      if (w.mass_px && w.mass_exakt && !rm) {
+        lines += '<circle data-wring="' + w.id + '" cx="' + w.mass_px[0] + '" cy="' + w.mass_px[1] +
+          '" r="' + Math.max(10, (w.staerke_px || 6) * 1.4) + '" fill="none" stroke="#0f766e"' +
+          ' stroke-width="' + (sel ? 3 : 1.4) + '" stroke-opacity="' + (sel ? 0.95 : 0.55) + '"' +
+          ' pointer-events="none"><title>Verwendete Plan-Maßzahl für Wand ' + w.laenge_m + ' m</title></circle>';
+      }
       // Sichtbares Längen-/Stärke-Label auf der Wand (1:1 zum Plan vergleichbar)
       if (!rm && cm && w.laenge_m >= 1.2) {
         var mx = (p[0] + p[2]) / 2, my = (p[1] + p[3]) / 2;
