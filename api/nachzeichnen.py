@@ -179,6 +179,84 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     # Holzbau-34er weg) — nächster Kandidat: Fill-Rect-Spannen statt Hatch-Dichte.
     roh = vektor.wand_paare(arch, ptm, min_len_m=min_len_m, legende_dicken=LEG,
                             hatch=hatch, min_hatch_dichte=min_hatch_dichte, mit_geometrie=True)
+    # FÜLLFLÄCHEN-WÄNDE (Roadmap #8, H3 bestätigt): mehrschichtige Aufbauten
+    # (Holzbau/WDVS) als Gesamtspanne aus gestapelten Schicht-Rects.
+    # GATE (Präzedenzfall Fallback-Summe unten): nur für Pläne, deren Linien-
+    # Wände NICHT auf die Mauerwerks-Legende snappen — Angerer/AP.01/TG (HLZ/
+    # STB) bleiben byte-identisch, Holzbau & Co. bekommen die fehlende Hülle.
+    # Dedup per INTERVALL-SUBTRAKTION: nur der von Linien-Wänden UNBEDECKTE
+    # Rest einer Fill-Wand wird ergänzt (kein Doppel, kein Alles-oder-Nichts).
+    try:
+        _leg_snap_da = any(vektor._snap_legende(w["dicke_cm"], LEG, 2.0) for w in roh)
+        _add = 0
+        if not _leg_snap_da:
+            _fillw = vektor.wand_fill_waende(pfade, (bx0, by0, bx1, by1), ptm,
+                                             min_len_m=max(min_len_m, 0.5))
+            # VERDRÄNGUNG: die Linien-Paarung liest mehrschichtige Hüllen als
+            # dünne Ständer-Wände (gemessen: Σ9cm ≈ 37 m = die 38er-Hülle!).
+            # Liegt eine deutlich dünnere Linienwand (≥10 cm Differenz) mit
+            # ≥60% ihrer Länge quer INNERHALB einer Fill-Spanne, ist sie die
+            # falsche Lesart derselben Wand → raus, die Gesamtspanne gewinnt.
+            _verdraengt = set()
+            for fw in _fillw:
+                _fax = fw["achse"]
+                _flo, _fhi = (fw["y0"], fw["y1"]) if _fax == "v" else (fw["x0"], fw["x1"])
+                _fc = fw["x0"] if _fax == "v" else fw["y0"]
+                for wi, w in enumerate(roh):
+                    if wi in _verdraengt or w["achse"] != _fax:
+                        continue
+                    if w["dist_pt"] > fw["dist_pt"] - 0.10 * ptm:
+                        continue
+                    _wc = w["x0"] if _fax == "v" else w["y0"]
+                    if abs(_wc - _fc) > fw["dist_pt"] / 2.0:
+                        continue
+                    a, b = (w["y0"], w["y1"]) if _fax == "v" else (w["x0"], w["x1"])
+                    _ov = min(b, _fhi) - max(a, _flo)
+                    if b > a and _ov / (b - a) >= 0.60:
+                        _verdraengt.add(wi)
+            if _verdraengt:
+                roh = [w for wi, w in enumerate(roh) if wi not in _verdraengt]
+                print(f"[nachzeichnen] {len(_verdraengt)} Schicht-Fehllesungen durch "
+                      f"Fill-Gesamtspannen verdrängt")
+            for fw in _fillw:
+                _ax = fw["achse"]
+                _lo, _hi = (fw["y0"], fw["y1"]) if _ax == "v" else (fw["x0"], fw["x1"])
+                # von Linien-Wänden bedeckte Längs-Intervalle einsammeln
+                _cov = []
+                for w in roh:
+                    if w["achse"] != _ax or w.get("quelle") == "fill":
+                        continue
+                    _quer = abs((w["x0"] if _ax == "v" else w["y0"])
+                                - (fw["x0"] if _ax == "v" else fw["y0"]))
+                    if _quer > (w["dist_pt"] + fw["dist_pt"]) / 2.0:
+                        continue
+                    a, b = (w["y0"], w["y1"]) if _ax == "v" else (w["x0"], w["x1"])
+                    a, b = max(a, _lo), min(b, _hi)
+                    if b > a:
+                        _cov.append((a, b))
+                _cov.sort()
+                # unbedeckte Reststücke ≥ 0,8 m als Wände übernehmen
+                _pos = _lo
+                _rest = []
+                for a, b in _cov:
+                    if a - _pos >= 0.8 * ptm:
+                        _rest.append((_pos, a))
+                    _pos = max(_pos, b)
+                if _hi - _pos >= 0.8 * ptm:
+                    _rest.append((_pos, _hi))
+                for a, b in _rest:
+                    st = dict(fw)
+                    if _ax == "v":
+                        st["y0"], st["y1"] = a, b
+                    else:
+                        st["x0"], st["x1"] = a, b
+                    st["laenge_m"] = round((b - a) / ptm, 2)
+                    roh.append(st)
+                    _add += 1
+        if _add:
+            print(f"[nachzeichnen] {_add} Füllflächen-Wandstücke additiv ergänzt (Schicht-Aufbauten)")
+    except Exception as _fe:  # pragma: no cover
+        print(f"[nachzeichnen] Füllflächen-Wände übersprungen: {_fe!r}")
 
     def to_px(x, y):
         return [round((x - bx0) * scale, 1), round((y - by0) * scale, 1)]
@@ -239,7 +317,11 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             mass_px = [_mp[0], _mp[1]]
         if laenge_m < min_len_m:
             continue
-        sn = vektor._snap_legende(w["dicke_cm"], LEG, 2.0)
+        # Fill-Gesamtspannen (Holzbau/WDVS) NICHT auf die Mauerwerks-Legende
+        # snappen — sonst füllt ein 10er-Fill (→12) die summe und deaktiviert
+        # die Fallback-Buckets, die 34/38er-Aufbauten gehören dorthin.
+        sn = None if w.get("quelle") == "fill" \
+            else vektor._snap_legende(w["dicke_cm"], LEG, 2.0)
         p0 = to_px(x0c, y0c)
         p1 = to_px(x1c, y1c)
         waende.append({

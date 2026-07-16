@@ -626,6 +626,88 @@ def _snap_legende(dicke_cm, legende_dicken, tol_cm=3.0):
     return best if abs(best - dicke_cm) <= tol_cm else None
 
 
+def wand_fill_waende(pfade, box, pt_per_m, dicke_min_cm=8.0, dicke_max_cm=55.0,
+                     min_len_m=0.5, gap_tol_cm=2.0, min_ov=0.5, max_rects=4000):
+    """FÜLLFLÄCHEN-WÄNDE (Roadmap #8, Hypothese 3 — empirisch bestätigt):
+    Mehrschichtige Aufbauten (Holzbau/WDVS) zeichnen ihre Wände als GESTAPELTE
+    Füll-Rechtecke je Schicht (24-cm-Ständerebene beige + 8/10-cm-Beplankung
+    grau) — die Linien-Paarung fängt davon nur Fragmente (gemessen: 34er-Hülle
+    Σ 6,95 m statt ~37 m). Hier: nicht-weiße Füll-Rects der Wandstärken-Klasse
+    einsammeln und quer-adjazente parallele Schichten iterativ zur GESAMT-
+    SPANNE verschmelzen (Holzbau gemessen: 38 cm × 36,7 m in 8 Stücken).
+    Weiß (1,1,1) ist Knockout/Hintergrund → raus (Angerer/AP.01 sonst voller
+    Geister). Liefert Geometrie-Dicts wie wand_paare(mit_geometrie=True),
+    quelle='fill'. Aufrufer dedupliziert ADDITIV gegen die Linien-Wände."""
+    bx0, by0, bx1, by1 = box
+    rects = []
+    for d in pfade:
+        f = d.get("fill")
+        if f is None or tuple(f) == (1.0, 1.0, 1.0):
+            continue
+        r = d.get("rect")
+        if not r:
+            continue
+        cx, cy = (r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0
+        if not (bx0 <= cx <= bx1 and by0 <= cy <= by1):
+            continue
+        w_cm = min(r.width, r.height) / pt_per_m * 100.0
+        l_m = max(r.width, r.height) / pt_per_m
+        # Schichten dürfen dünner als die Wand-Untergrenze sein (2 cm Platte)
+        if 2.0 <= w_cm <= dicke_max_cm and l_m >= 0.4:
+            rects.append([r.x0, r.y0, r.x1, r.y1,
+                          "h" if r.width >= r.height else "v"])
+    if len(rects) > max_rects:
+        # Riesenpläne (WM: 899k Pfade): O(n²)-Merge nicht bezahlbar → Pass aus.
+        return []
+    gap = gap_tol_cm / 100.0 * pt_per_m
+    merged = True
+    while merged:
+        merged = False
+        out_r = []
+        used = [False] * len(rects)
+        for i in range(len(rects)):
+            if used[i]:
+                continue
+            a = rects[i]
+            for j in range(i + 1, len(rects)):
+                if used[j] or rects[j][4] != a[4]:
+                    continue
+                b = rects[j]
+                if a[4] == "h":     # quer = y, längs = x
+                    quer_gap = max(a[1], b[1]) - min(a[3], b[3])
+                    ov = min(a[2], b[2]) - max(a[0], b[0])
+                    kurz = min(a[2] - a[0], b[2] - b[0])
+                else:
+                    quer_gap = max(a[0], b[0]) - min(a[2], b[2])
+                    ov = min(a[3], b[3]) - max(a[1], b[1])
+                    kurz = min(a[3] - a[1], b[3] - b[1])
+                if quer_gap <= gap and kurz > 0 and ov / kurz >= min_ov:
+                    a = [min(a[0], b[0]), min(a[1], b[1]),
+                         max(a[2], b[2]), max(a[3], b[3]), a[4]]
+                    used[j] = True
+                    merged = True
+            out_r.append(a)
+        rects = out_r
+    out = []
+    for x0, y0, x1, y1, ori in rects:
+        d_pt = min(x1 - x0, y1 - y0)
+        w_cm = d_pt / pt_per_m * 100.0
+        l_m = max(x1 - x0, y1 - y0) / pt_per_m
+        if not (dicke_min_cm <= w_cm <= dicke_max_cm) or l_m < min_len_m:
+            continue
+        if ori == "v":
+            cx = (x0 + x1) / 2.0
+            g = {"achse": "v", "x0": cx, "y0": y0, "x1": cx, "y1": y1}
+        else:
+            cy = (y0 + y1) / 2.0
+            g = {"achse": "h", "x0": x0, "y0": cy, "x1": x1, "y1": cy}
+        g.update({"dist_pt": d_pt, "laenge_m": round(l_m, 2),
+                  "dicke_cm": round(w_cm, 1), "hatch_dichte": None,
+                  "quelle": "fill"})
+        out.append(g)
+    return out
+
+
 def _view_bbox(label_pos, pt_per_m, marge_m=4.0, radius_m=12.0):
     """Grundriss-Ansicht (EIN Geschoss) aus Raum-Label-Positionen eingrenzen — robust
     gegen Mehr-Ansichten-Blatt: nimmt den DICHTESTEN Label-Cluster (das Label mit den
