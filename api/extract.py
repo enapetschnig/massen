@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.16"
+APP_REV = "2026-07-09.17"
 
 
 @app.get("/api/extract-health")
@@ -2958,17 +2958,22 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
                 # die die Fenster-Liste kappt — ohne temperature=0 streut sie
                 # lauf-zu-lauf (gemessen: 20↔16 auf identischem Blatt). Median
                 # aus 3 unabhängigen Zählungen stabilisiert genau diese Kappe.
-                # kein_grundriss beim 1. Lauf → keine Wiederholung (Schnitt-Blatt).
+                # PARALLEL (Threads): Wandzeit = 1 Call — sequenziell kippte
+                # der Sadiku-Plan über das Vercel-Zeitlimit (504 gemessen).
+                from concurrent.futures import ThreadPoolExecutor as _TPE
                 _laeufe = []
-                for _li in range(3):
-                    try:
-                        _d = _zaehle_symbole()
-                    except Exception as _ze:
-                        print(f"[oeffnungs-symbole] Lauf {_li + 1} fehlgeschlagen: {_ze!r}")
-                        continue
-                    _laeufe.append(_d)
-                    if _d.get("kein_grundriss"):
-                        break
+                try:
+                    with _TPE(max_workers=3) as _ex:
+                        for _fu in [_ex.submit(_zaehle_symbole) for _ in range(3)]:
+                            try:
+                                _d = _fu.result(timeout=90)
+                                if _d:
+                                    _laeufe.append(_d)
+                            except Exception as _ze:
+                                print(f"[oeffnungs-symbole] Lauf fehlgeschlagen: {_ze!r}")
+                except Exception as _pe:
+                    print(f"[oeffnungs-symbole] Parallel-Konsens fehlgeschlagen: {_pe!r}")
+                    _laeufe = [_zaehle_symbole()]
                 _mit_f = sorted(d_.get("fenster_gesamt") for d_ in _laeufe
                                 if d_.get("fenster_gesamt") is not None)
                 _mit_t = sorted(d_.get("tueren_gesamt") for d_ in _laeufe
