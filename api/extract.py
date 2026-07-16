@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.15"
+APP_REV = "2026-07-09.16"
 
 
 @app.get("/api/extract-health")
@@ -2928,31 +2928,68 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
             doco.close()
             if o_img:
                 o_b64 = base64.standard_b64encode(o_img).decode("utf-8")
-                resp = client.messages.create(
-                    model="claude-sonnet-5", max_tokens=2048, thinking={"type": "disabled"},
-                    system=OEFFNUNGS_SYMBOL_PROMPT,
-                    messages=[{"role": "user", "content": [
-                        {"type": "image", "source": {"type": "base64",
-                         "media_type": "image/jpeg", "data": o_b64}},
-                        {"type": "text", "text": "Zähle die Tür- und Fenster-Symbole im Grundriss."}
-                    ]}],
-                )
-                raw = _resp_text(resp) or "{}"
-                try:
-                    oeffnungs_symbole = json.loads(raw)
-                except Exception:
-                    mjs = re.search(r"\{[\s\S]*\}", raw)
-                    oeffnungs_symbole = json.loads(mjs.group()) if mjs else {}
-                for kk in ("tueren_gesamt", "fenster_gesamt"):
-                    v = oeffnungs_symbole.get(kk)
-                    if v is not None:
-                        try:
-                            oeffnungs_symbole[kk] = max(0, min(60, int(v)))
-                        except (TypeError, ValueError):
-                            oeffnungs_symbole[kk] = None
-                print(f"[oeffnungs-symbole] tueren={oeffnungs_symbole.get('tueren_gesamt')}, "
-                      f"fenster={oeffnungs_symbole.get('fenster_gesamt')}, "
-                      f"konf={oeffnungs_symbole.get('konfidenz')}")
+
+                def _zaehle_symbole():
+                    resp = client.messages.create(
+                        model="claude-sonnet-5", max_tokens=2048, thinking={"type": "disabled"},
+                        system=OEFFNUNGS_SYMBOL_PROMPT,
+                        messages=[{"role": "user", "content": [
+                            {"type": "image", "source": {"type": "base64",
+                             "media_type": "image/jpeg", "data": o_b64}},
+                            {"type": "text", "text": "Zähle die Tür- und Fenster-Symbole im Grundriss."}
+                        ]}],
+                    )
+                    raw = _resp_text(resp) or "{}"
+                    try:
+                        d_ = json.loads(raw)
+                    except Exception:
+                        mjs = re.search(r"\{[\s\S]*\}", raw)
+                        d_ = json.loads(mjs.group()) if mjs else {}
+                    for kk in ("tueren_gesamt", "fenster_gesamt"):
+                        v = d_.get(kk)
+                        if v is not None:
+                            try:
+                                d_[kk] = max(0, min(60, int(v)))
+                            except (TypeError, ValueError):
+                                d_[kk] = None
+                    return d_
+
+                # MEDIAN-KONSENS (3 Läufe): die Symbol-Zählung ist die REFERENZ,
+                # die die Fenster-Liste kappt — ohne temperature=0 streut sie
+                # lauf-zu-lauf (gemessen: 20↔16 auf identischem Blatt). Median
+                # aus 3 unabhängigen Zählungen stabilisiert genau diese Kappe.
+                # kein_grundriss beim 1. Lauf → keine Wiederholung (Schnitt-Blatt).
+                _laeufe = []
+                for _li in range(3):
+                    try:
+                        _d = _zaehle_symbole()
+                    except Exception as _ze:
+                        print(f"[oeffnungs-symbole] Lauf {_li + 1} fehlgeschlagen: {_ze!r}")
+                        continue
+                    _laeufe.append(_d)
+                    if _d.get("kein_grundriss"):
+                        break
+                _mit_f = sorted(d_.get("fenster_gesamt") for d_ in _laeufe
+                                if d_.get("fenster_gesamt") is not None)
+                _mit_t = sorted(d_.get("tueren_gesamt") for d_ in _laeufe
+                                if d_.get("tueren_gesamt") is not None)
+                # Repräsentant: der Lauf, dessen Fenster-Zahl dem Median am
+                # nächsten liegt (liefert die raumgenauen Listen für den
+                # Tür-Fallback konsistent zur Kappe).
+                _med_f = _mit_f[(len(_mit_f) - 1) // 2] if _mit_f else None
+                _med_t = _mit_t[(len(_mit_t) - 1) // 2] if _mit_t else None
+                if _laeufe:
+                    oeffnungs_symbole = (min(_laeufe,
+                                             key=lambda d_: abs((d_.get("fenster_gesamt") or 0)
+                                                                - (_med_f or 0)))
+                                         if _med_f is not None else _laeufe[0])
+                    if _med_f is not None:
+                        oeffnungs_symbole["fenster_gesamt"] = _med_f
+                    if _med_t is not None:
+                        oeffnungs_symbole["tueren_gesamt"] = _med_t
+                print(f"[oeffnungs-symbole] tueren={oeffnungs_symbole.get('tueren_gesamt')} "
+                      f"(Läufe: {_mit_t}), fenster={oeffnungs_symbole.get('fenster_gesamt')} "
+                      f"(Läufe: {_mit_f}), konf={oeffnungs_symbole.get('konfidenz')}")
         except Exception as _exc:
             print(f"[oeffnungs-symbole] failed: {_exc!r}")
             oeffnungs_symbole = {}
