@@ -94,10 +94,16 @@
         <div class="result-hero-side">
           <div class="export-group">
             <button class="btn btn-accent btn-export" id="projekt-export-btn" title="Saubere Bestell-Materialliste (Bauteil · Material · Menge · Einheit) — für Excel/Polier">&#128203; Materialliste</button>
-            <button class="btn btn-outline btn-sm" id="projekt-export-oenorm-btn" title="Prüfbare Massenermittlung in Anlehnung an ÖNORM (Gewerk · Position · Menge · Norm-Bezug · Aufmaß-Zeilen)">&#128208; Massen (ÖNORM)</button>
-            <button class="btn btn-outline btn-sm" id="projekt-export-voll-btn" title="Vollständiger Export: Räume · Fenster · ÖNORM-Gewerke · Detailzeilen · Materialliste">&#128229; Alles (CSV)</button>
-            <button class="btn btn-outline btn-sm" id="projekt-aufmass-btn" title="Abheftbares Prüf-Dokument: Plan mit eingezeichneten Wänden, Maßen, Öffnungen und Raum-Status (PDF)">&#128462; Aufma&szlig;blatt (PDF)</button>
-            <button class="btn btn-outline btn-sm" id="projekt-aufmass-csv-btn" title="Das komplette Aufmaß als Tabelle: jeder Raum, jede Wand (brutto→netto), jede Öffnung mit Laibung — für Excel">&#129518; Aufma&szlig; (CSV)</button>
+            <button class="btn btn-outline btn-export" id="projekt-xlsx-btn" title="Prüffähiges Aufmaß als Excel-Datei: ein Blatt je Gewerk (Position · Aufmaß-Zeilen · Herleitung), Materialliste, Raum-Aufmaß — für Kalkulation/AVA">&#128202; Aufma&szlig; (.xlsx)</button>
+            <details class="export-more" id="export-more">
+              <summary class="btn btn-outline btn-sm">Weitere Formate &#9662;</summary>
+              <div class="export-more-list">
+                <button class="btn btn-outline btn-sm" id="projekt-export-oenorm-btn" title="Prüfbare Massenermittlung in Anlehnung an ÖNORM (Gewerk · Position · Menge · Norm-Bezug · Aufmaß-Zeilen)">&#128208; Massen (ÖNORM, CSV)</button>
+                <button class="btn btn-outline btn-sm" id="projekt-export-voll-btn" title="Vollständiger Export: Räume · Fenster · ÖNORM-Gewerke · Detailzeilen · Materialliste">&#128229; Alles (CSV)</button>
+                <button class="btn btn-outline btn-sm" id="projekt-aufmass-btn" title="Abheftbares Prüf-Dokument: Plan mit eingezeichneten Wänden, Maßen, Öffnungen und Raum-Status (PDF)">&#128462; Aufma&szlig;blatt (PDF)</button>
+                <button class="btn btn-outline btn-sm" id="projekt-aufmass-csv-btn" title="Das komplette Aufmaß als Tabelle: jeder Raum, jede Wand (brutto→netto), jede Öffnung mit Laibung — für Excel">&#129518; Aufma&szlig; (CSV)</button>
+              </div>
+            </details>
           </div>
         </div>
       </div>

@@ -1178,6 +1178,51 @@
     var btnFull = document.getElementById('projekt-export-voll-btn'); // voller Dump
     if (btnFull && !btnFull.dataset.bound) { btnFull.dataset.bound = '1';
       btnFull.addEventListener('click', function () { doExport(null, btnFull); }); }
+    // Prüffähiges Aufmaß als .xlsx — WYSIWYG: schickt exakt die geladenen
+    // Daten (gewerke/materialliste/raeume) ans Backend, openpyxl formatiert.
+    var btnX = document.getElementById('projekt-xlsx-btn');
+    if (btnX && !btnX.dataset.bound) { btnX.dataset.bound = '1';
+      btnX.addEventListener('click', function () {
+        var d = window.projektMassenData || {};
+        if (!d.gewerke) { alert('Noch keine Auswertung geladen.'); return; }
+        var alt = btnX.textContent;
+        btnX.textContent = '… erstellt';
+        btnX.disabled = true;
+        fetch('/api/aufmass-xlsx', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projekt_name: ((document.getElementById('project-name') || {}).textContent || 'Projekt').trim(),
+            gewerke: d.gewerke,
+            // materialliste.bauteile ist ein Dict {Bauteil: [Zeilen]} → flache Liste
+            materialliste: (function () {
+              var bt = (d.materialliste && d.materialliste.bauteile) || {};
+              var rows = [];
+              Object.keys(bt).forEach(function (k) {
+                (bt[k] || []).forEach(function (p) { rows.push(p); });
+              });
+              return rows;
+            })(),
+            raeume: d.raeume || []
+          })
+        }).then(function (r) {
+          var ct = r.headers.get('Content-Type') || '';
+          if (ct.indexOf('spreadsheetml') === -1) throw new Error('Export fehlgeschlagen');
+          return r.blob();
+        }).then(function (blob) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          var pn = ((document.getElementById('project-name') || {}).textContent || 'Projekt');
+          a.download = 'Aufmass_' + (pn.replace(/[^\wäöüß\- ]/gi, '').trim() || 'Projekt') + '.xlsx';
+          a.click();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+        }).catch(function (e) {
+          alert('Excel-Export fehlgeschlagen: ' + e.message);
+        }).finally(function () {
+          btnX.textContent = alt;
+          btnX.disabled = false;
+        });
+      });
+    }
   }
 
   // ─── Tab-Wechsel innerhalb der Ergebnis-Section ───
@@ -2774,6 +2819,17 @@
       if (preset === 'kalkulant') {
         var dr = document.querySelector('.advanced-drawer');
         if (dr) dr.open = true;   // ÖNORM-Buchform sofort sichtbar
+      }
+      // SEKTORRICHTIGER PRIMÄR-EXPORT: Polier/Rohbau bestellt (Materialliste),
+      // Ausbau/Kalkulant rechnet ab (Aufmaß .xlsx) — der Akzent wandert mit.
+      var bMl = document.getElementById('projekt-export-btn');
+      var bXl = document.getElementById('projekt-xlsx-btn');
+      if (bMl && bXl) {
+        var mlPrimaer = preset === 'rohbau';
+        bMl.classList.toggle('btn-accent', mlPrimaer);
+        bMl.classList.toggle('btn-outline', !mlPrimaer);
+        bXl.classList.toggle('btn-accent', !mlPrimaer);
+        bXl.classList.toggle('btn-outline', mlPrimaer);
       }
       if (!initial) refreshProjektMassen();
     }

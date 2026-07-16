@@ -2882,6 +2882,12 @@ polyline.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 8 !import
 .ergebnis-warte .spinner { flex: none; }
 .export-group { display: flex; flex-direction: column; gap: .35rem; align-items: stretch; }
 .export-group .btn-sm { font-size: .74rem; padding: .3rem .5rem; }
+/* „Weitere Formate": Sekundär-Exporte eingeklappt — EIN sektorrichtiger
+   Primär-Button + .xlsx vorn, der Rest auf Klick (Roadmap #9-Rest) */
+.export-more > summary { list-style: none; cursor: pointer; text-align: center; width: 100%; box-sizing: border-box; }
+.export-more > summary::-webkit-details-marker { display: none; }
+.export-more .export-more-list { display: flex; flex-direction: column; gap: .35rem; margin-top: .35rem; }
+.export-more .export-more-list .btn { width: 100%; box-sizing: border-box; }
 
 /* ===== Dedizierter Kalibrierungs-Bereich ===== */
 .kalib-page { max-width: 880px; }

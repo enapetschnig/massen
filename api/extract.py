@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.17"
+APP_REV = "2026-07-09.18"
 
 
 @app.get("/api/extract-health")
@@ -6313,6 +6313,138 @@ async def admin_firmen(body: AdminRequest):
         f_["soll_listen"] = len(sb.table("soll_listen").select("id").eq("firma_id", f_["id"]).execute().data or [])
         f_.pop("passwort_hash", None)
     return {"firmen": firmen, "anzahl": len(firmen)}
+
+
+class AufmassXlsxRequest(BaseModel):
+    """WYSIWYG-Export: der Client schickt die BEREITS GELADENEN Daten (exakt
+    das, was er anzeigt) — kein Neu-Rechnen, keine Abweichung Anzeige/Export."""
+    projekt_name: str | None = None
+    gewerke: dict | None = None
+    materialliste: list | None = None
+    raeume: list | None = None
+
+
+@app.post("/api/aufmass-xlsx")
+async def aufmass_xlsx(body: AufmassXlsxRequest):
+    """PRÜFFÄHIGES AUFMASS ALS .XLSX (Roadmap #9-Rest): ein Blatt je Gewerk mit
+    LG/Position/Aufmaß-Zeilen (Herleitung als Text), Übersichts- und Material-
+    listen-Blatt — der Excel-Anschluss für Kalkulanten (ABK/Nevaris-Brücke
+    bis A-2063 kommt). Best-effort, klare Fehlermeldung statt 500."""
+    try:
+        from datetime import date
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        BOLD = Font(bold=True)
+        HEAD_FILL = PatternFill("solid", fgColor="EFEAE3")
+        POS_FILL = PatternFill("solid", fgColor="F5F2ED")
+
+        def _sheet_name(s):
+            s = re.sub(r"[\\/*?:\[\]]", "-", s or "Blatt")
+            return s[:31] or "Blatt"
+
+        # ── Übersicht ──
+        ws = wb.active
+        ws.title = "Übersicht"
+        ws.append(["Aufmaß / Massenermittlung", body.projekt_name or ""])
+        ws["A1"].font = Font(bold=True, size=14)
+        ws.append(["Stand", date.today().isoformat(),
+                   "in Anlehnung an ÖNORM B 2204/B 2232/B 2230 · prüffähig mit Herleitung"])
+        ws.append([])
+        ws.append(["Gewerk", "LG", "Positionen", "Σ (je Einheit gemischt)", "Ø Konfidenz"])
+        for c in ws[4]:
+            c.font = BOLD
+            c.fill = HEAD_FILL
+        gew = body.gewerke or {}
+        for gk, gd in gew.items():
+            pos = (gd or {}).get("positionen") or []
+            if not pos:
+                continue
+            _ks = [p.get("konfidenz") for p in pos if p.get("konfidenz") is not None]
+            ws.append([(gd or {}).get("label") or gk, (gd or {}).get("lg") or "",
+                       len(pos), round(sum(p.get("endsumme") or 0 for p in pos), 2),
+                       round(sum(_ks) / len(_ks), 2) if _ks else ""])
+        for i, w in enumerate([28, 10, 11, 22, 12], start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        # ── ein Blatt je Gewerk ──
+        for gk, gd in gew.items():
+            pos = (gd or {}).get("positionen") or []
+            if not pos:
+                continue
+            s = wb.create_sheet(_sheet_name((gd or {}).get("label") or gk))
+            s.append(["Pos", "Beschreibung / Aufmaß-Zeile", "Herleitung",
+                      "Länge", "Breite", "Höhe", "Wert", "Einheit", "Konfidenz"])
+            for c in s[1]:
+                c.font = BOLD
+                c.fill = HEAD_FILL
+            for p in pos:
+                r = s.max_row + 1
+                s.append([p.get("posnr") or "", p.get("beschreibung") or "",
+                          p.get("quelle") or "", None, None, None,
+                          p.get("endsumme"), p.get("einheit") or "",
+                          p.get("konfidenz")])
+                for c in s[r]:
+                    c.font = BOLD
+                    c.fill = POS_FILL
+                for z in (p.get("zeilen") or []):
+                    s.append(["", "    " + (z.get("text") or ""),
+                              z.get("quelle") or "", z.get("laenge"),
+                              z.get("breite"), z.get("hoehe"), z.get("wert"),
+                              "", ""])
+            for i, w in enumerate([8, 52, 40, 9, 9, 9, 11, 9, 11], start=1):
+                s.column_dimensions[get_column_letter(i)].width = w
+            s.freeze_panes = "A2"
+
+        # ── Materialliste (Bestellung) ──
+        ml = body.materialliste or []
+        if ml:
+            s = wb.create_sheet("Materialliste")
+            s.append(["Bauteil", "Material", "Menge", "Einheit", "Konfidenz", "Herleitung"])
+            for c in s[1]:
+                c.font = BOLD
+                c.fill = HEAD_FILL
+            for p in ml:
+                s.append([p.get("bauteil") or "", p.get("material") or "",
+                          p.get("menge"), p.get("einheit") or "",
+                          p.get("konfidenz"), p.get("formel") or ""])
+            for i, w in enumerate([22, 34, 11, 9, 11, 46], start=1):
+                s.column_dimensions[get_column_letter(i)].width = w
+            s.freeze_panes = "A2"
+
+        # ── Raum-Aufmaß ──
+        rs = [r for r in (body.raeume or []) if r and r.get("flaeche_m2")]
+        if rs:
+            s = wb.create_sheet("Raum-Aufmaß")
+            s.append(["Raum", "Geschoss", "Boden m² (=F)", "Umfang m", "U-Quelle",
+                      "Höhe m", "Wandabwicklung m²"])
+            for c in s[1]:
+                c.font = BOLD
+                c.fill = HEAD_FILL
+            for r in rs:
+                u, h = r.get("umfang_m"), r.get("hoehe_m")
+                s.append([r.get("name") or "?", r.get("geschoss") or "",
+                          r.get("flaeche_m2"), u,
+                          ("geschätzt (Proportion)" if r.get("umfang_geschaetzt")
+                           else ("byte-exakt" if u else "")),
+                          h, round(u * h, 2) if (u and h) else None])
+            for i, w in enumerate([22, 10, 13, 11, 20, 9, 17], start=1):
+                s.column_dimensions[get_column_letter(i)].width = w
+            s.freeze_panes = "A2"
+
+        import io as _io
+        buf = _io.BytesIO()
+        wb.save(buf)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="aufmass.xlsx"'})
+    except Exception as e:
+        print(f"[aufmass-xlsx] fehlgeschlagen: {e!r}")
+        return JSONResponse({"ok": False, "grund": f"Export fehlgeschlagen: {e}"},
+                            status_code=200)
 
 
 class DemoProjektRequest(BaseModel):
