@@ -65,11 +65,21 @@ def run():
     neg = _negative_zeilen(wand)
     check("Putz: genau EIN Abzug (nur das große Fenster)", len(neg) == 1)
     check("Putz: Abzug = -6,0 m² (3,0×2,0)", neg and abs(neg[0]["wert"] + 6.0) < 0.01)
-    # ÖNORM-Audit P3: Leibung ist EIGENE Position 1.1a (B 2204 §5.5.1.3
-    # zweigleisig — mit Leibungs-Position wird abgezogen UND separat verrechnet)
-    laib = next((p for p in putz if p.posnr == "1.1a"), None)
-    check("Putz: Leibungs-Position 1.1a vorhanden (großes Fenster)",
-          laib is not None and len(laib.zeilen) == 1 and laib.endsumme > 0)
+    # ÖNORM-Audit P3 + #1-Rest (Leibungs-lfm-Regel B 2204): Leibung ist EIGENE
+    # Position; ≤0,25 m Tiefe → lfm (1.1a), darüber → m² (1.1b). Das große
+    # Fenster sitzt in der 50er-AW → Tiefe 0,44 m > 0,25 → m²-Position 1.1b.
+    laib_m2 = next((p for p in putz if p.posnr == "1.1b"), None)
+    check("Putz: AW-Fenster-Leibung (Tiefe 44cm > 25) in 1.1b als m²",
+          laib_m2 is not None and laib_m2.einheit == "m²"
+          and len(laib_m2.zeilen) == 1 and laib_m2.endsumme > 0)
+    # IW-Tür (Tiefe 19 cm ≤ 25) → Laufmeter-Position 1.1a, Menge = Abwicklung
+    _tuer_gross = [{"raum": "Zimmer 1", "breite_m": 2.0, "hoehe_m": 2.3,
+                    "code": "T-GROSS", "wand_typ": "IW", "_art": "tuer"}]   # 4,6 m² > 4
+    putz_t = gewerk_putz(ROOMS, [], BAUDATEN, tueren=_tuer_gross)
+    laib_lfm = next((p for p in putz_t if p.posnr == "1.1a"), None)
+    check("Putz: IW-Tür-Leibung (Tiefe ≤ 25cm) in 1.1a als lfm = 2H+B = 6,6",
+          laib_lfm is not None and laib_lfm.einheit == "lfm"
+          and abs(laib_lfm.endsumme - (2 * 2.3 + 2.0)) < 0.01)
     check("Putz: kleines Fenster erzeugt KEINEN Abzug (übermessen)",
           not any("klein" in (z["text"] or "").lower() for z in neg))
     # Brutto-Wand 22×2,70=59,4 − 6,0 = 53,4 (Laibung separat in 1.1a)
@@ -90,7 +100,12 @@ def run():
     maler = gewerk_maler(ROOMS, WINDOWS, BAUDATEN)
     mwand = next(p for p in maler if p.posnr == "1.1")
     check("Maler: genau EIN Abzug (großes Fenster)", len(_negative_zeilen(mwand)) == 1)
-    check("Maler: Laibung-Zeile vorhanden (konsistent mit Putz)", len(_zeilen_mit(mwand, "laibung")) == 1)
+    # Leibungs-lfm-Regel: Laibung steckt NICHT mehr inline in 1.1, sondern in
+    # eigener Position — AW-Fenster (Tiefe 44cm > 25) → 1.1b m².
+    check("Maler: keine Inline-Laibung mehr in 1.1 (eigene Position)",
+          len(_zeilen_mit(mwand, "laibung")) == 0)
+    check("Maler: AW-Fenster-Leibung in 1.1b als m²",
+          any(p.posnr == "1.1b" and p.einheit == "m²" and p.endsumme > 0 for p in maler))
 
     # ── ESTRICH (ÖNORM B 2232): Öffnungen irrelevant ──
     estrich = gewerk_estrich(ROOMS, WINDOWS, BAUDATEN)
@@ -251,8 +266,10 @@ def run():
     wd_haupt = next(p for p in wd if p.posnr == "1.1")
     check("WDVS: Fläche = brutto 100 − 6,0 (großes Fenster) = 94",
           abs(wd_haupt.endsumme - 94.0) < 0.01)
-    check("WDVS: Laibungsdämmung als eigene Position 1.1a",
-          any(p.posnr == "1.1a" and p.endsumme > 0 for p in wd))
+    # Leibungs-lfm-Regel: Fixture-AW ist 38 cm → Leibungstiefe 0,32 m > 0,25
+    # → Laibungsdämmung als m²-Position 1.1b (lfm-Zweig 1.1a bleibt leer).
+    check("WDVS: Laibungsdämmung als eigene Position (1.1a lfm oder 1.1b m²)",
+          any(p.posnr in ("1.1a", "1.1b") and p.endsumme > 0 for p in wd))
     check("WDVS: leer ohne Außenwand-Basis (→ ausgelassen)",
           gewerk_daemmung(ROOMS, WINDOWS, BAUDATEN) == [])
     resF = berechne_gewerke(ROOMS, WINDOWS, _bd_fas)

@@ -181,6 +181,32 @@ def laibungsflaeche(breite_m, hoehe_m, tiefe_m, mit_sohlbank=False):
     return tiefe_m * umfang
 
 
+LEIBUNG_LFM_MAX_TIEFE_M = 0.25   # B 2204: Leibungen BIS 0,25 m Tiefe werden als
+                                 # LAUFMETER der Abwicklung ausgeschrieben, erst
+                                 # darüber als m² — bei üblichen Tiefen (6-19 cm)
+                                 # ist lfm der Normalfall.
+
+
+def laibungs_abwicklung(breite_m, hoehe_m, mit_sohlbank=False):
+    """Abwicklungslänge der Leibung: 2×Höhe + Breite [+ Breite Sohlbank]."""
+    return 2 * hoehe_m + breite_m + (breite_m if mit_sohlbank else 0)
+
+
+def leibung_zeile(pos_lfm, pos_m2, label, breite_m, hoehe_m, netto):
+    """Leibung NORMRICHTIG verbuchen (B 2204, #1-Rest): Tiefe ≤ 0,25 m →
+    Laufmeter-Zeile in pos_lfm (Menge = Abwicklung), tiefer → abgewickelte
+    m²-Zeile in pos_m2. Aufrufer hängt nur nicht-leere Positionen an."""
+    abw = laibungs_abwicklung(breite_m, hoehe_m, netto["sohlbank"])
+    if netto["tiefe"] <= LEIBUNG_LFM_MAX_TIEFE_M:
+        pos_lfm.add_zeile(label, laenge=round(abw, 2), summe=abw,
+                          quelle=(f"Abwicklung 2H+B{'+B (Sohlbank)' if netto['sohlbank'] else ''}"
+                                  f" · Tiefe {netto['tiefe']*100:.0f} cm ≤ 25 cm → lfm (B 2204)"))
+    else:
+        pos_m2.add_zeile(label, summe=netto["laibung"],
+                         quelle=(f"Tiefe {netto['tiefe']:.2f} m > 0,25 → m² · Abwicklung"
+                                 + (" +Sohlbank" if netto["sohlbank"] else "")))
+
+
 def _wand_cm_of(w, baudaten):
     """Wandstärke einer Öffnung: aus wand_typ (AW/IW), sonst Fallback per Art
     (Fenster→Außenwand, Tür→Innenwand). wand_typ tragen nur Text-Layer-Öffnungen."""
@@ -346,9 +372,11 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     pos_hoch = LVPosition("1.1h", f"Innenputz Wände über 3,2 m Raumhöhe — {geschoss}", "m²")
     pos_hoch.quelle = ("in Anlehnung an ÖNORM B 2204 · Räume >3,2 m lichte Höhe "
                        "(lotrechte Abgrenzung, gesamte Wandfläche)")
-    pos_laib = LVPosition("1.1a", f"Leibungsputz — {geschoss}", "m²")
-    pos_laib.quelle = ("ÖNORM B 2204 §5.5.1.3 (eigene Leibungs-Position: "
-                       "Öffnung > Schwelle abgezogen, Leibung separat)")
+    pos_laib = LVPosition("1.1a", f"Leibungsputz bis 0,25 m Tiefe — {geschoss}", "lfm")
+    pos_laib.quelle = ("ÖNORM B 2204 §5.5.1.3 · Leibungen ≤ 0,25 m Tiefe als "
+                       "Laufmeter der Abwicklung (eigene Leibungs-Position)")
+    pos_laib_m2 = LVPosition("1.1b", f"Leibungsputz über 0,25 m Tiefe — {geschoss}", "m²")
+    pos_laib_m2.quelle = "ÖNORM B 2204 · Leibungen > 0,25 m Tiefe abgewickelt in m²"
     for r in innen:
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or baudaten["geschosshoehe_m"]
@@ -368,14 +396,12 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
                             laenge=bw, hoehe=-hw, summe=-netto["abzug"],
                             quelle=f"Öffnung >{schwelle:.1f} m²")
-            # Leibung → EIGENE Position 1.1a (B 2204 §5.5.1.3 ist zweigleisig:
+            # Leibung → EIGENE Position (B 2204 §5.5.1.3 ist zweigleisig:
             # MIT Leibungs-Positionen wird abgezogen UND die Leibung separat
-            # verrechnet — vorher steckte sie in der Wandputz-Position, das
-            # machte das LV strukturell nicht angebots-vergleichbar).
-            pos_laib.add_zeile(f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
-                               summe=netto["laibung"],
-                               quelle=(f"Tiefe {netto['tiefe']:.2f}m × Abwicklung"
-                                       + (" +Sohlbank" if netto["sohlbank"] else "")))
+            # verrechnet); ≤0,25 m Tiefe als lfm (1.1a), darüber m² (1.1b).
+            leibung_zeile(pos_laib, pos_laib_m2,
+                          f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
+                          bw, hw, netto)
     pos.konfidenz = 0.9
     positionen.append(pos)
     if pos_hoch.zeilen:
@@ -384,6 +410,9 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
     if pos_laib.zeilen:
         pos_laib.konfidenz = 0.85
         positionen.append(pos_laib)
+    if pos_laib_m2.zeilen:
+        pos_laib_m2.konfidenz = 0.85
+        positionen.append(pos_laib_m2)
 
     pos = LVPosition("1.2", f"Innenputz Decken — {geschoss}", "m²")
     pos.quelle = "in Anlehnung an ÖNORM B 2204 (vormals B 2210) · Σ Raumfläche"
@@ -573,7 +602,11 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
 
     pos = LVPosition("1.1", f"Anstrich Wände bis 3,2 m — {geschoss}", "m²")
     pos.quelle = (f"Maler-Aufmaßpraxis (analog DIN 18363) · "
-                  f"Σ(U×H) − Öffnungen>{schwelle:.1f}m² + Laibungen")
+                  f"Σ(U×H) − Öffnungen>{schwelle:.1f}m²")
+    pos_laib = LVPosition("1.1a", f"Anstrich Leibungen bis 0,25 m Tiefe — {geschoss}", "lfm")
+    pos_laib.quelle = "Leibungen ≤ 0,25 m Tiefe als Laufmeter der Abwicklung (B 2204-Systematik)"
+    pos_laib_m2 = LVPosition("1.1b", f"Anstrich Leibungen über 0,25 m Tiefe — {geschoss}", "m²")
+    pos_laib_m2.quelle = "Leibungen > 0,25 m Tiefe abgewickelt in m²"
     # ÖNORM-HÖHENSPLIT (wie Putz): Räume >3,2 m lichte Höhe zur Gänze in die
     # eigene, teurere Position (Gerüst-/Steigaufwand — lotrechte Abgrenzung).
     pos_hoch = LVPosition("1.1h", f"Anstrich Wände über 3,2 m Raumhöhe — {geschoss}", "m²")
@@ -595,13 +628,20 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
             _art = (w.get("_art") or "Öffnung").capitalize()
             _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
                             laenge=bw, hoehe=-hw, summe=-netto["abzug"])
-            _ziel.add_zeile(f"  Laibung {w.get('code','')}".rstrip(), summe=netto["laibung"],
-                            quelle=f"Tiefe {netto['tiefe']:.2f}m × Abwicklung")
+            leibung_zeile(pos_laib, pos_laib_m2,
+                          f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
+                          bw, hw, netto)
     pos.konfidenz = 0.88
     positionen.append(pos)
     if pos_hoch.zeilen:
         pos_hoch.konfidenz = 0.85
         positionen.append(pos_hoch)
+    if pos_laib.zeilen:
+        pos_laib.konfidenz = 0.85
+        positionen.append(pos_laib)
+    if pos_laib_m2.zeilen:
+        pos_laib_m2.konfidenz = 0.85
+        positionen.append(pos_laib_m2)
 
     pos = LVPosition("1.2", f"Anstrich Decken — {geschoss}", "m²")
     pos.quelle = "Σ Raumfläche"
@@ -768,9 +808,11 @@ def gewerk_daemmung(rooms, windows, baudaten, geschoss="EG", tueren=None):
     pos.add_zeile("Außenwand Ansichtsfläche brutto", summe=round(_aw_brutto, 2),
                   quelle="Außenumfang × Höhe (gemeinsame Basis wie Rohbau/Außenputz)",
                   anker={"ebene": "konturen"})
-    pos_laib = LVPosition("1.1a", f"Laibungsdämmung — {geschoss}", "m²")
-    pos_laib.quelle = ("WDVS-Leibungen an Fassaden-Öffnungen (Öffnung>Schwelle "
-                       "abgezogen, Leibung separat gedämmt)")
+    pos_laib = LVPosition("1.1a", f"Laibungsdämmung bis 0,25 m Tiefe — {geschoss}", "lfm")
+    pos_laib.quelle = ("WDVS-Leibungen an Fassaden-Öffnungen · ≤ 0,25 m Tiefe als "
+                       "Laufmeter der Abwicklung (B 2204-Systematik)")
+    pos_laib_m2 = LVPosition("1.1b", f"Laibungsdämmung über 0,25 m Tiefe — {geschoss}", "m²")
+    pos_laib_m2.quelle = "WDVS-Leibungen > 0,25 m Tiefe abgewickelt in m²"
     for w in oeffnungen:
         if not _ist_aussenwand(w):
             continue
@@ -782,14 +824,17 @@ def gewerk_daemmung(rooms, windows, baudaten, geschoss="EG", tueren=None):
         _art = (w.get("_art") or "Öffnung").capitalize()
         pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
                       summe=-netto["abzug"], quelle=f"Fassaden-Öffnung >{schwelle:.1f} m²")
-        pos_laib.add_zeile(f"{_art} {w.get('code','')}".rstrip(" —"),
-                           summe=netto["laibung"],
-                           quelle=f"Tiefe {netto['tiefe']:.2f}m × Abwicklung")
+        leibung_zeile(pos_laib, pos_laib_m2,
+                      f"{_art} {w.get('code','')}".rstrip(" —"),
+                      w.get("breite_m", 0), w.get("hoehe_m", 0), netto)
     pos.konfidenz = 0.7
     positionen.append(pos)
     if pos_laib.zeilen:
         pos_laib.konfidenz = 0.65
         positionen.append(pos_laib)
+    if pos_laib_m2.zeilen:
+        pos_laib_m2.konfidenz = 0.65
+        positionen.append(pos_laib_m2)
     return positionen
 
 
