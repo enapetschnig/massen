@@ -3806,7 +3806,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         _groups.setdefault(_wg(r), []).append(r)
     rohbau_rooms = merged_rooms
     ausgeschlossene_einheiten = []
-    if is_efh and len(_groups) > 1:
+    if len(_groups) > 1:
         def _gscore(rs):
             return len(rs) + sum(len(r.get("_quellen_plaene") or []) for r in rs)
         dom_key = max(_groups, key=lambda k: _gscore(_groups[k]))
@@ -3822,6 +3822,14 @@ async def projekt_massen(body: ProjektMassenRequest):
         rohbau_rooms = list(dom)
         for k, rs in _groups.items():
             if k == dom_key:
+                continue
+            # Echtes MFH: gleich große Einheiten (TOP 1/TOP 2 …) werden NIE
+            # gefiltert. Geprüft wird nur bei EFH ODER wenn die Gruppe eine
+            # deutliche MINDERHEIT ist (≤ halber Score der dominanten) — W02
+            # mit 2 Streu-Räumen zählte sonst als "echte Wohnung" und die
+            # Trennung lief gar nicht (W02-Guard war rot).
+            if not is_efh and _gscore(rs) * 2 > _gscore(dom):
+                rohbau_rooms.extend(rs)
                 continue
             hat_code = bool(re.search(r"(w\d|top\d|og|kg|ug|dg|\dog)", k))
             # "Nur aus einem Plan" ist nur dann ein Indiz, wenn es ÜBERHAUPT mehrere
