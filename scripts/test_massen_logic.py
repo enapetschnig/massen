@@ -276,6 +276,27 @@ def run():
     check("berechne_gewerke: daemmung + geruest erscheinen mit Fassaden-Basis",
           "daemmung" in resF["gewerke"] and "geruest" in resF["gewerke"])
 
+    # ── ERDARBEITEN (LG 02, B 2205 — Annahme-Positionen) ──
+    from massen_logic import gewerk_erdarbeiten
+    _bd_erd = dict(BAUDATEN, _basis_bodenplatte_m2=120.0, _basis_aussenumfang_m=45.0)
+    erd = gewerk_erdarbeiten(ROOMS, [], _bd_erd)
+    check("Erdarbeiten: 4 Positionen mit Bodenplatten-Basis",
+          len(erd) == 4 and all(p.endsumme > 0 for p in erd))
+    # kein KG in ROOMS → frostfreie Gründung 0,50 m: Grube (120+45×0,8)=156 × 0,5 = 78
+    aushub = next(p for p in erd if p.posnr == "1.2")
+    check("Erdarbeiten: Aushub ohne KG = Grube 156 m² × 0,50 m = 78 m³",
+          abs(aushub.endsumme - 78.0) < 0.1 and "frostfrei" in aushub.beschreibung)
+    _rooms_kg = ROOMS + [{"name": "Keller", "flaeche_m2": 100.0, "geschoss": "KG"}]
+    erd_kg = gewerk_erdarbeiten(_rooms_kg, [], _bd_erd)
+    aushub_kg = next(p for p in erd_kg if p.posnr == "1.2")
+    check("Erdarbeiten: MIT KG → Tiefe 2,60 m (Keller erkannt)",
+          abs(aushub_kg.endsumme - 156.0 * 2.60) < 0.1 and "Keller" in aushub_kg.beschreibung)
+    check("Erdarbeiten: leer ohne jede Flächen-Basis (→ ausgelassen)",
+          gewerk_erdarbeiten([{"name": "Terrasse", "flaeche_m2": 20.0}], [], dict(BAUDATEN)) == [])
+    check("Erdarbeiten: alle Zeilen tragen Hüllen-Anker (Plan-Beleg)",
+          all((z.get("anker") or {}).get("ebene") == "konturen"
+              for p in erd for z in p.zeilen))
+
     # ── PHASE 4: ÖNORM-3,2-m-Höhensplit (lotrechte Abgrenzung) ──
     _rooms_hoch = [{"name": "Zimmer 1", "flaeche_m2": 30.0, "umfang_m": 22.0, "hoehe_m": 2.70},
                    {"name": "Wohnzimmer", "flaeche_m2": 50.0, "umfang_m": 30.0, "hoehe_m": 3.50}]

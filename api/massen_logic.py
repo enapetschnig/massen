@@ -862,6 +862,74 @@ def gewerk_geruest(rooms, windows, baudaten, geschoss="EG", tueren=None):
 # Standard (keine ONLV-Lizenz nötig, die betrifft nur die Positions-TEXTE);
 # damit mappt der ÖNORM-Export sauber in die AVA-Software der Baubetriebe
 # (ORCA/ABK/Bau-SU), die nach LG/ULG/Position gliedern.
+def gewerk_erdarbeiten(rooms, windows, baudaten, geschoss="EG", tueren=None):
+    """Erdarbeiten (LG 02 — in Anlehnung an ÖNORM B 2205). ANNAHME-Positionen
+    nach dem WDVS/Gerüst-Muster: OB und wie tief ausgehoben wird, ist Projekt-
+    Sache (Baugrund, Keller, Frosttiefe) — die Mengen-BASIS ist aus dem Plan
+    belegt (Bodenplatten-Fläche + Außenumfang). Jede Annahme steht in der
+    Zeile und ist je Firma überschreibbar (aushub_tiefe_m, humus_tiefe_m,
+    arbeitsraum_m). Leer (→ Gewerk ausgelassen) ohne Flächen-Basis."""
+    bopl = baudaten.get("_basis_bodenplatte_m2")
+    if not bopl:
+        # Fallback: Grundfläche des erdnächsten Geschosses aus den Räumen
+        kg = [r for r in rooms if str(r.get("geschoss") or "").upper() in ("KG", "UG")]
+        eg = [r for r in rooms if str(r.get("geschoss") or "").upper() in ("EG", "")]
+        basis = kg or eg
+        bopl = sum(float(_room_value(r, "flaeche_m2") or 0) for r in basis
+                   if kategorie_of(_room_name(r)) in
+                   ("Innenraum_warm", "Nebenraum_kalt", "Stiegenhaus"))
+    if not bopl or bopl <= 0:
+        return []
+    umf = baudaten.get("_basis_aussenumfang_m") or 4.0 * math.sqrt(bopl)
+    hat_keller = any(str(r.get("geschoss") or "").upper() in ("KG", "UG") for r in rooms)
+    arbeitsraum = float(baudaten.get("arbeitsraum_m") or 0.8)
+    humus_t = float(baudaten.get("humus_tiefe_m") or 0.20)
+    aushub_t = float(baudaten.get("aushub_tiefe_m") or (2.60 if hat_keller else 0.50))
+    grube = bopl + umf * arbeitsraum   # Grubenfläche inkl. Arbeitsraum-Streifen
+
+    positionen = []
+    pos = LVPosition("1.1", "Humusabtrag und Zwischenlagerung", "m³")
+    pos.quelle = "in Anlehnung an ÖNORM B 2205 · Grubenfläche × Humus-Annahme 0,20 m"
+    pos.add_zeile("Baufeld (Bodenplatte + Arbeitsraum)", laenge=round(grube, 2),
+                  hoehe=humus_t, summe=grube * humus_t,
+                  quelle=(f"({bopl:.1f} m² + U {umf:.1f} m × {arbeitsraum:.1f} m) "
+                          f"× {humus_t:.2f} m (Annahme)"),
+                  anker={"ebene": "konturen"})
+    pos.konfidenz = 0.55
+    positionen.append(pos)
+
+    pos = LVPosition("1.2", "Baugrubenaushub — "
+                     + ("Keller erkannt" if hat_keller else "frostfreie Gründung"), "m³")
+    pos.quelle = ("in Anlehnung an ÖNORM B 2205 · Grubenfläche × Aushubtiefe-ANNAHME — "
+                  "Tiefe/Böschung sind Projekt-Sache (Baugrundgutachten); "
+                  "aushub_tiefe_m je Firma überschreibbar")
+    pos.add_zeile("Aushub bis Aushubsohle", laenge=round(grube, 2), hoehe=aushub_t,
+                  summe=grube * aushub_t,
+                  quelle=(f"{grube:.1f} m² × {aushub_t:.2f} m "
+                          f"({'KG im Plan' if hat_keller else 'kein KG'} — Annahme)"),
+                  anker={"ebene": "konturen"})
+    pos.konfidenz = 0.5
+    positionen.append(pos)
+
+    pos = LVPosition("1.3", "Rollierung/Frostkoffer unter Bodenplatte", "m³")
+    pos.quelle = "Bodenplatten-Fläche × 0,15 m Rollierung (Annahme, üblich 10–20 cm)"
+    pos.add_zeile("Rollierung 15 cm", laenge=round(bopl, 2), hoehe=0.15,
+                  summe=bopl * 0.15, quelle=f"{bopl:.1f} m² × 0,15 m",
+                  anker={"ebene": "konturen"})
+    pos.konfidenz = 0.55
+    positionen.append(pos)
+
+    pos = LVPosition("1.4", "Hinterfüllung Arbeitsraum (lagenweise verdichtet)", "m³")
+    pos.quelle = "Außenumfang × Arbeitsraum-Streifen × Aushubtiefe (Annahme)"
+    pos.add_zeile("Arbeitsraum-Verfüllung", laenge=round(umf * arbeitsraum, 2),
+                  hoehe=aushub_t, summe=umf * arbeitsraum * aushub_t,
+                  quelle=f"U {umf:.1f} m × {arbeitsraum:.1f} m × {aushub_t:.2f} m",
+                  anker={"ebene": "konturen"})
+    pos.konfidenz = 0.5
+    positionen.append(pos)
+    return positionen
+
+
 GEWERKE = {
     "putz":    ("Verputzer (LG 10 Putz — in Anlehnung an ÖNORM B 2204)", gewerk_putz, "10"),
     "rohbau":  ("Maurer / Rohbau (LG 08 Mauerarbeiten — in Anlehnung an ÖNORM B 2204)", gewerk_rohbau, "08"),
@@ -872,6 +940,7 @@ GEWERKE = {
     "fenster": ("Fensterbau / Bauelemente (LG 09 Fenster, Fenstertüren — Stück-Liste)", gewerk_fenster, "09"),
     "daemmung": ("Fassadendämmung / WDVS (LG 44 Wärmedämmverbundsysteme)", gewerk_daemmung, "44"),
     "geruest": ("Gerüstbau (LG 04 Gerüste — Fassadengerüst, eingerüstete Ansichtsfläche)", gewerk_geruest, "04"),
+    "erdarbeiten": ("Erdarbeiten (LG 02 — in Anlehnung an ÖNORM B 2205, Annahme-Positionen)", gewerk_erdarbeiten, "02"),
 }
 
 

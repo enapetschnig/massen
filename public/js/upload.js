@@ -1347,7 +1347,7 @@
     // die Analyse (vorher lief ALLES still als 'allgemein'). Nur bekannte
     // Pipeline-Sektoren durchlassen; alles andere → 'allgemein' (Demo-Default).
     var _SEKTOREN = ['rohbau','putz','estrich','maler','beton','fliesen','fenster',
-                     'daemmung','geruest','trockenbau','dach','allgemein'];
+                     'daemmung','geruest','erdarbeiten','trockenbau','dach','allgemein'];
     var _pg = _SEKTOREN.indexOf(_projGewerk) >= 0 ? _projGewerk : 'allgemein';
     var gewSel = document.querySelector('.gewerk-select[data-id="'+planId+'"]');
     var gesInp = document.querySelector('.geschoss-input[data-id="'+planId+'"]');
@@ -2803,7 +2803,7 @@
 
   // ── ZIELGRUPPEN-PRESETS: gleiche Daten, passende Sicht je Branche-Bereich ──
   var ZG_GEWERKE = {
-    rohbau: ['rohbau', 'beton'],            // Baumeister: Mauerwerk/Beton + Materialliste
+    rohbau: ['rohbau', 'beton', 'erdarbeiten'],   // Baumeister: Erdbau/Mauerwerk/Beton + Materialliste
     ausbau: ['putz', 'estrich', 'maler'],   // Ausbau-Subunternehmer
     kalkulant: null                          // alle Gewerke, LV-Form offen
   };
