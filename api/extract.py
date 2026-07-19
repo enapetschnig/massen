@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.19"
+APP_REV = "2026-07-09.20"
 
 
 @app.get("/api/extract-health")
@@ -2391,6 +2391,57 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                 regionen = []
 
             # Stufe 1: Fenster je Region — sonst Ganzblatt-Fallback
+            # LISTEN-KONSENS gegen Lauf-Varianz (Sonnet 5 ohne temperature=0
+            # streute die Fenster-LISTE 18↔16 auch nach dem Symbol-Median):
+            # 3 PARALLELE Lesungen je Crop (Threads — sequenziell kippte übers
+            # Vercel-Limit, Muster Symbol-Median); je (Raum, Maß-Bucket) gilt
+            # die MEDIAN-Instanzanzahl über die Läufe (= in ≥2 von 3 gesehen),
+            # übernommen wird ein konsistenter Lauf (Positionen bleiben stimmig).
+            from concurrent.futures import ThreadPoolExecutor as _F_TPE
+            from collections import defaultdict as _f_dd
+
+            def _fenster_konsens(f_img, frage_txt):
+                def _lauf(_):
+                    try:
+                        return (_frage(FENSTER_PROMPT, f_img, frage_txt,
+                                       max_tok=4096).get("fenster") or [])
+                    except Exception as _e:
+                        print(f"[fenster-konsens] Lauf fehlgeschlagen: {_e!r}")
+                        return None
+                with _F_TPE(max_workers=3) as _ex:
+                    laeufe = [l for l in _ex.map(_lauf, range(3)) if l is not None]
+                if not laeufe:
+                    return []
+                if len(laeufe) == 1:
+                    return laeufe[0]
+
+                def _fk(f):
+                    return (re.sub(r"[\s\-_/]+", "", (f.get("raum") or "").lower()),
+                            round(float(f.get("breite_cm") or 0) / 15.0),
+                            round(float(f.get("hoehe_cm") or 0) / 15.0))
+                per_lauf = []
+                for lauf in laeufe:
+                    d = _f_dd(list)
+                    for f in lauf:
+                        d[_fk(f)].append(f)
+                    per_lauf.append(d)
+                keys = set()
+                for d in per_lauf:
+                    keys.update(d.keys())
+                out = []
+                for k in keys:
+                    counts = sorted(len(d.get(k, [])) for d in per_lauf)
+                    n_fin = counts[len(counts) // 2]
+                    if n_fin <= 0:
+                        continue
+                    quelle = next((d[k] for d in per_lauf if len(d.get(k, [])) >= n_fin), None)
+                    if quelle:
+                        out.extend(quelle[:n_fin])
+                print(f"[fenster-konsens] {len(laeufe)} Läufe "
+                      f"({'/'.join(str(sum(len(v) for v in d.values())) for d in per_lauf)}) "
+                      f"→ {len(out)} bestätigt")
+                return out
+
             ziele = regionen if regionen else [(None, None)]
             for _clip, _gesch in ziele:
                 f_img = _render(_clip, 250)
@@ -2398,11 +2449,10 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                     continue
                 # max_tok 4096: die Positionsfelder (x_pct/y_pct) verlängern die
                 # Antwort ~20 Tokens/Fenster — 2048 schnitt bei 20+ Fenstern ab.
-                parsed = _frage(FENSTER_PROMPT, f_img,
-                                "Finde jedes Fenster in diesem Grundriss-Ausschnitt."
-                                if _clip is not None else "Finde jedes Fenster in diesem Plan.",
-                                max_tok=4096)
-                for _vf in (parsed.get("fenster") or []):
+                for _vf in _fenster_konsens(
+                        f_img,
+                        "Finde jedes Fenster in diesem Grundriss-Ausschnitt."
+                        if _clip is not None else "Finde jedes Fenster in diesem Plan."):
                     if _gesch and not _vf.get("geschoss"):
                         _vf["geschoss"] = _gesch
                     # F-MARKER AM PLAN (Traceability): Crop-Prozente → Seiten-pt.
