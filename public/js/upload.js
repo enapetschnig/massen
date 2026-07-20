@@ -1223,6 +1223,43 @@
         });
       });
     }
+    // LV als ÖNORM-A-2063-Datenträger (.onlv, XML) — WYSIWYG wie .xlsx:
+    // schickt die geladenen Gewerke ans Backend, das die ONLV-XML baut.
+    var btnLv = document.getElementById('projekt-onlv-btn');
+    if (btnLv && !btnLv.dataset.bound) { btnLv.dataset.bound = '1';
+      btnLv.addEventListener('click', function () {
+        var d = window.projektMassenData || {};
+        if (!d.gewerke) { alert('Noch keine Auswertung geladen.'); return; }
+        var alt = btnLv.textContent;
+        btnLv.textContent = '… erstellt';
+        btnLv.disabled = true;
+        fetch('/api/aufmass-onlv', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projekt_name: ((document.getElementById('project-name') || {}).textContent || 'Projekt').trim(),
+            gewerke: d.gewerke
+          })
+        }).then(function (r) {
+          var ct = r.headers.get('Content-Type') || '';
+          if (ct.indexOf('xml') === -1) return r.json().then(function (j) {
+            throw new Error((j && j.grund) || 'Export fehlgeschlagen');
+          });
+          return r.blob();
+        }).then(function (blob) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          var pn = ((document.getElementById('project-name') || {}).textContent || 'Projekt');
+          a.download = 'LV_' + (pn.replace(/[^\wäöüß\- ]/gi, '').trim() || 'Projekt') + '.onlv';
+          a.click();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+        }).catch(function (e) {
+          alert('ÖNORM-A-2063-Export fehlgeschlagen: ' + e.message);
+        }).finally(function () {
+          btnLv.textContent = alt;
+          btnLv.disabled = false;
+        });
+      });
+    }
   }
 
   // ─── Tab-Wechsel innerhalb der Ergebnis-Section ───

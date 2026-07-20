@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.21"
+APP_REV = "2026-07-09.22"
 
 
 @app.get("/api/extract-health")
@@ -6501,6 +6501,175 @@ async def aufmass_xlsx(body: AufmassXlsxRequest):
             headers={"Content-Disposition": 'attachment; filename="aufmass.xlsx"'})
     except Exception as e:
         print(f"[aufmass-xlsx] fehlgeschlagen: {e!r}")
+        return JSONResponse({"ok": False, "grund": f"Export fehlgeschlagen: {e}"},
+                            status_code=200)
+
+
+class AufmassOnlvRequest(BaseModel):
+    """ÖNORM-A-2063-Export: Client schickt die geladenen Gewerke (WYSIWYG)."""
+    projekt_name: str | None = None
+    gewerke: dict | None = None
+
+
+# ÖNORM A 2063:2015 ONLV — Struktur 1:1 aus einer echten ABK8-Datei verifiziert
+# (Namespace, ausschreibungs-lv/kenndaten/gliederung-lg, lb 'frei formuliert'/FF,
+# lg→ulg→grundtextnr→folgeposition/pos-eigenschaften mit stichwort/langtext/
+# einheit/pzzv-normalposition/leistungsteil/lvmenge). Wir liefern ein FREIES LV
+# (eigene Positionen, ohne Leistungsbuch, ohne Preise) — genau der vom Format
+# vorgesehene 'frei formuliert'-Modus, importierbar in ABK/Nevaris/ORCA.
+_ONLV_NS = "http://www.oenorm.at/schema/A2063/2015-07-15"
+_ONLV_EINHEIT = {"m²": "m²", "m2": "m²", "m³": "m³", "m3": "m³",
+                 "lfm": "m", "lm": "m", "m": "m", "stk": "Stk", "stk.": "Stk",
+                 "pa": "PA", "psch": "PA", "kg": "kg", "t": "t", "h": "h"}
+
+
+def _onlv_bytes(projekt_name, gewerke):
+    """Baut die ONLV-XML (bytes, UTF-8+BOM wie ABK). Nur Positionen mit
+    positiver Menge; jede Position trägt Stichwort, Langtext (Beschreibung +
+    ÖNORM-Herleitung + Rechenweg-Zeilen) und die geschätzt/exakt-Kennzeichnung."""
+    import xml.etree.ElementTree as ET
+
+    def _sub(parent, tag, text=None, **attrs):
+        e = ET.SubElement(parent, tag, {k: str(v) for k, v in attrs.items()})
+        if text is not None:
+            e.text = str(text)
+        return e
+
+    onlv = ET.Element("onlv", {"xmlns": _ONLV_NS})
+    md = _sub(onlv, "metadaten")
+    _sub(md, "erstelltam", _iso_now_z())
+    _sub(md, "dateiname", f"LV_{_dateiname_safe(projekt_name)}.onlv")
+    _sub(md, "programmsystem", "KI-Massenermittlung (e-power GmbH)")
+    _sub(md, "programmversion", APP_REV)
+
+    lt = _sub(onlv, "leistungsteiltabelle")
+    lteil = _sub(lt, "leistungsteil", nr="1")
+    _sub(lteil, "bezeichnung", "Festpreis, ganzes LV")
+    _sub(_sub(lteil, "definition-preisanteil1"), "festpreise")
+    _sub(_sub(lteil, "definition-preisanteil2"), "festpreise")
+    zn = _sub(onlv, "zugelassenenachlaesse")
+    _sub(zn, "aufpreisanteile")
+    _sub(_sub(zn, "hierarchiestufen"), "auflvsumme")
+
+    alv = _sub(onlv, "ausschreibungs-lv")
+    kd = _sub(alv, "kenndaten")
+    _sub(kd, "lvcode", f"KI-MASSEN\\{_dateiname_safe(projekt_name)}")
+    _sub(kd, "vorhaben", projekt_name or "Bauvorhaben")
+    _sub(kd, "lvbezeichnung", "Massenermittlung (KI, in Anlehnung an ÖNORM)")
+    _sub(kd, "bearbeitungsstand", _heute_iso())
+    _sub(_sub(kd, "preisanteilmodell"), "preisanteile")
+    _sub(kd, "wkz", "EUR")
+
+    gl = _sub(alv, "gliederung-lg")
+    _sub(gl, "preiserstellungsverfahren", "Preisangebotsverfahren")
+    lb = _sub(gl, "lb")
+    _sub(lb, "bezeichnung", "frei formuliert")
+    _sub(_sub(lb, "herausgeber"), "firma")
+    _sub(lb.find("herausgeber/firma"), "name", "frei formuliert")
+    _sub(lb, "lbkennung", "FF")
+    _sub(lb, "versionsnummer", "999")
+    _sub(lb, "versionsdatum", "2009-06-01")
+    _sub(lb, "status", "freigegeben")
+    _sub(lb, "downloadurl")
+    _sub(gl, "svb")
+    lgliste = _sub(gl, "lg-liste")
+
+    _used_lg = set()
+    n_pos_total = 0
+    for gk, gd in (gewerke or {}).items():
+        gd = gd or {}
+        positionen = [p for p in (gd.get("positionen") or [])
+                      if p.get("endsumme") is not None and float(p.get("endsumme") or 0) > 0]
+        if not positionen:
+            continue
+        # LG-Nummer aus dem Gewerk (2-stellig); Kollision/fehlend → laufend
+        lgnr = str(gd.get("lg") or "").strip()
+        if not re.fullmatch(r"\d{1,2}", lgnr) or lgnr.zfill(2) in _used_lg:
+            lgnr = str(90 + len(_used_lg))
+        lgnr = lgnr.zfill(2)
+        _used_lg.add(lgnr)
+        lg = _sub(lgliste, "lg", nr=lgnr)
+        _sub(_sub(lg, "lg-eigenschaften"), "ueberschrift",
+             (gd.get("label") or gk)[:255])
+        ulgliste = _sub(lg, "ulg-liste")
+        ulg = _sub(ulgliste, "ulg", nr="01")
+        _sub(_sub(ulg, "ulg-eigenschaften"), "ueberschrift",
+             "Massenermittlung (prüffähig, mit Herleitung)")
+        posc = _sub(ulg, "positionen")
+        for i, p in enumerate(positionen, start=1):
+            n_pos_total += 1
+            gt = _sub(posc, "grundtextnr", nr=str(min(i, 99)).zfill(2))
+            _sub(gt, "grundtext")
+            fp = _sub(gt, "folgeposition", ftnr="A", mfv="")
+            pe = _sub(fp, "pos-eigenschaften")
+            _posnr = p.get("posnr") or str(i)
+            _sub(pe, "stichwort", f"[{_posnr}] {(p.get('beschreibung') or '')}"[:255])
+            lang = _sub(pe, "langtext")
+            _sub(lang, "p", p.get("beschreibung") or "")
+            if p.get("quelle"):
+                _sub(lang, "p", str(p.get("quelle")))
+            _geschaetzt = False
+            for z in (p.get("zeilen") or [])[:60]:
+                _t = (z.get("text") or "").strip()
+                _q = (z.get("quelle") or "").strip()
+                if "geschätzt" in _q.lower() or "≈" in _q:
+                    _geschaetzt = True
+                if _t or _q:
+                    _sub(lang, "p", f"{_t}  {('· ' + _q) if _q else ''}"
+                                    f"  = {z.get('wert')}".strip())
+            if _geschaetzt:
+                _sub(lang, "p", "HINWEIS: enthält aus Raum-Proportion GESCHÄTZTE "
+                                "Umfänge (kein Maßstempel im Plan) — bitte prüfen.")
+            _sub(pe, "einheit",
+                 _ONLV_EINHEIT.get((p.get("einheit") or "").strip().lower(),
+                                   (p.get("einheit") or "PA")))
+            _sub(_sub(pe, "pzzv"), "normalposition")
+            _sub(pe, "leistungsteil", "1")
+            _sub(pe, "lvmenge", f"{float(p.get('endsumme') or 0):.2f}")
+            _sub(pe, "nichtangeboten")
+
+    ET.indent(onlv, space="  ")
+    body = ET.tostring(onlv, encoding="unicode")
+    xml = '<?xml version="1.0" encoding="utf-8"?>\n' + body
+    return ("﻿" + xml).encode("utf-8"), n_pos_total
+
+
+def _iso_now_z():
+    try:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return "2026-07-20T00:00:00Z"
+
+
+def _heute_iso():
+    from datetime import date
+    return date.today().isoformat()
+
+
+def _dateiname_safe(s):
+    return re.sub(r"[^\wäöüßÄÖÜ\-]", "_", (s or "Projekt").strip())[:60] or "Projekt"
+
+
+@app.post("/api/aufmass-onlv")
+async def aufmass_onlv(body: AufmassOnlvRequest):
+    """LV ALS ÖNORM-A-2063-DATENTRÄGER (.onlv, XML) — Kalkulanten-Anschluss
+    (ABK/Nevaris/ORCA). Struktur 1:1 aus echter ABK8-ONLV verifiziert; freies
+    LV ('frei formuliert'/FF), unsere Positionen + Mengen, ohne Preise."""
+    try:
+        if not (body.gewerke):
+            return JSONResponse({"ok": False, "grund": "Keine Gewerke geladen."},
+                                status_code=200)
+        data, n = _onlv_bytes(body.projekt_name, body.gewerke)
+        if not n:
+            return JSONResponse({"ok": False, "grund": "Keine Positionen mit Menge."},
+                                status_code=200)
+        fn = f"LV_{_dateiname_safe(body.projekt_name)}.onlv"
+        return Response(
+            content=data, media_type="application/xml",
+            headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+    except Exception as e:
+        print(f"[aufmass-onlv] fehlgeschlagen: {e!r}")
         return JSONResponse({"ok": False, "grund": f"Export fehlgeschlagen: {e}"},
                             status_code=200)
 
