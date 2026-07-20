@@ -1914,6 +1914,74 @@
   // Kräftige, gut unterscheidbare Raumfarben (Raumansicht) — je Raum stabil per Index.
   var _NZ_RAUMFARBEN = ['#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#f97316',
     '#14b8a6', '#eab308', '#8b5cf6', '#06b6d4', '#ef4444', '#84cc16', '#f43f5e'];
+  // RAUM-POLYGON-EDITOR: Eckpunkte ziehen/hinzufügen/löschen, Fläche live neu.
+  var _nzRaumEditMode = false;   // „Raum bearbeiten"-Modus
+  var _nzRaumSel = -1;           // Index des bearbeiteten Raums in _nzData.raeume
+  var _nzRvDrag = null;          // {ri, vi} gerade gezogener Eckpunkt
+
+  // Fläche (m²) eines Polygons in Bild-Pixeln — Shoelace, am Plan-Maßstab.
+  function _nzPolyFlaeche(pts) {
+    if (!pts || pts.length < 3) return 0;
+    var k = _nzPxProM(); if (!k) return 0;
+    var A = 0, n = pts.length;
+    for (var i = 0; i < n; i++) {
+      var a = pts[i], b = pts[(i + 1) % n];
+      A += a[0] * b[1] - b[0] * a[1];
+    }
+    return Math.abs(A) / 2 / (k * k);
+  }
+  // Umfang (m) eines geschlossenen Polygons in Bild-Pixeln.
+  function _nzPolyUmfang(pts) {
+    if (!pts || pts.length < 3) return 0;
+    var k = _nzPxProM(); if (!k) return 0;
+    var U = 0, n = pts.length;
+    for (var i = 0; i < n; i++) {
+      var a = pts[i], b = pts[(i + 1) % n];
+      U += Math.sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
+    }
+    return U / k;
+  }
+  // Ein Raum-Polygon wurde geändert → neue Fläche/Umfang merken (noch nicht in
+  // die Massen — erst „Fläche übernehmen"). Readout aktualisieren.
+  function _nzRaumMarkEdited(ri) {
+    var r = _nzData.raeume[ri]; if (!r) return;
+    r._edited = true;
+    r._f_edit = Math.round(_nzPolyFlaeche(r.region_px) * 100) / 100;
+    r._u_edit = Math.round(_nzPolyUmfang(r.region_px) * 100) / 100;
+    _nzRaumLiveReadout(ri);
+  }
+  // Live-Anzeige (Name · Fläche · Umfang) des bearbeiteten Raums im Readout-Feld.
+  function _nzRaumLiveReadout(ri) {
+    var out = document.getElementById('nz-raum-out'); if (!out) return;
+    var r = _nzData.raeume[ri]; if (!r) return;
+    var f = _nzPolyFlaeche(r.region_px), u = _nzPolyUmfang(r.region_px);
+    var f0 = r.f_m2;
+    out.innerHTML = '<strong>' + esc(r.name || 'Raum') + '</strong> — Fläche <strong style="color:#0369a1">' +
+      fmtNum(Math.round(f * 100) / 100) + ' m²</strong>' +
+      (f0 ? ' <span style="color:#6b7280">(Plan: ' + fmtNum(f0) + ')</span>' : '') +
+      ' · Umfang <strong>' + fmtNum(Math.round(u * 100) / 100) + ' m</strong>' +
+      ' &nbsp;<button type="button" class="nz-btn" style="padding:.1rem .5rem" onclick="_nzRaumUebernehmen()">✓ Fläche &amp; Umfang übernehmen</button>' +
+      (r.region_px.length > 3 ? ' <span style="color:#6b7280;font-size:.78rem">· Doppelklick auf einen Punkt = löschen · kleine Kreise auf den Kanten = Punkt einfügen</span>' : '');
+  }
+  // Übernahme: die editierte Fläche/Umfang des gewählten Raums als Override in die
+  // Massenrechnung geben (per Raumname+Geschoss) + am Plan speichern.
+  window._nzRaumUebernehmen = function () {
+    if (_nzRaumSel < 0 || !_nzData) return;
+    var r = _nzData.raeume[_nzRaumSel]; if (!r) return;
+    var f = Math.round(_nzPolyFlaeche(r.region_px) * 100) / 100;
+    var u = Math.round(_nzPolyUmfang(r.region_px) * 100) / 100;
+    if (!f) { alert('Dieser Plan ist nicht kalibriert — die Fläche lässt sich nicht in m² umrechnen.'); return; }
+    var ov = _filterState.materialliste_override || {};
+    ov.raum_flaechen = ov.raum_flaechen || {};
+    ov.raum_flaechen[_nrmRaum(r.name || '')] = { name: r.name, f_m2: f, umfang_m: u,
+      geschoss: r.geschoss || null };
+    _filterState.materialliste_override = ov;
+    refreshProjektMassen();
+    _nzSave(null);   // Override-Zustand (inkl. raum_flaechen) am Plan speichern
+    var out = document.getElementById('nz-raum-out');
+    if (out) out.innerHTML = '<strong style="color:#166534">✓ ' + esc(r.name || 'Raum') +
+      ': Fläche ' + fmtNum(f) + ' m² / Umfang ' + fmtNum(u) + ' m übernommen — Mengen neu gerechnet.</strong>';
+  };
 
   // Bild-px → Meter über die Plan-Kalibrierung (scale·ptm). Kern des Mess-
   // Werkzeugs: wo die Auto-Erkennung unsicher ist, misst der Polier selbst
@@ -2168,36 +2236,59 @@
     // RAUMANSICHT (Calcora-Stil): jeder rekonstruierte Raum als kräftig gefülltes,
     // eigen-farbiges Polygon mit Name + Fläche — das „es hat den Plan verstanden"-
     // Signal. Umschaltbar (_nzRaumFill); aus = die technische Wand-/Prüf-Ansicht.
-    var _rIdx = 0;
-    (_nzData.raeume || []).forEach(function (r) {
+    var _rIdx = 0, _rvHandles = '';
+    (_nzData.raeume || []).forEach(function (r, _ri) {
       if (!r.region_px || r.region_px.length < 3) return;
       var pts = r.region_px.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+      var _edit = _nzRaumEditMode && _nzRaumSel === _ri;
+      // Im Editier-Modus sind die Polygone anklickbar (Raum wählen).
+      var _pe = _nzRaumEditMode ? 'auto' : 'none';
       if (_nzRaumFill) {
         var rc = _NZ_RAUMFARBEN[_rIdx % _NZ_RAUMFARBEN.length]; _rIdx++;
         var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
-        lines += '<polygon points="' + pts + '" fill="' + rc + '" fill-opacity="0.26"' +
-          ' stroke="' + rc + '" stroke-width="2" stroke-opacity="0.9"' +
-          ' pointer-events="none"><title>' + esc(r.name || '') +
-          (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +
-          (rok ? ' ✓ geometrisch bestätigt' : ' — prüfen') + '</title></polygon>';
-        // Raumbeschriftung mittig (Name + Fläche), wie im Konkurrenz-Tool
+        lines += '<polygon data-rpoly="' + _ri + '" points="' + pts + '" fill="' + rc + '" fill-opacity="' +
+          (_edit ? 0.12 : 0.26) + '" stroke="' + rc + '" stroke-width="' + (_edit ? 3 : 2) + '"' +
+          ' stroke-opacity="0.95"' + (_edit ? ' stroke-dasharray="1 0"' : '') +
+          ' cursor="' + (_nzRaumEditMode ? 'pointer' : 'default') + '" pointer-events="' + _pe + '">' +
+          '<title>' + esc(r.name || '') + (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +
+          (_nzRaumEditMode ? ' — klicken zum Bearbeiten' : (rok ? ' ✓ geometrisch bestätigt' : ' — prüfen')) +
+          '</title></polygon>';
         if (r.px) {
           var _rl = fs * 0.92;
           labels += '<text x="' + r.px[0] + '" y="' + r.px[1] + '" font-size="' + Math.round(_rl) +
             '" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="' +
             Math.round(_rl / 3) + '" fill="#1f2937" style="font-weight:700;pointer-events:none">' +
             esc((r.name || '').slice(0, 22)) + '</text>';
-          if (r.f_m2) labels += '<text x="' + r.px[0] + '" y="' + (r.px[1] + _rl * 1.15) +
+          var _fnow = _edit ? _nzPolyFlaeche(r.region_px) : r.f_m2;
+          if (_fnow) labels += '<text x="' + r.px[0] + '" y="' + (r.px[1] + _rl * 1.15) +
             '" font-size="' + Math.round(_rl * 0.82) + '" text-anchor="middle" paint-order="stroke"' +
-            ' stroke="#fff" stroke-width="' + Math.round(_rl / 3.5) + '" fill="#374151"' +
-            ' style="pointer-events:none">' + fmtNum(r.f_m2) + ' m²</text>';
+            ' stroke="#fff" stroke-width="' + Math.round(_rl / 3.5) + '" fill="' + (_edit ? '#0369a1' : '#374151') + '"' +
+            ' style="font-weight:' + (_edit ? 700 : 400) + ';pointer-events:none">' + fmtNum(Math.round(_fnow * 100) / 100) + ' m²</text>';
         }
       } else {
         var rok2 = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
         var rcol = rok2 ? '#16a34a' : (r.status === 'u_daneben' ? '#0d9488' : '#d97706');
-        lines += '<polygon points="' + pts + '" fill="' + rcol + '" fill-opacity="0.07"' +
+        lines += '<polygon data-rpoly="' + _ri + '" points="' + pts + '" fill="' + rcol + '" fill-opacity="0.07"' +
           ' stroke="' + rcol + '" stroke-width="1.6" stroke-opacity="0.5"' +
-          ' stroke-dasharray="7 4" pointer-events="none"/>';
+          ' stroke-dasharray="7 4" cursor="' + (_nzRaumEditMode ? 'pointer' : 'default') +
+          '" pointer-events="' + _pe + '"/>';
+      }
+      // GRIFFE des bearbeiteten Raums: Eckpunkte (ziehen) + Kanten-Mittelpunkte
+      // (klicken = Punkt einfügen). Zuletzt gezeichnet → liegen ganz oben.
+      if (_edit) {
+        var rr = Math.max(5, fs * 0.5);
+        r.region_px.forEach(function (v, vi) {
+          var vn = r.region_px[(vi + 1) % r.region_px.length];
+          _rvHandles += '<circle class="nz-radd" data-radd="' + _ri + ':' + vi + '" cx="' +
+            ((v[0] + vn[0]) / 2) + '" cy="' + ((v[1] + vn[1]) / 2) + '" r="' + (rr * 0.62) +
+            '" fill="#fff" stroke="#0369a1" stroke-width="1.5" cursor="copy" pointer-events="auto">' +
+            '<title>Punkt einfügen</title></circle>';
+        });
+        r.region_px.forEach(function (v, vi) {
+          _rvHandles += '<circle class="nz-rv" data-rv="' + _ri + ':' + vi + '" cx="' + v[0] + '" cy="' + v[1] +
+            '" r="' + rr + '" fill="#0369a1" stroke="#fff" stroke-width="2" cursor="move" pointer-events="auto">' +
+            '<title>Ziehen · Doppelklick = Punkt löschen</title></circle>';
+        });
       }
     });
     (_nzData.raeume || []).forEach(function (r) {
@@ -2354,6 +2445,7 @@
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben (Raumansicht) ↔ technische Wand-/Prüfansicht">🎨 Räume</button>' +
+      '<button type="button" class="nz-btn' + (_nzRaumEditMode ? ' nz-btn-on' : '') + '" data-z="raumedit" title="Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu">✏️ Raum bearbeiten</button>' +
       '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
       '<button type="button" class="nz-btn' + (_nzMeasMode ? ' nz-btn-on' : '') + '" data-z="mess" title="Byte-exakt am Maßstab messen — für unsichere Räume selbst nachmessen">📏 Messen</button>' +
       (_nzMeasMode ? '<button type="button" class="nz-btn" data-z="mess-clear">✕ Messung löschen</button>' : '') +
@@ -2361,6 +2453,9 @@
       (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>'
         : (_nzMeasMode ? '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>'
           : 'Mausrad = zoomen · ziehen = verschieben')) + '</span></div>' +
+      (_nzRaumEditMode ? '<div class="nz-raum-editbar" id="nz-raum-out">' +
+        (_nzRaumSel >= 0 ? '' : '<strong style="color:#0369a1">Klicke einen Raum</strong>, um seine Eckpunkte zu ziehen — Fläche &amp; Umfang rechnen live neu.') +
+        '</div>' : '') +
       '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode || _nzMeasMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
       '<div class="nz-zoom" style="transform-origin:0 0;position:relative;width:100%">' +
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
@@ -2368,7 +2463,8 @@
       'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
       '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g>' +
       '<g style="pointer-events:auto">' + marker + '</g>' +
-      '<g style="pointer-events:auto">' + raumBadges + '</g></svg></div></div>';
+      '<g style="pointer-events:auto">' + raumBadges + '</g>' +
+      '<g style="pointer-events:auto">' + _rvHandles + '</g></svg></div></div>';
     _nzWireZoom(cont);
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
@@ -2444,6 +2540,26 @@
     }, { passive: false });
     _nzWrap.addEventListener('mousedown', function (e) {
       if (_nzAddMode) { _nzDraw = { p0: _nzScreenToImg(e), p1: null }; e.preventDefault(); return; }
+      // RAUM-EDITOR: Eckpunkt ziehen oder (auf Kanten-Mitte) einfügen.
+      if (_nzRaumEditMode) {
+        var t = e.target;
+        var rvv = t && t.getAttribute && t.getAttribute('data-rv');
+        var add = t && t.getAttribute && t.getAttribute('data-radd');
+        if (rvv) {
+          var pr = rvv.split(':'); _nzRvDrag = { ri: +pr[0], vi: +pr[1] };
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+        if (add) {
+          var pa = add.split(':'), ri = +pa[0], vi = +pa[1];
+          var reg = _nzData.raeume[ri].region_px;
+          var mid = [(reg[vi][0] + reg[(vi + 1) % reg.length][0]) / 2,
+                     (reg[vi][1] + reg[(vi + 1) % reg.length][1]) / 2];
+          reg.splice(vi + 1, 0, mid);           // neuen Punkt einfügen
+          _nzRvDrag = { ri: ri, vi: vi + 1 };   // sofort ziehbar
+          _nzRaumMarkEdited(ri); _nzPaint();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+      }
       _nzPan = { sx: e.clientX, sy: e.clientY, ox: _nzZoom.x, oy: _nzZoom.y };
       _nzMoved = false; _nzWrap.style.cursor = 'grabbing';
     });
@@ -2451,7 +2567,13 @@
       b.addEventListener('click', function () {
         var z = b.getAttribute('data-z');
         if (z === 'raumfill') { _nzRaumFill = !_nzRaumFill; _nzPaint(); }
-        else if (z === 'add') { _nzAddMode = !_nzAddMode; if (_nzAddMode) { _nzMeasMode = false; _nzMeasPts = []; } _nzSel = null; _nzPaint(); }
+        else if (z === 'raumedit') {
+          _nzRaumEditMode = !_nzRaumEditMode;
+          if (_nzRaumEditMode) { _nzRaumFill = true; _nzAddMode = false; _nzMeasMode = false; _nzMeasPts = []; _nzSel = null; }
+          else { _nzRaumSel = -1; _nzRvDrag = null; }
+          _nzPaint();
+        }
+        else if (z === 'add') { _nzAddMode = !_nzAddMode; if (_nzAddMode) { _nzMeasMode = false; _nzMeasPts = []; _nzRaumEditMode = false; } _nzSel = null; _nzPaint(); }
         else if (z === 'mess') { _nzMeasMode = !_nzMeasMode; if (_nzMeasMode) { _nzAddMode = false; } _nzMeasPts = []; _nzSel = null; _nzPaint(); }
         else if (z === 'mess-clear') { _nzMeasPts = []; _nzPaint(); }
         else if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
@@ -2462,6 +2584,13 @@
       _nzZoomWinBound = true;
       window.addEventListener('mousemove', function (e) {
         if (_nzDraw && _nzWrap) { _nzDraw.p1 = _nzScreenToImg(e); _nzDrawPreview(); return; }
+        // Raum-Eckpunkt live ziehen: Position updaten + neu zeichnen (Fläche folgt).
+        if (_nzRvDrag && _nzWrap) {
+          var p = _nzScreenToImg(e);
+          _nzData.raeume[_nzRvDrag.ri].region_px[_nzRvDrag.vi] = [Math.round(p[0]), Math.round(p[1])];
+          _nzRaumLiveReadout(_nzRvDrag.ri); _nzPaint();
+          return;
+        }
         if (!_nzPan || !_nzWrap) return;
         var dx = e.clientX - _nzPan.sx, dy = e.clientY - _nzPan.sy;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _nzMoved = true;
@@ -2469,11 +2598,29 @@
       });
       window.addEventListener('mouseup', function (e) {
         if (_nzDraw) { if (_nzDraw.p1) _nzAddWall(_nzDraw.p0, _nzDraw.p1); _nzDraw = null; return; }
+        if (_nzRvDrag) {   // Eckpunkt-Zug beendet → als bearbeitet markieren
+          _nzRaumMarkEdited(_nzRvDrag.ri); _nzRvDrag = null; _nzPaint(); return;
+        }
+        // RAUM-EDITOR: Klick auf ein Polygon → diesen Raum bearbeiten.
+        if (_nzRaumEditMode && _nzPan && !_nzMoved && e.target) {
+          var rp = e.target.getAttribute && e.target.getAttribute('data-rpoly');
+          if (rp != null) { _nzRaumSel = +rp; _nzPan = null; _nzPaint(); _nzRaumLiveReadout(_nzRaumSel); return; }
+        }
         // MESSEN: ein sauberer Klick (kein Pan) setzt einen Mess-Punkt.
         if (_nzMeasMode && _nzPan && !_nzMoved && _nzWrap) {
           _nzMeasPts.push(_nzScreenToImg(e)); _nzPan = null; _nzMeasPaint(); return;
         }
         if (_nzPan) { _nzPan = null; if (_nzWrap) _nzWrap.style.cursor = 'grab'; }
+      });
+      // Doppelklick auf einen Eckpunkt → löschen (mind. 3 Punkte bleiben).
+      window.addEventListener('dblclick', function (e) {
+        if (!_nzRaumEditMode || !e.target || !e.target.getAttribute) return;
+        var rv = e.target.getAttribute('data-rv');
+        if (!rv) return;
+        var pr = rv.split(':'), ri = +pr[0], vi = +pr[1];
+        var reg = _nzData.raeume[ri].region_px;
+        if (reg.length > 3) { reg.splice(vi, 1); _nzRaumMarkEdited(ri); _nzPaint(); }
+        e.preventDefault();
       });
     }
     // Mess-Overlay nach einem Repaint wiederherstellen (Punkte überleben Zoom/Modus).
@@ -2605,22 +2752,24 @@
     }
   }
 
-  // Speichert den Korrektur-Zustand (Edits + Verteilung/Wandlängen) am Plan.
+  // Speichert den Korrektur-Zustand (Edits + Verteilung/Wandlängen/Raumflächen) am
+  // Plan. Nimmt Wandlängen UND Raumflächen aus dem laufenden Override-Zustand mit,
+  // damit ein Save nicht die jeweils andere Korrektur verwirft.
   function _nzSave(anteile, laengen) {
     if (!_nzData || !_nzData.plan_id) return;
+    var ov = _filterState.materialliste_override || {};
+    var wl = (laengen && laengen.wand_laengen_m) || ov.wand_laengen_m || null;
+    var wlm = (laengen && laengen.wand_laengen_manuell) || ov.wand_laengen_manuell || false;
+    var rf = ov.raum_flaechen && Object.keys(ov.raum_flaechen).length ? ov.raum_flaechen : null;
     var leer = !Object.keys(_nzEdit.removed).length && !Object.keys(_nzEdit.thick).length &&
       !Object.keys(_nzEdit.aussen).length && !(_nzEdit.added && _nzEdit.added.length) &&
-      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile && !laengen;
+      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile && !wl && !rf;
     fetch('/api/nachzeichnen-korrektur', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      // seite mitschicken: Wand-IDs sind nur JE SEITE eindeutig — ohne Seiten-Key
-      // landeten OG-Korrekturen (Blatt 2) beim nächsten Laden auf EG-Wänden (Blatt 1).
-      // Hauptseite → null (bestehender, un-suffixter Key: Default-Load bleibt kompatibel).
       body: JSON.stringify({ plan_id: _nzData.plan_id,
         seite: (_nzAktivSeite != null && _nzAktivSeite !== _nzHauptSeite) ? _nzAktivSeite : null,
         korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null,
-          wand_laengen_m: (laengen && laengen.wand_laengen_m) || null,
-          wand_laengen_manuell: (laengen && laengen.wand_laengen_manuell) || false } })
+          wand_laengen_m: wl, wand_laengen_manuell: wlm, raum_flaechen: rf } })
     }).catch(function () { /* Speichern ist best-effort */ });
   }
 
@@ -2795,12 +2944,19 @@
           added: k.edit.added || [], oeffRemoved: k.edit.oeffRemoved || {} };
         // manuell hinzugefügte Wände wieder in die Geometrie einspielen
         (_nzEdit.added || []).forEach(function (w) { _nzData.waende.push(w); });
+        // Editierte Raumflächen (Polygon-Korrektur) zurück in den Override.
+        var _ovr = _filterState.materialliste_override || {}, _rchg = false;
+        if (k.raum_flaechen && Object.keys(k.raum_flaechen).length) {
+          _ovr.raum_flaechen = k.raum_flaechen; _rchg = true;
+        }
         // Wandlängen (byte-exakt/manuell) haben Vorrang; sonst die alte Prozent-Verteilung.
         if (k.wand_laengen_m) {   // absolute Wandlängen zurück in den Override
-          var ovl = _filterState.materialliste_override || {};
-          ovl.wand_laengen_m = k.wand_laengen_m;
-          ovl.wand_laengen_manuell = !!k.wand_laengen_manuell;
-          _filterState.materialliste_override = ovl;
+          _ovr.wand_laengen_m = k.wand_laengen_m;
+          _ovr.wand_laengen_manuell = !!k.wand_laengen_manuell;
+          _filterState.materialliste_override = _ovr;
+          refreshProjektMassen();
+        } else if (_rchg) {
+          _filterState.materialliste_override = _ovr;
           refreshProjektMassen();
         } else if (k.anteile) {   // angewandte Verteilung zurück in den Override → Mengen stimmen wieder
           var ov = _filterState.materialliste_override || {}, changed = false;

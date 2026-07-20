@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.25"
+APP_REV = "2026-07-09.26"
 
 
 @app.get("/api/extract-health")
@@ -3821,12 +3821,43 @@ async def projekt_massen(body: ProjektMassenRequest):
     halluzinationen = [r for r in merged_rooms if r.get("_hallucination")]
     merged_rooms = cleaned_rooms
 
+    # 4a3) RAUM-POLYGON-KORREKTUR (Nutzer zieht die Eckpunkte am Plan): die
+    # editierte Fläche/Umfang eines Raums überschreibt die gelesene — byte-exakt
+    # am Plan-Maßstab gerechnet, höchste Priorität. Match über den transliterierten
+    # Raumnamen (wie das Frontend, _nrmRaum) + optional Geschoss.
+    _rf = (body.materialliste_override or {}).get("raum_flaechen") if body.materialliste_override else None
+    if _rf and isinstance(_rf, dict):
+        def _rnrm(s):
+            s = (s or "").lower()
+            for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+                s = s.replace(a, b)
+            return re.sub(r"[^a-z0-9]", "", s)
+        _n_ov = 0
+        for r in merged_rooms:
+            key = _rnrm(r.get("name"))
+            corr = _rf.get(key)
+            if not corr:
+                continue
+            _cg = _nk(corr.get("geschoss") or "")
+            if _cg and _nk(r.get("geschoss") or "") and _cg != _nk(r.get("geschoss") or ""):
+                continue
+            if corr.get("f_m2"):
+                r["flaeche_m2"] = round(float(corr["f_m2"]), 2)
+            if corr.get("umfang_m"):
+                r["umfang_m"] = round(float(corr["umfang_m"]), 2)
+            r["_flaeche_editiert"] = True
+            _n_ov += 1
+        if _n_ov:
+            print(f"[raum-polygon] {_n_ov} Raum-Fläche(n) aus Polygon-Korrektur übernommen")
+
     # 4b1) ISOPERIMETRISCHE PLAUSI PRO RAUM: ein Footprint der Fläche F kann
     # geometrisch keinen Umfang < 4·√F haben (Quadrat-Minimum). Ein kleinerer
     # U ist ein falsch zugeordneter Nachbar-Wert (Stempel-Cross-Talk, z.B. der
     # Flur erbt Bads Umfang) → verwerfen statt die Wandmengen zu verfälschen.
     # Der Wert wird zur Transparenz vermerkt; U bleibt leer (ehrlich „–").
     for r in merged_rooms:
+        if r.get("_flaeche_editiert"):
+            continue   # vom Nutzer am Plan gezogen → als wahr akzeptieren
         f, u = r.get("flaeche_m2"), r.get("umfang_m")
         if f and u and u < 4.0 * (float(f) ** 0.5) * 0.98:
             r["_umfang_implausibel"] = round(float(u), 2)

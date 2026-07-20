@@ -2801,6 +2801,11 @@ g[data-oid].nz-hi-oeff circle { animation: nzoeffpulse 0.5s ease-in-out 6; trans
   stroke: #f39301 !important; stroke-width: 4 !important; }
 tr.oeff-z-klick { cursor: pointer; }
 tr.oeff-z-klick:hover { background: #eff6ff; }
+/* Raum-Polygon-Editor: Live-Leiste + Eckpunkt-Griffe */
+.nz-raum-editbar { margin: 0.4rem 0 0.2rem; padding: 0.5rem 0.7rem; background: #f0f9ff;
+  border: 1px solid #bae6fd; border-radius: 8px; font-size: 0.86rem; color: #0c4a6e; }
+circle.nz-rv:hover { fill: #f39301 !important; r: 9; }
+circle.nz-radd:hover { fill: #dbeafe !important; }
 @media (prefers-reduced-motion: reduce) { g[data-oid].nz-hi-oeff circle { animation: none; stroke-width: 5 !important; } }
 /* HLZ-Position anklickbar → am Plan zeigen */
 .ml-row-hlz { cursor: pointer; }
