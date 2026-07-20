@@ -1910,6 +1910,10 @@
   var _nzWrap = null, _nzPan = null, _nzZoomWinBound = false;
   var _nzAddMode = false, _nzDraw = null;   // "Wand hinzufügen"-Modus + laufende Zeichnung
   var _nzMeasMode = false, _nzMeasPts = [];   // MESSEN-Modus (Lineal/Fläche) + geklickte Punkte
+  var _nzRaumFill = true;   // Räume kräftig bunt füllen (Raumansicht, Default an)
+  // Kräftige, gut unterscheidbare Raumfarben (Raumansicht) — je Raum stabil per Index.
+  var _NZ_RAUMFARBEN = ['#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#f97316',
+    '#14b8a6', '#eab308', '#8b5cf6', '#06b6d4', '#ef4444', '#84cc16', '#f43f5e'];
 
   // Bild-px → Meter über die Plan-Kalibrierung (scale·ptm). Kern des Mess-
   // Werkzeugs: wo die Auto-Erkennung unsicher ist, misst der Polier selbst
@@ -2161,14 +2165,40 @@
     // die geometrische Lesart der App — grün deckt sich mit dem Raum, Prüf-Farbe
     // zeigt, wo die Rekonstruktion abweicht). Nur verlässliche, achsparallele
     // Umrisse (offene/zackige Räume werden vom Backend ausgelassen).
+    // RAUMANSICHT (Calcora-Stil): jeder rekonstruierte Raum als kräftig gefülltes,
+    // eigen-farbiges Polygon mit Name + Fläche — das „es hat den Plan verstanden"-
+    // Signal. Umschaltbar (_nzRaumFill); aus = die technische Wand-/Prüf-Ansicht.
+    var _rIdx = 0;
     (_nzData.raeume || []).forEach(function (r) {
       if (!r.region_px || r.region_px.length < 3) return;
-      var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
-      var rcol = rok ? '#16a34a' : (r.status === 'u_daneben' ? '#0d9488' : '#d97706');
       var pts = r.region_px.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
-      lines += '<polygon points="' + pts + '" fill="' + rcol + '" fill-opacity="0.07"' +
-        ' stroke="' + rcol + '" stroke-width="1.6" stroke-opacity="0.5"' +
-        ' stroke-dasharray="7 4" pointer-events="none"/>';
+      if (_nzRaumFill) {
+        var rc = _NZ_RAUMFARBEN[_rIdx % _NZ_RAUMFARBEN.length]; _rIdx++;
+        var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
+        lines += '<polygon points="' + pts + '" fill="' + rc + '" fill-opacity="0.26"' +
+          ' stroke="' + rc + '" stroke-width="2" stroke-opacity="0.9"' +
+          ' pointer-events="none"><title>' + esc(r.name || '') +
+          (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +
+          (rok ? ' ✓ geometrisch bestätigt' : ' — prüfen') + '</title></polygon>';
+        // Raumbeschriftung mittig (Name + Fläche), wie im Konkurrenz-Tool
+        if (r.px) {
+          var _rl = fs * 0.92;
+          labels += '<text x="' + r.px[0] + '" y="' + r.px[1] + '" font-size="' + Math.round(_rl) +
+            '" text-anchor="middle" paint-order="stroke" stroke="#fff" stroke-width="' +
+            Math.round(_rl / 3) + '" fill="#1f2937" style="font-weight:700;pointer-events:none">' +
+            esc((r.name || '').slice(0, 22)) + '</text>';
+          if (r.f_m2) labels += '<text x="' + r.px[0] + '" y="' + (r.px[1] + _rl * 1.15) +
+            '" font-size="' + Math.round(_rl * 0.82) + '" text-anchor="middle" paint-order="stroke"' +
+            ' stroke="#fff" stroke-width="' + Math.round(_rl / 3.5) + '" fill="#374151"' +
+            ' style="pointer-events:none">' + fmtNum(r.f_m2) + ' m²</text>';
+        }
+      } else {
+        var rok2 = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
+        var rcol = rok2 ? '#16a34a' : (r.status === 'u_daneben' ? '#0d9488' : '#d97706');
+        lines += '<polygon points="' + pts + '" fill="' + rcol + '" fill-opacity="0.07"' +
+          ' stroke="' + rcol + '" stroke-width="1.6" stroke-opacity="0.5"' +
+          ' stroke-dasharray="7 4" pointer-events="none"/>';
+      }
     });
     (_nzData.raeume || []).forEach(function (r) {
       // 3 Stufen: voll verifiziert (F+U) · Fläche bestätigt (F exakt, U prüfen) · prüfen
@@ -2323,6 +2353,7 @@
       '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
+      '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben (Raumansicht) ↔ technische Wand-/Prüfansicht">🎨 Räume</button>' +
       '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
       '<button type="button" class="nz-btn' + (_nzMeasMode ? ' nz-btn-on' : '') + '" data-z="mess" title="Byte-exakt am Maßstab messen — für unsichere Räume selbst nachmessen">📏 Messen</button>' +
       (_nzMeasMode ? '<button type="button" class="nz-btn" data-z="mess-clear">✕ Messung löschen</button>' : '') +
@@ -2419,7 +2450,8 @@
     cont.querySelectorAll('.nz-zoomctl [data-z]').forEach(function (b) {
       b.addEventListener('click', function () {
         var z = b.getAttribute('data-z');
-        if (z === 'add') { _nzAddMode = !_nzAddMode; if (_nzAddMode) { _nzMeasMode = false; _nzMeasPts = []; } _nzSel = null; _nzPaint(); }
+        if (z === 'raumfill') { _nzRaumFill = !_nzRaumFill; _nzPaint(); }
+        else if (z === 'add') { _nzAddMode = !_nzAddMode; if (_nzAddMode) { _nzMeasMode = false; _nzMeasPts = []; } _nzSel = null; _nzPaint(); }
         else if (z === 'mess') { _nzMeasMode = !_nzMeasMode; if (_nzMeasMode) { _nzAddMode = false; } _nzMeasPts = []; _nzSel = null; _nzPaint(); }
         else if (z === 'mess-clear') { _nzMeasPts = []; _nzPaint(); }
         else if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
@@ -2802,6 +2834,9 @@
       _nzWireTabs(cont);
       _nzWireSeiten(cont);
       _nzPaint();
+      // Analyse fertig + Plan überzeichnet → zuerst NUR die Planansicht zeigen
+      // (statt der überladenen Gesamtansicht). Einmalig, respektiert Nutzer-Klick.
+      if (typeof window.wfAutoPlan === 'function') window.wfAutoPlan();
     }).catch(function (e) {
       _nzGeladen = false; _nzLaeuft = false;
       cont.innerHTML = '<p class="nachzeichnen-hint">Nachzeichnen fehlgeschlagen: ' + esc(e.message) + '</p>';
@@ -2935,13 +2970,28 @@
       if (nz) nz.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
+  var _wfUserPicked = false;   // hat der Nutzer selbst einen Schritt gewählt?
+  var _wfAutoDone = false;     // Auto-Sprung zur Planansicht schon passiert?
+  window.wfShow = wfShow;
+  // Nach abgeschlossener Analyse zuerst NUR den überzeichneten Plan zeigen
+  // (nicht die überladene Gesamtansicht) — einmalig, und nur solange der
+  // Nutzer nicht selbst einen Schritt gewählt hat.
+  window.wfAutoPlan = function () {
+    if (_wfUserPicked || _wfAutoDone) return;
+    _wfAutoDone = true;
+    wfShow(2);
+  };
   (function wireWorkflow() {
     var bar = document.getElementById('workflow-steps');
     if (!bar) return;
     bar.querySelectorAll('.wf-step').forEach(function (b) {
-      b.addEventListener('click', function () { wfShow(parseInt(b.getAttribute('data-wf'), 10)); });
+      b.addEventListener('click', function () {
+        _wfUserPicked = true;
+        wfShow(parseInt(b.getAttribute('data-wf'), 10));
+      });
     });
-    wfShow(0);   // Default: Übersicht — Seite wie bisher, kein Demo-Bruch
+    wfShow(0);   // Start: Übersicht — der Auto-Sprung auf die Planansicht kommt,
+                 // sobald das Nachzeichnen-Overlay fertig ist (wfAutoPlan).
   })();
 
   // ── ZIELGRUPPEN-PRESETS: gleiche Daten, passende Sicht je Branche-Bereich ──
