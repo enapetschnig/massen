@@ -939,10 +939,15 @@
       h += '<thead><tr><th style="' + TH + '">Bez.</th><th style="' + TH + '">Raum</th>' +
            '<th style="' + THn + '">B (m)</th><th style="' + THn + '">H (m)</th>' +
            '<th style="' + THn + '">FPH</th><th style="' + THn + '">STUK</th><th style="' + TH + '">Quelle</th></tr></thead><tbody>';
+      var _typ = titel === 'Fenster' ? 'fenster' : 'tuer';
       arr.forEach(function (o) {
         var q = (o.quelle || '').indexOf('stuk') >= 0 ? '<span style="color:#0f766e">Text/STUK</span>' :
                 ((o.quelle || '').indexOf('vision') >= 0 ? '<span style="color:#34363d">Vision</span>' : esc(o.quelle || ''));
-        h += '<tr><td style="' + TD + '">' + esc(o.bezeichnung || '') + '</td>' +
+        // Klick auf die Zeile → zugehörigen Marker am Plan pulsen (Traceability).
+        var click = ' class="oeff-z-klick" onclick="nzHighlightOeffnung(\'' + _typ + '\',\'' +
+          esc(o.raum || '').replace(/'/g, "\\'") + '\',' + (o.breite_m || 0) + ',' + (o.hoehe_m || 0) + ')"' +
+          ' title="Am Plan zeigen"';
+        h += '<tr' + click + '><td style="' + TD + '">📍 ' + esc(o.bezeichnung || '') + '</td>' +
           '<td style="' + TD + '">' + esc(o.raum || '') + '</td>' +
           '<td style="' + TDn + '">' + dash(o.breite_m) + '</td>' +
           '<td style="' + TDn + '">' + dash(o.hoehe_m) + '</td>' +
@@ -2626,6 +2631,36 @@
     setTimeout(function () {
       Array.prototype.forEach.call(sel, function (el) { el.classList.remove('nz-hi'); });
     }, 3200);
+  };
+  // Kopplung Öffnungs-DATEN → Plan: eine Fenster-/Tür-Zeile anklicken →
+  // der zugehörige Marker am Plan pulst (Traceability, beide Richtungen).
+  // Match über Typ + nächstliegende Breite/Höhe (+ Raum, falls am Marker da).
+  window.nzHighlightOeffnung = function (typ, raum, b, h) {
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var cont = document.getElementById('nachzeichnen-container');
+    if (!cont || !_nzData || !_nzData.oeffnungen) return;
+    var key = _nrmRaum(raum || '');
+    var best = null, bestd = 1e9;
+    (_nzData.oeffnungen || []).forEach(function (o) {
+      if (o.typ !== typ) return;
+      var d = 0;
+      if (b && o.breite_m) d += Math.abs(o.breite_m - b);
+      if (h && o.hoehe_m) d += Math.abs(o.hoehe_m - h);
+      // Marker mit passendem Raum bevorzugen (kleiner Bonus)
+      if (key && o.raum && _nrmRaum(o.raum) === key) d -= 5;
+      if (d < bestd) { bestd = d; best = o; }
+    });
+    if (!best) {
+      var out = document.getElementById('nz-mess-out');
+      if (out) out.innerHTML = '<strong style="color:#b45309">Diese Öffnung ist auf dem gezeigten Plan-Blatt nicht markiert — bitte das andere Plan-Blatt (Grundriss) wählen.</strong>';
+      return;
+    }
+    if (_nzWrap) { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
+    var g = cont.querySelector('g[data-oid="' + best.id + '"]');
+    if (!g) return;
+    g.classList.add('nz-hi-oeff');
+    setTimeout(function () { g.classList.remove('nz-hi-oeff'); }, 3400);
   };
   // Kopplung Liste → Plan: die Wände einer HLZ-Stärke am Plan pulsieren lassen.
   function nzHighlight(cm) {

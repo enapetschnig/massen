@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.24"
+APP_REV = "2026-07-09.25"
 
 
 @app.get("/api/extract-health")
@@ -5505,6 +5505,23 @@ def _nachzeichnen_roh(body):
         raise
     except Exception as e:
         return {"ok": False, "grund": f"Pläne nicht ladbar: {e}"}
+
+    # AUTO-AUSWAHL (nur projekt_id, kein expliziter plan_id): den Plan mit den
+    # meisten erkannten FENSTERN zuerst zeigen — das ist der Grundriss, wo die
+    # Öffnungen tatsächlich eingezeichnet sind (der Detail-/Polierplan hat kaum
+    # Fenster-Codes). Zählung billig aus dem vorhandenen Cache; ohne Cache = -1
+    # (bleibt hinten). Reihenfolge sonst unverändert.
+    if not body.plan_id and len(plaene) > 1:
+        _ck = ("nachzeichnen_cache" if body.seite is None
+               else f"nachzeichnen_cache_s{body.seite}")
+
+        def _cache_fenster(plan):
+            cache = (plan.get("agent_log") or {}).get(_ck)
+            if cache and cache.get("v") == _NZ_CACHE_V:
+                oe = ((cache.get("daten") or {}).get("oeffnungen") or [])
+                return sum(1 for o in oe if o.get("typ") == "fenster")
+            return -1
+        plaene = sorted(plaene, key=_cache_fenster, reverse=True)
 
     letzter_grund = "kein Grundriss-Blatt gefunden"
     for plan in plaene:

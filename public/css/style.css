@@ -2795,6 +2795,13 @@ img {
 line.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 10 !important; }
 /* Hüllen-Kontur (Bodenplatte/Decke/WDVS/Gerüst-Anker) pulst mit */
 polyline.nz-hi { animation: nzpulse 0.55s ease-in-out 5; stroke-width: 8 !important; stroke-opacity: 1 !important; }
+/* Öffnungs-Marker (Fenster/Tür) pulst, wenn man die Datenzeile anklickt */
+@keyframes nzoeffpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.8); } }
+g[data-oid].nz-hi-oeff circle { animation: nzoeffpulse 0.5s ease-in-out 6; transform-box: fill-box; transform-origin: center;
+  stroke: #f39301 !important; stroke-width: 4 !important; }
+tr.oeff-z-klick { cursor: pointer; }
+tr.oeff-z-klick:hover { background: #eff6ff; }
+@media (prefers-reduced-motion: reduce) { g[data-oid].nz-hi-oeff circle { animation: none; stroke-width: 5 !important; } }
 /* HLZ-Position anklickbar → am Plan zeigen */
 .ml-row-hlz { cursor: pointer; }
 .ml-row-hlz:hover { background: #eff6ff; border-radius: 6px; }
