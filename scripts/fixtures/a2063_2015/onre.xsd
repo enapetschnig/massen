@@ -1,0 +1,597 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://www.oenorm.at/schema/A2063/2015-07-15" xmlns:on="http://www.oenorm.at/schema/A2063/2015-07-15" targetNamespace="http://www.oenorm.at/schema/A2063/2015-07-15" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:include schemaLocation="ontypdef.xsd"/>
+	<xs:annotation>
+		<xs:documentation>onre.xsd - ÖNORM A 2063 Datenbestand Abrechnung einschließlich Mengenberechnung</xs:documentation>
+	</xs:annotation>
+	<xs:annotation>
+		<xs:documentation> ÖNORM A 2063, Ausgabe: 2015-07-15
+
+Austausch von Leistungsbeschreibungs-, Elementkatalogs-, Ausschreibungs-, Angebots-, Auftrags- und Abrechnungsdaten in elektronischer Form
+
+Folgende Schema-Dokumente bilden einen Bestandteil zur Umsetzung der vorliegenden ÖNORM:
+–	ontypdef.xsd: Typdefinitionen für alle Datenbestände;
+–	onformel.xsd: Formelkatalog nach Anhang A;
+–	ontext.xsd: Formatierung der Texte von Vorbemerkungen und Positionen;
+–	onlb.xsd: Datenbestand LB;
+–	onpr.xsd: Datenbestand Preise und Kennwerte zu einer LB;
+–	onaek.xsd: Datenbestand AEK;
+–	onpek.xsd: Datenbestand PEK;
+–	onlv.xsd: Datenbestand LV;
+–	onre.xsd: Datenbestand Abrechnung einschließlich Mengenberechnung;
+–	onix.xsd: Datenbestand Indexkatalog.
+
+Weitere Informationen:
+http://www.as-institute.at/development/downloads/
+
+Copyright © Austrian Standards Institute 2015.
+
+Austrian Standards Institute/
+Österreichisches Normungsinstitut (ON)
+Heinestraße 38, 1020 Wien
+</xs:documentation>
+	</xs:annotation>
+	<!--===-->
+	<xs:complexType name="onre-positionsteilergebnis.type">
+		<xs:annotation>
+			<xs:documentation>Positionsteilergebnis im Ausmaßblatt</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="posnr" type="lv-posnr-ref.type"/>
+			<xs:group ref="stichwort.group"/>
+			<xs:element name="eh" type="einheit.type"/>
+			<xs:element name="lz" type="lz.type"/>
+			<xs:element name="akz" type="akz.type">
+				<xs:annotation>
+					<xs:documentation>Leerstring, wenn ohne AKZ</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="berechnung" type="mebe-mengenberechnung.type"/>
+			<xs:element name="ergebnis" type="berechnetemenge.type"/>
+			<xs:element name="variable" type="variablenbezeichner.type" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Variable definieren</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="korrektur" type="mebe-korrekturkennzeichen.type" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Bei Korrekturen im Ausmaßblatt: Kennzeichen, ob ursprünglich geforderte order korrigierte Angabe</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:group name="onre-mengenberechnung.group">
+		<xs:annotation>
+			<xs:documentation>Mengenberechnung mit Ausmaßblättern</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="mengenberechnung">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="ambl" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="bezeichnung" type="amblbez.type">
+										<xs:annotation>
+											<xs:documentation>Ausmaßblattbezeichnung</xs:documentation>
+										</xs:annotation>
+									</xs:element>
+									<xs:group ref="grafiktabelle.group" minOccurs="0"/>
+									<xs:element name="hilfsberechnungen" type="mebe-hilfsberechnungen.type" minOccurs="0">
+										<xs:annotation>
+											<xs:documentation>Hilfsberechnungen für das Ausmaßblatt</xs:documentation>
+										</xs:annotation>
+									</xs:element>
+									<xs:element name="p" type="onre-positionsteilergebnis.type" maxOccurs="unbounded">
+										<xs:annotation>
+											<xs:documentation>Positionsteilergebnisse</xs:documentation>
+										</xs:annotation>
+									</xs:element>
+								</xs:sequence>
+								<xs:attribute name="nr" type="amblnr.type" use="required"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_ambl">
+					<xs:selector xpath="on:ambl"/>
+					<xs:field xpath="@nr"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<!--===-->
+	<xs:group name="onre-tsr-abgrenzung.group">
+		<xs:annotation>
+			<xs:documentation>Abgrenzung der Teilschlussrechnung</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="abgrenzung">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="lvposition" minOccurs="0" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="von" type="lv-posnr-ref.type"/>
+									<xs:element name="bis" type="lv-posnr-ref.type"/>
+								</xs:sequence>
+							</xs:complexType>
+						</xs:element>
+						<xs:element name="akz" minOccurs="0" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="von" type="akz.type"/>
+									<xs:element name="bis" type="akz.type"/>
+								</xs:sequence>
+							</xs:complexType>
+						</xs:element>
+						<xs:element name="lz" minOccurs="0" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="von" type="lz.type"/>
+									<xs:element name="bis" type="lz.type"/>
+								</xs:sequence>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<!--===-->
+	<xs:group name="onre-preisumrechnung.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsteilbeträge Preisumrechnung (je LG)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="preisumrechnung" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Erforderlich wenn veränderliche Preise vereinbart wurden</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="rechnungsteilbetrag" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Teilsumme je Leistungsteil und Preisperiode</xs:documentation>
+							</xs:annotation>
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="summe-exkl-pu" type="betragmitpreisanteilen.type"/>
+									<xs:element name="summe-inkl-pu" type="betragmitpreisanteilen.type"/>
+								</xs:sequence>
+								<xs:attribute name="lt" type="leistungsteil.type" use="required"/>
+								<xs:attribute name="pp" type="pp.type" use="required"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_preisumrechnung">
+					<xs:selector xpath="on:rechnungsteilbetrag"/>
+					<xs:field xpath="@lt"/>
+					<xs:field xpath="@pp"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-pos.group">
+		<xs:annotation>
+			<xs:documentation>Daten je Position</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="pos-eigenschaften" type="lv-element-simple.type">
+				<xs:annotation>
+					<xs:documentation>Aus Abrechnungs-LV</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="positionsergebnis">
+				<xs:annotation>
+					<xs:documentation>Abrechnungsmenge</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="menge" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>Positionsergebnis je LZ und je AKZ</xs:documentation>
+							</xs:annotation>
+							<xs:complexType>
+								<xs:simpleContent>
+									<xs:extension base="berechnetemenge.type">
+										<xs:attribute name="lz" type="lz.type" use="required"/>
+										<xs:attribute name="akz" type="akz.type" use="required">
+											<xs:annotation>
+												<xs:documentation>Leerstring, wenn ohne AKZ</xs:documentation>
+											</xs:annotation>
+										</xs:attribute>
+									</xs:extension>
+								</xs:simpleContent>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_posergjelzakz">
+					<xs:selector xpath="on:menge"/>
+					<xs:field xpath="@lz"/>
+					<xs:field xpath="@akz"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-list-posfrei.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsteilbeträge Positionen (LV ohne Gliederung)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="preiserstellungsverfahren" type="preiserstellungsverfahren.type"/>
+			<xs:element name="positionen">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="position" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:group ref="onre-pos.group"/>
+								</xs:sequence>
+								<xs:attribute name="nr" type="posnrfrei.type" use="required"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_posfrei">
+					<xs:selector xpath="on:position"/>
+					<xs:field xpath="@nr"/>
+				</xs:key>
+			</xs:element>
+			<xs:group ref="onre-preisumrechnung.group"/>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-list-pos.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsteilbeträge Positionen (LV mit Gliederung; geteilte oder ungeteilte)</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="positionen">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="grundtextnr" maxOccurs="unbounded">
+							<xs:annotation>
+								<xs:documentation>2stellige Nr.</xs:documentation>
+							</xs:annotation>
+							<xs:complexType>
+								<xs:choice>
+									<xs:annotation>
+										<xs:documentation>Entweder n-mal ungeteilte Positionen mit Mehrfachverwendung oder ein Grundtext und n-mal Folgepositionen</xs:documentation>
+									</xs:annotation>
+									<xs:element name="ungeteilteposition" maxOccurs="unbounded">
+										<xs:complexType>
+											<xs:sequence>
+												<xs:group ref="onre-pos.group"/>
+											</xs:sequence>
+											<xs:attribute name="mfv" type="mfv-optional.type" use="required">
+												<xs:annotation>
+													<xs:documentation>Leerstring wenn Position ohne Mehrfachverwendung</xs:documentation>
+												</xs:annotation>
+											</xs:attribute>
+										</xs:complexType>
+									</xs:element>
+									<xs:element name="folgeposition" maxOccurs="unbounded">
+										<xs:complexType>
+											<xs:sequence>
+												<xs:group ref="onre-pos.group"/>
+											</xs:sequence>
+											<xs:attribute name="ftnr" type="ftnr.type" use="required"/>
+											<xs:attribute name="mfv" type="mfv-optional.type" use="required">
+												<xs:annotation>
+													<xs:documentation>Leerstring wenn Position ohne Mehrfachverwendung</xs:documentation>
+												</xs:annotation>
+											</xs:attribute>
+										</xs:complexType>
+									</xs:element>
+								</xs:choice>
+								<xs:attribute name="nr" type="gtnr.type" use="required"/>
+							</xs:complexType>
+							<xs:key name="uid_ungeteiltepos">
+								<xs:selector xpath="on:ungeteilteposition"/>
+								<xs:field xpath="@mfv"/>
+							</xs:key>
+							<xs:key name="uid_folgepos">
+								<xs:selector xpath="on:folgeposition"/>
+								<xs:field xpath="@ftnr"/>
+								<xs:field xpath="@mfv"/>
+							</xs:key>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_grundtext">
+					<xs:selector xpath="on:grundtextnr"/>
+					<xs:field xpath="@nr"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-list-ulg.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsteilbeträge ULGs</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="ulg-liste">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="ulg" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="ulg-eigenschaften" type="lv-element-simple.type"/>
+									<xs:group ref="onre-list-pos.group"/>
+									<xs:group ref="onre-preisumrechnung.group">
+										<xs:annotation>
+											<xs:documentation>Rechnungsteilbeträge Preisumrechnung (je ULG)</xs:documentation>
+										</xs:annotation>
+									</xs:group>
+									<xs:element name="ulg-summe" type="gruppensumme.type">
+										<xs:annotation>
+											<xs:documentation>Inkl. Preisumrechnung</xs:documentation>
+										</xs:annotation>
+									</xs:element>
+								</xs:sequence>
+								<xs:attribute name="nr" type="ulgnr.type" use="required"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_ulg">
+					<xs:selector xpath="on:ulg"/>
+					<xs:field xpath="@nr"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-list-lg.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsteilbeträge LGs</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:group ref="lv-ogheader.group"/>
+			<xs:element name="lg-liste">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="lg" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="lg-eigenschaften" type="lv-element-simple.type"/>
+									<xs:group ref="onre-list-ulg.group"/>
+									<xs:element name="lg-summe" type="gruppensumme.type"/>
+								</xs:sequence>
+								<xs:attribute name="nr" type="lgnr.type" use="required"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_lg">
+					<xs:selector xpath="on:lg"/>
+					<xs:field xpath="@nr"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-list-og.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsteilbeträge OGs</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="og-liste">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="og" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="og-eigenschaften" type="lv-og.type"/>
+									<xs:group ref="onre-list-lg.group"/>
+									<xs:element name="og-summe" type="gruppensumme.type"/>
+								</xs:sequence>
+								<xs:attribute name="nr" type="ognr.type" use="required"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_og">
+					<xs:selector xpath="on:og"/>
+					<xs:field xpath="@nr"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-list-hg.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsteilbeträge HGs</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="hg-liste">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="hg" maxOccurs="unbounded">
+							<xs:complexType>
+								<xs:sequence>
+									<xs:element name="hg-eigenschaften" type="lv-hg.type"/>
+									<xs:group ref="onre-list-og.group"/>
+									<xs:element name="hg-summe" type="gruppensumme.type"/>
+								</xs:sequence>
+								<xs:attribute name="nr" type="hgnr.type" use="required"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+				<xs:key name="uid_hg">
+					<xs:selector xpath="on:hg"/>
+					<xs:field xpath="@nr"/>
+				</xs:key>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-body.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsbeträge zu Positionen und Gruppen</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="rechnungsbetraege">
+				<xs:annotation>
+					<xs:documentation>Nach Gliederung des Abrechnungs-LV</xs:documentation>
+				</xs:annotation>
+				<xs:complexType>
+					<xs:sequence>
+						<xs:choice>
+							<xs:annotation>
+								<xs:documentation>Rechnungsteilbeträge nach Gliederung des Abrechnungs-LV</xs:documentation>
+							</xs:annotation>
+							<xs:element name="gliederung-hg">
+								<xs:annotation>
+									<xs:documentation>LV mit Gliederung; Gliederung HG, OG, LG, ULG, Posnr</xs:documentation>
+								</xs:annotation>
+								<xs:complexType>
+									<xs:group ref="onre-list-hg.group"/>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="gliederung-og">
+								<xs:annotation>
+									<xs:documentation>LV mit Gliederung; Gliederung OG, LG, ULG, Posnr</xs:documentation>
+								</xs:annotation>
+								<xs:complexType>
+									<xs:group ref="onre-list-og.group"/>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="gliederung-lg">
+								<xs:annotation>
+									<xs:documentation>LV mit Gliederung; Gliederung LG, ULG, Posnr</xs:documentation>
+								</xs:annotation>
+								<xs:complexType>
+									<xs:group ref="onre-list-lg.group"/>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="gliederung-posfrei">
+								<xs:annotation>
+									<xs:documentation>LV ohne Gliederung; Posnr</xs:documentation>
+								</xs:annotation>
+								<xs:complexType>
+									<xs:group ref="onre-list-posfrei.group"/>
+								</xs:complexType>
+							</xs:element>
+						</xs:choice>
+						<xs:element name="gesamtleistungssumme" type="gruppensumme.type">
+							<xs:annotation>
+								<xs:documentation>Inkl. Preisumrechnung</xs:documentation>
+							</xs:annotation>
+						</xs:element>
+					</xs:sequence>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-header-rechnung.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsdatenträger - Header - Für Rechnungen</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:group ref="re-kenndaten-allgemein.group"/>
+			<xs:group ref="leistungsteiltabelle.group"/>
+			<xs:group ref="umrechungsprozentsaetze.group"/>
+			<xs:element name="hilfsberechnungen" type="mebe-hilfsberechnungen.type" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Globale Hilfsberechnungen für die Mengenberechnung</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-header-mengenermittlung.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsdatenträger - Header - Für Mengenermittlung</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:group ref="me-kenndaten-allgemein.group"/>
+		</xs:sequence>
+	</xs:group>
+	<xs:group name="onre-header.group">
+		<xs:annotation>
+			<xs:documentation>Rechnungsdatenträger - Header</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="lvkenndaten" type="lv-kenndaten-abrechnungslv.type">
+				<xs:annotation>
+					<xs:documentation>Kenndaten des Abrechnungs-LV</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:group ref="akztabelle.group"/>
+		</xs:sequence>
+	</xs:group>
+	<xs:element name="onre">
+		<xs:annotation>
+			<xs:documentation>root</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:group ref="metadaten.group"/>
+				<xs:group ref="onre-header.group"/>
+				<xs:choice>
+					<xs:element name="abschlagsrechnung">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:group ref="onre-header-rechnung.group"/>
+								<xs:group ref="onre-mengenberechnung.group"/>
+								<xs:group ref="onre-body.group"/>
+							</xs:sequence>
+							<xs:attribute name="nr" type="fortlaufende-rechnungsnr.type" use="required"/>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="teilschlussrechnung">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:group ref="onre-header-rechnung.group"/>
+								<xs:element name="arnr" type="fortlaufende-rechnungsnr.type">
+									<xs:annotation>
+										<xs:documentation>Nummer der Abschlagsrechnung, die als Grundlage der Teilschlussrechnung dient</xs:documentation>
+									</xs:annotation>
+								</xs:element>
+								<xs:group ref="onre-tsr-abgrenzung.group"/>
+								<xs:group ref="onre-mengenberechnung.group"/>
+								<xs:group ref="onre-body.group"/>
+							</xs:sequence>
+							<xs:attribute name="nr" type="fortlaufende-rechnungsnr.type" use="required"/>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="schlussrechnung">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:group ref="onre-header-rechnung.group"/>
+								<xs:group ref="onre-mengenberechnung.group"/>
+								<xs:group ref="onre-body.group"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="regierechnung">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:group ref="onre-header-rechnung.group"/>
+								<xs:group ref="onre-mengenberechnung.group"/>
+								<xs:group ref="onre-body.group"/>
+							</xs:sequence>
+							<xs:attribute name="nr" type="fortlaufende-rechnungsnr.type" use="required"/>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="einzelrechnung">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:group ref="onre-header-rechnung.group"/>
+								<xs:group ref="onre-mengenberechnung.group"/>
+								<xs:group ref="onre-body.group"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="nurmengenermittlung">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:group ref="onre-header-mengenermittlung.group"/>
+								<xs:group ref="onre-mengenberechnung.group"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+				</xs:choice>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

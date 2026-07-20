@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://www.oenorm.at/schema/A2063/2015-07-15" xmlns:on="http://www.oenorm.at/schema/A2063/2015-07-15" targetNamespace="http://www.oenorm.at/schema/A2063/2015-07-15" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:include schemaLocation="ontypdef.xsd"/>
+	<xs:annotation>
+		<xs:documentation>onix.xsd - ÖNORM A 2063 Datenbestand Indexkatalog</xs:documentation>
+	</xs:annotation>
+	<xs:annotation>
+		<xs:documentation> ÖNORM A 2063, Ausgabe: 2015-07-15
+
+Austausch von Leistungsbeschreibungs-, Elementkatalogs-, Ausschreibungs-, Angebots-, Auftrags- und Abrechnungsdaten in elektronischer Form
+
+Folgende Schema-Dokumente bilden einen Bestandteil zur Umsetzung der vorliegenden ÖNORM:
+–	ontypdef.xsd: Typdefinitionen für alle Datenbestände;
+–	onformel.xsd: Formelkatalog nach Anhang A;
+–	ontext.xsd: Formatierung der Texte von Vorbemerkungen und Positionen;
+–	onlb.xsd: Datenbestand LB;
+–	onpr.xsd: Datenbestand Preise und Kennwerte zu einer LB;
+–	onaek.xsd: Datenbestand AEK;
+–	onpek.xsd: Datenbestand PEK;
+–	onlv.xsd: Datenbestand LV;
+–	onre.xsd: Datenbestand Abrechnung einschließlich Mengenberechnung;
+–	onix.xsd: Datenbestand Indexkatalog.
+
+Weitere Informationen:
+http://www.as-institute.at/development/downloads/
+
+Copyright © Austrian Standards Institute 2015.
+
+Austrian Standards Institute/
+Österreichisches Normungsinstitut (ON)
+Heinestraße 38, 1020 Wien
+</xs:documentation>
+	</xs:annotation>
+	<!--===-->
+	<xs:element name="onix">
+		<xs:annotation>
+			<xs:documentation>Root</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:group ref="metadaten.group"/>
+				<xs:element name="katalogkenndaten" type="ix-katalogkenndaten.type"/>
+				<xs:element name="periodenintervall" type="ix-periodenintervall.type"/>
+				<xs:element name="nachkomma">
+					<xs:annotation>
+						<xs:documentation>Anzahl Nachkommastellen der Indexwerte</xs:documentation>
+					</xs:annotation>
+					<xs:simpleType>
+						<xs:restriction base="xs:decimal">
+							<xs:minInclusive value="0"/>
+							<xs:maxInclusive value="5"/>
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:element>
+				<xs:element name="beschreibung" type="ix-beschreibung.type" minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Beschreibung des Indexkataloges</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element name="nachfolgekatalog" type="ix-katalogkenndaten.type" minOccurs="0">
+					<xs:annotation>
+						<xs:documentation>Nachfolgender Indexkatalog für Verkettung</xs:documentation>
+					</xs:annotation>
+				</xs:element>
+				<xs:element name="arbeitskategorien">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="arbeitskategorie" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="bezeichnung" type="ix-bezeichnung.type"/>
+										<xs:element name="fuerpreisanteil" type="ix-fuerpreisanteil.type"/>
+										<xs:element name="nachfolgekatogorie" minOccurs="0">
+											<xs:annotation>
+												<xs:documentation>Nachfolgende Arbeitskategorie (nur anzugeben, wenn es eine Kennung des nachfolgenden Indexkataloges gibt)</xs:documentation>
+											</xs:annotation>
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="kennung" type="ix-kategoriekennung.type">
+														<xs:annotation>
+															<xs:documentation>Kennung der nachfolgenden Arbeitskategorie</xs:documentation>
+														</xs:annotation>
+													</xs:element>
+													<xs:element name="verkettungsfaktor">
+														<xs:simpleType>
+															<xs:restriction base="xs:decimal">
+																<xs:totalDigits value="15"/>
+																<xs:fractionDigits value="5"/>
+															</xs:restriction>
+														</xs:simpleType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+										</xs:element>
+										<xs:element name="indexwerte">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="indexwert" minOccurs="0" maxOccurs="unbounded">
+														<xs:complexType>
+															<xs:sequence>
+																<xs:element name="indexwert" minOccurs="0">
+																	<xs:simpleType>
+																		<xs:restriction base="xs:decimal">
+																			<xs:totalDigits value="15"/>
+																			<xs:fractionDigits value="5"/>
+																		</xs:restriction>
+																	</xs:simpleType>
+																</xs:element>
+																<xs:element name="status" type="ix-status.type"/>
+															</xs:sequence>
+															<xs:attribute name="beginndatum" type="datum.type" use="required"/>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+											<xs:key name="uid_indexwert">
+												<xs:selector xpath="on:indexwert"/>
+												<xs:field xpath="@beginndatum"/>
+											</xs:key>
+										</xs:element>
+									</xs:sequence>
+									<xs:attribute name="kennung" type="ix-kategoriekennung.type" use="required"/>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+					<xs:key name="uid_arbeitskategorie">
+						<xs:selector xpath="on:arbeitskategorie"/>
+						<xs:field xpath="@kennung"/>
+					</xs:key>
+				</xs:element>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

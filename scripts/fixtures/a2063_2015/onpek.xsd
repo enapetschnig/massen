@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://www.oenorm.at/schema/A2063/2015-07-15" xmlns:on="http://www.oenorm.at/schema/A2063/2015-07-15" targetNamespace="http://www.oenorm.at/schema/A2063/2015-07-15" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:include schemaLocation="ontypdef.xsd"/>
+	<xs:annotation>
+		<xs:documentation>onpek.xsd - ÖNORM A 2063 Datenbestand Projektelementkatalog (PEK)</xs:documentation>
+	</xs:annotation>
+	<xs:annotation>
+		<xs:documentation> ÖNORM A 2063, Ausgabe: 2015-07-15
+
+Austausch von Leistungsbeschreibungs-, Elementkatalogs-, Ausschreibungs-, Angebots-, Auftrags- und Abrechnungsdaten in elektronischer Form
+
+Folgende Schema-Dokumente bilden einen Bestandteil zur Umsetzung der vorliegenden ÖNORM:
+–	ontypdef.xsd: Typdefinitionen für alle Datenbestände;
+–	onformel.xsd: Formelkatalog nach Anhang A;
+–	ontext.xsd: Formatierung der Texte von Vorbemerkungen und Positionen;
+–	onlb.xsd: Datenbestand LB;
+–	onpr.xsd: Datenbestand Preise und Kennwerte zu einer LB;
+–	onaek.xsd: Datenbestand AEK;
+–	onpek.xsd: Datenbestand PEK;
+–	onlv.xsd: Datenbestand LV;
+–	onre.xsd: Datenbestand Abrechnung einschließlich Mengenberechnung;
+–	onix.xsd: Datenbestand Indexkatalog.
+
+Weitere Informationen:
+http://www.as-institute.at/development/downloads/
+
+Copyright © Austrian Standards Institute 2015.
+
+Austrian Standards Institute/
+Österreichisches Normungsinstitut (ON)
+Heinestraße 38, 1020 Wien
+</xs:documentation>
+	</xs:annotation>
+	<!--===-->
+	<xs:group name="onpek-header.group">
+		<xs:annotation>
+			<xs:documentation>PEK-Header</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="kenndaten" type="pek-kenndaten.type"/>
+			<xs:element name="kenndatenpreise" type="ek-kenndaten-preise.type" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Wenn der EK Preise enthält</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:group ref="grafiktabelle.group"/>
+			<xs:group ref="ek-zuordnungskataloge.group"/>
+			<xs:group ref="akztabelle.group"/>
+			<xs:element name="hilfsberechnungen" type="mebe-hilfsberechnungen.type" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Globale Hilfsberechnungen für die Mengenberechnung</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:group ref="kw-parameterliste.group"/>
+			<xs:group ref="kw-kennwerte.group"/>
+		</xs:sequence>
+	</xs:group>
+	<xs:element name="onpek">
+		<xs:annotation>
+			<xs:documentation>Root</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:group ref="metadaten.group"/>
+				<xs:group ref="onpek-header.group"/>
+				<xs:element name="verwendeteaek">
+					<xs:annotation>
+						<xs:documentation>Jedes im PEK verwendete Element/Elementgruppe wird hier 1x angeführt</xs:documentation>
+					</xs:annotation>
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="verwendeteraek" maxOccurs="unbounded">
+								<xs:annotation>
+									<xs:documentation>Ein verwendeter AEK bzw. ein Katalog für frei formulierte Einträge, die nicht in einen AEK eingegliedert sind (FF)</xs:documentation>
+								</xs:annotation>
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="kenndaten" type="aek-kenndaten.type">
+											<xs:annotation>
+												<xs:documentation>Angabe der Kenndaten des verwendeten AEK. Für frei formulierte Einträge, die nicht in einen AEK eingegliedert sind, sind die Kenndaten analog 5.4.1 mit "FF", "999" und "frei formuliert" zu füllen.</xs:documentation>
+											</xs:annotation>
+										</xs:element>
+										<xs:element name="eintraege">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="eintrag" maxOccurs="unbounded">
+														<xs:complexType>
+															<xs:sequence>
+																<xs:group ref="ek-eintrag.group"/>
+																<xs:element name="notiz" type="notiz.type" minOccurs="0"/>
+																<xs:element name="herkunftskennzeichen" type="pek-herkunftskennzeichen.type" minOccurs="0">
+																	<xs:annotation>
+																		<xs:documentation>Anzugeben, wenn ein Element oder eine Elementgruppe aus einem AEK abgeändert übernommen ("A") oder frei formuliert ("F") wurde</xs:documentation>
+																	</xs:annotation>
+																</xs:element>
+																<xs:element name="abaenderungsbeschreibung" type="text60.type" minOccurs="0">
+																	<xs:annotation>
+																		<xs:documentation>Beschreibung der Abänderung; kann angegeben werden, wenn ein Element oder eine Elementgruppe aus einem AEK mehrfach abgeändert übernommen wurde</xs:documentation>
+																	</xs:annotation>
+																</xs:element>
+															</xs:sequence>
+															<xs:attribute name="idnr" type="ek-idnr.type" use="required"/>
+															<xs:attribute name="abaenderungsnr" type="mfv-optional.type" use="required">
+																<xs:annotation>
+																	<xs:documentation>Leerstring wenn ohne Abänderungsnummer (Bei abgeändert übernommenen Elementen oder Elementgruppen kann für die Mehrfachverwendung eine Abänderungsnummer angegeben werden.)</xs:documentation>
+																</xs:annotation>
+															</xs:attribute>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+											<xs:key name="uid_verwendeteeintraege">
+												<xs:selector xpath="on:eintrag"/>
+												<xs:field xpath="@idnr"/>
+												<xs:field xpath="@abaenderungsnr"/>
+											</xs:key>
+										</xs:element>
+									</xs:sequence>
+									<xs:attribute name="ekkennung" type="aek-kennung.type" use="required">
+										<xs:annotation>
+											<xs:documentation>Angabe der Kennung des verwendeten AEK bzw. "FF" für frei formulierte Einträge, die nicht in einen AEK eingegliedert sind</xs:documentation>
+										</xs:annotation>
+									</xs:attribute>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+					<xs:key name="uid_verwendeteaek">
+						<xs:selector xpath="on:verwendeteraek"/>
+						<xs:field xpath="@ekkennung"/>
+					</xs:key>
+				</xs:element>
+				<xs:element name="gliederung">
+					<xs:annotation>
+						<xs:documentation>Gliederung des PEK, mit ihren eingeordneten Elementen. Nur Überschriften und Referenzen mit Mengen.</xs:documentation>
+					</xs:annotation>
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="ekkennung" type="aek-kennung.type" minOccurs="0">
+								<xs:annotation>
+									<xs:documentation>Kennung des AEK; anzugeben, wenn die Gliederung aus einem AEK übernommen wurde</xs:documentation>
+								</xs:annotation>
+							</xs:element>
+							<xs:element name="ueberschriftseintrag" maxOccurs="unbounded">
+								<xs:annotation>
+									<xs:documentation>Eine Überschrift der Gliederung des PEK, mit ihren eingeordneten Elementen</xs:documentation>
+								</xs:annotation>
+								<xs:complexType>
+									<xs:sequence>
+										<xs:sequence minOccurs="0">
+											<xs:annotation>
+												<xs:documentation>Eigenschaften der Überschrift; anzugeben, wenn die Gliederung nicht aus einem AEK übernommen sondern unabhängig gestaltet wurde</xs:documentation>
+											</xs:annotation>
+											<xs:element name="ueberschrift" type="ek-ueberschrift-eigenschaften.type">
+												<xs:annotation>
+													<xs:documentation>Frei gestaltete Überschrift</xs:documentation>
+												</xs:annotation>
+											</xs:element>
+											<xs:element name="notiz" type="notiz.type" minOccurs="0"/>
+										</xs:sequence>
+										<xs:element name="eingeordneteelemente" minOccurs="0">
+											<xs:complexType>
+												<xs:sequence>
+													<xs:element name="eingeordneteselement" maxOccurs="unbounded">
+														<xs:complexType>
+															<xs:sequence>
+																<xs:annotation>
+																	<xs:documentation>Referenz auf Element oder Elementgruppe mit dazugehörender Menge</xs:documentation>
+																</xs:annotation>
+																<xs:element name="ekkennung" type="aek-kennung.type">
+																	<xs:annotation>
+																		<xs:documentation>Referenz auf Element oder Elementgruppe aus diesem verwendeten AEK</xs:documentation>
+																	</xs:annotation>
+																</xs:element>
+																<xs:element name="idnr" type="ek-idnr.type">
+																	<xs:annotation>
+																		<xs:documentation>Nummer des Elements oder der Elementgruppe aus oben angegebener Kennung, keine Überschriften!</xs:documentation>
+																	</xs:annotation>
+																</xs:element>
+																<xs:element name="abaenderungsnr" type="mfv-optional.type">
+																	<xs:annotation>
+																		<xs:documentation>Anzugeben, wenn ein AEK-Element oder eine AEK-Elementgruppe mehrfach abgeändert übernommen wurde (Leerstring wenn ohne Abänderungsnummer)</xs:documentation>
+																	</xs:annotation>
+																</xs:element>
+																<xs:element name="menge" type="pek-elementmenge.type"/>
+																<xs:group ref="berechnetemengen.group"/>
+																<xs:group ref="ek-zuordnungen.group"/>
+															</xs:sequence>
+														</xs:complexType>
+													</xs:element>
+												</xs:sequence>
+											</xs:complexType>
+											<xs:unique name="unique_eingeordneteelemente">
+												<xs:selector xpath="on:eingeordneteselement"/>
+												<xs:field xpath="ekkennung"/>
+												<xs:field xpath="idnr"/>
+												<xs:field xpath="abaenderungsnr"/>
+											</xs:unique>
+										</xs:element>
+									</xs:sequence>
+									<xs:attribute name="idnr" type="ek-idnr.type" use="required">
+										<xs:annotation>
+											<xs:documentation>Nummer der Überschrift. Nummer aus dem angegebenen Gliederungs-AEK, wenn die Gliederung aus einem AEK übernommen wurde.</xs:documentation>
+										</xs:annotation>
+									</xs:attribute>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+					<xs:key name="uid_gliederung">
+						<xs:selector xpath="on:ueberschriftseintrag"/>
+						<xs:field xpath="@idnr"/>
+					</xs:key>
+				</xs:element>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

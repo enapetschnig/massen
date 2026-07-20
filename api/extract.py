@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.23"
+APP_REV = "2026-07-09.24"
 
 
 @app.get("/api/extract-health")
@@ -6518,15 +6518,32 @@ class AufmassOnlvRequest(BaseModel):
 # (eigene Positionen, ohne Leistungsbuch, ohne Preise) — genau der vom Format
 # vorgesehene 'frei formuliert'-Modus, importierbar in ABK/Nevaris/ORCA.
 _ONLV_NS = "http://www.oenorm.at/schema/A2063/2015-07-15"
+# Geschlossene Einheiten-Enumeration des amtlichen onlv.xsd (18 Werte, 2015=2021).
+# 'lfm' ist NICHT gültig → auf 'm' mappen. Alles Unbekannte fällt auf 'PA'
+# (Pauschale) zurück, damit die Datei IMMER schema-valide bleibt.
+_ONLV_EINHEIT_VALID = {"cm", "m", "km", "cm²", "m²", "cm³", "m³", "l", "g",
+                       "kg", "t", "Stk", "PA", "h", "d", "Wo", "Mo", "VE"}
 _ONLV_EINHEIT = {"m²": "m²", "m2": "m²", "m³": "m³", "m3": "m³",
-                 "lfm": "m", "lm": "m", "m": "m", "stk": "Stk", "stk.": "Stk",
-                 "pa": "PA", "psch": "PA", "kg": "kg", "t": "t", "h": "h"}
+                 "lfm": "m", "lm": "m", "rm": "m", "m": "m",
+                 "stk": "Stk", "stk.": "Stk", "stück": "Stk", "stueck": "Stk",
+                 "pa": "PA", "psch": "PA", "pausch": "PA", "pau": "PA",
+                 "kg": "kg", "t": "t", "h": "h", "l": "l", "cm": "cm"}
+
+
+def _onlv_einheit(roh):
+    """Einheit auf die amtliche Enum abbilden; unbekannt → 'PA' (immer valide)."""
+    e = (roh or "").strip()
+    if e in _ONLV_EINHEIT_VALID:
+        return e
+    return _ONLV_EINHEIT.get(e.lower(), "PA")
 
 
 def _onlv_bytes(projekt_name, gewerke):
-    """Baut die ONLV-XML (bytes, UTF-8+BOM wie ABK). Nur Positionen mit
-    positiver Menge; jede Position trägt Stichwort, Langtext (Beschreibung +
-    ÖNORM-Herleitung + Rechenweg-Zeilen) und die geschätzt/exakt-Kennzeichnung."""
+    """Baut die ONLV-XML (bytes, UTF-8+BOM). Struktur gegen das AMTLICHE
+    onlv.xsd (Austrian Standards, 2015-07-15) mit xmllint validiert — kein
+    Raten: Entwurfs-LV (Mengen ohne Preise), frei formuliert (lb=FF999,
+    herkunftskennzeichen=Z), Positionen als <ungeteilteposition>. Nur
+    Positionen mit positiver Menge; Langtext trägt Herleitung + Kennzeichnung."""
     import xml.etree.ElementTree as ET
 
     def _sub(parent, tag, text=None, **attrs):
@@ -6537,42 +6554,49 @@ def _onlv_bytes(projekt_name, gewerke):
 
     onlv = ET.Element("onlv", {"xmlns": _ONLV_NS})
     md = _sub(onlv, "metadaten")
-    _sub(md, "erstelltam", _iso_now_z())
-    _sub(md, "dateiname", f"LV_{_dateiname_safe(projekt_name)}.onlv")
-    _sub(md, "programmsystem", "KI-Massenermittlung (e-power GmbH)")
-    _sub(md, "programmversion", APP_REV)
+    _sub(md, "erstelltam", _iso_now_z().replace("Z", ""))   # xs:dateTime ohne Z
+    _sub(md, "dateiname", f"LV_{_dateiname_safe(projekt_name)}.onlv"[:60])
+    _sub(md, "programmsystem", "e-power KI-Massenermittlung"[:60])
+    _sub(md, "programmversion", APP_REV[:60])
 
+    # onlv-header: grafiktabelle (Pflicht, darf leer) → leistungsteiltabelle →
+    # zugelassenenachlaesse — Reihenfolge ist hart (xs:sequence im XSD).
+    _sub(onlv, "grafiktabelle")
     lt = _sub(onlv, "leistungsteiltabelle")
     lteil = _sub(lt, "leistungsteil", nr="1")
-    _sub(lteil, "bezeichnung", "Festpreis, ganzes LV")
-    _sub(_sub(lteil, "definition-preisanteil1"), "festpreise")
-    _sub(_sub(lteil, "definition-preisanteil2"), "festpreise")
+    _sub(lteil, "bezeichnung", "Gesamt")
+    _sub(_sub(lteil, "definition"), "festpreise")
     zn = _sub(onlv, "zugelassenenachlaesse")
-    _sub(zn, "aufpreisanteile")
-    _sub(_sub(zn, "hierarchiestufen"), "auflvsumme")
+    _sub(zn, "aufsummen")
+    _sub(zn, "hierarchiestufen")
 
-    alv = _sub(onlv, "ausschreibungs-lv")
-    kd = _sub(alv, "kenndaten")
-    _sub(kd, "lvcode", f"KI-MASSEN\\{_dateiname_safe(projekt_name)}")
-    _sub(kd, "vorhaben", projekt_name or "Bauvorhaben")
-    _sub(kd, "lvbezeichnung", "Massenermittlung (KI, in Anlehnung an ÖNORM)")
-    _sub(kd, "bearbeitungsstand", _heute_iso())
-    _sub(_sub(kd, "preisanteilmodell"), "preisanteile")
+    # Entwurfs-LV = Mengengerüst OHNE Preise (weniger Pflichtfelder als das
+    # Ausschreibungs-LV, semantisch exakt „maschinelle Mengenermittlung").
+    elv = _sub(onlv, "entwurfs-lv")
+    kd = _sub(elv, "kenndaten")
+    _sub(kd, "lvcode", f"ME-{_dateiname_safe(projekt_name)}"[:60])
+    _sub(kd, "vorhaben", (projekt_name or "Bauvorhaben")[:60])
+    _sub(kd, "lvbezeichnung", "Massenermittlung (maschinell, frei formuliert)"[:60])
+    _sub(_sub(_sub(kd, "auftraggeber"), "firma"), "name", "e-power Massenermittlung")
+    _sub(_sub(kd, "preisanteilmodell"), "keinepreisanteile")
     _sub(kd, "wkz", "EUR")
 
-    gl = _sub(alv, "gliederung-lg")
+    gl = _sub(elv, "gliederung-lg")
     _sub(gl, "preiserstellungsverfahren", "Preisangebotsverfahren")
     lb = _sub(gl, "lb")
     _sub(lb, "bezeichnung", "frei formuliert")
-    _sub(_sub(lb, "herausgeber"), "firma")
-    _sub(lb.find("herausgeber/firma"), "name", "frei formuliert")
+    _sub(_sub(_sub(lb, "herausgeber"), "firma"), "name", "frei formuliert")
     _sub(lb, "lbkennung", "FF")
     _sub(lb, "versionsnummer", "999")
     _sub(lb, "versionsdatum", "2009-06-01")
     _sub(lb, "status", "freigegeben")
-    _sub(lb, "downloadurl")
     _sub(gl, "svb")
     lgliste = _sub(gl, "lg-liste")
+
+    def _nr2(x):
+        """2-stellige LG/ULG/GT-Nummer [A-Z0-9]{2}; sonst laufend gedeckelt."""
+        s = re.sub(r"[^A-Za-z0-9]", "", str(x))[:2].upper()
+        return s.zfill(2) if s else "01"
 
     _used_lg = set()
     n_pos_total = 0
@@ -6582,30 +6606,31 @@ def _onlv_bytes(projekt_name, gewerke):
                       if p.get("endsumme") is not None and float(p.get("endsumme") or 0) > 0]
         if not positionen:
             continue
-        # LG-Nummer aus dem Gewerk (2-stellig); Kollision/fehlend → laufend
         lgnr = str(gd.get("lg") or "").strip()
         if not re.fullmatch(r"\d{1,2}", lgnr) or lgnr.zfill(2) in _used_lg:
             lgnr = str(90 + len(_used_lg))
         lgnr = lgnr.zfill(2)
         _used_lg.add(lgnr)
         lg = _sub(lgliste, "lg", nr=lgnr)
-        _sub(_sub(lg, "lg-eigenschaften"), "ueberschrift",
-             (gd.get("label") or gk)[:255])
+        lge = _sub(lg, "lg-eigenschaften")
+        _sub(lge, "ueberschrift", (gd.get("label") or gk)[:60])
+        _sub(lge, "herkunftskennzeichen", "Z")     # Z = frei formuliert (kein LB)
         ulgliste = _sub(lg, "ulg-liste")
         ulg = _sub(ulgliste, "ulg", nr="01")
-        _sub(_sub(ulg, "ulg-eigenschaften"), "ueberschrift",
-             "Massenermittlung (prüffähig, mit Herleitung)")
+        ulge = _sub(ulg, "ulg-eigenschaften")
+        _sub(ulge, "ueberschrift", (gd.get("label") or gk)[:60])
+        _sub(ulge, "herkunftskennzeichen", "Z")
         posc = _sub(ulg, "positionen")
         for i, p in enumerate(positionen, start=1):
             n_pos_total += 1
-            gt = _sub(posc, "grundtextnr", nr=str(min(i, 99)).zfill(2))
-            _sub(gt, "grundtext")
-            fp = _sub(gt, "folgeposition", ftnr="A", mfv="")
-            pe = _sub(fp, "pos-eigenschaften")
+            gt = _sub(posc, "grundtextnr", nr=_nr2(i))
+            up = _sub(gt, "ungeteilteposition", mfv="")
+            pe = _sub(up, "pos-eigenschaften")
             _posnr = p.get("posnr") or str(i)
-            _sub(pe, "stichwort", f"[{_posnr}] {(p.get('beschreibung') or '')}"[:255])
+            _sub(pe, "stichwort", f"[{_posnr}] {(p.get('beschreibung') or '')}".strip()[:60])
             lang = _sub(pe, "langtext")
-            _sub(lang, "p", p.get("beschreibung") or "")
+            _sub(lang, "p", (p.get("beschreibung") or "") + " · Maschinell ermittelte "
+                            "Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).")
             if p.get("quelle"):
                 _sub(lang, "p", str(p.get("quelle")))
             _geschaetzt = False
@@ -6620,9 +6645,8 @@ def _onlv_bytes(projekt_name, gewerke):
             if _geschaetzt:
                 _sub(lang, "p", "HINWEIS: enthält aus Raum-Proportion GESCHÄTZTE "
                                 "Umfänge (kein Maßstempel im Plan) — bitte prüfen.")
-            _sub(pe, "einheit",
-                 _ONLV_EINHEIT.get((p.get("einheit") or "").strip().lower(),
-                                   (p.get("einheit") or "PA")))
+            _sub(pe, "herkunftskennzeichen", "Z")
+            _sub(pe, "einheit", _onlv_einheit(p.get("einheit")))
             _sub(_sub(pe, "pzzv"), "normalposition")
             _sub(pe, "leistungsteil", "1")
             _sub(pe, "lvmenge", f"{float(p.get('endsumme') or 0):.2f}")
