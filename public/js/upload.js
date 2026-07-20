@@ -2027,6 +2027,18 @@
     return { ges: ges, o: o, i: i, ot: ot, it: it, anteile: anteile };
   }
 
+  // Absolute BYTE-EXAKT gemessene Wandlängen je Stärke (Meter) — die Basis für
+  // die genaue HLZ-Menge (Fläche = Länge × Höhe, statt Hülle × Anteil%). Diese
+  // Werte belegen die editierbare Meter-Tabelle vor; der Polier korrigiert sie.
+  function _nzLaengen() {
+    var s = _nzSplit();
+    var r1 = function (x) { return Math.round((x || 0) * 10) / 10; };
+    return {
+      aussen: { 50: r1(s.o[50]), 38: r1(s.o[38]), 25: r1(s.o[25]) },
+      innen: { 25: r1(s.i[25]), 20: r1(s.i[20]), 12: r1(s.i[12]) }
+    };
+  }
+
   function _nzPaint() {
     if (!_nzData) return;
     var W = _nzData.bild_w, H = _nzData.bild_h, meta = _nzData.meta || {};
@@ -2269,17 +2281,36 @@
         (cm === 25 ? '<span class="nz-tb-sep"></span>' + btn(_nzIstAussen(w, 25) ? 'außen' : 'innen', 'ai', false) : '') +
         '</div>';
     }
-    // Übernehmen-Bereich
+    // Übernehmen-Bereich: EDITIERBARE Wandlängen-Tabelle (Meter je Stärke).
+    // Vorbelegt mit der byte-exakt gemessenen Länge — der Polier korrigiert bei
+    // Bedarf (Overlay verpasst z.B. dünne/verdeckte Wände) und rechnet die
+    // Mauerwerks-Mengen direkt aus länge×Höhe neu. Das ist der Genauigkeits-
+    // Hebel (Mauerwerk −35% → nahe Realität) UND die manuelle Anpassung.
     var apply = '';
-    var exportierbar = meta.tragfaehig && s.anteile;
-    if (s.anteile) {
-      apply = '<div class="nz-apply"><div class="nz-apply-pct">Abgeleitete Verteilung — Außen: ' +
-        '50cm ' + s.anteile.wand_anteil_50cm + '% · 38cm ' + s.anteile.wand_anteil_38cm + '% · 25cm ' + s.anteile.wand_anteil_25cm_aussen + '%' +
-        ' | Innen: 25cm ' + s.anteile.wand_anteil_25cm_innen + '% · 20cm ' + s.anteile.wand_anteil_20cm + '% · 12cm ' + s.anteile.wand_anteil_12cm + '%</div>' +
+    var wl = _nzLaengen();
+    var mtot = wl.aussen[50] + wl.aussen[38] + wl.aussen[25] + wl.innen[25] + wl.innen[20] + wl.innen[12];
+    var exportierbar = meta.tragfaehig;
+    if (mtot > 0) {
+      var inp = function (art, cm, v) {
+        return '<label class="nz-wl-cell">' + cm + 'cm ' +
+          '<input type="number" class="nz-wl" data-art="' + art + '" data-cm="' + cm +
+          '" value="' + v + '" min="0" step="0.1" inputmode="decimal"> m</label>';
+      };
+      apply = '<div class="nz-apply">' +
+        '<div class="nz-wl-title">🧱 Mauerwerk — Wandlänge je Stärke ' +
+        '<span class="nz-wl-sub">(byte-exakt gemessen · zum Korrigieren einfach ändern)</span></div>' +
+        '<div class="nz-wl-row"><span class="nz-wl-lab">Außen</span>' +
+        inp('aussen', 50, wl.aussen[50]) + inp('aussen', 38, wl.aussen[38]) + inp('aussen', 25, wl.aussen[25]) + '</div>' +
+        '<div class="nz-wl-row"><span class="nz-wl-lab">Innen</span>' +
+        inp('innen', 25, wl.innen[25]) + inp('innen', 20, wl.innen[20]) + inp('innen', 12, wl.innen[12]) + '</div>' +
         (exportierbar
-          ? '<button type="button" class="btn btn-sm btn-primary" id="nz-apply">Verteilung in Materialliste übernehmen</button>'
-          : '<span class="nachzeichnen-hint" style="color:#92400e">⚠ Maßstab unsicher — Verteilung nur als Sichthilfe, nicht übernehmbar.</span>') +
-        ' <button type="button" class="btn btn-sm btn-outline" id="nz-reset">Korrektur zurücksetzen</button></div>';
+          ? '<button type="button" class="btn btn-sm btn-primary" id="nz-apply-len">Mauerwerk aus diesen Wandlängen rechnen</button>'
+          : '<span class="nachzeichnen-hint" style="color:#92400e">⚠ Maßstab unsicher — Wandlängen nur als Sichthilfe, nicht übernehmbar.</span>') +
+        ' <button type="button" class="btn btn-sm btn-outline" id="nz-reset">Korrektur zurücksetzen</button>' +
+        (s.anteile ? '<div class="nz-apply-pct">Abgeleitete Verteilung — Außen: ' +
+          '50cm ' + s.anteile.wand_anteil_50cm + '% · 38cm ' + s.anteile.wand_anteil_38cm + '% · 25cm ' + s.anteile.wand_anteil_25cm_aussen + '%' +
+          ' | Innen: 25cm ' + s.anteile.wand_anteil_25cm_innen + '% · 20cm ' + s.anteile.wand_anteil_20cm + '% · 12cm ' + s.anteile.wand_anteil_12cm + '%</div>' : '') +
+        '</div>';
     }
     var cont = document.getElementById('nachzeichnen-container');
     cont.querySelector('.nz-dynamic').innerHTML =
@@ -2328,8 +2359,18 @@
         _nzPaint();
       });
     });
-    var ap = document.getElementById('nz-apply');
-    if (ap) ap.addEventListener('click', function () { _nzUebernehmen(s.anteile); });
+    var apl = document.getElementById('nz-apply-len');
+    if (apl) apl.addEventListener('click', function () {
+      // Wandlängen aus den (evtl. korrigierten) Eingabefeldern lesen
+      var laengen = { aussen: {}, innen: {} }, manuell = false, gemessen = _nzLaengen();
+      cont.querySelectorAll('input.nz-wl').forEach(function (el) {
+        var art = el.getAttribute('data-art'), cm = el.getAttribute('data-cm');
+        var v = parseFloat(el.value); if (isNaN(v) || v < 0) v = 0;
+        laengen[art][cm] = v;
+        if (Math.abs(v - (gemessen[art][cm] || 0)) > 0.05) manuell = true;
+      });
+      _nzUebernehmenLaengen(laengen, manuell);
+    });
     var rs = document.getElementById('nz-reset');
     if (rs) rs.addEventListener('click', function () {
       // auch manuell hinzugefügte Wände wieder entfernen
@@ -2506,12 +2547,33 @@
     if (ap) { ap.textContent = '✓ übernommen & gespeichert — Materialliste neu gerechnet'; ap.disabled = true; }
   }
 
-  // Speichert den Korrektur-Zustand (Edits + angewandte Verteilung) am Plan.
-  function _nzSave(anteile) {
+  // ABSOLUTE Wandlängen (Meter je Stärke) in die Materialliste übernehmen —
+  // HLZ-Fläche = Länge × Höhe (byte-exakt/manuell), statt Hülle × Anteil%.
+  function _nzUebernehmenLaengen(laengen, manuell) {
+    if (!laengen) return;
+    var ov = _filterState.materialliste_override || {};
+    // alte Prozent-Overrides entfernen (Länge hat Vorrang, kein Misch-Zustand)
+    ['wand_anteil_50cm', 'wand_anteil_38cm', 'wand_anteil_25cm_aussen',
+     'wand_anteil_25cm_innen', 'wand_anteil_20cm', 'wand_anteil_12cm'].forEach(function (k) { delete ov[k]; });
+    ov.wand_laengen_m = laengen;
+    ov.wand_laengen_manuell = !!manuell;
+    _filterState.materialliste_override = ov;
+    refreshProjektMassen();
+    _nzSave(null, { wand_laengen_m: laengen, wand_laengen_manuell: !!manuell });
+    var ap = document.getElementById('nz-apply-len');
+    if (ap) {
+      ap.textContent = manuell ? '✓ manuelle Wandlängen übernommen — Mengen neu gerechnet'
+        : '✓ gemessene Wandlängen übernommen — Mengen neu gerechnet';
+      ap.disabled = true;
+    }
+  }
+
+  // Speichert den Korrektur-Zustand (Edits + Verteilung/Wandlängen) am Plan.
+  function _nzSave(anteile, laengen) {
     if (!_nzData || !_nzData.plan_id) return;
     var leer = !Object.keys(_nzEdit.removed).length && !Object.keys(_nzEdit.thick).length &&
       !Object.keys(_nzEdit.aussen).length && !(_nzEdit.added && _nzEdit.added.length) &&
-      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile;
+      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile && !laengen;
     fetch('/api/nachzeichnen-korrektur', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       // seite mitschicken: Wand-IDs sind nur JE SEITE eindeutig — ohne Seiten-Key
@@ -2519,7 +2581,9 @@
       // Hauptseite → null (bestehender, un-suffixter Key: Default-Load bleibt kompatibel).
       body: JSON.stringify({ plan_id: _nzData.plan_id,
         seite: (_nzAktivSeite != null && _nzAktivSeite !== _nzHauptSeite) ? _nzAktivSeite : null,
-        korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null } })
+        korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null,
+          wand_laengen_m: (laengen && laengen.wand_laengen_m) || null,
+          wand_laengen_manuell: (laengen && laengen.wand_laengen_manuell) || false } })
     }).catch(function () { /* Speichern ist best-effort */ });
   }
 
@@ -2664,7 +2728,14 @@
           added: k.edit.added || [], oeffRemoved: k.edit.oeffRemoved || {} };
         // manuell hinzugefügte Wände wieder in die Geometrie einspielen
         (_nzEdit.added || []).forEach(function (w) { _nzData.waende.push(w); });
-        if (k.anteile) {   // angewandte Verteilung zurück in den Override → Mengen stimmen wieder
+        // Wandlängen (byte-exakt/manuell) haben Vorrang; sonst die alte Prozent-Verteilung.
+        if (k.wand_laengen_m) {   // absolute Wandlängen zurück in den Override
+          var ovl = _filterState.materialliste_override || {};
+          ovl.wand_laengen_m = k.wand_laengen_m;
+          ovl.wand_laengen_manuell = !!k.wand_laengen_manuell;
+          _filterState.materialliste_override = ovl;
+          refreshProjektMassen();
+        } else if (k.anteile) {   // angewandte Verteilung zurück in den Override → Mengen stimmen wieder
           var ov = _filterState.materialliste_override || {}, changed = false;
           Object.keys(k.anteile).forEach(function (kk) { if (ov[kk] !== k.anteile[kk]) { ov[kk] = k.anteile[kk]; changed = true; } });
           if (changed) { _filterState.materialliste_override = ov; refreshProjektMassen(); }

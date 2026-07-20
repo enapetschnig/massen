@@ -578,72 +578,115 @@ def materialliste_bauteile(rooms, windows, baudaten, override=None, geschoss="EG
                 paletten, formel, konfidenz=konf))
         return pos, gesamt
 
-    # Verteilungs-Quelle in Reihenfolge: EXPLIZIT gesetzte Anteile (User-Override
-    # ODER firmenspezifische Kalibrierung) > Legende-Verteilung (aus Code-Vorkommen,
-    # empirisch unzuverlässig weil Codes selten je Wand stehen) > Default. So
-    # schlägt der manuelle Innenwand-Regler / die gelernte Verteilung die wackeligen
-    # Legende-Counts, ohne die byte-exakten Wandstärken anzutasten.
-    _WAND_ANTEIL_KEYS = ("wand_anteil_50cm", "wand_anteil_38cm", "wand_anteil_25cm_aussen",
-                         "wand_anteil_25cm_innen", "wand_anteil_20cm", "wand_anteil_12cm")
-    _explizite_verteilung = bool(override and any(k in override for k in _WAND_ANTEIL_KEYS))
-    # SELBST-SCHUTZ gegen „erfundene" Wandstärken (z.B. HLZ 38cm, das die Legende gar
-    # nicht kennt): kennt die byte-exakte Legende explizite Wandtypen, bestimmt SIE die
-    # Stärken — direkt hier abgeleitet (Vorkommen je Code → Anteil), damit keine
-    # upstream-Vision-Verteilung eine fremde Stärke einschmuggelt. User-Override/
-    # Kalibrierung (explizite Anteile) schlagen weiterhin alles.
-    _leg_wt = (legende or {}).get("wand_typen") or {}
-    if _leg_wt and not _explizite_verteilung:
-        _leg_counts = (legende or {}).get("wand_counts") or {}
-        _la, _li = {}, {}
-        _sa = sum((_leg_counts.get(k) or 1) for k, v in _leg_wt.items() if v.get("art") == "aussen")
-        _si = sum((_leg_counts.get(k) or 1) for k, v in _leg_wt.items() if v.get("art") == "innen")
-        for _code, _v in _leg_wt.items():
-            _c = _leg_counts.get(_code) or 1
-            _dk = _v.get("dicke_cm")
-            if _dk and _v.get("art") == "aussen" and _sa:
-                _la[_dk] = _la.get(_dk, 0) + _c / _sa * 100.0
-            elif _dk and _v.get("art") == "innen" and _si:
-                _li[_dk] = _li.get(_dk, 0) + _c / _si * 100.0
-        # Legende kennt evtl. nur EINE Wandklasse (nur aussen ODER nur innen) — dann
-        # würde die ANDERE Wandfläche (aw_m2_aussen bzw. iw_m2_innen_rohbau) im
-        # Legende-Zweig stillschweigend fallengelassen. Fehlende Klasse aus der
-        # Standard-Verteilung nachfüllen, damit KEINE Wand-m² verloren geht.
-        if _la and not _li:
-            _li = {25: f("wand_anteil_25cm_innen", override),
-                   20: f("wand_anteil_20cm", override),
-                   12: f("wand_anteil_12cm", override)}
-        elif _li and not _la:
-            _la = {50: f("wand_anteil_50cm", override),
-                   38: f("wand_anteil_38cm", override),
-                   25: f("wand_anteil_25cm_aussen", override)}
-        if _la or _li:
-            wand_verteilung = {"aussen": _la, "innen": _li}
-    if (wand_verteilung and (wand_verteilung.get("aussen") or wand_verteilung.get("innen"))
-            and not _explizite_verteilung):
-        # LEGENDE-basiert: echte Wandstärken + Verteilung aus dem Plan gelesen
-        hlz_pos, gesamt_wand_m2 = _hlz_positionen(
-            wand_verteilung.get("aussen"), wand_verteilung.get("innen"), konf=0.75)
-        out.extend(hlz_pos)
-    else:
-        # Fallback: hartcodierte Standard-Verteilung (kein Legende-Fund)
+    # ═══ ABSOLUTE WANDLÄNGEN je Stärke (Meter) — HÖCHSTE PRIORITÄT ═══
+    # Der große Genauigkeits-Hebel (Mauerwerk −35% → ~−12% am Angerer-Test):
+    # die Wände sind im Nachzeichnen-Overlay bereits BYTE-EXAKT je Stärke
+    # gemessen (50cm = 41,5 m). Bisher wurde diese Messung VERWORFEN und die
+    # HLZ-Fläche aus aussenumfang×Anteil% re-abgeleitet (Hülle ~50 m ≠ Summe der
+    # echten 50er-Wände). Liegen absolute Längen vor — vom Overlay ODER vom
+    # Polier MANUELL korrigiert — kommt die Fläche DIREKT aus länge×h_mw.
+    # Kein Angerer-Fudge: reine gemessene/bestätigte Geometrie.
+    _wl = (override or {}).get("wand_laengen_m") if override else None
+    _use_abs = bool(_wl and isinstance(_wl, dict)
+                    and (_wl.get("aussen") or _wl.get("innen")))
+    _manuell = bool(override and override.get("wand_laengen_manuell"))
+    if _use_abs:
         versch = f("hlz_verschnitt", override)
-        a50 = aw_m2_aussen * f("wand_anteil_50cm", override) / 100.0
-        a38 = aw_m2_aussen * f("wand_anteil_38cm", override) / 100.0
-        a25a = aw_m2_aussen * f("wand_anteil_25cm_aussen", override) / 100.0
-        i25 = iw_m2_innen_rohbau * f("wand_anteil_25cm_innen", override) / 100.0
-        i20 = iw_m2_innen_rohbau * f("wand_anteil_20cm", override) / 100.0
-        i12 = iw_m2_innen_rohbau * f("wand_anteil_12cm", override) / 100.0
-        out.append(MaterialPos("Mauerwerk EG", "HLZ 50cm H.I. Plan", "Paletten",
-            math.ceil(a50 * versch / _coverage(50)), f"{a50:.1f}m² AW 50cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
-        out.append(MaterialPos("Mauerwerk EG", "HLZ 38cm H.I. Plan", "Paletten",
-            math.ceil(a38 * versch / _coverage(38)), f"{a38:.1f}m² AW 38cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
-        out.append(MaterialPos("Mauerwerk EG", "HLZ 25cm Plan", "Paletten",
-            math.ceil((a25a + i25) * versch / _coverage(25)), f"{a25a+i25:.1f}m² 25cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
-        out.append(MaterialPos("Mauerwerk EG", "HLZ 20cm Plan", "Paletten",
-            math.ceil(i20 * versch / _coverage(20)), f"{i20:.1f}m² IW 20cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
-        out.append(MaterialPos("Mauerwerk EG", "HLZ 12cm Plan", "Paletten",
-            math.ceil(i12 * versch / _coverage(12)), f"{i12:.1f}m² IW 12cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
-        gesamt_wand_m2 = a50 + a38 + a25a + i25 + i20 + i12
+        _m2_abs, _qteil = {}, {}
+        for _art, _lens in (("aussen", _wl.get("aussen") or {}),
+                            ("innen", _wl.get("innen") or {})):
+            for _d, _meter in _lens.items():
+                try:
+                    _dd, _mm = float(_d), float(_meter)
+                except (TypeError, ValueError):
+                    continue
+                if _dd <= 0 or _mm <= 0:
+                    continue
+                _a = _mm * h_mw
+                _m2_abs[_dd] = _m2_abs.get(_dd, 0.0) + _a
+                _qteil.setdefault(_dd, []).append(f"{_art[:2].upper()} {_mm:.1f}m")
+        gesamt_wand_m2 = 0.0
+        for _dd in sorted(_m2_abs, reverse=True):
+            _m2 = _m2_abs[_dd]
+            gesamt_wand_m2 += _m2
+            _cov = _coverage(_dd)
+            _pal = math.ceil(_m2 * versch / _cov) if _cov > 0 else 0
+            _formel = (f"{' + '.join(_qteil[_dd])} × H {h_mw:.2f}m = {_m2:.1f}m²"
+                       f" ÷ {_cov}m²/Pal × {versch} Verschnitt")
+            _stk_key = f"hlz_{int(round(_dd))}cm_stk_pro_palette"
+            if (_stk_key in DEFAULTS or (override and _stk_key in override)) and _pal:
+                _formel += f"  ·  ≈ {int(round(_pal * f(_stk_key, override)))} Stück"
+            _formel += ("  ·  Wandlänge MANUELL gesetzt" if _manuell
+                        else "  ·  Wandlänge byte-exakt aus Plan gemessen")
+            out.append(MaterialPos("Mauerwerk EG", f"HLZ {int(round(_dd))}cm Plan",
+                       "Paletten", _pal, _formel, konfidenz=0.9 if _manuell else 0.8))
+    else:
+        # Verteilungs-Quelle in Reihenfolge: EXPLIZIT gesetzte Anteile (User-Override
+        # ODER firmenspezifische Kalibrierung) > Legende-Verteilung (aus Code-Vorkommen,
+        # empirisch unzuverlässig weil Codes selten je Wand stehen) > Default. So
+        # schlägt der manuelle Innenwand-Regler / die gelernte Verteilung die wackeligen
+        # Legende-Counts, ohne die byte-exakten Wandstärken anzutasten.
+        _WAND_ANTEIL_KEYS = ("wand_anteil_50cm", "wand_anteil_38cm", "wand_anteil_25cm_aussen",
+                             "wand_anteil_25cm_innen", "wand_anteil_20cm", "wand_anteil_12cm")
+        _explizite_verteilung = bool(override and any(k in override for k in _WAND_ANTEIL_KEYS))
+        # SELBST-SCHUTZ gegen „erfundene" Wandstärken (z.B. HLZ 38cm, das die Legende gar
+        # nicht kennt): kennt die byte-exakte Legende explizite Wandtypen, bestimmt SIE die
+        # Stärken — direkt hier abgeleitet (Vorkommen je Code → Anteil), damit keine
+        # upstream-Vision-Verteilung eine fremde Stärke einschmuggelt. User-Override/
+        # Kalibrierung (explizite Anteile) schlagen weiterhin alles.
+        _leg_wt = (legende or {}).get("wand_typen") or {}
+        if _leg_wt and not _explizite_verteilung:
+            _leg_counts = (legende or {}).get("wand_counts") or {}
+            _la, _li = {}, {}
+            _sa = sum((_leg_counts.get(k) or 1) for k, v in _leg_wt.items() if v.get("art") == "aussen")
+            _si = sum((_leg_counts.get(k) or 1) for k, v in _leg_wt.items() if v.get("art") == "innen")
+            for _code, _v in _leg_wt.items():
+                _c = _leg_counts.get(_code) or 1
+                _dk = _v.get("dicke_cm")
+                if _dk and _v.get("art") == "aussen" and _sa:
+                    _la[_dk] = _la.get(_dk, 0) + _c / _sa * 100.0
+                elif _dk and _v.get("art") == "innen" and _si:
+                    _li[_dk] = _li.get(_dk, 0) + _c / _si * 100.0
+            # Legende kennt evtl. nur EINE Wandklasse (nur aussen ODER nur innen) — dann
+            # würde die ANDERE Wandfläche (aw_m2_aussen bzw. iw_m2_innen_rohbau) im
+            # Legende-Zweig stillschweigend fallengelassen. Fehlende Klasse aus der
+            # Standard-Verteilung nachfüllen, damit KEINE Wand-m² verloren geht.
+            if _la and not _li:
+                _li = {25: f("wand_anteil_25cm_innen", override),
+                       20: f("wand_anteil_20cm", override),
+                       12: f("wand_anteil_12cm", override)}
+            elif _li and not _la:
+                _la = {50: f("wand_anteil_50cm", override),
+                       38: f("wand_anteil_38cm", override),
+                       25: f("wand_anteil_25cm_aussen", override)}
+            if _la or _li:
+                wand_verteilung = {"aussen": _la, "innen": _li}
+        if (wand_verteilung and (wand_verteilung.get("aussen") or wand_verteilung.get("innen"))
+                and not _explizite_verteilung):
+            # LEGENDE-basiert: echte Wandstärken + Verteilung aus dem Plan gelesen
+            hlz_pos, gesamt_wand_m2 = _hlz_positionen(
+                wand_verteilung.get("aussen"), wand_verteilung.get("innen"), konf=0.75)
+            out.extend(hlz_pos)
+        else:
+            # Fallback: hartcodierte Standard-Verteilung (kein Legende-Fund)
+            versch = f("hlz_verschnitt", override)
+            a50 = aw_m2_aussen * f("wand_anteil_50cm", override) / 100.0
+            a38 = aw_m2_aussen * f("wand_anteil_38cm", override) / 100.0
+            a25a = aw_m2_aussen * f("wand_anteil_25cm_aussen", override) / 100.0
+            i25 = iw_m2_innen_rohbau * f("wand_anteil_25cm_innen", override) / 100.0
+            i20 = iw_m2_innen_rohbau * f("wand_anteil_20cm", override) / 100.0
+            i12 = iw_m2_innen_rohbau * f("wand_anteil_12cm", override) / 100.0
+            out.append(MaterialPos("Mauerwerk EG", "HLZ 50cm H.I. Plan", "Paletten",
+                math.ceil(a50 * versch / _coverage(50)), f"{a50:.1f}m² AW 50cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
+            out.append(MaterialPos("Mauerwerk EG", "HLZ 38cm H.I. Plan", "Paletten",
+                math.ceil(a38 * versch / _coverage(38)), f"{a38:.1f}m² AW 38cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
+            out.append(MaterialPos("Mauerwerk EG", "HLZ 25cm Plan", "Paletten",
+                math.ceil((a25a + i25) * versch / _coverage(25)), f"{a25a+i25:.1f}m² 25cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
+            out.append(MaterialPos("Mauerwerk EG", "HLZ 20cm Plan", "Paletten",
+                math.ceil(i20 * versch / _coverage(20)), f"{i20:.1f}m² IW 20cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
+            out.append(MaterialPos("Mauerwerk EG", "HLZ 12cm Plan", "Paletten",
+                math.ceil(i12 * versch / _coverage(12)), f"{i12:.1f}m² IW 12cm (Annahme) × {versch} Verschnitt", konfidenz=0.5))
+            gesamt_wand_m2 = a50 + a38 + a25a + i25 + i20 + i12
     out.append(MaterialPos(
         "Mauerwerk EG", "Mauermörtel", "Paletten",
         gesamt_wand_m2 / 100 * f("mauermoertel_paletten_pro_100m2", override),

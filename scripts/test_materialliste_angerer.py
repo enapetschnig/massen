@@ -107,13 +107,53 @@ def run():
         if not ok:
             fails.append((bauteil, stich, f"{d*100:+.0f}% > {tol*100:.0f}%"))
 
+    # ── ABSOLUTE WANDLÄNGEN-PFAD (Genauigkeits-Hebel + manuelle Anpassung) ──
+    # HLZ-Fläche = Wandlänge × Höhe, direkt aus dem byte-exakten Overlay bzw.
+    # vom Polier manuell gesetzt — statt Hülle × Anteil%. Prüft, dass a) der
+    # Pfad greift, b) MANUELLE Korrektur die HLZ50 näher an die Realität bringt.
+    print()
+    _wl_manuell = {"wand_laengen_m": {"aussen": {"50": 48.0, "25": 4.5},
+                                      "innen": {"20": 15.0, "12": 25.5}},
+                   "wand_laengen_manuell": True}
+    ml_wl = build_materialliste(ROOMS, WINDOWS, BAUDATEN, geschoss="EG",
+                                tueren=TUEREN, gemessen=GEMESSEN, override=_wl_manuell)
+    bt_wl = ml_wl.get("bauteile") or {}
+
+    def _m(stich):
+        for p in bt_wl.get("Mauerwerk EG", []):
+            if stich.lower() in p["material"].lower():
+                return p
+        return None
+    wl_fails = []
+    _h50 = _m("HLZ 50")
+    if not _h50 or abs(_h50["menge"] - 48) / 48 > 0.10:
+        wl_fails.append(f"HLZ50 manuell 48m → {_h50['menge'] if _h50 else 'FEHLT'} (Soll ~48)")
+    else:
+        print(f"  ✓ Wandlängen-Pfad: HLZ50 aus 48m manuell = {_h50['menge']} Pal (Soll 48, "
+              f"{(_h50['menge']-48)/48*100:+.0f}%)")
+    if not (_h50 and "MANUELL" in (_h50.get("formel") or "")):
+        wl_fails.append("HLZ50 trägt kein 'MANUELL gesetzt'-Label")
+    else:
+        print("  ✓ Wandlängen-Pfad: Herleitung als 'MANUELL gesetzt' belegt")
+    # Byte-exakt gemessener Pfad (nicht manuell) muss ebenfalls greifen + Label tragen
+    ml_g = build_materialliste(ROOMS, WINDOWS, BAUDATEN, geschoss="EG", tueren=TUEREN,
+                               gemessen=GEMESSEN,
+                               override={"wand_laengen_m": {"aussen": {"50": 41.5}, "innen": {"12": 25.5}}})
+    _g50 = next((p for p in (ml_g.get("bauteile") or {}).get("Mauerwerk EG", []) if "HLZ 50" in p["material"]), None)
+    if not (_g50 and "gemessen" in (_g50.get("formel") or "")):
+        wl_fails.append("gemessener Pfad trägt kein 'byte-exakt gemessen'-Label")
+    else:
+        print("  ✓ Wandlängen-Pfad: gemessener (nicht-manueller) Pfad als 'gemessen' belegt")
+
     print("-" * 70)
-    if fails:
-        print(f"REGRESSION: {len(fails)} Position(en) außer Toleranz:")
+    if fails or wl_fails:
+        print(f"REGRESSION: {len(fails)+len(wl_fails)} Problem(e):")
         for b, s, why in fails:
             print(f"   - {b}/{s}: {why}")
+        for w in wl_fails:
+            print(f"   - Wandlängen: {w}")
         return 1
-    print(f"OK — alle {len(SOLL)} Positionen in Toleranz.")
+    print(f"OK — alle {len(SOLL)} Positionen in Toleranz + Wandlängen-Pfad (auto/manuell) grün.")
     return 0
 
 
