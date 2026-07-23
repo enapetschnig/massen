@@ -2094,6 +2094,10 @@
   // kalibriert ist). laenge in px → m; Polygon-Fläche via Shoelace → m².
   function _nzPxProM() {
     var m = _nzData && _nzData.meta || {};
+    // MANUELLE Maßstab-Kalibrierung (Scans ohne Maßketten): der Nutzer hat zwei
+    // Punkte einer bekannten Länge geklickt → px/m direkt gesetzt. Höchste
+    // Priorität, macht JEDEN Plan metrisch (Messen/Wandlängen/Raumflächen).
+    if (m.px_pro_m_manuell > 0) return m.px_pro_m_manuell;
     var s = +m.scale, p = +m.ptm;
     // Beide müssen echte Kalibrierwerte (>0) sein. Fehlt einer — z.B. bei einem
     // nicht kalibrierten Dach-/Schnitt-Plan-Tab — ist die Strecke NICHT in Meter
@@ -2102,6 +2106,42 @@
     if (!(s > 0) || !(p > 0)) return 0;
     return s * p;   // px pro Meter
   }
+  var _nzCalibMode = false;   // Maßstab-Kalibrierung: 2 Punkte einer bekannten Länge
+  // Pixel-Distanz der ersten beiden Mess-Punkte (für die Kalibrierung).
+  function _nzMessPxDist() {
+    if (_nzMeasPts.length < 2) return 0;
+    var a = _nzMeasPts[0], b = _nzMeasPts[1];
+    return Math.sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
+  }
+  // Kalibrier-Modus starten: Messwerkzeug in den 2-Punkt-Kalibriermodus schalten.
+  window._nzKalibrierenStart = function () {
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    _nzCalibMode = true; _nzMeasMode = true; _nzAddMode = false; _nzRaumEditMode = false;
+    _nzMeasPts = []; _nzSel = null; _nzPaint();
+  };
+  // Maßstab aus 2 Punkten + eingegebener Länge setzen → px/m; persistiert.
+  window._nzKalibrierenSetzen = function () {
+    var inp = document.getElementById('nz-calib-m');
+    var meters = inp ? parseFloat(inp.value) : NaN;
+    var pxd = _nzMessPxDist();
+    if (!(meters > 0) || !(pxd > 0)) { alert('Bitte eine gültige Länge in Metern eingeben.'); return; }
+    var ppm = pxd / meters;
+    _nzData.meta = _nzData.meta || {};
+    _nzData.meta.px_pro_m_manuell = ppm;
+    // Raum-Flächen/Umfänge, Wandlängen, Snapping neu ableiten lassen
+    _nzData.raeume && _nzData.raeume.forEach(function (r) {
+      r._cleaned = r._snapped = r._synthTried = false;
+      if (r._synthetic) { r.region_px = null; r._synthetic = false; }
+    });
+    _nzCleanRegionen(); _nzSynthRegionen(); _nzSnapRegionen();
+    _nzCalibMode = false; _nzMeasMode = false; _nzMeasPts = [];
+    _nzPaint();
+    _nzSave(null);   // voller Korrektur-Zustand inkl. Maßstab (aus _nzData.meta)
+    var out = document.getElementById('nz-mess-out');
+    if (out) out.innerHTML = '<strong style="color:#166534">✓ Maßstab gesetzt: ' +
+      fmtNum(Math.round(ppm)) + ' px/m — der Plan ist jetzt metrisch (Messen, Wandlängen, Raumflächen aktiv).</strong>';
+  };
   function _nzKalibriert() { return _nzPxProM() > 0; }
   function _nzMessStrecke() {
     var k = _nzPxProM(), L = 0;
@@ -2555,7 +2595,8 @@
       '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben (Raumansicht) ↔ technische Wand-/Prüfansicht">🎨 Räume</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumEditMode ? ' nz-btn-on' : '') + '" data-z="raumedit" title="Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu">✏️ Raum bearbeiten</button>' +
       '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
-      '<button type="button" class="nz-btn' + (_nzMeasMode ? ' nz-btn-on' : '') + '" data-z="mess" title="Byte-exakt am Maßstab messen — für unsichere Räume selbst nachmessen">📏 Messen</button>' +
+      '<button type="button" class="nz-btn' + (_nzMeasMode && !_nzCalibMode ? ' nz-btn-on' : '') + '" data-z="mess" title="Byte-exakt am Maßstab messen — für unsichere Räume selbst nachmessen">📏 Messen</button>' +
+      '<button type="button" class="nz-btn' + (_nzCalibMode ? ' nz-btn-on' : '') + '" data-z="calib" title="Maßstab setzen: 2 Punkte einer bekannten Länge klicken, Meter eingeben — macht Scans/unkalibrierte Pläne metrisch">📐 Maßstab' + (_nzKalibriert() ? '' : ' ⚠') + '</button>' +
       (_nzMeasMode ? '<button type="button" class="nz-btn" data-z="mess-clear">✕ Messung löschen</button>' : '') +
       '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem" id="nz-mess-out">' +
       (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>'
@@ -2699,7 +2740,8 @@
           _nzPaint();
         }
         else if (z === 'add') { _nzAddMode = !_nzAddMode; if (_nzAddMode) { _nzMeasMode = false; _nzMeasPts = []; _nzRaumEditMode = false; } _nzSel = null; _nzPaint(); }
-        else if (z === 'mess') { _nzMeasMode = !_nzMeasMode; if (_nzMeasMode) { _nzAddMode = false; } _nzMeasPts = []; _nzSel = null; _nzPaint(); }
+        else if (z === 'mess') { _nzMeasMode = !_nzMeasMode; _nzCalibMode = false; if (_nzMeasMode) { _nzAddMode = false; } _nzMeasPts = []; _nzSel = null; _nzPaint(); }
+        else if (z === 'calib') { if (_nzCalibMode) { _nzCalibMode = false; _nzMeasMode = false; _nzMeasPts = []; _nzPaint(); } else { _nzKalibrierenStart(); } }
         else if (z === 'mess-clear') { _nzMeasPts = []; _nzPaint(); }
         else if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
         else if (z === 'full') { _nzToggleFull(); }
@@ -2734,6 +2776,8 @@
         }
         // MESSEN: ein sauberer Klick (kein Pan) setzt einen Mess-Punkt.
         if (_nzMeasMode && _nzPan && !_nzMoved && _nzWrap) {
+          // Kalibrier-Modus: nur 2 Punkte; ein 3. Klick startet neu.
+          if (_nzCalibMode && _nzMeasPts.length >= 2) _nzMeasPts = [];
           _nzMeasPts.push(_nzScreenToImg(e)); _nzPan = null; _nzMeasPaint(); return;
         }
         if (_nzPan) { _nzPan = null; if (_nzWrap) _nzWrap.style.cursor = 'grab'; }
@@ -2779,7 +2823,20 @@
     svg.appendChild(g);
     var out = document.getElementById('nz-mess-out');
     if (out) {
-      if (!_nzKalibriert()) out.innerHTML = '<strong style="color:#b45309">⚠ Dieser Plan ist nicht auf einen Maßstab kalibriert — Messung in Meter nicht möglich. Bitte auf dem kalibrierten Grundriss-Tab messen.</strong>';
+      // KALIBRIER-Modus: 2 Punkte einer bekannten Länge → Meter eingeben → px/m.
+      if (_nzCalibMode) {
+        if (n < 2) out.innerHTML = '<strong style="color:#0369a1">📐 Maßstab kalibrieren:</strong> klicke die 2 Endpunkte einer BEKANNTEN Länge am Plan (z.B. eine Maßkette oder Wand mit bekanntem Maß).';
+        else {
+          var _pxd = Math.round(_nzMessPxDist() * 10) / 10;
+          out.innerHTML = '<strong style="color:#0369a1">' + _pxd + ' px gemessen.</strong> Reale Länge: ' +
+            '<input type="number" id="nz-calib-m" step="0.01" min="0.01" inputmode="decimal" ' +
+            'style="width:5rem;padding:.15rem .35rem;border:1px solid #0369a1;border-radius:6px" placeholder="Meter"> m ' +
+            '<button type="button" class="nz-btn" style="padding:.1rem .5rem" onclick="_nzKalibrierenSetzen()">Maßstab setzen</button>';
+          var _inp = document.getElementById('nz-calib-m'); if (_inp) _inp.focus();
+        }
+        return;
+      }
+      if (!_nzKalibriert()) out.innerHTML = '<strong style="color:#b45309">⚠ Dieser Plan ist nicht auf einen Maßstab kalibriert — Messung in Meter nicht möglich. </strong><button type="button" class="nz-btn" style="padding:.1rem .5rem" onclick="_nzKalibrierenStart()">📐 Maßstab jetzt setzen</button>';
       else if (n < 2) out.innerHTML = '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>';
       else {
         var s = 'Strecke <strong>' + fmtNum(Math.round(_nzMessStrecke() * 100) / 100) + ' m</strong>';
@@ -2887,15 +2944,17 @@
     var wl = (laengen && laengen.wand_laengen_m) || ov.wand_laengen_m || null;
     var wlm = (laengen && laengen.wand_laengen_manuell) || ov.wand_laengen_manuell || false;
     var rf = ov.raum_flaechen && Object.keys(ov.raum_flaechen).length ? ov.raum_flaechen : null;
+    var kalib = (_nzData.meta && _nzData.meta.px_pro_m_manuell > 0) ? _nzData.meta.px_pro_m_manuell : null;
     var leer = !Object.keys(_nzEdit.removed).length && !Object.keys(_nzEdit.thick).length &&
       !Object.keys(_nzEdit.aussen).length && !(_nzEdit.added && _nzEdit.added.length) &&
-      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile && !wl && !rf;
+      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile && !wl && !rf && !kalib;
     fetch('/api/nachzeichnen-korrektur', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan_id: _nzData.plan_id,
         seite: (_nzAktivSeite != null && _nzAktivSeite !== _nzHauptSeite) ? _nzAktivSeite : null,
         korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null,
-          wand_laengen_m: wl, wand_laengen_manuell: wlm, raum_flaechen: rf } })
+          wand_laengen_m: wl, wand_laengen_manuell: wlm, raum_flaechen: rf,
+          px_pro_m_manuell: kalib } })
     }).catch(function () { /* Speichern ist best-effort */ });
   }
 
@@ -3065,6 +3124,12 @@
       _nzData = d; _nzEdit = { removed: {}, thick: {}, aussen: {} }; _nzSel = null;
       // Gespeicherte Korrekturen wiederherstellen (überleben den Reload)
       var k = d.korrekturen;
+      // Manueller Maßstab (Scan-Kalibrierung) VOR allem — macht den Plan metrisch,
+      // bevor Regionen/Snapping abgeleitet werden.
+      if (k && k.px_pro_m_manuell > 0) {
+        _nzData.meta = _nzData.meta || {};
+        _nzData.meta.px_pro_m_manuell = k.px_pro_m_manuell;
+      }
       if (k && k.edit) {
         _nzEdit = { removed: k.edit.removed || {}, thick: k.edit.thick || {}, aussen: k.edit.aussen || {},
           added: k.edit.added || [], oeffRemoved: k.edit.oeffRemoved || {} };
