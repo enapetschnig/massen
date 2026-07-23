@@ -2689,6 +2689,29 @@
     zoom.style.transform = 'translate(' + _nzZoom.x + 'px,' + _nzZoom.y + 'px) scale(' + s + ')';
   }
 
+  // SCAN-AUTO-ZOOM: bei einem Scan (dichte Multi-View-Tafel) auf die erkannten
+  // Räume zoomen, damit sie groß & sauber liegen statt klein über das Blatt
+  // verstreut. Bounding-Box aller Raum-Polygone → in den Viewport einpassen.
+  function _nzFitToRooms() {
+    if (!_nzWrap || !_nzData || !_nzData.raeume) return;
+    var minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, any = false;
+    (_nzData.raeume || []).forEach(function (r) {
+      (r.region_px || []).forEach(function (p) {
+        any = true;
+        if (p[0] < minx) minx = p[0]; if (p[0] > maxx) maxx = p[0];
+        if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1];
+      });
+    });
+    if (!any || maxx <= minx || maxy <= miny) return;
+    var Wv = _nzWrap.clientWidth, Hv = _nzWrap.clientHeight || (Wv * _nzData.bild_h / _nzData.bild_w);
+    var f = Wv / _nzData.bild_w;                 // Bild-px → Anzeige-px
+    var w = (maxx - minx) * f, h = (maxy - miny) * f;
+    var cx = (minx + maxx) / 2 * f, cy = (miny + maxy) / 2 * f;
+    var s = Math.min(6, Math.max(1, Math.min(Wv / (w * 1.12), Hv / (h * 1.12))));
+    _nzZoom = { s: s, x: Wv / 2 - s * cx, y: Hv / 2 - s * cy };
+    _nzApplyZoom();
+  }
+
   function _nzZoomAt(cx, cy, faktor) {
     var s0 = _nzZoom.s, s1 = Math.min(8, Math.max(1, s0 * faktor));
     _nzZoom.x = cx - (cx - _nzZoom.x) * (s1 / s0);
@@ -3190,6 +3213,9 @@
       _nzWireTabs(cont);
       _nzWireSeiten(cont);
       _nzPaint();
+      // Scan (dichte Multi-View-Tafel): einmalig auf die erkannten Räume zoomen,
+      // damit sie groß & sauber liegen. Nur beim ersten Laden dieses Blatts.
+      if (d.typ === 'scan') setTimeout(function () { _nzFitToRooms(); }, 60);
       // Analyse fertig + Plan überzeichnet → zuerst NUR die Planansicht zeigen
       // (statt der überladenen Gesamtansicht). Einmalig, respektiert Nutzer-Klick.
       if (typeof window.wfAutoPlan === 'function') window.wfAutoPlan();
