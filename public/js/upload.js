@@ -2005,7 +2005,10 @@
       return best;
     }
     _nzData.raeume.forEach(function (r) {
-      if (!r.region_px || r.region_px.length < 3 || r._snapped || r._edited || r._synthetic) return;
+      // auch synthetische Startformen ausrichten (aber nicht editierte);
+      // fehlt in Reichweite eine Flucht, bleibt die Ecke → offener Carport
+      // wird nicht verzerrt.
+      if (!r.region_px || r.region_px.length < 3 || r._snapped || r._edited) return;
       r._snapped = true;
       var snapped = r.region_px.map(function (p) {
         return [Math.round(snap(p[0], vx)), Math.round(snap(p[1], hy))];
@@ -3089,8 +3092,8 @@
       }
       _nzBaueMessCluster();   // NACH dem Restore: legendenlose Pläne (Holzbau) → Stärke-Cluster
       _nzCleanRegionen();     // rekonstruierte Umrisse glätten (Treppen-Rauschen weg)
-      _nzSnapRegionen();      // Eckpunkte auf die byte-exakten Wand-Fluchten rasten
       _nzSynthRegionen();     // Räume ohne Polygon: editierbare Rechteck-Startform
+      _nzSnapRegionen();      // ALLE (echt + geschätzt) auf die Wand-Fluchten rasten
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
       var schnittHint = d.typ === 'schnitt'
