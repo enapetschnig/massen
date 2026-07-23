@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.35"
+APP_REV = "2026-07-09.36"
 
 
 @app.get("/api/extract-health")
@@ -5631,7 +5631,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 39  # + u_geometrie/u_geometrie_roh je Raum (F-kalibrierter Polygon-Umfang)
+_NZ_CACHE_V = 40  # u_geometrie = geom. Mittel(Polygon-Umfang, BBox-Isoperimetrie), F-kalibriert
 
 
 def _korrekturen_fuer_seite(log, seite):

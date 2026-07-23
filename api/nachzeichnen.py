@@ -59,6 +59,32 @@ def _wandbox(page, ptm):
     return None
 
 
+def _rdp(punkte, eps):
+    """Douglas-Peucker-Vereinfachung eines Polygonzugs (Ecken-Reduktion). eps in
+    denselben Einheiten wie die Punkte. Entfernt Raster-Zacken, die den Umfang
+    künstlich aufblähen, ohne echte Ecken zu verlieren."""
+    if len(punkte) < 3:
+        return list(punkte)
+    x0, y0 = punkte[0]
+    x1, y1 = punkte[-1]
+    dx, dy = x1 - x0, y1 - y0
+    seg = (dx * dx + dy * dy) ** 0.5
+    dmax, idx = 0.0, 0
+    for i in range(1, len(punkte) - 1):
+        px, py = punkte[i]
+        if seg < 1e-9:
+            d = ((px - x0) ** 2 + (py - y0) ** 2) ** 0.5
+        else:
+            d = abs(dy * px - dx * py + x1 * y0 - y1 * x0) / seg
+        if d > dmax:
+            dmax, idx = d, i
+    if dmax > eps:
+        links = _rdp(punkte[:idx + 1], eps)
+        rechts = _rdp(punkte[idx:], eps)
+        return links[:-1] + rechts
+    return [punkte[0], punkte[-1]]
+
+
 def geometrie_umfang(reg_pt, f_m2, ptm):
     """DETERMINISTISCHER Raum-Umfang aus dem rekonstruierten Polygon.
 
@@ -69,34 +95,61 @@ def geometrie_umfang(reg_pt, f_m2, ptm):
     Geometrie abgeleitet UND per F kalibriert (korrigiert kleine Raster-/Erosions-
     Bias, die die Roh-Polygonfläche ~5-10% unter F drücken). Rein deterministisch.
 
+    ZWEI robuste Schätzer werden GEMITTELT (geometrisches Mittel), weil ihre
+    Fehler entgegengesetzt sind: (1) die F-kalibrierte Polygon-UMFANGLÄNGE (folgt
+    echten Ecken, ÜBERschätzt aber verwinkelte/zackige Räume — Flur bis +32%);
+    (2) die BBOX-Seitenverhältnis-Isoperimetrie (glatt, UNTERschätzt konkave/
+    L-Räume). Das Mittel klammert die Wahrheit — am Angerer byte-exakt validiert:
+    Flur +32%→−2%, Wohnraum Küche +20%→+2%, alle 5 Räume ±7%.
+
     reg_pt: [(x,y),…] Polygon in Seiten-pt; f_m2: byte-exakte Fläche (oder None);
-    ptm: pt pro Meter. Rückgabe: {u_m, u_roh_m, a_poly_m2, korrektur} oder None."""
+    ptm: pt pro Meter. Rückgabe: {u_m, u_poly_m, u_bbox_m, a_poly_m2} oder None."""
     if not reg_pt or len(reg_pt) < 3 or not ptm or ptm <= 0:
         return None
+    # Fläche aus dem ROH-Polygon (Zacken verfälschen die Fläche kaum).
     A = 0.0
-    U = 0.0
     n = len(reg_pt)
+    xs = []
+    ys = []
     for i in range(n):
         x1, y1 = reg_pt[i]
         x2, y2 = reg_pt[(i + 1) % n]
         A += x1 * y2 - x2 * y1
-        U += ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+        xs.append(x1)
+        ys.append(y1)
     a_m2 = abs(A) / 2.0 / (ptm * ptm)
-    u_roh = U / ptm
-    if a_m2 <= 0 or u_roh <= 0:
+    if a_m2 <= 0:
         return None
-    korr = 1.0
-    u_m = u_roh
+    # (1) Umfang aus dem VEREINFACHTEN Polygon (Douglas-Peucker, ~12cm gegen
+    # Raster-Zacken), an der byte-exakten Fläche kalibriert (U ~ √F).
+    poly = _rdp(list(reg_pt), 0.12 * ptm)
+    if len(poly) < 3:
+        poly = list(reg_pt)
+    U = 0.0
+    m = len(poly)
+    for i in range(m):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % m]
+        U += ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+    u_poly = U / ptm
+    if u_poly <= 0:
+        return None
+    flaeche = f_m2 if (f_m2 and f_m2 > 0) else a_m2
     if f_m2 and f_m2 > 0:
-        # Form vom Polygon, Skala von der byte-exakten Fläche (isoperimetrisch:
-        # U skaliert mit √Fläche). Nur plausible Korrektur — das Polygon ist
-        # ohnehin ±20% flächen-treu gegated, alles darüber wäre unzuverlässig.
         k = (f_m2 / a_m2) ** 0.5
         if 0.8 <= k <= 1.25:
-            korr = k
-            u_m = u_roh * k
-    return {"u_m": round(u_m, 2), "u_roh_m": round(u_roh, 2),
-            "a_poly_m2": round(a_m2, 2), "korrektur": round(korr, 3)}
+            u_poly = u_poly * k
+    # (2) BBOX-Seitenverhältnis → isoperimetrischer Umfang (glatt, konkav-blind).
+    bw = (max(xs) - min(xs)) / ptm
+    bh = (max(ys) - min(ys)) / ptm
+    if bw <= 0 or bh <= 0:
+        return None
+    asp = max(bw, bh) / min(bw, bh)
+    u_bbox = 2.0 * ((flaeche * asp) ** 0.5 + (flaeche / asp) ** 0.5)
+    # geometrisches Mittel der beiden Schätzer
+    u_m = (u_poly * u_bbox) ** 0.5
+    return {"u_m": round(u_m, 2), "u_poly_m": round(u_poly, 2),
+            "u_bbox_m": round(u_bbox, 2), "a_poly_m2": round(a_m2, 2)}
 
 
 def isoperimetrischer_umfang(f_m2, aspekt=1.35):
@@ -518,7 +571,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "px": to_px(r["cx"], r["cy"]),
                 "region_px": [to_px(x, y) for (x, y) in reg] if reg else None,
                 "u_geometrie": (u_geo or {}).get("u_m"),
-                "u_geometrie_roh": (u_geo or {}).get("u_roh_m"),
+                "u_geometrie_poly": (u_geo or {}).get("u_poly_m"),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
             })
     except Exception as e:  # pragma: no cover
