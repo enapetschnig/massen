@@ -7,23 +7,33 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <!-- Navigation -->
-  <nav class="navbar">
-    <a href="dashboard.html" class="navbar-brand">
-      <span class="brand-icon">KI</span>
-      KI-Massenermittlung
+ <div class="app-shell">
+  <!-- Linke Navigations-Schiene (Reißbrett-Rand) -->
+  <aside class="app-rail">
+    <a href="dashboard.html" class="app-rail-brand">
+      <span class="brand-icon">KI</span> KI-Massenermittlung
     </a>
-    <div class="navbar-right">
-      <a href="kalibrierung.html" class="navbar-link" title="Eigene Polier-Listen hochladen — die KI lernt die Faktoren deines Betriebs">📐 Kalibrierung</a>
-      <span class="navbar-company" id="company-name"></span>
-      <button class="navbar-link" id="logout-btn">Abmelden</button>
+    <div class="app-rail-eyebrow">Projekt · Workflow</div>
+    <!-- WORKFLOW-STEPPER = die Navigation dieses Projekts -->
+    <div class="workflow-steps" id="workflow-steps">
+      <button type="button" class="wf-step wf-on" data-wf="0" title="Alle Bereiche gleichzeitig (Standard)">Übersicht</button>
+      <button type="button" class="wf-step" data-wf="1" title="Pläne hochladen &amp; Analyse-Status">1 · Pläne</button>
+      <button type="button" class="wf-step" data-wf="2" title="Planansicht: erkannte Wände/Räume/Öffnungen prüfen und korrigieren">2 · Plan prüfen</button>
+      <button type="button" class="wf-step" data-wf="3" title="Prüfbare Mengen nach ÖNORM + Bestell-Materialliste">3 · Massen &amp; Material</button>
+      <button type="button" class="wf-step" data-wf="4" title="Rückfragen an die Auswertung stellen">4 · Fragen</button>
     </div>
-  </nav>
+    <div class="app-rail-eyebrow">Betrieb</div>
+    <a href="dashboard.html" class="app-rail-link">📁 Alle Projekte</a>
+    <a href="kalibrierung.html" class="app-rail-link" title="Eigene Polier-Listen hochladen — die KI lernt die Faktoren deines Betriebs">📐 Kalibrierung</a>
+    <div class="app-rail-foot">
+      <span class="app-rail-company" id="company-name"></span>
+      <button class="app-rail-link" id="logout-btn">↪ Abmelden</button>
+    </div>
+  </aside>
 
   <!-- Content -->
+  <main class="app-main">
   <div class="page-container">
-    <button class="back-link" onclick="window.location.href='dashboard.html'">&#8592; Zur&uuml;ck zur &Uuml;bersicht</button>
-
     <!-- Project Header -->
     <div class="project-header" id="project-header">
       <div class="project-header-info">
@@ -31,15 +41,6 @@
         <p id="project-address"></p>
       </div>
       <span class="badge badge-neu" id="project-status"></span>
-    </div>
-
-    <!-- WORKFLOW-STEPPER: Fokus-Ansichten (Übersicht = alles, wie bisher) -->
-    <div class="workflow-steps" id="workflow-steps">
-      <button type="button" class="wf-step wf-on" data-wf="0" title="Alle Bereiche gleichzeitig (Standard)">Übersicht</button>
-      <button type="button" class="wf-step" data-wf="1" title="Pläne hochladen &amp; Analyse-Status">1 · Pläne</button>
-      <button type="button" class="wf-step" data-wf="2" title="Planansicht: erkannte Wände/Räume/Öffnungen prüfen und korrigieren">2 · Plan prüfen</button>
-      <button type="button" class="wf-step" data-wf="3" title="Prüfbare Mengen nach ÖNORM + Bestell-Materialliste">3 · Massen &amp; Material</button>
-      <button type="button" class="wf-step" data-wf="4" title="Rückfragen an die Auswertung stellen">4 · Fragen</button>
     </div>
 
     <!-- Upload Section -->
@@ -483,6 +484,8 @@
       </details>
     </div>
   </div>
+  </main>
+ </div><!-- /.app-shell -->
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js"></script>
