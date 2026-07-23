@@ -176,7 +176,15 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     if not ptm:
         # SCAN-ERKENNUNG (Edge-Case-Sweep): Bild-PDFs ohne Text-Layer bekommen
         # eine handlungsleitende Meldung statt der generischen.
-        if len(worte) < 10:
+        # ECHTER Scan = Raster-Bild auf der Seite. Eine LEERE/inhaltslose Seite
+        # (kein Text, kein Bild, keine Vektoren) ist KEIN Scan → ehrlich ok=False,
+        # sonst zeigt das Overlay eine weiße Fläche als „Grundriss".
+        _hat_bild = False
+        try:
+            _hat_bild = bool(page.get_images(full=True))
+        except Exception:
+            _hat_bild = False
+        if len(worte) < 10 and _hat_bild:
             # SCAN-MODUS ('für alle Pläne'): Bild-PDF ohne Text-Layer → das Bild
             # RENDERN statt ablehnen; die Vision-Raum-Polygone werden per Decorator
             # eingezeichnet (region_pt), der Nutzer setzt den Maßstab manuell
@@ -202,6 +210,10 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 }
             except Exception as _e:
                 return {"ok": False, "grund": f"Scan-Render fehlgeschlagen: {_e}"}
+        if len(worte) < 10:
+            # <10 Worte UND kein Bild → leere/inhaltslose Seite (Deckblatt, Brief).
+            return {"ok": False,
+                    "grund": "Leere oder inhaltslose Seite — kein Grundriss erkennbar"}
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     box = _eg_box(page, ptm, worte=worte)
     # STUFE 2 (TG-/Großbau-Pläne, Sektor-Audit: die Wohn-RAUM_WORTE trafen am

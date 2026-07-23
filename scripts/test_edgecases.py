@@ -15,12 +15,15 @@ def run():
     r = nachzeichnen.analysiere_doc(d)
     assert r.get("ok") is False and r.get("grund")
 
-    # 2) Scan (nur Bild) → handlungsleitende Scan-Meldung
+    # 2) Scan (echtes Raster-Bild) → RENDERT als typ='scan' ('für alle Pläne':
+    # Scans zeigen jetzt Bild + Vision-Raum-Polygone, statt abgelehnt zu werden).
     d2 = fitz.open(); p2 = d2.new_page(width=2384, height=1684)
     pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 100, 100), False)
     p2.insert_image(fitz.Rect(0, 0, 2384, 1684), pixmap=pix)
     r2 = nachzeichnen.analysiere_doc(d2)
-    assert r2.get("ok") is False and "Scan" in (r2.get("grund") or "")
+    assert r2.get("ok") is True and r2.get("typ") == "scan", \
+        "echter Scan muss als typ='scan' rendern"
+    assert r2.get("basis_png") and (r2.get("meta") or {}).get("typ") == "scan"
 
     # 3) Null-Seiten-PDF → kein Crash
     r3 = nachzeichnen.analysiere_doc(fitz.open())
