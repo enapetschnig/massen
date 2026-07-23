@@ -3174,12 +3174,18 @@
         _nzPaint();
         return;
       }
+      var _hauptHint = d.typ === 'scan'
+        ? '🖼️ <strong>Scan / Bild-Plan</strong> (keine Vektoren). Die Räume sind aus dem Bild erkannt ' +
+          '(<strong>gestrichelt = geschätzt</strong>, mit ✏️ Raum bearbeiten anpassen). ' +
+          '<strong style="color:#0369a1">Setze zuerst den Maßstab</strong> (📐 — 2 Punkte einer bekannten Länge), ' +
+          'dann sind Flächen/Längen in Metern. · ' + (d.dateiname ? esc(d.dateiname) : '')
+        : 'Erkannte Wände, farbcodiert nach Stärke (gestrichelt = unsicher). ' +
+          '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +
+          (hatK ? '<strong style="color:#166534">✓ deine gespeicherten Korrekturen sind angewandt.</strong> ' : '') +
+          'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
+          ' · ' + (d.dateiname ? esc(d.dateiname) : '') + _nzSeitenHtml();
       cont.innerHTML = _nzTabsHtml() +
-        '<p class="nachzeichnen-hint">Erkannte Wände, farbcodiert nach Stärke (gestrichelt = unsicher). ' +
-        '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +
-        (hatK ? '<strong style="color:#166534">✓ deine gespeicherten Korrekturen sind angewandt.</strong> ' : '') +
-        'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
-        ' · ' + (d.dateiname ? esc(d.dateiname) : '') + _nzSeitenHtml() + '</p>' +
+        '<p class="nachzeichnen-hint">' + _hauptHint + '</p>' +
         '<div class="nz-dynamic"></div>';
       _nzWireTabs(cont);
       _nzWireSeiten(cont);

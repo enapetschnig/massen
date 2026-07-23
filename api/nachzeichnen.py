@@ -71,9 +71,31 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         # SCAN-ERKENNUNG (Edge-Case-Sweep): Bild-PDFs ohne Text-Layer bekommen
         # eine handlungsleitende Meldung statt der generischen.
         if len(worte) < 10:
-            return {"ok": False, "grund": ("Scan/Bild-PDF ohne Text-Layer — für die "
-                    "Massenermittlung wird das Vektor-Original benötigt "
-                    "(aus dem CAD als PDF exportiert, nicht gescannt)")}
+            # SCAN-MODUS ('für alle Pläne'): Bild-PDF ohne Text-Layer → das Bild
+            # RENDERN statt ablehnen; die Vision-Raum-Polygone werden per Decorator
+            # eingezeichnet (region_pt), der Nutzer setzt den Maßstab manuell
+            # (2 Punkte einer bekannten Länge). Uncalibriert (ptm=0).
+            try:
+                import fitz as _fz
+                _bw, _bh = page.rect.width, page.rect.height
+                _sc = max(0.5, min(max_px / _bw, max_px / _bh, 4.0))
+                pix = page.get_pixmap(matrix=_fz.Matrix(_sc, _sc))
+                return {
+                    "ok": True, "typ": "scan",
+                    "basis_png": pix.tobytes("png"),
+                    "bild_w": pix.width, "bild_h": pix.height,
+                    "waende": [], "oeffnungen": [], "raeume": [],
+                    "konturen": [], "fluchten": [], "summe_m": {},
+                    "meta": {
+                        "ptm": 0, "scale": round(_sc, 4),
+                        "box_pt": [0.0, 0.0, round(_bw, 1), round(_bh, 1)],
+                        "n_waende": 0, "box_m": None,
+                        "tragfaehig": False, "streuung_pct": None,
+                        "massstab": m_label or "?", "typ": "scan",
+                    },
+                }
+            except Exception as _e:
+                return {"ok": False, "grund": f"Scan-Render fehlgeschlagen: {_e}"}
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     box = _eg_box(page, ptm, worte=worte)
     # STUFE 2 (TG-/Großbau-Pläne, Sektor-Audit: die Wohn-RAUM_WORTE trafen am
