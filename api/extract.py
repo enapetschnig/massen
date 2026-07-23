@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.34"
+APP_REV = "2026-07-09.35"
 
 
 @app.get("/api/extract-health")
@@ -3609,8 +3609,25 @@ async def projekt_massen(body: ProjektMassenRequest):
             if _gesch:
                 merged[key]["_geschoss"] = _gesch
             continue
-        # Lücken füllen — wer einen Wert hat, gewinnt
-        for fld in ("flaeche_m2", "umfang_m", "hoehe_m", "bodenbelag", "cx", "cy"):
+        # Lücken füllen — wer einen Wert hat, gewinnt. Für F/U/H VERIFIKATIONS-
+        # BEWUSST: ein byte-exakter Wert (aus dem Einreichplan-Stempel) schlägt
+        # einen bereits gesetzten NICHT-verifizierten (Vision) UND trägt sein
+        # _verified.X mit. Ohne das verlor der gemergte Raum die Byte-Exaktheit
+        # des Umfangs (Einreich-U füllte nur die Lücke des Polierplan-Raums) und
+        # der Geometrie-Umfang-Gate hätte ihn fälschlich überschrieben.
+        ex_v = ex.get("_verified")
+        if not isinstance(ex_v, dict):
+            ex_v = {}
+            ex["_verified"] = ex_v
+        d_v = d.get("_verified") or {}
+        for fld, vk in (("flaeche_m2", "F"), ("umfang_m", "U"), ("hoehe_m", "H")):
+            has_ex = ex.get(fld) not in (None, "", 0)
+            has_d = d.get(fld) not in (None, "", 0)
+            if has_d and (not has_ex or (d_v.get(vk) and not ex_v.get(vk))):
+                ex[fld] = d[fld]
+                ex_v[vk] = bool(d_v.get(vk))
+                ex.setdefault("_merged_from", []).append(fld)
+        for fld in ("bodenbelag", "cx", "cy"):
             if ex.get(fld) in (None, "", 0) and d.get(fld) not in (None, "", 0):
                 ex[fld] = d[fld]
                 ex.setdefault("_merged_from", []).append(fld)
