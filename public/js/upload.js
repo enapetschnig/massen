@@ -1918,6 +1918,7 @@
   var _nzRaumEditMode = false;   // „Raum bearbeiten"-Modus
   var _nzRaumSel = -1;           // Index des bearbeiteten Raums in _nzData.raeume
   var _nzRvDrag = null;          // {ri, vi} gerade gezogener Eckpunkt
+  var _nzFull = false;           // Plan im Vollbild
 
   // Fläche (m²) eines Polygons in Bild-Pixeln — Shoelace, am Plan-Maßstab.
   function _nzPolyFlaeche(pts) {
@@ -1940,6 +1941,30 @@
       U += Math.sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
     }
     return U / k;
+  }
+  // JEDER Raum als editierbares Polygon: Räume mit Fläche, aber OHNE rekonstru-
+  // iertes Polygon (offene/verwinkelte Räume, die das Backend auslässt) bekommen
+  // eine GESCHÄTZTE Rechteck-Startform aus F+U, mittig am Raum-Label. So sieht
+  // der Nutzer jeden Raum farbig — und zieht die Form am Plan zurecht (Calcora-
+  // Prinzip). Klar als geschätzt markiert (_synthetic). Einmal je Datensatz.
+  function _nzSynthRegionen() {
+    if (!_nzData || !_nzData.raeume) return;
+    var k = _nzPxProM(); if (!k) return;
+    _nzData.raeume.forEach(function (r) {
+      if ((r.region_px && r.region_px.length >= 3) || r._synthTried) return;
+      r._synthTried = true;
+      var f = r.f_m2, u = r.u_m, px = r.px;
+      if (!f || !px) return;
+      var a, b;   // Seiten in Metern
+      if (u && u > 0) {
+        var p = u / 2, disc = p * p / 4 - f;
+        if (disc >= 0) { var w = Math.sqrt(disc); a = p / 2 + w; b = p / 2 - w; }
+      }
+      if (!(a > 0 && b > 0)) { a = b = Math.sqrt(f); }   // Fallback: Quadrat
+      var aw = a * k / 2, bh = b * k / 2, cx = px[0], cy = px[1];
+      r.region_px = [[cx - aw, cy - bh], [cx + aw, cy - bh], [cx + aw, cy + bh], [cx - aw, cy + bh]];
+      r._synthetic = true;   // geschätzte Startform — bitte am Plan anpassen
+    });
   }
   // Ein Raum-Polygon wurde geändert → neue Fläche/Umfang merken (noch nicht in
   // die Massen — erst „Fläche übernehmen"). Readout aktualisieren.
@@ -2246,12 +2271,14 @@
       if (_nzRaumFill) {
         var rc = _NZ_RAUMFARBEN[_rIdx % _NZ_RAUMFARBEN.length]; _rIdx++;
         var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
+        var _synth = r._synthetic && !r._edited;
         lines += '<polygon data-rpoly="' + _ri + '" points="' + pts + '" fill="' + rc + '" fill-opacity="' +
-          (_edit ? 0.12 : 0.26) + '" stroke="' + rc + '" stroke-width="' + (_edit ? 3 : 2) + '"' +
-          ' stroke-opacity="0.95"' + (_edit ? ' stroke-dasharray="1 0"' : '') +
+          (_edit ? 0.12 : (_synth ? 0.14 : 0.26)) + '" stroke="' + rc + '" stroke-width="' + (_edit ? 3 : 2) + '"' +
+          ' stroke-opacity="0.95"' + ((_synth && !_edit) ? ' stroke-dasharray="8 5"' : '') +
           ' cursor="' + (_nzRaumEditMode ? 'pointer' : 'default') + '" pointer-events="' + _pe + '">' +
           '<title>' + esc(r.name || '') + (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +
-          (_nzRaumEditMode ? ' — klicken zum Bearbeiten' : (rok ? ' ✓ geometrisch bestätigt' : ' — prüfen')) +
+          (_synth ? ' — geschätzte Startform, bitte am Plan anpassen (✏️ Raum bearbeiten)'
+                  : (_nzRaumEditMode ? ' — klicken zum Bearbeiten' : (rok ? ' ✓ geometrisch bestätigt' : ' — prüfen'))) +
           '</title></polygon>';
         if (r.px) {
           var _rl = fs * 0.92;
@@ -2444,6 +2471,7 @@
       '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
+      '<button type="button" class="nz-btn' + (_nzFull ? ' nz-btn-on' : '') + '" data-z="full" title="Plan im Vollbild anzeigen (Esc = schließen)">' + (_nzFull ? '✕ Vollbild schließen' : '⛶ Vollbild') + '</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben (Raumansicht) ↔ technische Wand-/Prüfansicht">🎨 Räume</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumEditMode ? ' nz-btn-on' : '') + '" data-z="raumedit" title="Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu">✏️ Raum bearbeiten</button>' +
       '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
@@ -2514,6 +2542,23 @@
     renderWandAufmass();   // Wand-Aufmaß live mitziehen (jede Korrektur sofort sichtbar)
   }
 
+  // VOLLBILD: die Planansicht füllt den ganzen Bildschirm — der Plan wird viel
+  // größer, Zoom/Pan/Editor funktionieren unverändert. Esc oder Button schließt.
+  function _nzToggleFull() {
+    _nzFull = !_nzFull;
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec) sec.classList.toggle('nz-fullscreen', _nzFull);
+    document.body.classList.toggle('nz-full-open', _nzFull);
+    _nzPaint();
+    setTimeout(function () { if (typeof _nzApplyZoom === 'function') _nzApplyZoom(); }, 30);
+    if (_nzFull && !window._nzEscBound) {
+      window._nzEscBound = true;
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && _nzFull) _nzToggleFull();
+      });
+    }
+  }
+
   function _nzApplyZoom() {
     if (!_nzWrap || !_nzData) return;
     var zoom = _nzWrap.querySelector('.nz-zoom'); if (!zoom) return;
@@ -2577,6 +2622,7 @@
         else if (z === 'mess') { _nzMeasMode = !_nzMeasMode; if (_nzMeasMode) { _nzAddMode = false; } _nzMeasPts = []; _nzSel = null; _nzPaint(); }
         else if (z === 'mess-clear') { _nzMeasPts = []; _nzPaint(); }
         else if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
+        else if (z === 'full') { _nzToggleFull(); }
         else _nzZoomAt(_nzWrap.clientWidth / 2, _nzWrap.clientHeight / 2, z === 'in' ? 1.3 : 1 / 1.3);
       });
     });
@@ -2965,6 +3011,7 @@
         }
       }
       _nzBaueMessCluster();   // NACH dem Restore: legendenlose Pläne (Holzbau) → Stärke-Cluster
+      _nzSynthRegionen();     // Räume ohne Polygon: editierbare Rechteck-Startform
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
       var schnittHint = d.typ === 'schnitt'
