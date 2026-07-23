@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.30"
+APP_REV = "2026-07-09.31"
 
 
 @app.get("/api/extract-health")
@@ -1010,7 +1010,12 @@ async def analyse_zoom(body: ExtractRequest):
     ROOM_CODE_RX_INNER = re.compile(r"^(EG|OG\d?|KG|UG|DG)\s*[._-]?\s*(\d{2,4})$", re.I)
     # Generalisierte Anker: matchen F:/Fl:/Fläche, U:/Um:/Umfang, H:/Hö:/RH/Höhe
     # U: kann Tausender-Leerzeichen + Einheit cm/m haben: "U: 1 098,0 cm"
-    F_ANCHOR_RX = re.compile(r"^(?:F|Fl|Fläche|Flaeche)\s*[:=]?\s*([0-9]+[,.][0-9]+)", re.I)
+    # Flächen-Stempel: F/Fläche, ABER auch die österreichischen Polierplan-
+    # Konventionen BF (Bodenfläche), NF (Nutzfläche), WNF (Wohnnutzfläche),
+    # WF (Wohnfläche). Ohne BF/NF fielen ganze Polierplan-Räume (Angerer AP.01:
+    # "m2 BF: 10,53") auf inkonsistente Vision-Lesung zurück (6/10 ohne Fläche).
+    # BGF/NGF (Gebäude-Ebene) bewusst NICHT — die würden die falsche Zahl greifen.
+    F_ANCHOR_RX = re.compile(r"^(?:BF|WNF|WF|NF|F|Fl|Fläche|Flaeche)\s*[:=]?\s*([0-9]+[,.][0-9]+)", re.I)
     U_ANCHOR_RX = re.compile(r"^(?:U|Um|Umfang)\s*[:=]?\s*([0-9][0-9\s]*[,.][0-9]+)", re.I)
     H_ANCHOR_RX = re.compile(r"^(?:H|Hö|Hoe|Höhe|Hoehe|RH|LH)\s*[:=]?\s*([0-9]+[,.][0-9]+)", re.I)
     B_ANCHOR_RX = re.compile(r"^B\s*[:=]\s*(.+)$", re.I)
@@ -1206,12 +1211,27 @@ async def analyse_zoom(body: ExtractRequest):
                         claims.append({"kind": "B", "value": b.title(),
                                        "cx": s["cx"], "cy": s["cy"]})
                         break
-        # Inline (e.g. "F: 12,16 m" all in one span)
-        for kind in ("F", "U", "H"):
-            m = re.match(rf"^{kind}\s*[:=]\s*([0-9]+[,.][0-9]+)", t)
-            if m:
-                claims.append({"kind": kind, "value": float(m.group(1).replace(",", ".")),
-                               "cx": s["cx"], "cy": s["cy"]})
+        # Inline (e.g. "F: 12,16 m", "BF: 31,12", "RH: 295,0 cm") — dieselben
+        # Anker wie die per-Raum-Extraktion, damit BF/NF (Fläche) und RH/LH
+        # (Höhe, cm→m) auch als globale Claims für die Greedy-Zuordnung zählen.
+        fm = F_ANCHOR_RX.match(t)
+        if fm:
+            claims.append({"kind": "F", "value": float(fm.group(1).replace(",", ".")),
+                           "cx": s["cx"], "cy": s["cy"]})
+        um = U_ANCHOR_RX.match(t)
+        if um:
+            _uv = float(um.group(1).replace(" ", "").replace(",", "."))
+            if ("cm" in t.lower()) or (_uv > 50):
+                _uv = _uv / 100.0
+            if 1.0 <= _uv <= 200.0:
+                claims.append({"kind": "U", "value": _uv, "cx": s["cx"], "cy": s["cy"]})
+        hm = H_ANCHOR_RX.match(t)
+        if hm:
+            _hv = float(hm.group(1).replace(",", "."))
+            if 20 < _hv < 500:
+                _hv = _hv / 100.0
+            if 2.0 <= _hv <= 5.0:
+                claims.append({"kind": "H", "value": _hv, "cx": s["cx"], "cy": s["cy"]})
 
     # Greedy fill gaps — each claim used at most once
     def _greedy_fill(rooms, claims, kind, attr):
