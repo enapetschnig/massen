@@ -59,6 +59,59 @@ def _wandbox(page, ptm):
     return None
 
 
+def geometrie_umfang(reg_pt, f_m2, ptm):
+    """DETERMINISTISCHER Raum-Umfang aus dem rekonstruierten Polygon.
+
+    Der Umfang ist der Hebel für Pläne, die Fläche+Höhe, aber KEINEN Umfang
+    stempeln (Polierpläne wie Angerer AP.01): dort kam U bisher aus schwankender
+    Vision. Das Polygon (raum_regionen, bereits flächen-treu ±20% gegated) liefert
+    die FORM, die byte-exakte Stempel-Fläche pinnt die SKALA — U wird also aus der
+    Geometrie abgeleitet UND per F kalibriert (korrigiert kleine Raster-/Erosions-
+    Bias, die die Roh-Polygonfläche ~5-10% unter F drücken). Rein deterministisch.
+
+    reg_pt: [(x,y),…] Polygon in Seiten-pt; f_m2: byte-exakte Fläche (oder None);
+    ptm: pt pro Meter. Rückgabe: {u_m, u_roh_m, a_poly_m2, korrektur} oder None."""
+    if not reg_pt or len(reg_pt) < 3 or not ptm or ptm <= 0:
+        return None
+    A = 0.0
+    U = 0.0
+    n = len(reg_pt)
+    for i in range(n):
+        x1, y1 = reg_pt[i]
+        x2, y2 = reg_pt[(i + 1) % n]
+        A += x1 * y2 - x2 * y1
+        U += ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+    a_m2 = abs(A) / 2.0 / (ptm * ptm)
+    u_roh = U / ptm
+    if a_m2 <= 0 or u_roh <= 0:
+        return None
+    korr = 1.0
+    u_m = u_roh
+    if f_m2 and f_m2 > 0:
+        # Form vom Polygon, Skala von der byte-exakten Fläche (isoperimetrisch:
+        # U skaliert mit √Fläche). Nur plausible Korrektur — das Polygon ist
+        # ohnehin ±20% flächen-treu gegated, alles darüber wäre unzuverlässig.
+        k = (f_m2 / a_m2) ** 0.5
+        if 0.8 <= k <= 1.25:
+            korr = k
+            u_m = u_roh * k
+    return {"u_m": round(u_m, 2), "u_roh_m": round(u_roh, 2),
+            "a_poly_m2": round(a_m2, 2), "korrektur": round(korr, 3)}
+
+
+def isoperimetrischer_umfang(f_m2, aspekt=1.35):
+    """FALLBACK-Umfang für Räume OHNE Polygon UND ohne U-Stempel: aus der byte-
+    exakten Fläche + angenommenem Seitenverhältnis (Default 1,35 ≈ typischer
+    Wohnraum). Exakt für Rechtecke, Untergrenze für verwinkelte Räume. Klar als
+    Schätzung zu flaggen (umfang_quelle='geschaetzt')."""
+    if not f_m2 or f_m2 <= 0:
+        return None
+    r = max(1.0, float(aspekt))
+    # F = a*b, r = a/b → b = √(F/r), a = √(F*r); U = 2(a+b)
+    u = 2.0 * ((f_m2 * r) ** 0.5 + (f_m2 / r) ** 0.5)
+    return round(u, 2)
+
+
 def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     """Eine Grundriss-Seite → {ok, basis_png(bytes), waende[], summe_m, meta}."""
     # TEXT-SHARING (WM-Profil: get_text('words') kostet ~5s bei 878k-Pfad-Plänen
@@ -454,6 +507,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             regionen = {}
         for i, r in enumerate(rres):
             reg = regionen.get(i)
+            # DETERMINISTISCHER Umfang aus dem Polygon (F-kalibriert) — der Hebel
+            # für Räume ohne U-Stempel. Nur wenn ein sauberes Polygon da ist.
+            u_geo = geometrie_umfang(reg, r.get("f_m2"), ptm) if reg else None
             raeume.append({
                 "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
                 "f_ist": r.get("f_ist"), "u_ist": r.get("u_ist"),
@@ -461,6 +517,8 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "ebene": r.get("ebene"),   # 'roh'|'fertig' — welche Ebene bewies
                 "px": to_px(r["cx"], r["cy"]),
                 "region_px": [to_px(x, y) for (x, y) in reg] if reg else None,
+                "u_geometrie": (u_geo or {}).get("u_m"),
+                "u_geometrie_roh": (u_geo or {}).get("u_roh_m"),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
             })
     except Exception as e:  # pragma: no cover
