@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.33"
+APP_REV = "2026-07-09.34"
 
 
 @app.get("/api/extract-health")
@@ -3915,6 +3915,79 @@ async def projekt_massen(body: ProjektMassenRequest):
 
     halluzinationen = [r for r in merged_rooms if r.get("_hallucination")]
     merged_rooms = cleaned_rooms
+
+    # 4a2) GEOMETRIE-UMFANG für Räume OHNE byte-exakten U-Stempel (Polierpläne wie
+    # AP.01 stempeln F+H, aber kein U → U kam bisher aus schwankender Vision, teils
+    # 0 = gar keine Wände). Deterministische Quelle: der F-kalibrierte Umfang des
+    # rekonstruierten Raum-Polygons (nachzeichnen), sonst isoperimetrische Schätzung
+    # aus der byte-exakten Fläche. STRIKTES GATE: byte-exakter Text-U (_verified.U)
+    # bleibt IMMER unangetastet → Angerer/Sadiku (U im Stempel) unverändert.
+    def _plan_geo_umfaenge(plan):
+        """{norm_name: u_geometrie_m} — aus Nachzeichnen-Cache (v39, gratis) oder
+        best-effort frisch rekonstruiert (+ gecacht). Leeres Dict bei Fehlschlag."""
+        log = plan.get("agent_log") or {}
+        out = {}
+        for _ck in [k for k in log if str(k).startswith("nachzeichnen_cache")]:
+            _c = log.get(_ck)
+            if isinstance(_c, dict) and _c.get("v") == _NZ_CACHE_V:
+                for _r in ((_c.get("daten") or {}).get("raeume") or []):
+                    _ug = _r.get("u_geometrie")
+                    if _ug and _r.get("name"):
+                        out.setdefault(_nk(_r["name"]), _ug)
+        if out:
+            return out
+        _gc = log.get("geometrie_umfaenge")
+        if isinstance(_gc, dict) and _gc.get("v") == _NZ_CACHE_V:
+            return _gc.get("map") or {}
+        if not _NACHZEICHNEN_OK or not plan.get("storage_path"):
+            return {}
+        try:
+            import fitz
+            _pdf = sb.storage.from_("plaene").download(plan["storage_path"])
+            _doc = fitz.open(stream=_pdf, filetype="pdf")
+            _res = _nachzeichnen.analysiere_doc(_doc, max_px=1800)
+            _doc.close()
+            _m = {}
+            for _r in (_res.get("raeume") or []):
+                _ug = _r.get("u_geometrie")
+                if _ug and _r.get("name"):
+                    _m.setdefault(_nk(_r["name"]), _ug)
+            log["geometrie_umfaenge"] = {"v": _NZ_CACHE_V, "map": _m}
+            try:
+                sb.table("plaene").update({"agent_log": log}).eq("id", plan["id"]).execute()
+            except Exception:
+                pass
+            return _m
+        except Exception as _ge:
+            print(f"[geometrie-umfang] Rekonstruktion {plan.get('id')}: {_ge!r}")
+            return {}
+
+    _brauchen_u = any(r.get("flaeche_m2") and not (r.get("_verified") or {}).get("U")
+                      for r in merged_rooms)
+    if _brauchen_u:
+        _geo_map = {}
+        for _p in plaene:
+            for _nn, _ug in _plan_geo_umfaenge(_p).items():
+                _geo_map.setdefault(_nn, _ug)
+        _n_geo = _n_iso = 0
+        for r in merged_rooms:
+            f = r.get("flaeche_m2")
+            if not f or (r.get("_verified") or {}).get("U"):
+                continue   # kein F oder byte-exakter U-Stempel → NICHT anfassen
+            _ug = _geo_map.get(_nk(r.get("name") or ""))
+            if _ug:
+                r["umfang_m"] = _ug
+                r["umfang_quelle"] = "geometrie"
+                _n_geo += 1
+            elif not r.get("umfang_m"):
+                _iso = _nachzeichnen.isoperimetrischer_umfang(f)
+                if _iso:
+                    r["umfang_m"] = _iso
+                    r["umfang_quelle"] = "geschaetzt"
+                    _n_iso += 1
+        if _n_geo or _n_iso:
+            print(f"[geometrie-umfang] {_n_geo} Räume aus Polygon, {_n_iso} isoperimetrisch "
+                  f"geschätzt (byte-exakte U-Stempel unberührt)")
 
     # 4a3) RAUM-POLYGON-KORREKTUR (Nutzer zieht die Eckpunkte am Plan): die
     # editierte Fläche/Umfang eines Raums überschreibt die gelesene — byte-exakt
