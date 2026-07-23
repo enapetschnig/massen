@@ -7,20 +7,22 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <!-- Navigation -->
-  <nav class="navbar">
-    <a href="dashboard.html" class="navbar-brand">
-      <span class="brand-icon">KI</span>
-      KI-Massenermittlung
+ <div class="app-shell">
+  <aside class="app-rail">
+    <a href="dashboard.html" class="app-rail-brand">
+      <span class="brand-icon">KI</span> KI-Massenermittlung
     </a>
-    <div class="navbar-right">
-      <a href="admin.html" class="navbar-link hidden" id="nav-admin">⚙ Admin</a>
-      <a href="kalibrierung.html" class="navbar-link" title="Eigene Polier-Listen hochladen — die KI lernt die Faktoren deines Betriebs">📐 Kalibrierung</a>
-      <span class="navbar-company" id="company-name"></span>
-      <button class="navbar-link" id="logout-btn">Abmelden</button>
+    <div class="app-rail-eyebrow">Betrieb</div>
+    <a href="dashboard.html" class="app-rail-link wf-on" style="box-shadow:inset 3px 0 0 var(--accent);background:rgba(189,106,31,0.18);color:#fff">📁 Projekte</a>
+    <a href="kalibrierung.html" class="app-rail-link" title="Eigene Polier-Listen hochladen — die KI lernt die Faktoren deines Betriebs">📐 Kalibrierung</a>
+    <a href="admin.html" class="app-rail-link hidden" id="nav-admin">⚙ Admin</a>
+    <div class="app-rail-foot">
+      <span class="app-rail-company" id="company-name"></span>
+      <button class="app-rail-link" id="logout-btn">↪ Abmelden</button>
     </div>
-  </nav>
+  </aside>
 
+  <main class="app-main">
   <!-- Content -->
   <div class="page-container">
 
@@ -117,6 +119,8 @@
       </form>
     </div>
   </div>
+  </main>
+ </div><!-- /.app-shell -->
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js"></script>

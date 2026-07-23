@@ -7,19 +7,21 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <!-- Navigation -->
-  <nav class="navbar">
-    <a href="dashboard.html" class="navbar-brand">
-      <span class="brand-icon">KI</span>
-      KI-Massenermittlung
+ <div class="app-shell">
+  <aside class="app-rail">
+    <a href="dashboard.html" class="app-rail-brand">
+      <span class="brand-icon">KI</span> KI-Massenermittlung
     </a>
-    <div class="navbar-right">
-      <a href="dashboard.html" class="navbar-link">← Projekte</a>
-      <span class="navbar-company" id="company-name"></span>
-      <button class="navbar-link" id="logout-btn">Abmelden</button>
+    <div class="app-rail-eyebrow">Betrieb</div>
+    <a href="dashboard.html" class="app-rail-link">📁 Projekte</a>
+    <a href="kalibrierung.html" class="app-rail-link wf-on" style="box-shadow:inset 3px 0 0 var(--accent);background:rgba(189,106,31,0.18);color:#fff">📐 Kalibrierung</a>
+    <div class="app-rail-foot">
+      <span class="app-rail-company" id="company-name"></span>
+      <button class="app-rail-link" id="logout-btn">↪ Abmelden</button>
     </div>
-  </nav>
+  </aside>
 
+  <main class="app-main">
   <div class="page-container kalib-page">
 
     <div class="page-header">
@@ -87,6 +89,8 @@
     </div>
 
   </div>
+  </main>
+ </div><!-- /.app-shell -->
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js"></script>
