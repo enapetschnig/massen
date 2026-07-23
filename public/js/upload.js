@@ -1982,6 +1982,43 @@
       r.region_px = _nzSimplify(r.region_px, eps);
     });
   }
+  // WAND-SNAPPING (Kern für „läuft von selbst genau"): jeden Raum-Eckpunkt auf
+  // die nächste byte-exakte Wand-FLUCHT rasten (Maßketten-Linien aus dem Plan).
+  // So kleben die rekonstruierten Räume automatisch sauber an den Wänden statt
+  // watershed-ungefähr daneben. Nur innerhalb Toleranz (~30 cm) — weit entfernte
+  // Ecken (freie Kanten) bleiben. Nur echte, nicht editierte/synthetische Polygone.
+  function _nzSnapRegionen() {
+    if (!_nzData || !_nzData.raeume || !_nzData.fluchten || !_nzData.fluchten.length) return;
+    var k = _nzPxProM(); var tol = k ? k * 0.30 : 12;   // ~30 cm Fangradius
+    var vx = [], hy = [];
+    _nzData.fluchten.forEach(function (f) {
+      if (f.px == null) return;
+      if (f.achse === 'v') vx.push(f.px); else hy.push(f.px);
+    });
+    if (!vx.length && !hy.length) return;
+    function snap(val, arr) {
+      var best = val, bd = tol;
+      for (var i = 0; i < arr.length; i++) {
+        var d = Math.abs(arr[i] - val);
+        if (d < bd) { bd = d; best = arr[i]; }
+      }
+      return best;
+    }
+    _nzData.raeume.forEach(function (r) {
+      if (!r.region_px || r.region_px.length < 3 || r._snapped || r._edited || r._synthetic) return;
+      r._snapped = true;
+      var snapped = r.region_px.map(function (p) {
+        return [Math.round(snap(p[0], vx)), Math.round(snap(p[1], hy))];
+      });
+      // nach dem Snap aufeinanderfallende Punkte zusammenfassen
+      var out = [];
+      snapped.forEach(function (p) {
+        var last = out[out.length - 1];
+        if (!last || Math.abs(last[0] - p[0]) > 1 || Math.abs(last[1] - p[1]) > 1) out.push(p);
+      });
+      if (out.length >= 3) r.region_px = out;
+    });
+  }
   // JEDER Raum als editierbares Polygon: Räume mit Fläche, aber OHNE rekonstru-
   // iertes Polygon (offene/verwinkelte Räume, die das Backend auslässt) bekommen
   // eine GESCHÄTZTE Rechteck-Startform aus F+U, mittig am Raum-Label. So sieht
@@ -3052,6 +3089,7 @@
       }
       _nzBaueMessCluster();   // NACH dem Restore: legendenlose Pläne (Holzbau) → Stärke-Cluster
       _nzCleanRegionen();     // rekonstruierte Umrisse glätten (Treppen-Rauschen weg)
+      _nzSnapRegionen();      // Eckpunkte auf die byte-exakten Wand-Fluchten rasten
       _nzSynthRegionen();     // Räume ohne Polygon: editierbare Rechteck-Startform
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
