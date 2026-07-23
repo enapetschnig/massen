@@ -1942,6 +1942,46 @@
     }
     return U / k;
   }
+  // Polygon-Vereinfachung (Douglas-Peucker): entfernt Rausch-/Treppen-Punkte
+  // der Watershed-Rekonstruktion, damit die Raum-Umrisse sauberer/glatter am
+  // Plan liegen — ohne die Fläche zu verzerren (nur fast-kollineare Punkte weg).
+  function _nzSimplify(pts, eps) {
+    if (!pts || pts.length <= 4) return pts;
+    function seg(p, a, b) {
+      var dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+      if (!L2) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+      var t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+    }
+    function dp(list) {
+      if (list.length < 3) return list;
+      var dmax = 0, idx = 0;
+      for (var i = 1; i < list.length - 1; i++) {
+        var d = seg(list[i], list[0], list[list.length - 1]);
+        if (d > dmax) { dmax = d; idx = i; }
+      }
+      if (dmax > eps) {
+        var l = dp(list.slice(0, idx + 1)), r = dp(list.slice(idx));
+        return l.slice(0, -1).concat(r);
+      }
+      return [list[0], list[list.length - 1]];
+    }
+    // geschlossenes Polygon: am weitest entfernten Punktpaar aufbrechen
+    var out = dp(pts.concat([pts[0]]));
+    out.pop();
+    return out.length >= 3 ? out : pts;
+  }
+  // Rekonstruierte Raum-Umrisse einmalig glätten (nur echte, nicht editierte).
+  function _nzCleanRegionen() {
+    if (!_nzData || !_nzData.raeume) return;
+    var k = _nzPxProM(); var eps = k ? k * 0.12 : 4;   // ~12 cm Toleranz
+    _nzData.raeume.forEach(function (r) {
+      if (!r.region_px || r.region_px.length < 5 || r._cleaned || r._edited) return;
+      r._cleaned = true;
+      r.region_px = _nzSimplify(r.region_px, eps);
+    });
+  }
   // JEDER Raum als editierbares Polygon: Räume mit Fläche, aber OHNE rekonstru-
   // iertes Polygon (offene/verwinkelte Räume, die das Backend auslässt) bekommen
   // eine GESCHÄTZTE Rechteck-Startform aus F+U, mittig am Raum-Label. So sieht
@@ -3011,6 +3051,7 @@
         }
       }
       _nzBaueMessCluster();   // NACH dem Restore: legendenlose Pläne (Holzbau) → Stärke-Cluster
+      _nzCleanRegionen();     // rekonstruierte Umrisse glätten (Treppen-Rauschen weg)
       _nzSynthRegionen();     // Räume ohne Polygon: editierbare Rechteck-Startform
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);

@@ -2764,8 +2764,12 @@ img {
   border-radius: 0; border: none; overflow: auto; box-shadow: 0 0 0 100vmax rgba(15,23,42,.4); }
 body.nz-full-open { overflow: hidden; }
 .nz-fullscreen .nachzeichnen-container { padding: 0.4rem 1rem 1rem; }
-/* im Vollbild darf der Plan die volle Höhe nutzen */
-.nz-fullscreen .nz-wrap { min-height: calc(100vh - 210px); }
+.nz-fullscreen .nachzeichnen-head { position: sticky; top: 0; z-index: 2; }
+/* im Vollbild ganz auf den Plan fokussieren: Legende + Wandlängen-Tabelle
+   ausblenden, damit der Plan die volle Höhe bekommt (Werte bleiben im Normal-
+   modus sichtbar). Nur Plan + Steuerleiste. */
+.nz-fullscreen .nz-legend, .nz-fullscreen .nz-apply, .nz-fullscreen .nachzeichnen-hint { display: none; }
+.nz-fullscreen .nz-wrap { min-height: calc(100vh - 120px); }
 .nachzeichnen-head { padding: 0.7rem 1rem; font-weight: 600; color: var(--primary);
   border-bottom: 1px solid var(--border); background: #f8fafc; }
 .nachzeichnen-sub { font-weight: 400; font-size: 0.8rem; color: var(--text-light); margin-left: 0.4rem; }
