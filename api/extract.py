@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.26"
+APP_REV = "2026-07-09.27"
 
 
 @app.get("/api/extract-health")
@@ -2503,6 +2503,8 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                                     "Bounding-Box jedes beschrifteten Raums.", max_tok=2000)
                         _cw = _clip.width if _clip is not None else pw3
                         _ch = _clip.height if _clip is not None else ph3
+                        _ox = _clip.x0 if _clip is not None else 0.0
+                        _oy = _clip.y0 if _clip is not None else 0.0
                         for rb in (bp.get("raeume") or []):
                             try:
                                 dx = (float(rb["x1_pct"]) - float(rb["x0_pct"])) / 100.0 * _cw
@@ -2511,8 +2513,14 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                                     continue
                                 _asp = max(dx, dy) / min(dx, dy)
                                 _nn = _norm_name(rb.get("name") or "")
+                                # Box-Ecken in SEITEN-pt (für das Overlay am Scan)
+                                _px0 = round(_ox + float(rb["x0_pct"]) / 100.0 * _cw, 1)
+                                _py0 = round(_oy + float(rb["y0_pct"]) / 100.0 * _ch, 1)
+                                _px1 = round(_ox + float(rb["x1_pct"]) / 100.0 * _cw, 1)
+                                _py1 = round(_oy + float(rb["y1_pct"]) / 100.0 * _ch, 1)
+                                _corners = [[_px0, _py0], [_px1, _py0], [_px1, _py1], [_px0, _py1]]
                                 if _nn and 1.0 <= _asp <= 8.0:
-                                    _bx[_nn].append((_gesch, _asp, dx * dy))
+                                    _bx[_nn].append((_gesch, _asp, dx * dy, _corners))
                             except (KeyError, TypeError, ValueError, ZeroDivisionError):
                                 continue
                     # Zuordnung je (Name): beide Seiten größensortiert zippen
@@ -2524,11 +2532,15 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                         _rn[_norm_name(r.get("name") or "")].append(r)
                     _gefuellt = 0
 
-                    def _u_setzen(r, _asp, _quelle):
+                    def _u_setzen(r, _asp, _quelle, _corners=None):
                         _F = float(r["flaeche_m2"])
                         r["umfang_m"] = round(2.0 * (math.sqrt(_F * _asp) + math.sqrt(_F / _asp)), 2)
                         r["umfang_geschaetzt"] = True
                         r["umfang_quelle"] = _quelle
+                        # Box-Ecken als Raum-Polygon fürs Overlay (Scan: kein Vektor-
+                        # Umriss vorhanden) — editierbar/kalibrierbar am Plan.
+                        if _corners:
+                            r["region_pt"] = _corners
 
                     def _g_passt(k_g, r):
                         _rg = str(r.get("geschoss") or "").strip().upper()
@@ -2542,7 +2554,8 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                                         if _g_passt(k[0], r)), None)
                             if _gi is None:
                                 continue
-                            _u_setzen(r, _kand.pop(_gi)[1], "proportion-vision")
+                            _t = _kand.pop(_gi)
+                            _u_setzen(r, _t[1], "proportion-vision", _t[3] if len(_t) > 3 else None)
                             _gefuellt += 1
                     # Stufe 2b — FUZZY-NAME: Vision nennt Räume oft leicht anders
                     # ("Zimmer 1" vs "Zimmer", "Wohnen/Essen" vs "Wohnessraum") →
@@ -2562,7 +2575,8 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                                         _tref = (_kand, _gi)
                                         break
                             if _tref:
-                                _u_setzen(r, _tref[0].pop(_tref[1])[1], "proportion-vision-fuzzy")
+                                _t = _tref[0].pop(_tref[1])
+                                _u_setzen(r, _t[1], "proportion-vision-fuzzy", _t[3] if len(_t) > 3 else None)
                                 _gefuellt += 1
                     # Stufe 2c — DEFAULT-PROPORTION: Rest ohne Box bekommt das
                     # typische Wohnraum-Seitenverhältnis 1,35 (≈4,06·√F) — immer
@@ -5511,6 +5525,73 @@ def _vision_fenster_marker(plan_id, r, seite):
         print(f"[nachzeichnen] Vision-F-Marker fehlgeschlagen: {e!r}")
 
 
+def _vision_raum_regionen(plan_id, r, seite):
+    """SCAN-RAUM-POLYGONE (Traceability für Pläne OHNE Vektoren): hat der Vektor-
+    Watershed KEINE Raum-Regionen rekonstruiert (Raster/Scan), werden die aus der
+    Vision-Bbox gespeicherten Raum-Boxen (elemente.daten.region_pt, Seiten-pt) als
+    Polygone ins Overlay gelegt — so ist auch ein Scan Raum für Raum eingezeichnet
+    (farbig, editierbar, nach Maßstab-Kalibrierung metrisch). Nur wenn sonst leer;
+    native Pläne (mit rekonstruierten Regionen) bleiben unberührt. Best-effort."""
+    try:
+        meta = r.get("meta") or {}
+        if (meta.get("seite") or 0) != 0 or seite not in (None, 0):
+            return
+        b, sc = meta.get("box_pt"), meta.get("scale")
+        if not b or not sc:
+            return
+        raeume = r.get("raeume") or []
+        # nur einspringen, wenn KEIN Raum bereits ein rekonstruiertes Polygon hat
+        if any((rm.get("region_px") and len(rm.get("region_px") or []) >= 3) for rm in raeume):
+            return
+        res = sb.table("elemente").select("daten").eq("plan_id", plan_id) \
+            .eq("typ", "raum").execute()
+        vis = {}
+        for row in (res.data or []):
+            d = row.get("daten") or {}
+            if d.get("region_pt") and d.get("name"):
+                vis[re.sub(r"[\s\-_/]+", "", (d["name"]).lower())] = d
+        if not vis:
+            return
+        # Match auf die Overlay-Räume (per normalisiertem Namen); fehlt der Raum
+        # im Overlay, wird er ergänzt, damit er trotzdem gezeichnet wird.
+        def _px(pt):
+            return [round((float(pt[0]) - b[0]) * sc, 1), round((float(pt[1]) - b[1]) * sc, 1)]
+        _seen = set()
+        n = 0
+        for rm in raeume:
+            key = re.sub(r"[\s\-_/]+", "", (rm.get("name") or "").lower())
+            d = vis.get(key)
+            if not d:
+                continue
+            corners = d.get("region_pt") or []
+            if len(corners) < 3:
+                continue
+            rm["region_px"] = [_px(c) for c in corners]
+            rm["region_geschaetzt"] = True
+            _seen.add(key)
+            n += 1
+        for key, d in vis.items():
+            if key in _seen:
+                continue
+            corners = d.get("region_pt") or []
+            if len(corners) < 3:
+                continue
+            raeume.append({
+                "name": d.get("name"), "f_m2": d.get("flaeche_m2"),
+                "u_m": d.get("umfang_m"), "geschoss": d.get("geschoss"),
+                "region_px": [_px(c) for c in corners], "region_geschaetzt": True,
+                "px": _px([(corners[0][0] + corners[2][0]) / 2.0,
+                           (corners[0][1] + corners[2][1]) / 2.0]),
+                "status": "u_daneben",
+            })
+            n += 1
+        if n:
+            r["raeume"] = raeume
+            print(f"[nachzeichnen] {n} Scan-Raum-Polygone aus Vision eingezeichnet")
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Scan-Raum-Polygone fehlgeschlagen: {e!r}")
+
+
 def _nachzeichnen_roh(body):
     """Gemeinsame Plan-Auswahl + Vektor-Analyse für plan-nachzeichnen UND Aufmaßblatt.
     Liefert das Ergebnis-Dict MIT basis_png-BYTES (Aufrufer kodiert/verwendet)."""
@@ -5591,6 +5672,7 @@ def _nachzeichnen_roh(body):
                 r["dateiname"] = plan.get("dateiname")
                 r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
                 _vision_fenster_marker(plan["id"], r, body.seite)
+                _vision_raum_regionen(plan["id"], r, body.seite)
                 return r
             except Exception as e:  # pragma: no cover — Cache kaputt → frischer Lauf
                 print(f"[nachzeichnen] Cache-Rehydrierung fehlgeschlagen: {e}")
@@ -5620,6 +5702,7 @@ def _nachzeichnen_roh(body):
         r["dateiname"] = plan.get("dateiname")
         r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
         _vision_fenster_marker(plan["id"], r, body.seite)
+        _vision_raum_regionen(plan["id"], r, body.seite)
         return r
     return {"ok": False, "grund": letzter_grund}
 
