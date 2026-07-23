@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.28"
+APP_REV = "2026-07-09.29"
 
 
 @app.get("/api/extract-health")
@@ -5525,13 +5525,15 @@ def _vision_fenster_marker(plan_id, r, seite):
         print(f"[nachzeichnen] Vision-F-Marker fehlgeschlagen: {e!r}")
 
 
-def _vision_raum_regionen(plan_id, r, seite):
+def _vision_raum_regionen(plan_id, r, seite, page=None):
     """SCAN-RAUM-POLYGONE (Traceability für Pläne OHNE Vektoren): hat der Vektor-
     Watershed KEINE Raum-Regionen rekonstruiert (Raster/Scan), werden die aus der
     Vision-Bbox gespeicherten Raum-Boxen (elemente.daten.region_pt, Seiten-pt) als
     Polygone ins Overlay gelegt — so ist auch ein Scan Raum für Raum eingezeichnet
     (farbig, editierbar, nach Maßstab-Kalibrierung metrisch). Nur wenn sonst leer;
-    native Pläne (mit rekonstruierten Regionen) bleiben unberührt. Best-effort."""
+    native Pläne (mit rekonstruierten Regionen) bleiben unberührt. Best-effort.
+    Bei typ='scan' + page: das Bild wird zusätzlich auf die Raum-Bounding-Box
+    ZUGESCHNITTEN (Grundriss-Ausschnitt) — Räume groß statt klein auf der A0-Tafel."""
     try:
         meta = r.get("meta") or {}
         if (meta.get("seite") or 0) != 0 or seite not in (None, 0):
@@ -5552,6 +5554,36 @@ def _vision_raum_regionen(plan_id, r, seite):
                 vis[re.sub(r"[\s\-_/]+", "", (d["name"]).lower())] = d
         if not vis:
             return
+        # SCAN-CROP auf den Grundriss-Ausschnitt (Union aller Raum-Boxen + Marge)
+        # → das Overlay zeigt nur die Grundrisse, Räume groß & sauber.
+        if meta.get("typ") == "scan" and page is not None:
+            try:
+                import fitz as _fz
+                _xs, _ys = [], []
+                for _d in vis.values():
+                    for _c in (_d.get("region_pt") or []):
+                        _xs.append(float(_c[0])); _ys.append(float(_c[1]))
+                if _xs and _ys:
+                    _w0, _h0 = max(_xs) - min(_xs), max(_ys) - min(_ys)
+                    _mg = 0.05 * max(_w0, _h0) + 20.0
+                    _nb = [max(0.0, min(_xs) - _mg), max(0.0, min(_ys) - _mg),
+                           min(page.rect.width, max(_xs) + _mg),
+                           min(page.rect.height, max(_ys) + _mg)]
+                    if (_nb[2] - _nb[0]) > 60 and (_nb[3] - _nb[1]) > 60:
+                        _nsc = max(0.5, min(2200.0 / (_nb[2] - _nb[0]),
+                                            2200.0 / (_nb[3] - _nb[1]), 5.0))
+                        _pix = page.get_pixmap(matrix=_fz.Matrix(_nsc, _nsc),
+                                               clip=_fz.Rect(*_nb))
+                        r["basis_png"] = _pix.tobytes("png")
+                        r["bild_w"], r["bild_h"] = _pix.width, _pix.height
+                        meta["box_pt"] = [round(v, 1) for v in _nb]
+                        meta["scale"] = round(_nsc, 4)
+                        meta["box_m"] = None
+                        b, sc = meta["box_pt"], meta["scale"]
+                        print(f"[nachzeichnen] Scan auf Grundriss-Ausschnitt "
+                              f"zugeschnitten ({r['bild_w']}×{r['bild_h']})")
+            except Exception as _ce:
+                print(f"[nachzeichnen] Scan-Crop übersprungen: {_ce!r}")
         # Match auf die Overlay-Räume (per normalisiertem Namen); fehlt der Raum
         # im Overlay, wird er ergänzt, damit er trotzdem gezeichnet wird.
         def _px(pt):
@@ -5667,26 +5699,32 @@ def _nachzeichnen_roh(body):
                 pix = page.get_pixmap(matrix=fitz.Matrix(sc, sc),
                                       clip=fitz.Rect(b[0], b[1], b[2], b[3]))
                 r["basis_png"] = pix.tobytes("png")
-                doc.close()
                 r["plan_id"] = plan.get("id")
                 r["dateiname"] = plan.get("dateiname")
                 r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
+                # ZUERST die Raum-Regionen (bei typ='scan' schneidet das auf den
+                # Grundriss zu und ändert box_pt/scale) — DANN die Fenster-Marker,
+                # damit deren px zur ggf. zugeschnittenen Ansicht passen.
+                _vision_raum_regionen(plan["id"], r, body.seite, page=page)
                 _vision_fenster_marker(plan["id"], r, body.seite)
-                _vision_raum_regionen(plan["id"], r, body.seite)
+                doc.close()
                 return r
             except Exception as e:  # pragma: no cover — Cache kaputt → frischer Lauf
                 print(f"[nachzeichnen] Cache-Rehydrierung fehlgeschlagen: {e}")
 
+        doc = None
         try:
             import fitz
             pdf_bytes = sb.storage.from_("plaene").download(sp)
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
             r = _nachzeichnen.analysiere_doc(doc, seite=body.seite, max_px=1800)
-            doc.close()
         except Exception as e:  # pragma: no cover
             letzter_grund = f"Render fehlgeschlagen: {e}"
+            if doc is not None:
+                doc.close()
             continue
         if not r.get("ok"):
+            doc.close()
             letzter_grund = r.get("grund") or letzter_grund
             continue
         # Cache schreiben (ohne PNG/Korrekturen — die bleiben je Aufruf frisch)
@@ -5701,8 +5739,17 @@ def _nachzeichnen_roh(body):
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
         r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)
+        # page (analysierte Seite) für den Scan-Crop; doc bleibt offen bis danach.
+        # ZUERST Raum-Regionen (Scan-Crop ändert box_pt/scale), DANN Fenster-Marker.
+        try:
+            _s_nr = (r.get("meta") or {}).get("seite")
+            _pg = doc[_s_nr] if _s_nr is not None and 0 <= _s_nr < len(doc) \
+                else max(doc, key=lambda p: p.rect.width * p.rect.height)
+        except Exception:
+            _pg = None
+        _vision_raum_regionen(plan["id"], r, body.seite, page=_pg)
         _vision_fenster_marker(plan["id"], r, body.seite)
-        _vision_raum_regionen(plan["id"], r, body.seite)
+        doc.close()
         return r
     return {"ok": False, "grund": letzter_grund}
 
