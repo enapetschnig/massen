@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.29"
+APP_REV = "2026-07-09.30"
 
 
 @app.get("/api/extract-health")
@@ -5547,11 +5547,40 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
             return
         res = sb.table("elemente").select("daten").eq("plan_id", plan_id) \
             .eq("typ", "raum").execute()
+        # PLAUSIBILITÄTS-GRENZE: region_pt MUSS im Seiten-Koordinatensystem liegen
+        # (Seiten-pt). Ältere/kaputte Läufe haben Ecken weit außerhalb (11× Blatt)
+        # gespeichert — die würden Räume off-screen streuen ODER den Crop kippen.
+        # Referenz ist die Seiten-Box (page.rect) bzw. box_pt; 10% Toleranz für
+        # margen-inklusive Boxen.
+        if page is not None:
+            _rx0, _ry0, _rx1, _ry1 = 0.0, 0.0, page.rect.width, page.rect.height
+        else:
+            _rx0, _ry0, _rx1, _ry1 = b[0], b[1], b[2], b[3]
+        _tx = 0.10 * max(1.0, _rx1 - _rx0)
+        _ty = 0.10 * max(1.0, _ry1 - _ry0)
+
+        def _region_plausibel(_corners):
+            for _c in (_corners or []):
+                try:
+                    _cx, _cy = float(_c[0]), float(_c[1])
+                except (TypeError, ValueError, IndexError):
+                    return False
+                if not (_rx0 - _tx <= _cx <= _rx1 + _tx and
+                        _ry0 - _ty <= _cy <= _ry1 + _ty):
+                    return False
+            return True
         vis = {}
+        _verworfen = 0
         for row in (res.data or []):
             d = row.get("daten") or {}
             if d.get("region_pt") and d.get("name"):
+                if not _region_plausibel(d.get("region_pt")):
+                    _verworfen += 1
+                    continue
                 vis[re.sub(r"[\s\-_/]+", "", (d["name"]).lower())] = d
+        if _verworfen:
+            print(f"[nachzeichnen] {_verworfen} Raum-Regionen ausserhalb des Blatts "
+                  f"verworfen (veraltete/kaputte region_pt)")
         if not vis:
             return
         # SCAN-CROP auf den Grundriss-Ausschnitt (Union aller Raum-Boxen + Marge)
