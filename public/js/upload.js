@@ -2393,8 +2393,8 @@
         var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
         var _synth = (r._synthetic || r.region_geschaetzt) && !r._edited;
         lines += '<polygon data-rpoly="' + _ri + '" points="' + pts + '" fill="' + rc + '" fill-opacity="' +
-          (_edit ? 0.12 : (_synth ? 0.14 : 0.26)) + '" stroke="' + rc + '" stroke-width="' + (_edit ? 3 : 2) + '"' +
-          ' stroke-opacity="0.95"' + ((_synth && !_edit) ? ' stroke-dasharray="8 5"' : '') +
+          (_edit ? 0.12 : (_synth ? 0.24 : 0.26)) + '" stroke="' + rc + '" stroke-width="' + (_edit ? 3 : (_synth ? 2.5 : 2)) + '"' +
+          ' stroke-opacity="1"' + ((_synth && !_edit) ? ' stroke-dasharray="9 5"' : '') +
           ' cursor="' + (_nzRaumEditMode ? 'pointer' : 'default') + '" pointer-events="' + _pe + '">' +
           '<title>' + esc(r.name || '') + (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +
           (_synth ? ' — geschätzte Startform, bitte am Plan anpassen (✏️ Raum bearbeiten)'
