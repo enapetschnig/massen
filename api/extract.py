@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.31"
+APP_REV = "2026-07-09.32"
 
 
 @app.get("/api/extract-health")
@@ -1191,17 +1191,50 @@ async def analyse_zoom(body: ExtractRequest):
                     best = ot
         return best
 
+    # Wert RECHTS neben dem Label (horizontaler Stempel: "RH:  270,0"). Bei
+    # großen Räumen (Terrasse/Parkplatz) trennt pdfplumber Label und Zahl in
+    # zwei Spans derselben Zeile — _value_above findet dann nichts.
+    def _value_beside(label_s, y_tol=6, x_max=90):
+        lx, ly = label_s["cx"], label_s["cy"]
+        best = None; bd = float("inf")
+        for o in spans_all:
+            if o is label_s: continue
+            if abs(o["cy"] - ly) > y_tol: continue
+            dx = o["cx"] - lx
+            if 0 < dx <= x_max:
+                m = re.search(r"[0-9]+[,.][0-9]+", o["text"])
+                if m and dx < bd:
+                    bd = dx
+                    best = m.group(0)
+        return best
+
+    # Mess-Label → Größe. Neben F/U/H auch die AT-Stempel-Varianten BF/NF/WF
+    # (Fläche) und RH/LH (Raum-/Lichte Höhe, in cm). Generalisierung, kein
+    # Angerer-Hardcoding — Standard-ÖNORM-Raumstempel.
+    _LABEL_KIND = {"F:": "F", "FLÄCHE:": "F", "BF:": "F", "NF:": "F", "WF:": "F", "WNF:": "F",
+                   "U:": "U", "UMFANG:": "U", "UF:": "U",
+                   "H:": "H", "RH:": "H", "LH:": "H", "HÖHE:": "H"}
+
     claims = []  # {"kind","value","cx","cy"}
     for s in spans_all:
         t = s["text"].strip()
-        # Standalone label (rotated layout)
-        if t in ("F:", "U:", "H:"):
-            v_text = _value_above(s)
+        # Standalone label (rotierter/horizontaler Layout): Wert drüber ODER daneben
+        _kk = _LABEL_KIND.get(t.upper())
+        if _kk:
+            v_text = _value_above(s) or _value_beside(s)
             if v_text:
                 m = re.search(r"([0-9]+[,.][0-9]+)", v_text)
                 if m:
-                    claims.append({"kind": t[0], "value": float(m.group(1).replace(",", ".")),
-                                   "cx": s["cx"], "cy": s["cy"]})
+                    _v = float(m.group(1).replace(",", "."))
+                    if _kk == "H" and 20 < _v < 500:
+                        _v /= 100.0
+                    if _kk == "U" and _v > 50:
+                        _v /= 100.0
+                    _ok = (_kk == "F") or (_kk == "H" and 2.0 <= _v <= 5.0) \
+                        or (_kk == "U" and 1.0 <= _v <= 200.0)
+                    if _ok:
+                        claims.append({"kind": _kk, "value": _v,
+                                       "cx": s["cx"], "cy": s["cy"]})
         elif t == "B:":
             v_text = _value_above(s)
             if v_text:
@@ -1554,6 +1587,34 @@ REGELN:
             massstab = result["massstab"]
         if not geschoss and result.get("geschoss"):
             geschoss = result["geschoss"]
+
+    # BYTE-EXAKTER MASSSTAB schlägt Vision: der gedruckte "M 1:NN"-Stempel ist
+    # die Wahrheit. Vision streut lauf-zu-lauf und lieferte für AP.01 "nicht
+    # erkennbar", obwohl "1:50" klar im Text steht — das darf die metrische
+    # Skalierung des ganzen Plans nie kippen. Text gewinnt, wenn Vision leer/
+    # unklar ist ODER wenn der Text EINDEUTIG einen anderen Maßstab zeigt.
+    try:
+        _ms_counts = {}
+        for _s in spans_all:
+            _mm = re.search(r"(?:M\s*)?\b1\s*:\s*(20|25|50|100|200|250|500)\b",
+                            _s.get("text") or "")
+            if _mm:
+                _d = _mm.group(1)
+                _ms_counts[_d] = _ms_counts.get(_d, 0) + 1
+        if _ms_counts:
+            _best = sorted(_ms_counts.items(), key=lambda kv: (-kv[1], int(kv[0])))[0][0]
+            _text_ms = f"1:{_best}"
+            _ms_bad = (not massstab) or str(massstab).lower() in (
+                "nicht erkennbar", "unbekannt", "unklar", "n/a", "none") \
+                or not re.match(r"1:\d", str(massstab))
+            if _ms_bad:
+                print(f"[massstab] byte-exakt aus Text: {_text_ms} (Vision leer/unklar)")
+                massstab = _text_ms
+            elif len(_ms_counts) == 1 and str(massstab) != _text_ms:
+                print(f"[massstab] byte-exakt {_text_ms} schlägt Vision {massstab}")
+                massstab = _text_ms
+    except Exception as _me:  # pragma: no cover
+        print(f"[massstab] Text-Parse übersprungen: {_me!r}")
     _tiles_dauer_s = round(time.time() - _t_tiles0, 2)
     _tiles_ok = sum(1 for r in _tile_results if r)
     print(f"[tiles] {len(tiles_to_call)} Tiles, {_tiles_ok} mit Treffer, "
