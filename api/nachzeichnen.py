@@ -165,6 +165,30 @@ def isoperimetrischer_umfang(f_m2, aspekt=1.35):
     return round(u, 2)
 
 
+def _koten_verteilt(koten, page, min_spalten=4, min_spanne=0.25):
+    """HÖHENKOTEN oder GELDBETRÄGE? Beide sehen als Text gleich aus (+2.98 /
+    -12,50) — die Schnitt-Erkennung hielt darum Booking-/Bank-Belege für
+    Schnitt-Blätter ('ok, typ=schnitt' statt ehrlichem ✗; am Korpus gemessen).
+    Unterschied ist die LAGE, nicht der Text: Beträge stehen rechtsbündig in
+    1-2 Spalten (gemessen: 2 Spalten / 8,8% Blattbreite), echte Koten hängen
+    am Bauwerk und streuen (echter Schnitt 35 Spalten / 89%, Grundriss 17/68%).
+    -> Koten nur zählen, wenn sie über die Blattbreite verteilt sind."""
+    if not koten or not page:
+        return False
+    try:
+        br = float(page.rect.width) or 1.0
+        xs = sorted(float(x) for x, _, _ in koten)
+        if (xs[-1] - xs[0]) / br < min_spanne:
+            return False
+        spalten = 1
+        for a, b in zip(xs, xs[1:]):
+            if b - a > 12.0:            # neue Spalte (12pt Toleranz)
+                spalten += 1
+        return spalten >= min_spalten
+    except Exception:
+        return False
+
+
 def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     """Eine Grundriss-Seite → {ok, basis_png(bytes), waende[], summe_m, meta}."""
     # TEXT-SHARING (WM-Profil: get_text('words') kostet ~5s bei 878k-Pfad-Plänen
@@ -244,8 +268,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     # eine 4-30-m-Box → _wandbox akzeptierte es fälschlich als Grundriss. Trägt das Blatt
     # ≥8 byte-exakte HÖHENKOTEN (die Schnitt-Signatur), _wandbox überspringen → es fällt
     # sauber in den Schnitt-Modus unten.
-    _koten_n = sum(1 for w in worte
-                   if re.match(r"^[±+\-]\s?\d{1,2}[.,]\d{2}$", w[4].strip()))
+    _koten_alle = [(w[0], w[1], w[4]) for w in worte
+                   if re.match(r"^[±+\-]\s?\d{1,2}[.,]\d{2}$", w[4].strip())]
+    _koten_n = len(_koten_alle) if _koten_verteilt(_koten_alle, page) else 0
     if not box and _koten_n < 8:
         # FALLBACK für Grundriss-Pläne OHNE Raumnamen (z.B. reine Wand-Grundrisse):
         # die Bounding-Box der dunklen Wand-Linien nehmen — aber nur, wenn sie eine
@@ -256,9 +281,8 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         # trägt): Schnitt-/Ansichts-Blätter haben keinen Grundriss, aber
         # byte-exakte HÖHENKOTEN (Velden 40, 05_AU 83 gemessen) — Ansicht mit
         # Koten-Markern statt reinem ✗.
-        koten = [(w[0], w[1], w[4]) for w in worte
-                 if re.match(r"^[±+\-]\s?\d{1,2}[.,]\d{2}$", w[4].strip())]
-        if len(koten) >= 8:
+        koten = _koten_alle
+        if len(koten) >= 8 and _koten_verteilt(koten, page):
             bx0s, by0s = 0.0, 0.0
             bx1s, by1s = page.rect.width, page.rect.height
             scale_s = max(0.5, min(max_px / bx1s, max_px / by1s, 4.0))

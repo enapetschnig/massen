@@ -46,6 +46,19 @@ def run():
     r6 = nachzeichnen.analysiere_doc(d6)   # darf NICHT crashen
     assert r6.get("ok") is False
 
+    # 4c) GELDBETRÄGE ≠ HÖHENKOTEN: Rechnungen/Auszahlungsbelege sind voller
+    # Zeichen-Dezimalzahlen (-12,50) und wurden als 'Schnitt-Blatt' akzeptiert
+    # (ok=True). Unterschied ist die LAGE: Beträge in 1-2 rechtsbündigen
+    # Spalten, echte Koten über das Blatt verteilt.
+    class _P:                      # Blatt-Attrappe (nur page.rect.width nötig)
+        rect = fitz.Rect(0, 0, 842, 595)
+    _geld = [(700.0 + (i % 2) * 8, 100.0 + i * 9, "-12,50") for i in range(30)]
+    assert nachzeichnen._koten_verteilt(_geld, _P()) is False, \
+        "Geldspalte darf NICHT als Höhenkoten zählen"
+    _koten = [(40.0 + i * 26, 120.0 + (i % 5) * 40, "+2,98") for i in range(30)]
+    assert nachzeichnen._koten_verteilt(_koten, _P()) is True, \
+        "verteilte Höhenkoten müssen zählen (echter Schnitt)"
+
     # 5) Rotierte Seite eines ECHTEN Plans → funktioniert weiterhin
     g = sorted(glob.glob(os.path.expanduser(
         "~/Downloads/*A-5_Einreichplan_Alfred-Angerer*")))
