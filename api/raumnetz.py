@@ -2410,3 +2410,68 @@ def raum_iou_beweis(res_liste, label, rst, fv, fh, ptm, iou_min=0.85, nur_bbox=F
             # unbrauchbar ist. (l, r, o, u) + optionale Kerbe fuer L-Formen.
             r["iou_rect_pt"] = (top[2], top[3], top[4], top[5])
             r["iou_kerbe_pt"] = top[6]
+
+
+def raum_rechteck_aus_fluchten(cx, cy, f_soll, fv, fh, ptm, tol=0.18,
+                               min_seite_m=0.6, max_seite_m=25.0,
+                               fremde_stempel=None):
+    """RAUM-RECHTECK aus Wandfluchten — für Räume OHNE beweisbare Region.
+
+    Die IoU-Beweis-Suche findet dasselbe, ist aber an eine strenge Beweis-
+    Schwelle gekoppelt; fällt ein Raum dort durch, blieb bisher nur ein grob
+    an der Stempelstelle zentriertes Rechteck übrig, das sichtbar über die
+    Wände hinausragte (am Live-Plan bestätigt: Zimmer 1).
+
+    Hier wird NUR das Nötigste verlangt, dafür ohne Beweis-Anspruch:
+      * der Raumstempel (cx,cy) liegt INNERHALB des Rechtecks
+      * die Fläche trifft die byte-exakte Stempelfläche (±tol)
+      * plausible Seitenlängen
+    Gewählt wird das flächengenaueste, bei Gleichstand das ENGSTE (kleinste)
+    Rechteck — so gewinnt die tatsächliche Raumbegrenzung gegen weiter außen
+    liegende Fluchten. Rückgabe (l, r, o, u) in Seiten-pt oder None.
+    """
+    if not f_soll or f_soll <= 0 or not ptm or ptm <= 0:
+        return None
+    if not fv or not fh:
+        return None
+    links = sorted(p for p in fv if p < cx)
+    rechts = sorted((p for p in fv if p > cx), reverse=True)
+    oben = sorted(p for p in fh if p < cy)
+    unten = sorted((p for p in fh if p > cy), reverse=True)
+    if not (links and rechts and oben and unten):
+        return None
+    # von innen nach außen: die nächstliegenden Fluchten zuerst
+    links.reverse(); rechts.reverse(); oben.reverse(); unten.reverse()
+    lo, hi = min_seite_m * ptm, max_seite_m * ptm
+    bester = None
+    for l_ in links[:14]:
+        for r_ in rechts[:14]:
+            b = r_ - l_
+            if not (lo <= b <= hi):
+                continue
+            for o_ in oben[:14]:
+                for u_ in unten[:14]:
+                    h = u_ - o_
+                    if not (lo <= h <= hi):
+                        continue
+                    a = b * h / (ptm * ptm)
+                    d = abs(a - f_soll) / f_soll
+                    if d > tol:
+                        continue
+                    # EIN RAUM, EIN STEMPEL: ein Rechteck, das den Stempel
+                    # eines ANDEREN Raums mit einschließt, hat zwei Räume
+                    # gefasst — der klassische Fehler (Zimmer 1 verschluckte
+                    # das Bad, beide Umrisse lagen übereinander).
+                    if fremde_stempel:
+                        _kollision = False
+                        for (fx, fy) in fremde_stempel:
+                            if l_ < fx < r_ and o_ < fy < u_:
+                                _kollision = True
+                                break
+                        if _kollision:
+                            continue
+                    # Güte: Flächentreue zuerst, dann kompakteres Rechteck
+                    g = (round(d, 3), b * h)
+                    if bester is None or g < bester[0]:
+                        bester = (g, (l_, r_, o_, u_))
+    return bester[1] if bester else None

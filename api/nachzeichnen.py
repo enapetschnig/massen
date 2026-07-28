@@ -858,12 +858,36 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 _rm["region_px"] = [[_p1[0], _p1[1]], [_p2[0], _p1[1]],
                                     [_p2[0], _p2[1]], [_p1[0], _p2[1]]]
                 _rm["region_geschaetzt"] = True
-                _rm["region_quelle"] = "aus Wandfluchten (Stempel innen, Fläche trifft)"
+                _rm["region_quelle"] = "aus Wandfluchten · IoU-Beweis"
                 _erg_flucht += 1
                 continue
             _f = _rm.get("f_m2")
             if not _f or _f <= 0 or not ptm:
                 continue
+            # 1b) EIGENSTÄNDIGE Flucht-Suche (ohne Beweis-Anspruch): das
+            # engste Wandflucht-Rechteck, das den Stempel enthält und die
+            # gestempelte Fläche trifft. Fängt genau die Räume, die an der
+            # strengen IoU-Schwelle scheitern (Zimmer 1 am Live-Plan).
+            if _rm.get("cx") is not None and _rm.get("cy") is not None:
+                try:
+                    _fremd = [(o["cx"], o["cy"]) for o in raeume
+                              if o is not _rm and o.get("cx") is not None
+                              and o.get("cy") is not None]
+                    _fr = raumnetz.raum_rechteck_aus_fluchten(
+                        _rm["cx"], _rm["cy"], _f, _ddp(fv2), _ddp(fh2), ptm,
+                        fremde_stempel=_fremd)
+                except Exception:
+                    _fr = None
+                if _fr:
+                    _l, _r2, _o, _u2 = _fr
+                    _p1 = to_px(_l, _o); _p2 = to_px(_r2, _u2)
+                    _rm["region_px"] = [[_p1[0], _p1[1]], [_p2[0], _p1[1]],
+                                        [_p2[0], _p2[1]], [_p1[0], _p2[1]]]
+                    _rm["region_geschaetzt"] = True
+                    _rm["region_quelle"] = ("aus Wandfluchten · engste Fassung "
+                                            "(nur eigener Stempel)")
+                    _erg_flucht += 1
+                    continue
             _u = _rm.get("u_m")
             _a = _b = None
             if _u and _u > 0:
