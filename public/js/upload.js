@@ -698,6 +698,7 @@
     renderKalibrierungStatus(data.kalibrierung);
     renderOeffnungsAufmass(data.oeffnungs_aufmass);
     renderRaumAufmass(data.raeume, data.baudaten);
+    renderAufmassMatrix(data.aufmass_matrix);
 
     // ÖNORM-Gewerke-Kacheln (im Erweitert-Drawer)
     var gw = data.gewerke || {};
@@ -1644,6 +1645,72 @@
   }
 
   // ── RAUM-AUFMASS: jeder Raum einzeln — Boden byte-exakt · Decke · Abwicklung · Sockel ──
+  // AUFMASS-KREUZTABELLE: welcher Raum trägt welche Position in welcher Menge.
+  // Die Kontrollansicht des Aufmaßes — Vollständigkeit auf einen Blick prüfbar.
+  // Zellen sind klickbar: markiert den Raum im Plan (Nachvollziehbarkeit).
+  function renderAufmassMatrix(m) {
+    var el = document.getElementById('aufmass-matrix');
+    if (!el) return;
+    if (!m || !(m.positionen || []).length || !(m.raeume || []).length) {
+      el.innerHTML = ''; return;
+    }
+    // nur Positionen zeigen, die mindestens einem Raum zugeordnet sind
+    var benutzt = {};
+    (m.raeume || []).forEach(function (r) {
+      Object.keys(r.mengen || {}).forEach(function (k) { benutzt[k] = 1; });
+    });
+    var spalten = (m.positionen || []).filter(function (p) { return benutzt[p.key]; });
+    if (!spalten.length) { el.innerHTML = ''; return; }
+    var zeilen = (m.raeume || []).filter(function (r) { return r.n_positionen > 0; });
+
+    var h = '<h4 class="advanced-h" style="margin-top:1.1rem">Aufmaß-Kreuztabelle — ' +
+      'welcher Raum trägt welche Position</h4>' +
+      '<p style="font-size:.8rem;color:#6c757d;margin:.2rem 0 .5rem">' +
+      esc(zeilen.length) + ' Räume × ' + esc(spalten.length) + ' Positionen · ' +
+      '<strong>' + fmtNum(m.deckung_pct) + '%</strong> der Menge ist raumscharf belegt' +
+      ((m.ohne_anker || []).length ? ' · ' + (m.ohne_anker || []).length +
+        ' Zeilen gelten gebäudeweit (unten ausgewiesen)' : '') + '</p>' +
+      '<div class="tbl-scroll"><table class="oa-tab"><thead><tr>' +
+      '<th style="position:sticky;left:0;background:inherit">Raum</th>' +
+      '<th>F (m²)</th>';
+    spalten.forEach(function (p) {
+      h += '<th title="' + esc((p.gewerk_label || '') + ' · ' + (p.regel || '')) + '">' +
+        esc(p.posnr || '') + '<div style="font-weight:400;font-size:.7rem;color:#6c757d">' +
+        esc((p.beschreibung || '').replace(/\s*—.*$/, '').slice(0, 26)) +
+        '<br>' + esc(p.einheit || '') + '</div></th>';
+    });
+    h += '</tr></thead><tbody>';
+    zeilen.forEach(function (r) {
+      h += '<tr><td style="position:sticky;left:0;background:inherit"><strong>' +
+        esc(r.raum || '') + '</strong>' +
+        (r.geschoss ? ' <span style="color:#6c757d;font-size:.75rem">' + esc(r.geschoss) + '</span>' : '') +
+        '</td><td>' + (r.f_m2 != null ? fmtNum(r.f_m2) : '—') + '</td>';
+      spalten.forEach(function (p) {
+        var v = (r.mengen || {})[p.key];
+        h += '<td' + (v != null
+          ? ' style="cursor:pointer" onclick="nzHighlightRaum(' + JSON.stringify(r.raum || '') + ')" ' +
+            'title="Im Plan zeigen">' + fmtNum(v)
+          : ' style="color:#c8ccd0">—') + '</td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div>';
+    if ((m.ohne_anker || []).length) {
+      var summe = 0;
+      (m.ohne_anker || []).forEach(function (o) { summe += Math.abs(o.wert || 0); });
+      h += '<details style="margin-top:.5rem"><summary style="cursor:pointer;font-size:.82rem;color:#6c757d">' +
+        'Gebäudeweite Mengen ohne Raum-Zuordnung (' + (m.ohne_anker || []).length +
+        ' Zeilen, Σ ' + fmtNum(Math.round(summe * 100) / 100) + ') — ehrlich ausgewiesen</summary>' +
+        '<div class="tbl-scroll" style="margin-top:.3rem"><table class="oa-tab"><tbody>';
+      (m.ohne_anker || []).slice(0, 40).forEach(function (o) {
+        h += '<tr><td>' + esc(o.beschreibung || '') + '</td><td>' + esc(o.text || '') +
+          '</td><td>' + fmtNum(o.wert) + '</td></tr>';
+      });
+      h += '</tbody></table></div></details>';
+    }
+    el.innerHTML = h;
+  }
+
   function renderRaumAufmass(raeume, baudaten) {
     var el = document.getElementById('raum-aufmass');
     if (!el) return;
