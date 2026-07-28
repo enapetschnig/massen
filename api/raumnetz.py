@@ -1663,7 +1663,8 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
     return n_neu, luecken
 
 
-def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0):
+def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
+                  stempel_f=None):
     """Pro Raum den REKONSTRUIERTEN Region-Umriss als Polygon in pt
     (Nachvollziehbarkeit: der Prüfer sieht die geometrische Lesart der App
     ÜBER dem Plan — verifizierte Räume decken sich, Prüf-Räume zeigen exakt,
@@ -1756,11 +1757,39 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0):
         # Zickzack-Trace mit langen DIAGONALEN durch den Freiraum — visuell
         # irreführend. ≥75% achsparallele Kantenlänge nötig (Flur-Korridor
         # bleibt, Park-Zickzack fällt).
+        # ROTATIONS-NORMIERT (Befund 2026-07-28): gemessen wurde bisher gegen die
+        # BLATT-Achsen — ein GEDREHTER Grundriss (Velden-TG: ganze Anlage schräg)
+        # fiel damit komplett durch, obwohl die Rekonstruktion exakt war
+        # (Flächen-Treue 0,1-7 %!). 36 von 41 abgewiesenen Räumen im Korpus
+        # scheiterten allein hieran. Der ZWECK des Gates ist, Zickzack-Spuren
+        # offener Bereiche abzuweisen — nicht gedrehte Gebäude. Darum: erst die
+        # längen-gewichtete HAUPTRICHTUNG der Kanten bestimmen (Kreismittel über
+        # 4·θ, weil rechtwinklige Richtungen mod 90° gleichwertig sind), dann die
+        # Parallelität IN DIESEM Rahmen messen. Ein gedrehtes Rechteck erreicht
+        # so ~1,0; eine echte Zickzack-Spur bleibt niedrig, weil ihre Kanten sich
+        # keine zwei orthogonalen Richtungen teilen.
+        import math as _m
+        _C = _S = 0.0
+        for k in range(m):
+            x1, y1 = vereinfacht[k]
+            x2, y2 = vereinfacht[(k + 1) % m]
+            dx, dy = x2 - x1, y2 - y1
+            L = (dx * dx + dy * dy) ** 0.5
+            if L <= 0:
+                continue
+            th = _m.atan2(dy, dx)
+            _C += L * _m.cos(4.0 * th)
+            _S += L * _m.sin(4.0 * th)
+        haupt = _m.atan2(_S, _C) / 4.0 if (_C or _S) else 0.0
+        _cos_h, _sin_h = _m.cos(-haupt), _m.sin(-haupt)
         len_axis, len_ges = 0.0, 0.0
         for k in range(m):
             x1, y1 = vereinfacht[k]
             x2, y2 = vereinfacht[(k + 1) % m]
-            dx, dy = abs(x2 - x1), abs(y2 - y1)
+            _dx0, _dy0 = x2 - x1, y2 - y1
+            # in den Rahmen der Hauptrichtung drehen
+            dx = abs(_dx0 * _cos_h - _dy0 * _sin_h)
+            dy = abs(_dx0 * _sin_h + _dy0 * _cos_h)
             L = (dx * dx + dy * dy) ** 0.5
             len_ges += L
             if dx < 0.35 * dy or dy < 0.35 * dx:
@@ -1774,7 +1803,52 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0):
         # gefiltert). Zickzack-Räume (axis<0,75) bleiben via dem UNVERÄNDERTEN
         # Achs-Gate draußen; grob falsche Rekonstruktionen via fr≤0,08.
         ecken_ok = len(vereinfacht) <= 40 or (len(vereinfacht) <= 90 and _fr <= 0.08)
-        if region_flaeche > 0 and _fr <= 0.20 and ecken_ok and axis_frac >= 0.75:
+        # STEMPEL-GATE (2026-07-28, am Plan visuell verifiziert): entscheidend
+        # ist nicht die Form, sondern ob der Umriss die RICHTIGE Fläche
+        # umschließt. `_fr` vergleicht Polygon gegen REGION — ist die Region
+        # falsch (Parkplatz floss über den offenen Carport: 75,8 statt 36,0 m²;
+        # „Zimmer 2" umfuhr den Treppenbereich), ist _fr trotzdem perfekt.
+        # Der byte-exakte F-STEMPEL ist die Wahrheit: stimmt die Polygonfläche
+        # mit ihm überein, ist der Umriss BEWIESEN richtig — dann darf er auch
+        # gedreht oder verwinkelt sein (Velden-TG steht schräg). Weicht er ab,
+        # wird nichts gezeichnet, egal wie schön die Form ist.
+        _sf = None
+        try:
+            if stempel_f and ridx < len(stempel_f):
+                _sf = float(stempel_f[ridx]) if stempel_f[ridx] else None
+        except (TypeError, ValueError):
+            _sf = None
+        if _sf and _sf > 0:
+            _sr = abs(poly_flaeche - _sf) / _sf
+            angenommen = bool(region_flaeche > 0 and _sr <= 0.20 and ecken_ok)
+            _gr = (None if angenommen else
+                   ("stempel_flaeche" if _sr > 0.20 else "ecken"))
+        else:
+            # ohne Stempel: bisherige Heuristik (Form muss für sich stehen)
+            _sr = None
+            angenommen = bool(region_flaeche > 0 and _fr <= 0.20 and ecken_ok
+                              and axis_frac >= 0.75)
+            _gr = (None if angenommen else
+                   ("flaechen_treue" if _fr > 0.20 else
+                    "ecken" if not ecken_ok else
+                    "achs_parallel" if axis_frac < 0.75 else "leer"))
+        # DIAGNOSE (opt-in): welches Gate weist einen Raum ab? Ohne das ist
+        # „Raum ohne Umriss" eine Blackbox — mit dem Dict ist messbar, ob die
+        # Flächen-Treue, die Eckenzahl oder die Achs-Parallelität der Grund war.
+        if debug is not None:
+            debug[ridx] = {
+                "angenommen": angenommen,
+                "fr": round(_fr, 3), "ecken": len(vereinfacht),
+                "axis_frac": round(axis_frac, 3),
+                "region_m2": round(region_flaeche, 2),
+                "poly_m2": round(poly_flaeche, 2),
+                "grund": _gr,
+                "stempel_f": _sf,
+                "stempel_abw": (round(_sr, 3) if _sr is not None else None),
+                "poly_pt": [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
+                            for p in vereinfacht],
+            }
+        if angenommen:
             out[ridx] = [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
                          for p in vereinfacht]
     return out

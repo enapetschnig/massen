@@ -582,6 +582,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         # Räume zeigen die Abweichung). Aus dem finalen Label-Grid des Roh-
         # Passes (dbg_r); best-effort, große Pläne nicht (Latenz/Rausch).
         regionen = {}
+        region_gates = {}   # je Raum: warum wurde der Umriss (nicht) gezeichnet
         try:
             # Läuft jetzt AUCH auf Großplänen (Nachvollziehbarkeit: WM/TG-Räume hatten
             # gar keine gezeichnete Kontur — die größten Pläne mit den meisten Räumen
@@ -590,8 +591,14 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # bekommen einen Umriss, komplexe bleiben ehrlich ohne. Sicherheits-Deckel
             # gegen Extrem-Pläne: >150 Räume überspringen (reine Latenz-Vorsicht).
             if dbg_r.get("label") is not None and len(rres) <= 150:
+                # byte-exakte Stempel-Flächen als WAHRHEIT ans Gate geben:
+                # gezeichnet wird nur ein Umriss, der die richtige Fläche
+                # umschließt (Form darf gedreht/verwinkelt sein).
+                _sf = [(_r.get("f_m2") if isinstance(_r, dict) else None)
+                       for _r in rres]
                 regionen = raumnetz.raum_regionen(dbg_r["label"], dbg_r["rst"],
-                                                  len(rres))
+                                                  len(rres), debug=region_gates,
+                                                  stempel_f=_sf)
         except Exception as _er:
             regionen = {}
         for i, r in enumerate(rres):
@@ -599,7 +606,18 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # DETERMINISTISCHER Umfang aus dem Polygon (F-kalibriert) — der Hebel
             # für Räume ohne U-Stempel. Nur wenn ein sauberes Polygon da ist.
             u_geo = geometrie_umfang(reg, r.get("f_m2"), ptm) if reg else None
+            _g = region_gates.get(i) or {}
             raeume.append({
+                # EHRLICHKEIT statt Blackbox: hat der Raum KEINEN Umriss, steht
+                # hier warum (flaechen_treue / ecken / achs_parallel). Das
+                # Frontend kann daraus einen verständlichen Hinweis machen und
+                # gezielt die Ersatz-Markierung anbieten.
+                "umriss_grund": (None if reg else (_g.get("grund") or "keine_region")),
+                "umriss_fr": _g.get("fr"),
+                "umriss_axis": _g.get("axis_frac"),
+                # abgelehnter Umriss (nur Diagnose, NICHT gezeichnet)
+                "_umriss_verworfen": ([to_px(x, y) for (x, y) in _g["poly_pt"]]
+                                      if (not reg and _g.get("poly_pt")) else None),
                 "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
                 "f_ist": r.get("f_ist"), "u_ist": r.get("u_ist"),
                 "status": r.get("status"),
