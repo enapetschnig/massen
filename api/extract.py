@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.50"
+APP_REV = "2026-07-09.51"
 
 
 @app.get("/api/extract-health")
@@ -2420,6 +2420,12 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
             p3 = doc3[0]
             pw3, ph3 = p3.rect.width, p3.rect.height
 
+            # _render merkt sich die Pixelmasse des zuletzt gerenderten Bildes.
+            # Gebraucht, weil das Modell Koordinaten MANCHMAL in Pixeln liefert,
+            # obwohl der Prompt Prozent verlangt (gemessen 2026-07-28) — ohne
+            # die Bildgroesse laesst sich das nicht zurueckrechnen.
+            _rgr = {"w": 0, "h": 0}
+
             def _render(clip, ziel_dpi, budget_mb=4.5):
                 d = ziel_dpi
                 while d >= 90:
@@ -2427,9 +2433,28 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                     px_ = p3.get_pixmap(matrix=mat, clip=clip)
                     img_ = px_.tobytes("jpeg", jpg_quality=85)
                     if len(img_) < budget_mb * 1024 * 1024 and px_.width <= 8000 and px_.height <= 8000:
+                        _rgr["w"], _rgr["h"] = px_.width, px_.height
                         return img_
                     d -= 30
                 return None
+
+            def _pct(wert, achse):
+                """Modell-Koordinate -> PROZENT (0..100).
+
+                Der Prompt verlangt Prozent, das Modell liefert aber teils
+                PIXEL. Unkorrigiert sprengt das den Wertebereich um ~Faktor 11
+                (gemessen: Raum-Boxen mit y bis 19.697 bei 1.698 pt Seitenhoehe)
+                — die Boxen wurden dann als unplausibel verworfen und der Scan
+                zeigte GAR KEINE Raeume. Erkennung: >100 kann keine Prozentzahl
+                sein."""
+                try:
+                    v = float(wert)
+                except (TypeError, ValueError):
+                    return None
+                if v <= 100.0:
+                    return v
+                bez = _rgr["w"] if achse == "x" else _rgr["h"]
+                return (v / bez * 100.0) if bez else None
 
             def _frage(system_prompt, img_bytes, frage_text, max_tok=2048):
                 b64_ = base64.standard_b64encode(img_bytes).decode("utf-8")
@@ -2539,7 +2564,9 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                     # F-MARKER AM PLAN (Traceability): Crop-Prozente → Seiten-pt.
                     # Das Overlay zeichnet damit jedes Vision-Fenster klickbar ein.
                     try:
-                        _xp, _yp = float(_vf["x_pct"]), float(_vf["y_pct"])
+                        _xp, _yp = _pct(_vf["x_pct"], "x"), _pct(_vf["y_pct"], "y")
+                        if _xp is None or _yp is None:
+                            raise KeyError("pct")
                         if 0.0 <= _xp <= 100.0 and 0.0 <= _yp <= 100.0:
                             if _clip is not None:
                                 _vf["pos_pt"] = [round(_clip.x0 + _xp / 100.0 * _clip.width, 1),
@@ -2588,17 +2615,23 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                         _oy = _clip.y0 if _clip is not None else 0.0
                         for rb in (bp.get("raeume") or []):
                             try:
-                                dx = (float(rb["x1_pct"]) - float(rb["x0_pct"])) / 100.0 * _cw
-                                dy = (float(rb["y1_pct"]) - float(rb["y0_pct"])) / 100.0 * _ch
+                                _rx0 = _pct(rb["x0_pct"], "x")
+                                _ry0 = _pct(rb["y0_pct"], "y")
+                                _rx1 = _pct(rb["x1_pct"], "x")
+                                _ry1 = _pct(rb["y1_pct"], "y")
+                                if None in (_rx0, _ry0, _rx1, _ry1):
+                                    continue
+                                dx = (_rx1 - _rx0) / 100.0 * _cw
+                                dy = (_ry1 - _ry0) / 100.0 * _ch
                                 if dx <= 0 or dy <= 0:
                                     continue
                                 _asp = max(dx, dy) / min(dx, dy)
                                 _nn = _norm_name(rb.get("name") or "")
                                 # Box-Ecken in SEITEN-pt (für das Overlay am Scan)
-                                _px0 = round(_ox + float(rb["x0_pct"]) / 100.0 * _cw, 1)
-                                _py0 = round(_oy + float(rb["y0_pct"]) / 100.0 * _ch, 1)
-                                _px1 = round(_ox + float(rb["x1_pct"]) / 100.0 * _cw, 1)
-                                _py1 = round(_oy + float(rb["y1_pct"]) / 100.0 * _ch, 1)
+                                _px0 = round(_ox + _rx0 / 100.0 * _cw, 1)
+                                _py0 = round(_oy + _ry0 / 100.0 * _ch, 1)
+                                _px1 = round(_ox + _rx1 / 100.0 * _cw, 1)
+                                _py1 = round(_oy + _ry1 / 100.0 * _ch, 1)
                                 _corners = [[_px0, _py0], [_px1, _py0], [_px1, _py1], [_px0, _py1]]
                                 if _nn and 1.0 <= _asp <= 8.0:
                                     _bx[_nn].append((_gesch, _asp, dx * dy, _corners))
