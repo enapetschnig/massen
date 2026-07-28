@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.47"
+APP_REV = "2026-07-09.48"
 
 
 @app.get("/api/extract-health")
@@ -5637,7 +5637,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 43  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 44  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
@@ -5838,6 +5838,59 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
             })
             n += 1
         if n:
+            # FLAECHEN-KALIBRIERUNG: Vision trifft die LAGE eines Raums gut, die
+            # GROESSE aber nur grob (am Angerer gemessen: Median 33% daneben) —
+            # darum ragten die Rechtecke am Scan ueber die Gebaeudekante hinaus.
+            # Die Flaeche kennen wir jedoch BYTE-EXAKT aus dem Raumstempel.
+            # Also: Lage von Vision, Groesse vom Stempel. Ein GLOBALER px²->m²-
+            # Faktor (Median ueber alle Raeume) haelt die Raeume zueinander
+            # massstabsgetreu; jeder Raum wird dann um seinen Schwerpunkt so
+            # skaliert, dass seine Flaeche den eigenen Stempel trifft.
+            try:
+                def _a_px(_p):
+                    _s = 0.0
+                    for _i in range(len(_p)):
+                        _x1, _y1 = _p[_i]
+                        _x2, _y2 = _p[(_i + 1) % len(_p)]
+                        _s += _x1 * _y2 - _x2 * _y1
+                    return abs(_s) / 2.0
+                _paare = []
+                for _rm in raeume:
+                    _p = _rm.get("region_px") or []
+                    _f = _rm.get("f_m2") or _rm.get("flaeche_m2")
+                    if len(_p) >= 3 and _f and _f > 0:
+                        _ap = _a_px(_p)
+                        if _ap > 1:
+                            _paare.append(_f / _ap)
+                if len(_paare) >= 3:
+                    _paare.sort()
+                    _k = _paare[len(_paare) // 2]        # m² je px² (Median)
+                    _korr = 0
+                    for _rm in raeume:
+                        _p = _rm.get("region_px") or []
+                        _f = _rm.get("f_m2") or _rm.get("flaeche_m2")
+                        if len(_p) < 3 or not _f or _f <= 0:
+                            continue
+                        _ap = _a_px(_p)
+                        if _ap <= 1:
+                            continue
+                        _soll = _f / _k                  # Soll-Flaeche in px²
+                        _sk = (_soll / _ap) ** 0.5
+                        if not (0.4 <= _sk <= 2.5):      # grobe Ausreisser lassen
+                            continue
+                        _cx = sum(q[0] for q in _p) / len(_p)
+                        _cy = sum(q[1] for q in _p) / len(_p)
+                        _rm["region_px"] = [[round(_cx + (q[0] - _cx) * _sk, 1),
+                                             round(_cy + (q[1] - _cy) * _sk, 1)]
+                                            for q in _p]
+                        _rm["region_quelle"] = ("Vision-Lage, Groesse aus dem "
+                                                "Flaechen-Stempel")
+                        _korr += 1
+                    if _korr:
+                        print(f"[nachzeichnen] {_korr} Scan-Raeume auf die "
+                              f"gestempelte Flaeche kalibriert")
+            except Exception as _ke:
+                print(f"[nachzeichnen] Scan-Flaechenkalibrierung: {_ke!r}")
             r["raeume"] = raeume
             print(f"[nachzeichnen] {n} Scan-Raum-Polygone aus Vision eingezeichnet")
     except Exception as e:  # pragma: no cover
