@@ -1423,8 +1423,11 @@
     // SEKTOR-VERDRAHTUNG: das bei der Projektanlage gewählte Gewerk fließt in
     // die Analyse (vorher lief ALLES still als 'allgemein'). Nur bekannte
     // Pipeline-Sektoren durchlassen; alles andere → 'allgemein' (Demo-Default).
+    // Nur Sektoren, die die Pipeline WIRKLICH rechnet (+ 'dach' als eigener
+    // Pfad und 'allgemein' als Default). 'trockenbau' stand hier, wurde aber
+    // nie berechnet — der Nutzer waehlte ein Gewerk und bekam dafuer nichts.
     var _SEKTOREN = ['rohbau','putz','estrich','maler','beton','fliesen','fenster',
-                     'daemmung','geruest','erdarbeiten','trockenbau','dach','allgemein'];
+                     'daemmung','geruest','erdarbeiten','dach','allgemein'];
     var _pg = _SEKTOREN.indexOf(_projGewerk) >= 0 ? _projGewerk : 'allgemein';
     var gewSel = document.querySelector('.gewerk-select[data-id="'+planId+'"]');
     var gesInp = document.querySelector('.geschoss-input[data-id="'+planId+'"]');

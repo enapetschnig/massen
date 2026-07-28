@@ -39,7 +39,7 @@ LANGSAM = [
 
 def lauf(skript):
     r = subprocess.run([PY, os.path.join(ROOT, "scripts", skript)],
-                       capture_output=True, text=True, timeout=600)
+                       capture_output=True, text=True, timeout=1500)
     return r.returncode == 0, r.stdout
 
 

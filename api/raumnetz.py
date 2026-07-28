@@ -2402,3 +2402,11 @@ def raum_iou_beweis(res_liste, label, rst, fv, fh, ptm, iou_min=0.85, nur_bbox=F
             r["iou_bewiesen"] = True
             r["iou_wert"] = round(top[0], 3)
             r["iou_form"] = top[7]
+            # RECHTECK-KOORDINATEN AUFHEBEN (Seiten-pt): bisher wurde nur das
+            # Urteil behalten und die Geometrie weggeworfen. Dieses Rechteck
+            # stammt aus ECHTEN Wandfluchten, enthaelt den Raumstempel und
+            # trifft die gestempelte Flaeche — es ist damit die beste
+            # verfuegbare Raumkontur fuer Raeume, deren Watershed-Region
+            # unbrauchbar ist. (l, r, o, u) + optionale Kerbe fuer L-Formen.
+            r["iou_rect_pt"] = (top[2], top[3], top[4], top[5])
+            r["iou_kerbe_pt"] = top[6]

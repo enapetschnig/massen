@@ -628,42 +628,6 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "u_geometrie_poly": (u_geo or {}).get("u_poly_m"),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
             })
-        # ERSATZ-MARKIERUNG für Räume ohne beweisbaren Umriss: aus der
-        # byte-exakten FLÄCHE (+ Umfang, wenn vorhanden) ein Rechteck mit der
-        # RICHTIGEN Fläche an der Stempelstelle konstruieren. Besser ein
-        # flächenrichtiges Rechteck zum Zurechtziehen als gar nichts — der
-        # Nutzer sieht, dass der Raum erfasst ist. KLAR als geschätzt geflaggt
-        # (region_geschaetzt → gestrichelt), zählt NIE als Beweis.
-        # Lief bisher nur im Browser; im Backend erscheint es damit auch auf
-        # dem Aufmaßblatt-PDF und in der Messung.
-        _erg = 0
-        for _rm in raeume:
-            if (_rm.get("region_px") or []) or not _rm.get("px"):
-                continue
-            _f = _rm.get("f_m2")
-            if not _f or _f <= 0 or not ptm:
-                continue
-            _u = _rm.get("u_m")
-            _a = _b = None
-            if _u and _u > 0:
-                _p = _u / 2.0
-                _disc = _p * _p / 4.0 - _f
-                if _disc >= 0:
-                    _w = _disc ** 0.5
-                    _a, _b = _p / 2.0 + _w, _p / 2.0 - _w
-            if not (_a and _b and _a > 0 and _b > 0):
-                _a = _b = _f ** 0.5          # ohne U: Quadrat gleicher Fläche
-            _hw = _a * ptm * scale / 2.0     # halbe Seiten in BILD-Pixeln
-            _hh = _b * ptm * scale / 2.0
-            _cx, _cy = _rm["px"][0], _rm["px"][1]
-            _rm["region_px"] = [[_cx - _hw, _cy - _hh], [_cx + _hw, _cy - _hh],
-                                [_cx + _hw, _cy + _hh], [_cx - _hw, _cy + _hh]]
-            _rm["region_geschaetzt"] = True
-            _rm["region_quelle"] = "aus Fläche+Umfang konstruiert"
-            _erg += 1
-        if _erg:
-            print(f"[nachzeichnen] {_erg} Räume mit konstruiertem Ersatz-Umriss "
-                  f"(flächenrichtig, gestrichelt)")
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Raum-Verifikation fehlgeschlagen: {e}")
 
@@ -874,6 +838,54 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                                          nur_bbox=grossplan)
         except Exception as e:  # pragma: no cover
             print(f"[nachzeichnen] IoU-Beweis fehlgeschlagen: {e}")
+        # ERSATZ-MARKIERUNG für Räume ohne beweisbaren Umriss.
+        # REIHENFOLGE (beste Quelle zuerst):
+        #  1. FLUCHT-RECHTECK aus dem IoU-Beweis — stammt aus echten Wand-
+        #     fluchten, enthält den Raumstempel und trifft die gestempelte
+        #     Fläche. Das ist eine ECHTE Kontur, kein Ersatz.
+        #  2. Rechteck aus Fläche+Umfang, an der Stempelstelle. Nur als letzte
+        #     Rückfallebene — der Stempel-Textblock ist NICHT die Raummitte,
+        #     das Rechteck sitzt darum oft sichtbar versetzt (am Live-Plan
+        #     gesehen: Zimmer 1/Bad ragten über die Wände hinaus).
+        _erg_flucht = _erg_fu = 0
+        for _rm in raeume:
+            if (_rm.get("region_px") or []) or not _rm.get("px"):
+                continue
+            _rc = _rm.get("iou_rect_pt")
+            if _rc and len(_rc) == 4:
+                _l, _r2, _o, _u2 = _rc
+                _p1 = to_px(_l, _o); _p2 = to_px(_r2, _u2)
+                _rm["region_px"] = [[_p1[0], _p1[1]], [_p2[0], _p1[1]],
+                                    [_p2[0], _p2[1]], [_p1[0], _p2[1]]]
+                _rm["region_geschaetzt"] = True
+                _rm["region_quelle"] = "aus Wandfluchten (Stempel innen, Fläche trifft)"
+                _erg_flucht += 1
+                continue
+            _f = _rm.get("f_m2")
+            if not _f or _f <= 0 or not ptm:
+                continue
+            _u = _rm.get("u_m")
+            _a = _b = None
+            if _u and _u > 0:
+                _p = _u / 2.0
+                _disc = _p * _p / 4.0 - _f
+                if _disc >= 0:
+                    _w = _disc ** 0.5
+                    _a, _b = _p / 2.0 + _w, _p / 2.0 - _w
+            if not (_a and _b and _a > 0 and _b > 0):
+                _a = _b = _f ** 0.5
+            _hw = _a * ptm * scale / 2.0
+            _hh = _b * ptm * scale / 2.0
+            _cx, _cy = _rm["px"][0], _rm["px"][1]
+            _rm["region_px"] = [[_cx - _hw, _cy - _hh], [_cx + _hw, _cy - _hh],
+                                [_cx + _hw, _cy + _hh], [_cx - _hw, _cy + _hh]]
+            _rm["region_geschaetzt"] = True
+            _rm["region_quelle"] = "aus Fläche+Umfang geschätzt (Lage ungenau)"
+            _erg_fu += 1
+        if _erg_flucht or _erg_fu:
+            print(f"[nachzeichnen] Ersatz-Umrisse: {_erg_flucht} aus Wandfluchten, "
+                  f"{_erg_fu} aus Fläche+Umfang (Lage ungenau)")
+
         for r in raeume:
             r.pop("cx", None)
             r.pop("cy", None)
