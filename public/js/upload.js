@@ -2381,6 +2381,44 @@
     };
   }
 
+  // BEWEIS-STATUS: „wie viele Räume sind am Plan belegt — und wie gut?"
+  // Trennt ehrlich nach QUELLE des Umrisses, statt eine Gesamtzahl zu zeigen:
+  // ein flächenrichtiges Rechteck an geschätzter Stelle ist NICHT dasselbe wie
+  // ein Umriss, der echten Wandlinien folgt. Klick zeigt den Raum im Plan.
+  function _nzBeweisStatus(d) {
+    var rs = (d && d.raeume) || [];
+    if (!rs.length) return '';
+    var mitU = rs.filter(function (r) { return (r.region_px || []).length >= 3; });
+    if (!mitU.length) return '';
+    var geschaetzt = mitU.filter(function (r) {
+      return (r.region_quelle || '').indexOf('geschätzt') >= 0;
+    });
+    var ohne = rs.length - mitU.length;
+    var verlaesslich = mitU.length - geschaetzt.length;
+    var alles = (verlaesslich === rs.length);
+    var farbe = alles ? '#166534' : (verlaesslich >= 0.8 * rs.length ? '#0369a1' : '#b45309');
+    var h = '<div class="nz-beweis" style="margin:.4rem 0 .2rem;padding:.45rem .7rem;' +
+      'border-left:3px solid ' + farbe + ';background:rgba(0,0,0,.025);font-size:.84rem">' +
+      '<strong style="color:' + farbe + '">' + verlaesslich + ' von ' + rs.length +
+      ' Räumen am Plan belegt</strong>' +
+      '<span style="color:#6c757d"> — Umriss folgt echten Wandlinien</span>';
+    if (geschaetzt.length) {
+      h += '<br><span style="color:#b45309">' + geschaetzt.length +
+        ' mit geschätzter Lage</span><span style="color:#6c757d"> — Fläche stimmt, ' +
+        'Position bitte mit ✏️ zurechtziehen: </span>' +
+        geschaetzt.slice(0, 6).map(function (r) {
+          return '<a href="#" onclick="nzHighlightRaum(' +
+            JSON.stringify(r.name || '') + ');return false" ' +
+            'style="color:#b45309;text-decoration:underline">' + esc(r.name || 'Raum') + '</a>';
+        }).join(', ');
+    }
+    if (ohne) {
+      h += '<br><span style="color:#6c757d">' + ohne +
+        ' ohne Umriss (kein Flächen-Stempel im Plan)</span>';
+    }
+    return h + '</div>';
+  }
+
   function _nzPaint() {
     if (!_nzData) return;
     var W = _nzData.bild_w, H = _nzData.bild_h, meta = _nzData.meta || {};
@@ -3329,6 +3367,7 @@
           ' · ' + (d.dateiname ? esc(d.dateiname) : '') + _nzSeitenHtml();
       cont.innerHTML = _nzTabsHtml() +
         '<p class="nachzeichnen-hint">' + _hauptHint + '</p>' +
+        _nzBeweisStatus(d) +
         '<div class="nz-dynamic"></div>';
       _nzWireTabs(cont);
       _nzWireSeiten(cont);
