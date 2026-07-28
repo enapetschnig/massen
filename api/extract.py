@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.48"
+APP_REV = "2026-07-09.49"
 
 
 @app.get("/api/extract-health")
@@ -2679,6 +2679,37 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                         # Räume wurden VOR diesem Pass persistiert → synchron
                         # neu schreiben (gleiches Muster wie die Fenster-Klammer)
                         try:
+                            # LAGEN NIE VERLIEREN: Vision streut lauf-zu-lauf
+                            # stark (am 2510-Scan gemessen: 15 Raum-Boxen im
+                            # einen, 11 im nächsten Lauf). Weil hier delete+
+                            # insert läuft, gingen bereits gefundene Lagen
+                            # dabei verloren. Darum: hat ein Raum diesmal KEINE
+                            # Box, aber beim letzten Mal eine — übernehmen.
+                            # Monoton: Abdeckung kann nur steigen.
+                            try:
+                                _alt = sb.table("elemente").select("daten") \
+                                    .eq("plan_id", body.plan_id).eq("typ", "raum") \
+                                    .execute().data or []
+                                _altbox = {}
+                                for _a in _alt:
+                                    _ad = _a.get("daten") or {}
+                                    if _ad.get("region_pt") and _ad.get("name"):
+                                        _altbox[(_norm_name(_ad["name"]),
+                                                 _ad.get("geschoss"))] = _ad["region_pt"]
+                                _uebernommen = 0
+                                for _r in unique_rooms:
+                                    if _r.get("region_pt") or not _r.get("name"):
+                                        continue
+                                    _key = (_norm_name(_r["name"]), _r.get("geschoss"))
+                                    if _key in _altbox:
+                                        _r["region_pt"] = _altbox[_key]
+                                        _r["region_pt_quelle"] = "früherer Lauf"
+                                        _uebernommen += 1
+                                if _uebernommen:
+                                    print(f"[scan-geometrie] {_uebernommen} Raum-Lagen "
+                                          f"aus früherem Lauf übernommen (Vision-Streuung)")
+                            except Exception as _ue:
+                                print(f"[scan-geometrie] Lagen-Übernahme: {_ue!r}")
                             sb.table("elemente").delete().eq("plan_id", body.plan_id) \
                                 .eq("typ", "raum").execute()
                             sb.table("elemente").insert([{
