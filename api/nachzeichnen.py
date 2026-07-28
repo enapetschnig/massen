@@ -628,6 +628,42 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "u_geometrie_poly": (u_geo or {}).get("u_poly_m"),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
             })
+        # ERSATZ-MARKIERUNG für Räume ohne beweisbaren Umriss: aus der
+        # byte-exakten FLÄCHE (+ Umfang, wenn vorhanden) ein Rechteck mit der
+        # RICHTIGEN Fläche an der Stempelstelle konstruieren. Besser ein
+        # flächenrichtiges Rechteck zum Zurechtziehen als gar nichts — der
+        # Nutzer sieht, dass der Raum erfasst ist. KLAR als geschätzt geflaggt
+        # (region_geschaetzt → gestrichelt), zählt NIE als Beweis.
+        # Lief bisher nur im Browser; im Backend erscheint es damit auch auf
+        # dem Aufmaßblatt-PDF und in der Messung.
+        _erg = 0
+        for _rm in raeume:
+            if (_rm.get("region_px") or []) or not _rm.get("px"):
+                continue
+            _f = _rm.get("f_m2")
+            if not _f or _f <= 0 or not ptm:
+                continue
+            _u = _rm.get("u_m")
+            _a = _b = None
+            if _u and _u > 0:
+                _p = _u / 2.0
+                _disc = _p * _p / 4.0 - _f
+                if _disc >= 0:
+                    _w = _disc ** 0.5
+                    _a, _b = _p / 2.0 + _w, _p / 2.0 - _w
+            if not (_a and _b and _a > 0 and _b > 0):
+                _a = _b = _f ** 0.5          # ohne U: Quadrat gleicher Fläche
+            _hw = _a * ptm * scale / 2.0     # halbe Seiten in BILD-Pixeln
+            _hh = _b * ptm * scale / 2.0
+            _cx, _cy = _rm["px"][0], _rm["px"][1]
+            _rm["region_px"] = [[_cx - _hw, _cy - _hh], [_cx + _hw, _cy - _hh],
+                                [_cx + _hw, _cy + _hh], [_cx - _hw, _cy + _hh]]
+            _rm["region_geschaetzt"] = True
+            _rm["region_quelle"] = "aus Fläche+Umfang konstruiert"
+            _erg += 1
+        if _erg:
+            print(f"[nachzeichnen] {_erg} Räume mit konstruiertem Ersatz-Umriss "
+                  f"(flächenrichtig, gestrichelt)")
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Raum-Verifikation fehlgeschlagen: {e}")
 

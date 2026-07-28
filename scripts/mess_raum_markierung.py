@@ -47,9 +47,10 @@ def _poly_flaeche_m2(pts, scale, ptm):
 
 
 def run():
-    print(f"{'Plan':<40}{'Räume':>6}{'markiert':>10}{'plausibel':>11}{'bewiesen':>10}")
+    print(f"{'Plan':<40}{'Räume':>6}{'markiert':>10}{'plausibel':>11}"
+          f"{'bewiesen':>10}{'konstr.':>8}")
     print("-" * 78)
-    g_raeume = g_mark = g_plaus = g_bew = 0
+    g_raeume = g_mark = g_plaus = g_bew = g_konstr = 0
     details = []
     for teil in KORPUS:
         pf = _find(teil)
@@ -69,10 +70,13 @@ def run():
         raeume = r.get("raeume") or []
         n = len(raeume)
         mark = plaus = bew = 0
+        konstr = 0
         for rm in raeume:
             pts = rm.get("region_px") or []
             if len(pts) >= 3:
                 mark += 1
+                if rm.get("region_geschaetzt"):
+                    konstr += 1
                 f_soll = rm.get("f_m2") or rm.get("flaeche_m2")
                 f_poly = _poly_flaeche_m2(pts, sc, ptm)
                 if f_soll and f_poly and abs(f_poly / f_soll - 1.0) <= 0.20:
@@ -85,10 +89,13 @@ def run():
                 details.append((os.path.basename(pf)[:26], rm.get("name"),
                                 "kein Polygon"))
         g_raeume += n; g_mark += mark; g_plaus += plaus; g_bew += bew
-        print(f"{os.path.basename(pf)[:38]:<40}{n:>6}{mark:>10}{plaus:>11}{bew:>10}")
+        g_konstr += konstr
+        print(f"{os.path.basename(pf)[:38]:<40}{n:>6}{mark:>10}{plaus:>11}{bew:>10}"
+              f"{konstr:>8}")
     print("-" * 78)
     q = lambda a, b: f"{a/b*100:.0f}%" if b else "—"   # noqa: E731
-    print(f"{'GESAMT':<40}{g_raeume:>6}{g_mark:>10}{g_plaus:>11}{g_bew:>10}")
+    print(f"{'GESAMT':<40}{g_raeume:>6}{g_mark:>10}{g_plaus:>11}{g_bew:>10}"
+          f"{g_konstr:>8}")
     print(f"{'':40}{'':6}{q(g_mark,g_raeume):>10}{q(g_plaus,g_raeume):>11}"
           f"{q(g_bew,g_raeume):>10}")
     if details:
@@ -105,13 +112,22 @@ def run():
     #      nichts Falsches. (b) ist die härtere und wichtigere Zusage.
     assert g_raeume >= 100, f"Korpus geschrumpft ({g_raeume} Räume) — Messung untauglich"
     quote = g_plaus / g_raeume
-    assert quote >= 0.70, f"Raum-Markierung geregressiert: {quote*100:.0f}% < 70%"
+    # Zusage 1: praktisch JEDER Raum wird markiert (gemessen 115/115 = 100%;
+    # Schwelle 95% lässt Luft für neue, schwierigere Pläne im Korpus).
+    assert quote >= 0.95, f"Raum-Markierung geregressiert: {quote*100:.0f}% < 95%"
+    # Zusage 2 (die härtere): es wird NICHTS FALSCHES eingezeichnet — jeder
+    # gezeichnete Umriss umschließt die gestempelte Fläche (±20%), entweder
+    # geometrisch bewiesen oder flächenrichtig konstruiert.
     falsch = g_mark - g_plaus
-    assert falsch <= 0.05 * g_mark, (
+    assert falsch == 0, (
         f"{falsch} gezeichnete Umrisse decken sich NICHT mit der Stempel-Fläche "
         f"— es darf nichts Falsches eingezeichnet werden")
-    print(f"WÄCHTER ok: {quote*100:.0f}% markiert (Schwelle 70%), "
-          f"{falsch} falsche Umrisse (erlaubt {int(0.05*g_mark)})")
+    # Zusage 3: die Mehrheit ist ECHTE Geometrie, nicht nur konstruiert.
+    echt = g_mark - g_konstr
+    assert echt >= 0.6 * g_mark, (
+        f"nur {echt}/{g_mark} Umrisse aus echter Geometrie — zu viel konstruiert")
+    print(f"WÄCHTER ok: {quote*100:.0f}% markiert (Schwelle 95%), "
+          f"0 falsche Umrisse, {echt}/{g_mark} aus echter Geometrie")
 
 
 if __name__ == "__main__":
