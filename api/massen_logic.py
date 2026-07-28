@@ -395,7 +395,8 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             _art = (w.get("_art") or "Öffnung").capitalize()
             _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
                             laenge=bw, hoehe=-hw, summe=-netto["abzug"],
-                            quelle=f"Öffnung >{schwelle:.1f} m²")
+                            quelle=f"Öffnung >{schwelle:.1f} m²",
+                            anker={"raum": _room_name(r)})
             # Leibung → EIGENE Position (B 2204 §5.5.1.3 ist zweigleisig:
             # MIT Leibungs-Positionen wird abgezogen UND die Leibung separat
             # verrechnet); ≤0,25 m Tiefe als lfm (1.1a), darüber m² (1.1b).
@@ -627,7 +628,8 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
                 continue
             _art = (w.get("_art") or "Öffnung").capitalize()
             _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
-                            laenge=bw, hoehe=-hw, summe=-netto["abzug"])
+                            laenge=bw, hoehe=-hw, summe=-netto["abzug"],
+                            anker={"raum": _room_name(r)})
             leibung_zeile(pos_laib, pos_laib_m2,
                           f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
                           bw, hw, netto)
@@ -741,7 +743,8 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
                 continue
             _art = (w.get("_art") or "Öffnung").capitalize()
             pos_w.add_zeile(f"  Abzug {_art} {w.get('code', '')}".rstrip(),
-                            summe=-abzug, quelle=f"{bw}×{round(band, 2)} m im Fliesenband")
+                            summe=-abzug, quelle=f"{bw}×{round(band, 2)} m im Fliesenband",
+                            anker={"raum": _room_name(r)})
     if pos_w.zeilen:
         pos_w.konfidenz = 0.75
         positionen.append(pos_w)
@@ -1049,4 +1052,83 @@ def oeffnungs_aufmass(fenster, tueren, baudaten):
             "laibung_m2": round(sum(z["laibung_m2"] for z in zeilen), 2),
         },
         "norm": "in Anlehnung an ÖNORM B 2204 §5.5.1.3",
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# AUFMASS-KREUZTABELLE (Räume × Positionen)
+# ════════════════════════════════════════════════════════════════════════
+def aufmass_matrix(gewerke, raeume=None):
+    """KREUZTABELLE Räume × Positionen — die Kontrollansicht des Aufmaßes.
+
+    Jede Rechenzeile trägt bereits ihren Plan-Anker {"raum": <Name>}; daraus
+    fällt die Matrix ohne neue Erkennung ab: Zeilen = Räume (mit F/U), Spalten
+    = Positionen, Zellen = die dem Raum zurechenbare Menge (Brutto minus seine
+    Abzüge). So ist auf einen Blick prüfbar, ob jeder Raum die Positionen trägt,
+    die er tragen soll — und welche Menge NICHT raumscharf belegt ist.
+
+    gewerke: dict {key: {label, lg, positionen:[...]}} wie aus berechne_gewerke
+    raeume:  optionale Raumliste (F/U je Raum für die Zeilenköpfe)
+    -> {positionen, raeume, ohne_anker, deckung_pct}
+    """
+    spalten, zellen = [], {}
+    ohne = []
+    for gkey, gv in (gewerke or {}).items():
+        if not isinstance(gv, dict):
+            continue
+        for p in (gv.get("positionen") or []):
+            skey = f"{gkey}::{p.get('posnr')}"
+            spalten.append({
+                "key": skey, "gewerk": gkey,
+                "gewerk_label": gv.get("label") or gkey,
+                "lg": gv.get("lg"), "posnr": p.get("posnr"),
+                "beschreibung": p.get("beschreibung"),
+                "einheit": p.get("einheit"),
+                "endsumme": p.get("endsumme"),
+                "regel": p.get("quelle"),          # die Aufmaßregel im Klartext
+            })
+            for z in (p.get("zeilen") or []):
+                rn = ((z.get("anker") or {}).get("raum") or "").strip()
+                w = z.get("wert")
+                if w is None:
+                    continue
+                if rn:
+                    zellen.setdefault(rn, {}).setdefault(skey, 0.0)
+                    zellen[rn][skey] += float(w)
+                else:
+                    ohne.append({"pos": skey, "beschreibung": p.get("beschreibung"),
+                                 "text": z.get("text"), "wert": float(w)})
+
+    # Zeilenköpfe: bekannte Räume zuerst (mit F/U), dann nur-in-Zeilen genannte
+    fu = {}
+    for r in (raeume or []):
+        n = (r.get("name") or r.get("raum") or "").strip()
+        if n:
+            fu[n] = {"f_m2": r.get("flaeche_m2") if r.get("flaeche_m2") is not None
+                     else r.get("f_m2"),
+                     "u_m": r.get("umfang_m") if r.get("umfang_m") is not None
+                     else r.get("u_m"),
+                     "geschoss": r.get("geschoss")}
+    namen = list(fu.keys()) + [n for n in zellen if n not in fu]
+    zeilen_out = []
+    for n in namen:
+        mengen = {k: round(v, 2) for k, v in (zellen.get(n) or {}).items()
+                  if abs(v) >= 0.005}
+        zeilen_out.append({
+            "raum": n,
+            "f_m2": (fu.get(n) or {}).get("f_m2"),
+            "u_m": (fu.get(n) or {}).get("u_m"),
+            "geschoss": (fu.get(n) or {}).get("geschoss"),
+            "mengen": mengen,
+            "n_positionen": len(mengen),
+        })
+
+    verankert = sum(abs(v) for m in zellen.values() for v in m.values())
+    frei = sum(abs(o["wert"]) for o in ohne)
+    ges = verankert + frei
+    return {
+        "positionen": spalten,
+        "raeume": zeilen_out,
+        "ohne_anker": ohne,
+        "deckung_pct": round(verankert / ges * 100, 1) if ges else 0.0,
     }

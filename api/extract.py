@@ -5588,6 +5588,12 @@ async def projekt_massen(body: ProjektMassenRequest):
         "saeulen_geschaetzt": saeulen_geschaetzt,
         "doppelcheck": doppelcheck,
         "geschoss": geschoss,
+        # AUFMASS-KREUZTABELLE (Räume × Positionen) — die Kontrollansicht:
+        # welcher Raum trägt welche Position in welcher Menge, und wie viel
+        # der Menge ist NICHT raumscharf belegt (ehrlich ausgewiesen).
+        # Rein abgeleitet aus den Plan-Ankern der Rechenzeilen; additiv.
+        "aufmass_matrix": _aufmass_matrix_safe(
+            (gewerke_result or {}).get("gewerke"), merged_rooms),
         "raeume": merged_rooms,
         "fenster": alle_fenster,
         "tueren": alle_tueren,
@@ -5632,6 +5638,20 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
 
 
 _NZ_CACHE_V = 40  # u_geometrie = geom. Mittel(Polygon-Umfang, BBox-Isoperimetrie), F-kalibriert
+
+
+def _aufmass_matrix_safe(gewerke, raeume):
+    """Kreuztabelle Räume × Positionen — best-effort. Die Matrix ist eine
+    ABGELEITETE Kontrollansicht; ein Fehler darin darf die Massenermittlung
+    NIE kippen (dann lieber None und die Ansicht bleibt leer)."""
+    try:
+        if not gewerke:
+            return None
+        from massen_logic import aufmass_matrix as _am
+        return _am(gewerke, raeume or [])
+    except Exception as e:  # pragma: no cover
+        print(f"[aufmass-matrix] übersprungen: {e!r}")
+        return None
 
 
 def _korrekturen_fuer_seite(log, seite):
