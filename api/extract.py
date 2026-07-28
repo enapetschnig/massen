@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.49"
+APP_REV = "2026-07-09.50"
 
 
 @app.get("/api/extract-health")
@@ -5668,7 +5668,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 44  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 45  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
@@ -5869,6 +5869,70 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
             })
             n += 1
         if n:
+            # KANTEN-AUSRICHTUNG je Geschoss: in einem Grundriss teilen sich
+            # Nachbarraeume ihre WAENDE — ihre Box-Kanten muessen also auf
+            # gemeinsamen Linien liegen. Vision liefert sie aber einzeln
+            # geschaetzt, darum schwanken sie um wenige Prozent und die Raeume
+            # sitzen sichtbar versetzt. Hier werden die Kanten je Geschoss
+            # geclustert und auf den Cluster-MEDIAN gezogen: gleiche Wand =
+            # gleiche Koordinate. Rein ausrichtend, kein neuer Inhalt.
+            try:
+                from collections import defaultdict as _dd2
+                _je_gesch = _dd2(list)
+                for _rm in raeume:
+                    if len(_rm.get("region_px") or []) >= 3:
+                        _je_gesch[_rm.get("geschoss") or "?"].append(_rm)
+
+                def _cluster(werte, tol):
+                    """Werte gruppieren (Abstand <= tol) -> {wert: median}."""
+                    if not werte:
+                        return {}
+                    ws = sorted(werte)
+                    gruppen, akt = [], [ws[0]]
+                    for _w in ws[1:]:
+                        if _w - akt[-1] <= tol:
+                            akt.append(_w)
+                        else:
+                            gruppen.append(akt); akt = [_w]
+                    gruppen.append(akt)
+                    _map = {}
+                    for _g in gruppen:
+                        _med = _g[len(_g) // 2]
+                        for _w in _g:
+                            _map[_w] = _med
+                    return _map
+
+                _ausger = 0
+                for _g, _rl in _je_gesch.items():
+                    if len(_rl) < 2:
+                        continue
+                    _xs, _ys = [], []
+                    for _rm in _rl:
+                        _p = _rm["region_px"]
+                        _xs += [min(q[0] for q in _p), max(q[0] for q in _p)]
+                        _ys += [min(q[1] for q in _p), max(q[1] for q in _p)]
+                    # Toleranz: 2% der Geschoss-Ausdehnung (Vision-Streuung)
+                    _tx = max(4.0, 0.02 * (max(_xs) - min(_xs)))
+                    _ty = max(4.0, 0.02 * (max(_ys) - min(_ys)))
+                    _mx, _my = _cluster(_xs, _tx), _cluster(_ys, _ty)
+                    for _rm in _rl:
+                        _p = _rm["region_px"]
+                        _x0, _x1 = min(q[0] for q in _p), max(q[0] for q in _p)
+                        _y0, _y1 = min(q[1] for q in _p), max(q[1] for q in _p)
+                        _n0, _n1 = _mx.get(_x0, _x0), _mx.get(_x1, _x1)
+                        _m0, _m1 = _my.get(_y0, _y0), _my.get(_y1, _y1)
+                        if _n1 - _n0 < 4 or _m1 - _m0 < 4:
+                            continue          # entartet -> unangetastet lassen
+                        _rm["region_px"] = [[round(_n0, 1), round(_m0, 1)],
+                                            [round(_n1, 1), round(_m0, 1)],
+                                            [round(_n1, 1), round(_m1, 1)],
+                                            [round(_n0, 1), round(_m1, 1)]]
+                        _ausger += 1
+                if _ausger:
+                    print(f"[nachzeichnen] {_ausger} Scan-Raumkanten auf "
+                          f"gemeinsame Wandlinien ausgerichtet")
+            except Exception as _ae:
+                print(f"[nachzeichnen] Kanten-Ausrichtung: {_ae!r}")
             # FLAECHEN-KALIBRIERUNG: Vision trifft die LAGE eines Raums gut, die
             # GROESSE aber nur grob (am Angerer gemessen: Median 33% daneben) —
             # darum ragten die Rechtecke am Scan ueber die Gebaeudekante hinaus.
