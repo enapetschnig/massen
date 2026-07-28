@@ -122,6 +122,51 @@ class LVPosition:
     def endsumme(self):
         return round(sum(z["wert"] for z in self.zeilen), 2)
 
+    @property
+    def regel(self):
+        """AUFMASSREGEL maschinenlesbar aus der Quellen-Angabe.
+
+        Jede Menge MUSS nach einer benannten Regel ermittelt sein — das ist der
+        Kern eines prüfbaren Aufmaßes (und die Zusage „Massen laut ÖNORM"). Die
+        Regel steht seit jeher als Fließtext in `quelle`; hier wird sie in ihre
+        Bestandteile zerlegt, damit Oberfläche, Export und WÄCHTER sie prüfen
+        können statt sie nur anzuzeigen:
+          norm      — 'ÖNORM B 2204' (das Regelwerk)
+          stelle    — '§5.5.1.3', falls die Position eine Fundstelle nennt
+          angelehnt — True bei „in Anlehnung an" (ehrlich: keine wörtliche
+                      Übernahme, sondern sinngemäße Anwendung)
+          formel    — der Rechenweg im Klartext ('Σ(U×H) − Öffnungen>4.0m²')
+        Ohne erkennbare Norm → None; der Wächter macht daraus „Regel fehlt"."""
+        q = (self.quelle or "").strip()
+        if not q:
+            return None
+        st = re.search(r"§\s*([\d.]+)", q)
+        # Formel = der Teil nach dem letzten '·' (so sind die Quellen gebaut)
+        formel = (q.split("·")[-1].strip() if "·" in q else q)
+        basis = {
+            "stelle": (f"§{st.group(1)}" if st else None),
+            "angelehnt": bool(re.search(r"in\s+Anlehnung", q, re.I)),
+            "formel": formel,
+            "text": q,
+        }
+        m = re.search(r"(ÖNORM|ONORM)\s+([A-Z])\s*(\d{4})", q)
+        if m:
+            return dict(basis, art="norm", norm=f"ÖNORM {m.group(2)} {m.group(3)}")
+        # FREMDNORM: eine deutsche/europäische Norm in einer ÖNORM-Anwendung
+        # ist ein BEFUND, kein Feature — sie wird ausdrücklich als solche
+        # ausgewiesen, damit sie nicht als österreichische Regel durchgeht.
+        f = re.search(r"\b(DIN|EN|ISO|VOB)\s*([0-9]{3,5})?", q)
+        if f:
+            return dict(basis, art="fremdnorm",
+                        norm=(f"{f.group(1)} {f.group(2)}".strip() if f.group(2)
+                              else f.group(1)))
+        # STÜCKZAHL: eine Zählung braucht keine Aufmaßregel (ehrlich benannt).
+        if re.search(r"Stück|Stk|Anzahl", q, re.I):
+            return dict(basis, art="stueckzahl", norm=None)
+        # PRAXIS: Fachpraxis/Annahme ohne belegten Norm-Bezug — offen, aber
+        # ausgewiesen (im Ziel-Workflow entspricht das „Regel fehlt").
+        return dict(basis, art="praxis", norm=None)
+
     def to_dict(self):
         return {
             "posnr": self.posnr,
@@ -130,6 +175,7 @@ class LVPosition:
             "endsumme": self.endsumme,
             "konfidenz": self.konfidenz,
             "quelle": self.quelle,
+            "regel": self.regel,      # maschinenlesbare Aufmaßregel
             "zeilen": self.zeilen,
         }
 
@@ -1086,6 +1132,7 @@ def aufmass_matrix(gewerke, raeume=None):
                 "einheit": p.get("einheit"),
                 "endsumme": p.get("endsumme"),
                 "regel": p.get("quelle"),          # die Aufmaßregel im Klartext
+                "regel_obj": p.get("regel"),       # maschinenlesbar (art/norm/formel)
             })
             for z in (p.get("zeilen") or []):
                 rn = ((z.get("anker") or {}).get("raum") or "").strip()

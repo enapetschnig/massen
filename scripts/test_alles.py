@@ -26,6 +26,7 @@ GUARDS = [
     ("Edge-Case-Robustheit", "test_edgecases.py", "leer/Scan/rotiert — nie crashen"),
     ("Mengen-Engine-Fuzz", "test_materialliste_fuzz.py", "None/Strings/negativ — nie crashen/negativ"),
     ("Aufmaß-Kreuztabelle", "test_aufmass_matrix.py", "Räume × Positionen, Abzüge raumscharf"),
+    ("Aufmaßregeln (ÖNORM-Deckung)", "test_aufmassregeln.py", "Positionen mit Menge"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),

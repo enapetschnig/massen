@@ -1674,10 +1674,22 @@
       '<th style="position:sticky;left:0;background:inherit">Raum</th>' +
       '<th>F (m²)</th>';
     spalten.forEach(function (p) {
-      h += '<th title="' + esc((p.gewerk_label || '') + ' · ' + (p.regel || '')) + '">' +
+      // Regel-Herkunft sichtbar: ÖNORM-gestützt / Stückzahl / Fachpraxis /
+      // FREMDNORM. Eine Menge ohne österreichische Norm darf nicht so
+      // aussehen, als haette sie eine.
+      var rg = p.regel_obj || null;
+      var art = rg && rg.art, kz = '', tip = (p.regel || '');
+      if (art === 'norm') { kz = '<span style="color:#166534" title="nach ' +
+        esc(rg.norm) + '">' + esc(rg.norm.replace('ÖNORM ', '')) + '</span>'; }
+      else if (art === 'fremdnorm') { kz = '<span style="color:#b45309" ' +
+        'title="Fremdnorm — fachlich zu klären">⚠ ' + esc(rg.norm) + '</span>'; }
+      else if (art === 'stueckzahl') { kz = '<span style="color:#6c757d">Stück</span>'; }
+      else if (art === 'praxis') { kz = '<span style="color:#b45309" ' +
+        'title="Fachpraxis/Annahme — kein Norm-Beleg">Praxis</span>'; }
+      h += '<th title="' + esc((p.gewerk_label || '') + ' · ' + tip) + '">' +
         esc(p.posnr || '') + '<div style="font-weight:400;font-size:.7rem;color:#6c757d">' +
         esc((p.beschreibung || '').replace(/\s*—.*$/, '').slice(0, 26)) +
-        '<br>' + esc(p.einheit || '') + '</div></th>';
+        '<br>' + esc(p.einheit || '') + (kz ? ' · ' + kz : '') + '</div></th>';
     });
     h += '</tr></thead><tbody>';
     zeilen.forEach(function (r) {
