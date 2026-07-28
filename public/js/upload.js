@@ -1147,6 +1147,38 @@
     return Number(n).toLocaleString('de-AT', { maximumFractionDigits: 2 });
   }
 
+  // ─── Raumliste (PDF/Excel) — Zwischen-Export direkt nach der Raum-Erkennung ───
+  function bindRaumliste(id, format, endung, mime) {
+    var b = document.getElementById(id);
+    if (!b || b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.addEventListener('click', function () {
+      var d = window.projektMassenData || {};
+      var rs = (d.raeume || []).filter(function (r) { return r && r.flaeche_m2; });
+      if (!rs.length) { alert('Noch keine Räume mit Fläche gelesen.'); return; }
+      var alt = b.textContent;
+      b.textContent = '… erstellt'; b.disabled = true;
+      fetch('/api/raumliste', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projekt_name: ((document.getElementById('project-name') || {}).textContent || 'Projekt').trim(),
+          raeume: rs, format: format
+        })
+      }).then(function (r) {
+        var ct = r.headers.get('Content-Type') || '';
+        if (ct.indexOf(mime) === -1) throw new Error('Export fehlgeschlagen');
+        return r.blob();
+      }).then(function (blob) {
+        var u = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = u; a.download = 'Raumliste.' + endung;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(u);
+      }).catch(function (e) {
+        alert('Raumliste konnte nicht erstellt werden: ' + e.message);
+      }).then(function () { b.textContent = alt; b.disabled = false; });
+    });
+  }
+
   // ─── Projekt-Export-Button (CSV mit allen Daten + Materialliste) ───
   function doExport(format, btn) {
     var orig = btn.innerHTML;
@@ -1184,6 +1216,8 @@
     var btnFull = document.getElementById('projekt-export-voll-btn'); // voller Dump
     if (btnFull && !btnFull.dataset.bound) { btnFull.dataset.bound = '1';
       btnFull.addEventListener('click', function () { doExport(null, btnFull); }); }
+    bindRaumliste('raumliste-pdf-btn', 'pdf', 'pdf', 'pdf');
+    bindRaumliste('raumliste-xlsx-btn', 'xlsx', 'xlsx', 'spreadsheetml');
     // Prüffähiges Aufmaß als .xlsx — WYSIWYG: schickt exakt die geladenen
     // Daten (gewerke/materialliste/raeume) ans Backend, openpyxl formatiert.
     var btnX = document.getElementById('projekt-xlsx-btn');

@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.42"
+APP_REV = "2026-07-09.43"
 
 
 @app.get("/api/extract-health")
@@ -6778,6 +6778,230 @@ class AufmassXlsxRequest(BaseModel):
     gewerke: dict | None = None
     materialliste: list | None = None
     raeume: list | None = None
+
+
+class RaumlisteRequest(BaseModel):
+    """RAUMLISTE als eigenständiger Zwischen-Export: WYSIWYG (der Client
+    schickt die angezeigten Räume) — kein Neu-Rechnen, keine Abweichung
+    zwischen Bildschirm und Ausdruck."""
+    projekt_name: str | None = None
+    raeume: list | None = None
+    format: str | None = "pdf"          # pdf | xlsx
+
+
+def _raum_herkunft(r):
+    """Woher stammen Fläche/Umfang? Das ist unser Unterscheidungsmerkmal —
+    andere zeigen nur Zahlen, wir zeigen ihre Belastbarkeit."""
+    v = (r or {}).get("_verified") or {}
+    f_ok = bool(v.get("F"))
+    u_ok = bool(v.get("U"))
+    if f_ok and u_ok:
+        return "Plan (byte-exakt)"
+    if f_ok:
+        return "F aus Plan · U abgeleitet"
+    if u_ok:
+        return "U aus Plan · F abgeleitet"
+    return "abgeleitet"
+
+
+_GESCHOSS_NAMEN = {
+    "kg": "Kellergeschoss", "ug": "Untergeschoss", "eg": "Erdgeschoss",
+    "og": "Obergeschoss", "1og": "1. Obergeschoss", "2og": "2. Obergeschoss",
+    "dg": "Dachgeschoss", "tg": "Tiefgarage",
+}
+
+
+def _geschoss_label(g):
+    """'eg' -> 'Erdgeschoss'. Unbekanntes bleibt unveraendert (ehrlich)."""
+    if not g:
+        return "ohne Geschoss-Angabe"
+    k = str(g).strip()
+    return _GESCHOSS_NAMEN.get(k.lower().replace(".", "").replace(" ", ""), k)
+
+
+def _raumliste_gruppen(raeume):
+    """Räume nach Geschoss gruppieren, je Gruppe Anzahl + Summe."""
+    from collections import OrderedDict
+    g = OrderedDict()
+    for r in (raeume or []):
+        if not isinstance(r, dict) or not r.get("name"):
+            continue
+        if r.get("flaeche_m2") is None:
+            continue
+        k = _geschoss_label(r.get("geschoss") or r.get("_geschoss"))
+        g.setdefault(k, []).append(r)
+    out = []
+    for k, rs in g.items():
+        rs = sorted(rs, key=lambda x: -(x.get("flaeche_m2") or 0))
+        out.append({
+            "geschoss": k, "raeume": rs, "anzahl": len(rs),
+            "summe_f": round(sum((x.get("flaeche_m2") or 0) for x in rs), 2),
+            "summe_u": round(sum((x.get("umfang_m") or 0) for x in rs), 2),
+        })
+    return out
+
+
+def _raumliste_pdf(projekt_name, gruppen):
+    """Raumliste als PDF (A4 hoch), gruppiert nach Geschoss."""
+    import fitz
+    from datetime import date
+    doc = fitz.open()
+    TINTE = (0.13, 0.14, 0.16)
+    GRAU = (0.42, 0.45, 0.49)
+    OCKER = (0.74, 0.42, 0.12)
+    LINIE = (0.80, 0.78, 0.75)
+    seite = None
+    y = 0.0
+
+    def neue_seite():
+        nonlocal seite, y
+        seite = doc.new_page(width=595, height=842)
+        seite.insert_text(fitz.Point(48, 56), "Raumliste", fontsize=20,
+                          fontname="hebo", color=TINTE)
+        seite.insert_text(fitz.Point(48, 74), (projekt_name or "")[:70],
+                          fontsize=10, color=GRAU)
+        seite.insert_text(fitz.Point(430, 56),
+                          "Stand " + date.today().strftime("%d.%m.%Y"),
+                          fontsize=8, color=GRAU)
+        seite.draw_line(fitz.Point(48, 86), fitz.Point(547, 86),
+                        color=OCKER, width=1.2)
+        y = 108.0
+
+    def platz(n=1):
+        nonlocal y
+        if seite is None or y + n * 15 > 800:
+            neue_seite()
+
+    def kopfzeile():
+        nonlocal y
+        seite.insert_text(fitz.Point(48, y), "Raum", fontsize=8,
+                          fontname="hebo", color=GRAU)
+        seite.insert_text(fitz.Point(268, y), "Fläche (m²)", fontsize=8,
+                          fontname="hebo", color=GRAU)
+        seite.insert_text(fitz.Point(348, y), "Umfang (m)", fontsize=8,
+                          fontname="hebo", color=GRAU)
+        seite.insert_text(fitz.Point(428, y), "Herkunft", fontsize=8,
+                          fontname="hebo", color=GRAU)
+        y += 6
+        seite.draw_line(fitz.Point(48, y), fitz.Point(547, y),
+                        color=LINIE, width=0.6)
+        y += 13
+
+    platz()
+    for gr in gruppen:
+        platz(3)
+        seite.insert_text(fitz.Point(48, y),
+                          f"{gr['geschoss']}", fontsize=11,
+                          fontname="hebo", color=TINTE)
+        seite.insert_text(
+            fitz.Point(268, y),
+            f"{gr['anzahl']} Räume · {_de(gr['summe_f'])} m²",
+            fontsize=9, color=OCKER)
+        y += 16
+        kopfzeile()
+        for r in gr["raeume"]:
+            platz()
+            if y > 790:
+                neue_seite(); kopfzeile()
+            seite.insert_text(fitz.Point(48, y), str(r.get("name"))[:44],
+                              fontsize=9, color=TINTE)
+            seite.insert_text(fitz.Point(268, y), _de(r.get("flaeche_m2")),
+                              fontsize=9, color=TINTE)
+            seite.insert_text(fitz.Point(348, y),
+                              _de(r.get("umfang_m")) if r.get("umfang_m") else "—",
+                              fontsize=9, color=TINTE)
+            seite.insert_text(fitz.Point(428, y), _raum_herkunft(r),
+                              fontsize=7.5, color=GRAU)
+            y += 14
+        y += 10
+    if seite is None:
+        neue_seite()
+        seite.insert_text(fitz.Point(48, y), "Keine Räume mit Fläche vorhanden.",
+                          fontsize=10, color=GRAU)
+    # Fußnote auf der letzten Seite
+    seite.insert_text(
+        fitz.Point(48, 812),
+        "Herkunft: 'Plan (byte-exakt)' = Wert unveraendert aus dem Raumstempel "
+        "gelesen \u00b7 'abgeleitet' = aus Geometrie/Proportion ermittelt. "
+        "Die finale Pruefung liegt beim Anwender.",
+        fontsize=6.8, color=GRAU)
+    return doc.tobytes()
+
+
+def _de(v):
+    """Zahl in österreichischer Schreibweise (Komma)."""
+    if v is None:
+        return "—"
+    try:
+        return f"{float(v):,.2f}".replace(",", "\u00a0").replace(".", ",")
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _raumliste_xlsx(projekt_name, gruppen):
+    """Raumliste als .xlsx — ein Blatt, nach Geschoss gruppiert."""
+    import io
+    from datetime import date
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Raumliste"
+    BOLD = Font(bold=True)
+    FILL = PatternFill("solid", fgColor="EFEAE3")
+    ws.append(["Raumliste", projekt_name or ""])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append(["Stand", date.today().strftime("%d.%m.%Y")])
+    ws.append([])
+    for gr in gruppen:
+        ws.append([gr["geschoss"], f"{gr['anzahl']} Räume",
+                   gr["summe_f"], gr["summe_u"]])
+        for c in ws[ws.max_row]:
+            c.font = BOLD
+            c.fill = FILL
+        ws.append(["Raum", "Fläche (m²)", "Umfang (m)", "Höhe (m)", "Herkunft"])
+        for c in ws[ws.max_row]:
+            c.font = BOLD
+        for r in gr["raeume"]:
+            ws.append([r.get("name"), r.get("flaeche_m2"), r.get("umfang_m"),
+                       r.get("hoehe_m"), _raum_herkunft(r)])
+        ws.append([])
+    for col, w in (("A", 34), ("B", 13), ("C", 13), ("D", 10), ("E", 26)):
+        ws.column_dimensions[col].width = w
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@app.post("/api/raumliste")
+async def raumliste(body: RaumlisteRequest):
+    """RAUMLISTE (PDF/Excel) — der schnelle Zwischen-Export nach der
+    Raum-Erkennung, OHNE den kompletten Aufmaß-Workflow zu durchlaufen.
+    Enthält je Raum Fläche, Umfang und die HERKUNFT der Werte."""
+    try:
+        gruppen = _raumliste_gruppen(body.raeume)
+        n = sum(g["anzahl"] for g in gruppen)
+        if not n:
+            return JSONResponse({"ok": False, "grund": "Keine Räume mit Fläche."},
+                                status_code=200)
+        name = body.projekt_name or "Projekt"
+        fn = _dateiname_safe(name)
+        if (body.format or "pdf").lower() == "xlsx":
+            data = _raumliste_xlsx(name, gruppen)
+            return Response(
+                content=data,
+                media_type="application/vnd.openxmlformats-officedocument."
+                          "spreadsheetml.sheet",
+                headers={"Content-Disposition":
+                         f'attachment; filename="Raumliste_{fn}.xlsx"'})
+        data = _raumliste_pdf(name, gruppen)
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Content-Disposition":
+                                 f'attachment; filename="Raumliste_{fn}.pdf"'})
+    except Exception as e:
+        print(f"[raumliste] fehlgeschlagen: {e!r}")
+        return JSONResponse({"ok": False, "grund": f"Export fehlgeschlagen: {e}"},
+                            status_code=200)
 
 
 @app.post("/api/aufmass-xlsx")
