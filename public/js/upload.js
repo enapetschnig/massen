@@ -1715,6 +1715,10 @@
       var art = rg && rg.art, kz = '', tip = (p.regel || '');
       if (art === 'norm') { kz = '<span style="color:#166534" title="nach ' +
         esc(rg.norm) + '">' + esc(rg.norm.replace('ÖNORM ', '')) + '</span>'; }
+      else if (art === 'norm_offen') { kz = '<span style="color:#b45309" ' +
+        'title="Regelwerk ' + esc(rg.norm) + ' — aber ein Parameter (Abzugs' +
+        'schwelle) ist darin nicht belegt und je Firma zu setzen">' +
+        esc(rg.norm.replace('ÖNORM ', '')) + ' *</span>'; }
       else if (art === 'fremdnorm') { kz = '<span style="color:#b45309" ' +
         'title="Fremdnorm — fachlich zu klären">⚠ ' + esc(rg.norm) + '</span>'; }
       else if (art === 'stueckzahl') { kz = '<span style="color:#6c757d">Stück</span>'; }

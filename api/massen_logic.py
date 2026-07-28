@@ -149,9 +149,16 @@ class LVPosition:
             "formel": formel,
             "text": q,
         }
-        m = re.search(r"(ÖNORM|ONORM)\s+([A-Z])\s*(\d{4})", q)
+        m = re.search(r"(ÖNORM|ONORM)\s+([A-Z])\s*(\d{4})(-\d)?", q)
         if m:
-            return dict(basis, art="norm", norm=f"ÖNORM {m.group(2)} {m.group(3)}")
+            _n = f"ÖNORM {m.group(2)} {m.group(3)}{m.group(4) or ''}"
+            # NORM_OFFEN: das Regelwerk ist benannt, aber ein PARAMETER darin
+            # (z.B. eine Abzugsschwelle) ist nicht normbelegt. Das muss sichtbar
+            # bleiben — sonst sieht eine übernommene Fremd-Praxis wie eine
+            # österreichische Regel aus.
+            if re.search(r"nicht\s+normbelegt|nicht\s+AT-belegt", q, re.I):
+                return dict(basis, art="norm_offen", norm=_n)
+            return dict(basis, art="norm", norm=_n)
         # FREMDNORM: eine deutsche/europäische Norm in einer ÖNORM-Anwendung
         # ist ein BEFUND, kein Feature — sie wird ausdrücklich als solche
         # ausgewiesen, damit sie nicht als österreichische Regel durchgeht.
@@ -648,7 +655,15 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
     fzuord = fenster_pro_raum(rooms, oeffnungen)
 
     pos = LVPosition("1.1", f"Anstrich Wände bis 3,2 m — {geschoss}", "m²")
-    pos.quelle = (f"Maler-Aufmaßpraxis (analog DIN 18363) · "
+    # NORM-BEZUG (Befund aus dem ÖNORM-Audit, docs/OENORM_ROADMAP.md):
+    # Maßgeblich ist in Österreich die ÖNORM B 2230-1 (Malerarbeiten) — NICHT
+    # die deutsche DIN 18363, die hier bis 2026-07 zitiert wurde. Die
+    # Abzugsschwelle 2,5 m² stammt aber aus der DEUTSCHEN Praxis und ist durch
+    # B 2230-1 NICHT belegt. Sie wird darum ausdrücklich als offener Parameter
+    # ausgewiesen (art='norm_offen') statt still als österreichische Regel
+    # auszugehen — je Firma über oeffnung_schwelle_maler überschreibbar.
+    pos.quelle = (f"ÖNORM B 2230-1 (Malerarbeiten) · Abzugsschwelle "
+                  f"{schwelle:.1f} m² NICHT normbelegt (je Firma zu setzen) · "
                   f"Σ(U×H) − Öffnungen>{schwelle:.1f}m²")
     pos_laib = LVPosition("1.1a", f"Anstrich Leibungen bis 0,25 m Tiefe — {geschoss}", "lfm")
     pos_laib.quelle = "Leibungen ≤ 0,25 m Tiefe als Laufmeter der Abwicklung (B 2204-Systematik)"
@@ -692,7 +707,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
         positionen.append(pos_laib_m2)
 
     pos = LVPosition("1.2", f"Anstrich Decken — {geschoss}", "m²")
-    pos.quelle = "Σ Raumfläche"
+    pos.quelle = "ÖNORM B 2230-1 (Malerarbeiten) · Σ Raumfläche"
     for r in innen:
         f = _room_value(r, "flaeche_m2")
         if f:

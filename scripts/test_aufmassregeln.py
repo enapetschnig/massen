@@ -25,6 +25,7 @@ ERWARTETE_NORMEN = {
     "ÖNORM B 2215",   # Beton-/Stahlbetonarbeiten
     "ÖNORM B 2259",   # Wärmedämm-Verbundsysteme
     "ÖNORM B 2110",   # Werkvertragsnorm (Allgemeines)
+    "ÖNORM B 2230-1",  # Malerarbeiten (AT — ersetzt die frühere DIN-18363-Referenz)
 }
 
 
@@ -67,7 +68,7 @@ def run():
             continue
         art = r.get("art")
         nach_art[art] = nach_art.get(art, 0) + 1
-        if art == "norm":
+        if art in ("norm", "norm_offen"):
             normen.add(r["norm"])
             assert r["norm"] in ERWARTETE_NORMEN, \
                 f"unerwartetes Regelwerk: {gk}/{p.get('posnr')} → {r['norm']}"
@@ -86,8 +87,9 @@ def run():
 
     # 2) Die MEHRHEIT der Mengen steht auf einer ÖNORM — das ist die Zusage
     n_mengen = sum(nach_art.values())
-    assert nach_art.get("norm", 0) >= 0.5 * n_mengen, (
-        f"nur {nach_art.get('norm', 0)}/{n_mengen} Positionen auf ÖNORM gestützt "
+    auf_norm = nach_art.get("norm", 0) + nach_art.get("norm_offen", 0)
+    assert auf_norm >= 0.5 * n_mengen, (
+        f"nur {auf_norm}/{n_mengen} Positionen auf ÖNORM gestützt "
         f"— die Zusage 'Massen laut ÖNORM' traegt nicht")
 
     # 3) 'in Anlehnung an' wird als solches ausgewiesen (keine Behauptung
@@ -100,8 +102,9 @@ def run():
     #    ausdruecklich als solche markiert (art='fremdnorm'), damit sie nicht
     #    als oesterreichische Regel durchgehen. Hier wird ihre Zahl fixiert —
     #    steigt sie, schlaegt der Guard an.
-    assert len(fremde_norm) <= 1, (
-        f"zu viele Fremdnorm-Bezuege in einer ÖNORM-Anwendung: {fremde_norm}")
+    assert not fremde_norm, (
+        f"FREMDNORM in einer ÖNORM-Anwendung: {fremde_norm} — "
+        f"eine deutsche/EU-Norm darf keine Menge begruenden")
 
     print(f"OK — Aufmaßregeln: {n_mengen} Positionen mit Menge, alle mit "
           f"ausgewiesener Herleitung")
@@ -109,6 +112,8 @@ def run():
           f"({len(normen)} Regelwerke, {mit_stelle} mit Fundstelle §)")
     print(f"   Stueckzahl      : {nach_art.get('stueckzahl', 0)} (keine Aufmassregel noetig)")
     print(f"   Fachpraxis/offen: {nach_art.get('praxis', 0)}  {offen[:3]}")
+    print(f"   ÖNORM, Parameter offen: {nach_art.get('norm_offen', 0)} "
+          f"(Regelwerk benannt, eine Schwelle noch nicht normbelegt)")
     print(f"   FREMDNORM       : {nach_art.get('fremdnorm', 0)}  {fremde_norm}")
     if fremde_norm:
         print("   ^ BEFUND: deutsche/EU-Norm in einer ÖNORM-Anwendung — "
