@@ -1194,3 +1194,130 @@ def aufmass_matrix(gewerke, raeume=None):
         "ohne_anker": ohne,
         "deckung_pct": round(verankert / ges * 100, 1) if ges else 0.0,
     }
+
+
+# ════════════════════════════════════════════════════════════════════════
+# EIGENE POSITIONEN mit Pflicht-Aufmaßregel
+# ════════════════════════════════════════════════════════════════════════
+# Im Ziel-Workflow hinterlegt der Betrieb SEINE Leistungspositionen und
+# verknüpft jede mit einer Aufmaßregel — ohne Regel ist die Position gesperrt
+# („Regel fehlt"). Hier ist der berechenbare Katalog dazu: jede Regel weiß,
+# welche Menge sie aus Räumen/Öffnungen bildet, in welcher Einheit, und nach
+# welchem Regelwerk. Das Ergebnis ist eine ganz normale LVPosition — mit
+# vollem Rechenweg UND Plan-Ankern, also in Kreuztabelle, Aufmaßblatt und
+# A-2063-Export sofort mit dabei.
+AUFMASS_REGELN = {
+    "boden": {
+        "name": "Bodenfläche (Raumfläche)",
+        "einheit": "m²", "norm": "ÖNORM B 2232",
+        "formel": "Σ Raumfläche F",
+    },
+    "decke": {
+        "name": "Deckenfläche",
+        "einheit": "m²", "norm": "ÖNORM B 2204",
+        "formel": "Σ Raumfläche F (Deckenuntersicht)",
+    },
+    "wand_brutto": {
+        "name": "Wandfläche brutto (ohne Öffnungsabzug)",
+        "einheit": "m²", "norm": "ÖNORM B 2204",
+        "formel": "Σ (Umfang U × Höhe H)",
+    },
+    "wand_netto": {
+        "name": "Wandfläche netto (Öffnungen über Schwelle abgezogen)",
+        "einheit": "m²", "norm": "ÖNORM B 2204",
+        "formel": "Σ (U × H) − Öffnungen > Schwelle",
+    },
+    "umfang": {
+        "name": "Raumumfang",
+        "einheit": "m", "norm": "ÖNORM B 2204",
+        "formel": "Σ Umfang U",
+    },
+    "sockel": {
+        "name": "Sockelleiste (Umfang abzüglich Türbreiten)",
+        "einheit": "m", "norm": "ÖNORM B 2232",
+        "formel": "Σ (U − Σ Türbreiten des Raums)",
+    },
+}
+
+
+def eigene_position(regel_id, posnr, bezeichnung, rooms, windows=None,
+                    tueren=None, baudaten=None, raum_filter=None,
+                    verschnitt_pct=0.0, geschoss="EG"):
+    """Eine BETRIEBS-EIGENE Position nach gewählter Aufmaßregel rechnen.
+
+    regel_id      Schlüssel aus AUFMASS_REGELN — PFLICHT. Ohne gültige Regel
+                  gibt es keine Menge (das ist die „Regel fehlt"-Sperre).
+    raum_filter   optional: Liste von Raumnamen; sonst alle passenden Räume.
+    verschnitt_pct Aufschlag in Prozent (z.B. 5 für 5 % Verschnitt) — wird als
+                  EIGENE, sichtbare Zeile geführt, nie still eingerechnet.
+    Rückgabe: LVPosition (mit Rechenweg + Plan-Ankern) oder None.
+    """
+    regel = AUFMASS_REGELN.get(regel_id)
+    if not regel:
+        return None
+    bd = baudaten or {}
+    h_def = bd.get("geschosshoehe_m") or 2.5
+    pos = LVPosition(posnr or "1.1", bezeichnung or regel["name"],
+                     regel["einheit"])
+    pos.quelle = f"{regel['norm']} · {regel['formel']}"
+    pos.konfidenz = 0.9
+
+    namen = None
+    if raum_filter:
+        namen = {re.sub(r"[\s\-_/]+", "", str(n).lower()) for n in raum_filter}
+
+    oeff = _oeffnungen_kombi(windows or [], tueren or [])
+    ziel = [r for r in (rooms or [])
+            if not namen
+            or re.sub(r"[\s\-_/]+", "", (_room_name(r) or "").lower()) in namen]
+    fz = fenster_pro_raum(ziel, oeff)
+    schwelle = _schwelle_fuer(bd)
+
+    for r in ziel:
+        nm = _room_name(r)
+        f = _room_value(r, "flaeche_m2")
+        u = _room_value(r, "umfang_m")
+        h = _room_value(r, "hoehe_m") or h_def
+        ank = {"raum": nm}
+        if regel_id in ("boden", "decke"):
+            if f:
+                pos.add_zeile(nm, summe=f, quelle=f"F={f}", anker=ank)
+        elif regel_id == "umfang":
+            if u:
+                pos.add_zeile(nm, summe=u, quelle=_u_lbl(r, u), anker=ank)
+        elif regel_id == "sockel":
+            if u:
+                tb = sum((t.get("breite_m") or 0) for t in fz.get(id(r), [])
+                         if (t.get("_art") or "") == "tuer")
+                pos.add_zeile(nm, summe=max(0.0, u - tb),
+                              quelle=f"{_u_lbl(r, u)} − Türen {round(tb, 2)} m",
+                              anker=ank)
+        elif regel_id in ("wand_brutto", "wand_netto"):
+            if not u:
+                continue
+            pos.add_zeile(f"{nm} — Wand brutto", laenge=u, hoehe=h, summe=u * h,
+                          quelle=f"{_u_lbl(r, u)} × H={h}", anker=ank)
+            if regel_id == "wand_netto":
+                for w in fz.get(id(r), []):
+                    bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
+                    netto = oeffnung_netto(bw, hw, _wand_cm_of(w, bd),
+                                           w.get("fph_m", 0), schwelle)
+                    if netto["uebermessen"] or netto["abzug"] <= 0:
+                        continue
+                    pos.add_zeile(
+                        f"  Abzug {(w.get('_art') or 'Öffnung').capitalize()} "
+                        f"{w.get('code', '')}".rstrip(),
+                        laenge=bw, hoehe=-hw, summe=-netto["abzug"],
+                        quelle=f"Öffnung > {schwelle:.1f} m²", anker=ank)
+    if not pos.zeilen:
+        return None
+    # VERSCHNITT als eigene Zeile — sichtbar, nicht still eingerechnet.
+    try:
+        v = float(verschnitt_pct or 0)
+    except (TypeError, ValueError):
+        v = 0.0
+    if v > 0:
+        basis = pos.endsumme
+        pos.add_zeile(f"Verschnitt {v:.1f} %", summe=round(basis * v / 100.0, 3),
+                      quelle=f"{v:.1f} % auf {basis} {regel['einheit']}")
+    return pos

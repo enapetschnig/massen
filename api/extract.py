@@ -789,7 +789,7 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.46"
+APP_REV = "2026-07-09.47"
 
 
 @app.get("/api/extract-health")
@@ -6778,6 +6778,58 @@ class AufmassXlsxRequest(BaseModel):
     gewerke: dict | None = None
     materialliste: list | None = None
     raeume: list | None = None
+
+
+class EigenePositionRequest(BaseModel):
+    """BETRIEBS-EIGENE Position: der Nutzer waehlt eine Aufmassregel und
+    (optional) die Raeume — die Menge faellt daraus ab, mit Rechenweg und
+    Plan-Ankern. Ohne gueltige Regel gibt es keine Menge."""
+    projekt_id: str | None = None
+    regel: str | None = None
+    posnr: str | None = None
+    bezeichnung: str | None = None
+    raeume: list | None = None          # Raumliste (WYSIWYG vom Client)
+    fenster: list | None = None
+    tueren: list | None = None
+    baudaten: dict | None = None
+    raum_filter: list | None = None     # Namen der zugeordneten Raeume
+    verschnitt_pct: float | None = 0.0
+
+
+@app.get("/api/aufmassregeln")
+async def aufmassregeln():
+    """Katalog der waehlbaren Aufmassregeln (fuer die Positions-Maske)."""
+    try:
+        from massen_logic import AUFMASS_REGELN
+        return {"ok": True, "regeln": [dict(v, id=k)
+                                       for k, v in AUFMASS_REGELN.items()]}
+    except Exception as e:
+        return JSONResponse({"ok": False, "grund": str(e)}, status_code=200)
+
+
+@app.post("/api/eigene-position")
+async def eigene_position_api(body: EigenePositionRequest):
+    """Eine eigene Position nach gewaehlter Aufmassregel rechnen."""
+    try:
+        from massen_logic import eigene_position as _ep
+        if not body.regel:
+            return JSONResponse(
+                {"ok": False, "grund": "Regel fehlt — bitte eine Aufmaßregel "
+                                       "auswählen."}, status_code=200)
+        pos = _ep(body.regel, body.posnr, body.bezeichnung,
+                  body.raeume or [], body.fenster or [], body.tueren or [],
+                  body.baudaten or {}, raum_filter=body.raum_filter,
+                  verschnitt_pct=body.verschnitt_pct or 0.0)
+        if pos is None:
+            return JSONResponse(
+                {"ok": False, "grund": "Keine Menge — unbekannte Regel oder "
+                                       "keine passenden Räume."},
+                status_code=200)
+        return {"ok": True, "position": pos.to_dict()}
+    except Exception as e:
+        print(f"[eigene-position] fehlgeschlagen: {e!r}")
+        return JSONResponse({"ok": False, "grund": f"Fehlgeschlagen: {e}"},
+                            status_code=200)
 
 
 class RaumlisteRequest(BaseModel):
