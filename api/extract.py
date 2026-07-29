@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.58"
+APP_REV = "2026-07-09.59"
 
 
 @app.get("/api/extract-health")
@@ -5759,7 +5759,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 45  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 46  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
@@ -6069,8 +6069,17 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
                         _rm["region_px"] = [[round(_cx + (q[0] - _cx) * _sk, 1),
                                              round(_cy + (q[1] - _cy) * _sk, 1)]
                                             for q in _p]
-                        _rm["region_quelle"] = ("Vision-Lage, Groesse aus dem "
-                                                "Flaechen-Stempel")
+                        # EHRLICHE BESCHRIFTUNG (gemessen 2026-07-29): die
+                        # LAGE der Vision-Boxen ist NICHT belastbar — am
+                        # Angerer-Plan, als Bild durch dieselbe Kette geschickt
+                        # und gegen die bekannte Vektor-Geometrie geprueft:
+                        # Median IoU 0,00, Versatz 3-7 m bei ~15 m Gebaeude.
+                        # Die FLAECHE stimmt (Stempel), die POSITION ist ein
+                        # Anhaltspunkt zum Zurechtziehen, kein Messwert.
+                        _rm["region_quelle"] = ("Fläche aus dem Stempel · "
+                                                "LAGE UNBESTIMMT (bitte am Plan "
+                                                "zurechtziehen)")
+                        _rm["lage_unbestimmt"] = True
                         _korr += 1
                     if _korr:
                         print(f"[nachzeichnen] {_korr} Scan-Raeume auf die "

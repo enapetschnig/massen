@@ -2502,7 +2502,8 @@
     var mitU = rs.filter(function (r) { return (r.region_px || []).length >= 3; });
     if (!mitU.length) return '';
     var geschaetzt = mitU.filter(function (r) {
-      return (r.region_quelle || '').indexOf('geschätzt') >= 0;
+      return (r.region_quelle || '').indexOf('geschätzt') >= 0 ||
+             r.lage_unbestimmt === true;
     });
     var ohne = rs.length - mitU.length;
     var verlaesslich = mitU.length - geschaetzt.length;
@@ -2515,8 +2516,9 @@
       '<span style="color:#6c757d"> — Umriss folgt echten Wandlinien</span>';
     if (geschaetzt.length) {
       h += '<br><span style="color:#b45309">' + geschaetzt.length +
-        ' mit geschätzter Lage</span><span style="color:#6c757d"> — Fläche stimmt, ' +
-        'Position bitte mit ✏️ zurechtziehen: </span>' +
+        ' mit UNBESTIMMTER Lage</span><span style="color:#6c757d"> — die Fläche ' +
+        'stimmt (aus dem Raumstempel), die Position ist nur ein Anhaltspunkt ' +
+        'und bitte mit ✏️ zurechtzuziehen: </span>' +
         geschaetzt.slice(0, 6).map(function (r) {
           return '<a href="#" onclick="nzHighlightRaum(' +
             JSON.stringify(r.name || '') + ');return false" ' +
