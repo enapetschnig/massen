@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.62"
+APP_REV = "2026-07-09.63"
 
 
 @app.get("/api/extract-health")
@@ -2736,10 +2736,37 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                             # Stempelflaeche kalibriert), aber die LAGE von der
                             # zehnmal genaueren Beschriftungs-Marke nehmen.
                             if _ankerpkt:
+                                # GROESSE aus den BYTE-EXAKTEN Stempelwerten,
+                                # nicht aus der Vision-Box: mit Flaeche F und
+                                # Umfang U sind die Seiten die Wurzeln von
+                                # x² − (U/2)x + F = 0 — exakt fuer Rechteck-
+                                # raeume. Nur wenn U fehlt oder die Wurzel
+                                # negativ wird (verwinkelter Raum), bleibt die
+                                # Vision-Groesse als Rueckfall.
                                 _bw = (max(c[0] for c in _corners)
                                        - min(c[0] for c in _corners))
                                 _bh = (max(c[1] for c in _corners)
                                        - min(c[1] for c in _corners))
+                                # Der Massstab des SCANS ist unbekannt (kein
+                                # ptm), die absolute Groesse korrigiert spaeter
+                                # die Flaechen-Kalibrierung. Hier wird darum das
+                                # SEITENVERHAELTNIS gesetzt — das laesst sich
+                                # aus F und U exakt bestimmen und die Vision-Box
+                                # trifft es notorisch schlecht.
+                                _uu = r.get("umfang_m")
+                                if _F > 0 and _uu and _uu > 0 and _bw > 0 and _bh > 0:
+                                    _hp = _uu / 2.0
+                                    _disc = _hp * _hp / 4.0 - _F
+                                    if _disc >= 0:
+                                        _w = _disc ** 0.5
+                                        _sa, _sb = _hp / 2.0 + _w, _hp / 2.0 - _w
+                                        if _sa > 0 and _sb > 0:
+                                            _flae = _bw * _bh          # Flaeche behalten
+                                            _r = _sa / _sb             # Soll-Verhaeltnis
+                                            if _bw < _bh:
+                                                _r = 1.0 / _r          # Hochformat beibehalten
+                                            _bw = (_flae * _r) ** 0.5
+                                            _bh = (_flae / _r) ** 0.5
                                 _ax, _ay = _ankerpkt
                                 _corners = [[round(_ax - _bw / 2, 1), round(_ay - _bh / 2, 1)],
                                             [round(_ax + _bw / 2, 1), round(_ay - _bh / 2, 1)],
@@ -5803,7 +5830,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 47  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 48  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
