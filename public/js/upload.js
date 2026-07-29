@@ -699,6 +699,7 @@
     renderOeffnungsAufmass(data.oeffnungs_aufmass);
     renderRaumAufmass(data.raeume, data.baudaten);
     renderAufmassMatrix(data.aufmass_matrix);
+    renderEigenePosition(data);
 
     // ÖNORM-Gewerke-Kacheln (im Erweitert-Drawer)
     var gw = data.gewerke || {};
@@ -1685,6 +1686,116 @@
   // AUFMASS-KREUZTABELLE: welcher Raum trägt welche Position in welcher Menge.
   // Die Kontrollansicht des Aufmaßes — Vollständigkeit auf einen Blick prüfbar.
   // Zellen sind klickbar: markiert den Raum im Plan (Nachvollziehbarkeit).
+  // EIGENE POSITION: der Betrieb hinterlegt SEINE Leistungsposition, waehlt
+  // die Aufmassregel und die Raeume — die Menge faellt daraus ab, mit vollem
+  // Rechenweg. Ohne Regel bleibt die Position gesperrt ("Regel fehlt").
+  var _epRegeln = null;
+  function renderEigenePosition(data) {
+    var el = document.getElementById('eigene-position');
+    if (!el) return;
+    var rs = ((data && data.raeume) || []).filter(function (r) { return r && r.flaeche_m2; });
+    if (!rs.length) { el.innerHTML = ''; return; }
+    if (el.dataset.gebaut === '1') return;      // nicht bei jedem Refresh neu
+    el.dataset.gebaut = '1';
+
+    el.innerHTML = '<h4 class="advanced-h" style="margin-top:1.1rem">Eigene Position — ' +
+      'nach Aufmaßregel rechnen</h4>' +
+      '<p style="font-size:.8rem;color:#6c757d;margin:.2rem 0 .5rem">' +
+      'Hinterlege deine Leistungsposition und wähle die Regel, nach der ' +
+      'gemessen wird. Ohne Regel gibt es keine Menge — so steht hinter jeder ' +
+      'Zahl eine benannte Vorschrift.</p>' +
+      '<div class="ep-form" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">' +
+      '  <label style="font-size:.78rem;color:#6c757d">Pos.-Nr.<br>' +
+      '    <input id="ep-nr" class="form-control" style="width:6.5rem" placeholder="01.01"></label>' +
+      '  <label style="font-size:.78rem;color:#6c757d;flex:1;min-width:12rem">Bezeichnung<br>' +
+      '    <input id="ep-bez" class="form-control" placeholder="z.B. Estrich 60 mm"></label>' +
+      '  <label style="font-size:.78rem;color:#6c757d">Aufmaßregel <span style="color:#b45309">*</span><br>' +
+      '    <select id="ep-regel" class="form-control" style="min-width:15rem"><option value="">— Regel wählen —</option></select></label>' +
+      '  <label style="font-size:.78rem;color:#6c757d">Verschnitt %<br>' +
+      '    <input id="ep-vs" class="form-control" style="width:5.5rem" type="number" min="0" max="50" step="0.5" value="0"></label>' +
+      '  <button class="btn btn-accent btn-sm" id="ep-go">Menge ermitteln</button>' +
+      '</div>' +
+      '<details style="margin:.5rem 0"><summary style="cursor:pointer;font-size:.82rem;color:#6c757d">' +
+      'Räume zuordnen (ohne Auswahl zählen alle ' + rs.length + ')</summary>' +
+      '<div id="ep-raeume" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem">' +
+      rs.map(function (r, i) {
+        return '<label style="font-size:.78rem;background:rgba(0,0,0,.04);padding:.15rem .45rem;border-radius:3px">' +
+          '<input type="checkbox" class="ep-r" data-i="' + i + '"> ' + esc(r.name || 'Raum') +
+          ' <span style="color:#6c757d">' + fmtNum(r.flaeche_m2) + ' m²</span></label>';
+      }).join('') + '</div></details>' +
+      '<div id="ep-out"></div>';
+
+    var sel = document.getElementById('ep-regel');
+    function fuelleRegeln(rg) {
+      _epRegeln = rg;
+      rg.forEach(function (r) {
+        var o = document.createElement('option');
+        o.value = r.id;
+        o.textContent = r.name + '  [' + r.einheit + ' · ' + r.norm + ']';
+        sel.appendChild(o);
+      });
+    }
+    if (_epRegeln) fuelleRegeln(_epRegeln);
+    else {
+      fetch('/api/aufmassregeln').then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.ok) fuelleRegeln(d.regeln || []); })
+        .catch(function () { /* Maske bleibt nutzbar, Auswahl leer */ });
+    }
+
+    document.getElementById('ep-go').addEventListener('click', function () {
+      var out = document.getElementById('ep-out');
+      var regel = sel.value;
+      if (!regel) {
+        out.innerHTML = '<p style="color:#b45309;font-size:.84rem;margin:.4rem 0">' +
+          '⚠ Regel fehlt — bitte eine Aufmaßregel wählen. Ohne Regel wird keine ' +
+          'Menge ermittelt.</p>';
+        return;
+      }
+      var gewaehlt = [];
+      document.querySelectorAll('.ep-r:checked').forEach(function (c) {
+        var r = rs[parseInt(c.dataset.i, 10)];
+        if (r && r.name) gewaehlt.push(r.name);
+      });
+      var d = window.projektMassenData || {};
+      out.innerHTML = '<p style="font-size:.84rem;color:#6c757d">… wird gerechnet</p>';
+      fetch('/api/eigene-position', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          regel: regel,
+          posnr: (document.getElementById('ep-nr').value || '').trim() || '01.01',
+          bezeichnung: (document.getElementById('ep-bez').value || '').trim(),
+          raeume: rs, fenster: d.fenster || [], tueren: d.tueren || [],
+          baudaten: d.baudaten || {},
+          raum_filter: gewaehlt.length ? gewaehlt : null,
+          verschnitt_pct: parseFloat(document.getElementById('ep-vs').value) || 0
+        })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        if (!res || !res.ok) {
+          out.innerHTML = '<p style="color:#b45309;font-size:.84rem">' +
+            esc((res && res.grund) || 'Fehlgeschlagen') + '</p>';
+          return;
+        }
+        var p = res.position;
+        var h = '<div style="margin-top:.5rem;padding:.5rem .7rem;border-left:3px solid var(--accent);background:rgba(0,0,0,.025)">' +
+          '<strong>' + esc(p.posnr) + ' ' + esc(p.beschreibung) + '</strong> = ' +
+          '<strong style="color:#166534">' + fmtNum(p.endsumme) + ' ' + esc(p.einheit) + '</strong>' +
+          '<div style="font-size:.78rem;color:#6c757d;margin:.2rem 0 .4rem">Regel: ' + esc(p.quelle) + '</div>' +
+          '<table class="oa-tab"><tbody>' +
+          (p.zeilen || []).map(function (z) {
+            var raum = (z.anker || {}).raum;
+            return '<tr><td' + (raum ? ' style="cursor:pointer" onclick="nzHighlightRaum(' +
+              JSON.stringify(raum) + ')" title="Im Plan zeigen"' : '') + '>' +
+              esc(z.text || '') + '</td><td style="text-align:right">' + fmtNum(z.wert) +
+              '</td><td style="color:#6c757d;font-size:.76rem">' + esc(z.quelle || '') + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+        out.innerHTML = h;
+      }).catch(function (e) {
+        out.innerHTML = '<p style="color:#b45309;font-size:.84rem">Fehlgeschlagen: ' +
+          esc(e.message) + '</p>';
+      });
+    });
+  }
+
   function renderAufmassMatrix(m) {
     var el = document.getElementById('aufmass-matrix');
     if (!el) return;
