@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.59"
+APP_REV = "2026-07-09.60"
 
 
 @app.get("/api/extract-health")
@@ -839,8 +839,20 @@ async def health():
     # anthropic_sdk dient zugleich als DEPLOY-MARKER: statische Dateien sind
     # nach einem Push binnen Sekunden live, der Python-Lambda-Build braucht
     # Minuten — wer "deployed?" prüfen will, prüft DIESES Feld, nicht die CSS.
+    # BILDVERARBEITUNGS-SONDE: ist numpy/PIL/OpenCV im Serverless-Lauf
+    # ueberhaupt verfuegbar? Davon haengt ab, ob echte Wanderkennung auf
+    # SCANS moeglich ist (die Vision-Lage ist gemessen unbrauchbar, IoU 0,00).
+    # Rein lesend — installiert nichts, meldet nur was da ist.
+    _bild = {}
+    for _m in ("numpy", "PIL", "cv2", "scipy"):
+        try:
+            _mod = __import__(_m)
+            _bild[_m] = getattr(_mod, "__version__", "da")
+        except Exception:
+            _bild[_m] = None
     return {"status": "ok", "pdfplumber": True,
             "anthropic_sdk": getattr(_an, "__version__", "?"),
+            "bildverarbeitung": _bild,
             "rev": APP_REV}
 
 
