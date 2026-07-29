@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.71"
+APP_REV = "2026-07-09.72"
 
 
 @app.get("/api/extract-health")
@@ -6254,87 +6254,52 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
             # ungefaehr, der Textfleck sagt GENAU wo. Deterministisch.
             try:
                 import numpy as _np
-                from collections import deque as _dq
                 _png2 = r.get("basis_png")
                 if _png2:
                     import fitz as _fz3
                     _pm2 = _fz3.Pixmap(_fz3.csGRAY, _fz3.Pixmap(_png2))
                     _ar = _np.frombuffer(_pm2.samples, dtype=_np.uint8).reshape(
                         _pm2.height, _pm2.width)
-                    _z = 4
-                    _H, _W = _ar.shape[0] // _z, _ar.shape[1] // _z
-                    if _H > 3 and _W > 3:
-                        _blk = _ar[:_H * _z, :_W * _z].reshape(_H, _z, _W, _z)
-                        _ant = (_blk < 160).mean(axis=(1, 3))
-                        # beschriftet = etwas dunkel, aber nicht Wand-massiv
-                        _mk = (_ant > 0.08) & (_ant < 0.75)
-                        _m2 = _mk.copy()
-                        for _d in (1, 2):      # waagrecht schliessen (Buchstaben)
-                            _m2[:, _d:] |= _mk[:, :-_d]
-                            _m2[:, :-_d] |= _mk[:, _d:]
-                        _ges = _np.zeros_like(_m2, dtype=bool)
-                        _flecken = []
-                        for _j in range(_H):
-                            for _i in range(_W):
-                                if not _m2[_j, _i] or _ges[_j, _i]:
-                                    continue
-                                _q = _dq([(_j, _i)]); _ges[_j, _i] = True
-                                _zl = []
-                                while _q:
-                                    _y, _x = _q.popleft(); _zl.append((_y, _x))
-                                    if len(_zl) > 400:
-                                        break
-                                    for _dy, _dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
-                                        _ny, _nx = _y + _dy, _x + _dx
-                                        if (0 <= _ny < _H and 0 <= _nx < _W
-                                                and _m2[_ny, _nx] and not _ges[_ny, _nx]):
-                                            _ges[_ny, _nx] = True; _q.append((_ny, _nx))
-                                if not (3 <= len(_zl) <= 400):
-                                    continue
-                                _ys = [t[0] for t in _zl]; _xs = [t[1] for t in _zl]
-                                _bw2 = max(_xs) - min(_xs) + 1
-                                _bh2 = max(_ys) - min(_ys) + 1
-                                if not (3 <= _bw2 <= 60) or _bh2 > 12 or _bh2 > _bw2:
-                                    continue
-                                _flecken.append(
-                                    ((min(_xs) + max(_xs) + 1) / 2 * _z,
-                                     (min(_ys) + max(_ys) + 1) / 2 * _z))
-                        if _flecken:
-                            _gesnapt = 0
-                            for _rm in raeume:
-                                _p = _rm.get("region_px") or []
-                                if len(_p) < 4:
-                                    continue
-                                _cx0 = sum(q[0] for q in _p) / len(_p)
-                                _cy0 = sum(q[1] for q in _p) / len(_p)
-                                _bw3 = max(q[0] for q in _p) - min(q[0] for q in _p)
-                                _bh3 = max(q[1] for q in _p) - min(q[1] for q in _p)
-                                # NUR einrasten, wenn ein Fleck NAH liegt —
-                                # sonst bleibt der Vision-Anker stehen.
-                                # Am Korpus gemessen: auf beschriftungsarmen
-                                # Plaenen trifft der naechste Fleck den Raum-
-                                # stempel auf 0,04 m; auf textdichten Polier-
-                                # plaenen (Kanal-/Masstext ueberall) ist der
-                                # naechste Fleck oft die FALSCHE Schrift
-                                # (0,74-1,80 m). Darum eng gefasst: ein
-                                # Viertel der Boxgroesse statt 0,6 — im
-                                # Zweifel lieber der Vision-Anker als ein
-                                # zuversichtlich falscher Textfleck.
-                                _tol = max(12.0, 0.25 * max(_bw3, _bh3))
-                                _bf = min(_flecken, key=lambda f: (f[0] - _cx0) ** 2
-                                          + (f[1] - _cy0) ** 2)
-                                if ((_bf[0] - _cx0) ** 2 + (_bf[1] - _cy0) ** 2) ** 0.5 > _tol:
-                                    continue
-                                _rm["region_px"] = [
-                                    [round(_bf[0] - _bw3 / 2, 1), round(_bf[1] - _bh3 / 2, 1)],
-                                    [round(_bf[0] + _bw3 / 2, 1), round(_bf[1] - _bh3 / 2, 1)],
-                                    [round(_bf[0] + _bw3 / 2, 1), round(_bf[1] + _bh3 / 2, 1)],
-                                    [round(_bf[0] - _bw3 / 2, 1), round(_bf[1] + _bh3 / 2, 1)]]
-                                _rm["region_anker"] = "Textfleck im Bild"
-                                _gesnapt += 1
-                            if _gesnapt:
-                                print(f"[nachzeichnen] {_gesnapt} Scan-Raeume auf "
-                                      f"Textflecken verankert ({len(_flecken)} Flecken)")
+                    # EINE Implementierung fuer Pipeline und Waechter — der
+                    # Waechter misst damit genau das, was hier laeuft.
+                    _flecken = _nachzeichnen.textflecken(_ar)
+                    print(f"[nachzeichnen] Textflecken: {len(_flecken)}")
+                    if _flecken:
+                        _gesnapt = 0
+                        for _rm in raeume:
+                            _p = _rm.get("region_px") or []
+                            if len(_p) < 4:
+                                continue
+                            _cx0 = sum(q[0] for q in _p) / len(_p)
+                            _cy0 = sum(q[1] for q in _p) / len(_p)
+                            _bw3 = max(q[0] for q in _p) - min(q[0] for q in _p)
+                            _bh3 = max(q[1] for q in _p) - min(q[1] for q in _p)
+                            # NUR einrasten, wenn ein Fleck NAH liegt —
+                            # sonst bleibt der Vision-Anker stehen.
+                            # Am Korpus gemessen: auf beschriftungsarmen
+                            # Plaenen trifft der naechste Fleck den Raum-
+                            # stempel auf 0,04 m; auf textdichten Polier-
+                            # plaenen (Kanal-/Masstext ueberall) ist der
+                            # naechste Fleck oft die FALSCHE Schrift
+                            # (0,74-1,80 m). Darum eng gefasst: ein
+                            # Viertel der Boxgroesse statt 0,6 — im
+                            # Zweifel lieber der Vision-Anker als ein
+                            # zuversichtlich falscher Textfleck.
+                            _tol = max(12.0, 0.25 * max(_bw3, _bh3))
+                            _bf = min(_flecken, key=lambda f: (f[0] - _cx0) ** 2
+                                      + (f[1] - _cy0) ** 2)
+                            if ((_bf[0] - _cx0) ** 2 + (_bf[1] - _cy0) ** 2) ** 0.5 > _tol:
+                                continue
+                            _rm["region_px"] = [
+                                [round(_bf[0] - _bw3 / 2, 1), round(_bf[1] - _bh3 / 2, 1)],
+                                [round(_bf[0] + _bw3 / 2, 1), round(_bf[1] - _bh3 / 2, 1)],
+                                [round(_bf[0] + _bw3 / 2, 1), round(_bf[1] + _bh3 / 2, 1)],
+                                [round(_bf[0] - _bw3 / 2, 1), round(_bf[1] + _bh3 / 2, 1)]]
+                            _rm["region_anker"] = "Textfleck im Bild"
+                            _gesnapt += 1
+                        if _gesnapt:
+                            print(f"[nachzeichnen] {_gesnapt} Scan-Raeume auf "
+                                  f"Textflecken verankert ({len(_flecken)} Flecken)")
             except Exception as _te:
                 print(f"[nachzeichnen] Textflecken-Verankerung: {_te!r}")
 

@@ -12,11 +12,15 @@ Stempelpositionen:
 Dieser Guard prüft die Fleck-Erkennung selbst — rein rechnend auf einem
 gerenderten Vektorplan, dessen Text-Layer die Wahrheit liefert. Kein
 API-Guthaben nötig, damit die Zusage jederzeit nachprüfbar bleibt.
+
+Er ruft dieselbe Funktion auf, die in der Pipeline läuft
+(nachzeichnen.textflecken) — vorher gab es zwei Kopien, und die sind
+auseinandergelaufen. Welcher Größenfilter darin steckt, ist am Korpus
+A/B-gemessen; die verworfenen Varianten stehen im Docstring der Funktion.
 """
 import glob
 import os
 import sys
-from collections import deque
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 import numpy as np      # noqa: E402
@@ -24,58 +28,11 @@ import fitz             # noqa: E402
 import nachzeichnen     # noqa: E402
 
 
-def textflecken(arr, zell=4, px_pro_m=None):
-    """Dieselbe Logik wie in der Pipeline (extract.py, Scan-Pfad).
-
-    px_pro_m: Pixel je BAUWERKS-Meter. Damit wird der Groessenfilter
-    massstabsunabhaengig — Planschrift ist auf dem Papier etwa 2,5-3,5 mm
-    hoch, also je nach Massstab 0,1-0,4 m des Bauwerks. Ohne diese Umrechnung
-    passt ein in Pixeln fester Filter nur zu EINEM Plan (am Korpus gemessen:
-    Angerer 0,04 m, AU_WM_01 1,72 m — derselbe Filter, anderer Massstab)."""
-    h, w = arr.shape
-    H, W = h // zell, w // zell
-    if H < 3 or W < 3:
-        return []
-    blk = arr[:H * zell, :W * zell].reshape(H, zell, W, zell)
-    ant = (blk < 160).mean(axis=(1, 3))
-    mk = (ant > 0.08) & (ant < 0.75)
-    m2 = mk.copy()
-    for d in (1, 2):
-        m2[:, d:] |= mk[:, :-d]
-        m2[:, :-d] |= mk[:, d:]
-    ges = np.zeros_like(m2, dtype=bool)
-    out = []
-    for j in range(H):
-        for i in range(W):
-            if not m2[j, i] or ges[j, i]:
-                continue
-            q = deque([(j, i)]); ges[j, i] = True
-            zl = []
-            while q:
-                y, x = q.popleft(); zl.append((y, x))
-                if len(zl) > 400:
-                    break
-                for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
-                    ny, nx = y + dy, x + dx
-                    if 0 <= ny < H and 0 <= nx < W and m2[ny, nx] and not ges[ny, nx]:
-                        ges[ny, nx] = True; q.append((ny, nx))
-            if not (3 <= len(zl) <= 400):
-                continue
-            ys = [t[0] for t in zl]; xs = [t[1] for t in zl]
-            bw = max(xs) - min(xs) + 1
-            bh = max(ys) - min(ys) + 1
-            if bh > bw:                       # Text liegt waagrecht
-                continue
-            if px_pro_m:
-                _hm = bh * zell / px_pro_m    # Hoehe in Bauwerks-Metern
-                _bm = bw * zell / px_pro_m
-                if not (0.06 <= _hm <= 0.60) or not (0.10 <= _bm <= 4.0):
-                    continue
-            elif not (3 <= bw <= 60) or bh > 12:
-                continue
-            out.append(((min(xs) + max(xs) + 1) / 2 * zell,
-                        (min(ys) + max(ys) + 1) / 2 * zell))
-    return out
+# EINE Implementierung — die der Pipeline. Frueher stand hier eine zweite
+# Kopie; die beiden sind auseinandergelaufen (der massstabsfreie Filter war
+# hier gemessen, aber nie in der Pipeline angekommen). Wird hier importiert,
+# kann das nicht mehr passieren: der Waechter misst, was der Nutzer bekommt.
+textflecken = nachzeichnen.textflecken
 
 
 KORPUS = [
@@ -85,6 +42,35 @@ KORPUS = [
     "WA_Velden_Franzosen Allee_Ausführung_TG",
     "1762788650811_EG-Wand-Grundriss",
 ]
+
+
+def _umgebung_pruefen():
+    """Misst dieser Lauf ueberhaupt das, was in der Produktion laeuft?
+
+    Der Anker liest PIXEL. Pixel entstehen im PDF-Rasterer — und der
+    unterscheidet sich zwischen PyMuPDF-Versionen. Am selben Korpus gemessen:
+
+        PyMuPDF 1.24.14 (Produktion)  Median 0,75 m   17/47 unter 0,5 m
+        PyMuPDF 1.25.3                       1,07 m   15/47
+        PyMuPDF 1.26.5                       0,90 m   14/47
+
+    Dieselbe Funktion, dieselben Plaene, drei verschiedene Antworten. Eine
+    Zahl aus der falschen Umgebung sagt nichts ueber das, was der Nutzer
+    bekommt — darum bricht dieser Guard lieber ab, als eine huebsche, aber
+    bedeutungslose Zahl zu melden.
+    """
+    import fitz as _f
+    soll = None
+    rq = os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
+    for zeile in open(rq, encoding="utf-8"):
+        if zeile.strip().lower().startswith("pymupdf=="):
+            soll = zeile.strip().split("==", 1)[1].strip()
+    ist = getattr(_f, "VersionBind", "?")
+    print(f"Umgebung: PyMuPDF {ist} (Produktion pinnt {soll})")
+    assert soll and ist == soll, (
+        f"PyMuPDF {ist} statt {soll} — der Rasterer entscheidet ueber die "
+        f"Pixel und damit ueber die gemessene Anker-Guete. Angleichen mit: "
+        f"massenermittlung/venv/bin/python3 -m pip install PyMuPDF=={soll}")
 
 
 def _messe(pfad):
@@ -105,11 +91,11 @@ def _messe(pfad):
                           clip=fitz.Rect(*meta["box_pt"]), colorspace=fitz.csGRAY)
     arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width)
 
-    fl = textflecken(arr, px_pro_m=sc * ptm)
+    fl = textflecken(arr)
     if not fl:
         doc.close(); return None
     # DETERMINISMUS: zweiter Lauf auf demselben Bild muss identisch sein
-    assert fl == textflecken(arr, px_pro_m=sc * ptm), \
+    assert fl == textflecken(arr), \
         "Fleck-Erkennung nicht deterministisch"
     d = sorted(min(((f[0] - t[0]) ** 2 + (f[1] - t[1]) ** 2) ** 0.5
                    for f in fl) / sc / ptm for t in wahr.values())
@@ -119,6 +105,7 @@ def _messe(pfad):
 
 
 def run():
+    _umgebung_pruefen()
     print(f"{'Plan':<40}{'Flecken':>8}{'Median':>9}{'<0,5 m':>10}")
     print("-" * 70)
     alle_med, ges_nah, ges_n, geprueft = [], 0, 0, 0
@@ -147,9 +134,10 @@ def run():
     #
     # Der Textfleck-Anker traegt NICHT ueberall gleich gut:
     #   Angerer   0,04 m   wenige, klar stehende Raumbeschriftungen
-    #   AP.01     0,74 m   Polierplan voller Kanal-/Masstext — der naechste
+    #   AP.01     0,52 m   Polierplan voller Kanal-/Masstext — der naechste
     #                      Fleck ist dann oft die falsche Schrift
-    #   AU_WM_01  1,80 m   grosse Tafel, grob aufgeloest (28 px/m)
+    #   Velden    0,75 m   Tiefgarage, grob aufgeloest (28 px/m)
+    #   AU_WM_01  1,79 m   grosse Tafel, grob aufgeloest (28 px/m)
     # Die Genauigkeit haengt also an TEXTDICHTE und AUFLOESUNG, nicht nur am
     # Verfahren. Darum wird hier NICHT der Bestfall festgeschrieben, sondern:
     assert geprueft >= 3, f"nur {geprueft} Pläne geprüft — Aussage nicht belastbar"
@@ -157,8 +145,12 @@ def run():
     #     0,10 m; faellt das weg, ist die Erkennung selbst kaputt
     assert min(alle_med) <= 0.10, \
         f"bester Plan nur {min(alle_med):.2f} m — Fleck-Erkennung defekt"
-    # (b) keine Verschlechterung ueber den Korpus (gemessen 2026-07-29: 1,07 m)
-    assert gesamt_med <= 1.30, \
+    # (b) keine Verschlechterung ueber den Korpus. Gemessen 2026-07-29 mit
+    #     der Funktion UND dem Rasterer, die wirklich in der Produktion
+    #     laufen: 0,75 m. Die frueher hier stehenden 1,07 m waren doppelt
+    #     verfaelscht — eine Filter-Variante, die die Pipeline nie benutzt
+    #     hat, gemessen mit einer PyMuPDF-Version, die sie nie benutzt hat.
+    assert gesamt_med <= 0.90, \
         f"Anker-Median {gesamt_med:.2f} m über den Korpus — geregressiert"
     print(f"bester Plan {min(alle_med):.2f} m · deterministisch "
           f"(je Plan zwei identische Läufe) ✓")

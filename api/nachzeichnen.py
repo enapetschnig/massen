@@ -165,6 +165,81 @@ def isoperimetrischer_umfang(f_m2, aspekt=1.35):
     return round(u, 2)
 
 
+def textflecken(arr, zell=4, max_zellen=400):
+    """Textartige Flecken in einem Graustufenbild finden -> [(cx, cy)] in Pixeln.
+
+    DER Positions-Anker fuer Scans. Vision weiss WELCHE Raeume es gibt (Name
+    und Flaeche byte-exakt aus dem Stempel), trifft die LAGE aber nur grob und
+    schwankt lauf-zu-lauf um ~20 px. Eine Raumbeschriftung ist dagegen ein
+    Textfleck im Bild und liegt bei gleichem Bild immer gleich — der Anker
+    wird dadurch deterministisch.
+
+    EINZIGE Kopie. Sie hat frueher doppelt existiert (Pipeline + Waechter)
+    und ist auseinandergelaufen; seitdem misst der Waechter genau das, was
+    der Nutzer bekommt.
+
+    ZUM GROESSENFILTER — was gemessen und VERWORFEN wurde:
+    Naheliegend waere, die Groessen in Bauwerks-Metern statt in Rasterzellen
+    zu pruefen (Planschrift ist ~2,5-3,5 mm auf dem Papier, je nach Massstab
+    also 0,1-0,4 m des Bauwerks). Am Korpus A/B-getestet — derselbe Plan,
+    dasselbe Bild, nur der Filter wechselt (28-100 px/m Spanne):
+
+        Zellen 3..60 / h<=12   Median 0,95 m   12/113 unter 0,25 m   <- beste
+        Meter 0,06-0,60 m             0,99 m   11/113
+        Meter 0,04-1,00 m             0,99 m   12/113
+        Meter 0,04-1,50 m             0,97 m   12/113
+        Meter bis 1,0 + breit         0,99 m   11/113
+        nur waagrecht bw>=2bh         1,05 m   10/113
+
+    Der Zellen-Filter gewinnt auf BEIDEN Massen. Grund: bw/bh zaehlen Zellen,
+    nicht Pixel — bei 28 px/m deckelt der Meter-Filter die Texthoehe auf rund
+    4 Zellen statt 12 und wirft zweizeilige Raumstempel weg. Nicht nochmal
+    als "massstabsunabhaengige Verbesserung" einbauen: es ist keine.
+    """
+    import numpy as _np
+    from collections import deque as _dq
+    h, w = arr.shape
+    H, W = h // zell, w // zell
+    if H < 3 or W < 3:
+        return []
+    blk = arr[:H * zell, :W * zell].reshape(H, zell, W, zell)
+    ant = (blk < 160).mean(axis=(1, 3))
+    # beschriftet = etwas dunkel, aber nicht Wand-massiv
+    mk = (ant > 0.08) & (ant < 0.75)
+    m2 = mk.copy()
+    for d in (1, 2):            # waagrecht schliessen: Buchstabenluecken
+        m2[:, d:] |= mk[:, :-d]
+        m2[:, :-d] |= mk[:, d:]
+    ges = _np.zeros_like(m2, dtype=bool)
+    out = []
+    for j in range(H):
+        for i in range(W):
+            if not m2[j, i] or ges[j, i]:
+                continue
+            q = _dq([(j, i)]); ges[j, i] = True
+            zl = []
+            while q:
+                y, x = q.popleft(); zl.append((y, x))
+                if len(zl) > max_zellen:
+                    break
+                for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < H and 0 <= nx < W and m2[ny, nx] and not ges[ny, nx]:
+                        ges[ny, nx] = True; q.append((ny, nx))
+            if not (3 <= len(zl) <= max_zellen):
+                continue
+            ys = [t[0] for t in zl]; xs = [t[1] for t in zl]
+            bw = max(xs) - min(xs) + 1
+            bh = max(ys) - min(ys) + 1
+            if bh > bw:                       # Text liegt waagrecht
+                continue
+            if not (3 <= bw <= 60) or bh > 12:
+                continue
+            out.append(((min(xs) + max(xs) + 1) / 2 * zell,
+                        (min(ys) + max(ys) + 1) / 2 * zell))
+    return out
+
+
 def _koten_verteilt(koten, page, min_spalten=4, min_spanne=0.25):
     """HÖHENKOTEN oder GELDBETRÄGE? Beide sehen als Text gleich aus (+2.98 /
     -12,50) — die Schnitt-Erkennung hielt darum Booking-/Bank-Belege für
