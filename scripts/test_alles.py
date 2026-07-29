@@ -30,6 +30,7 @@ GUARDS = [
     ("Eigene Positionen (Regel-Pflicht)", "test_eigene_positionen.py", "Aufmaßregeln"),
     ("Vision-Antwort-Parser", "test_json_parser.py", "Vision-Parser"),
     ("LV-Import (A 2063)", "test_lv_import.py", "LV-Import"),
+    ("ÖNORM-Nachweis (Rechenweg)", "mess_oenorm_nachweis.py", "Regeln nachgewiesen"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
