@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.65"
+APP_REV = "2026-07-09.66"
 
 
 @app.get("/api/extract-health")
@@ -5917,7 +5917,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 49  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 50  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
@@ -6244,6 +6244,75 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
                               f"gestempelte Flaeche kalibriert")
             except Exception as _ke:
                 print(f"[nachzeichnen] Scan-Flaechenkalibrierung: {_ke!r}")
+
+            # WANDACHSEN-EINRASTUNG (deterministisch): die Vision-Anker
+            # schwanken lauf-zu-lauf um ~20 px. Wandachsen dagegen sind aus
+            # DEMSELBEN Bild immer identisch — rastet man die Boxkanten darauf
+            # ein, wird die Lage reproduzierbar UND landet auf echten Wänden.
+            # Eine durchgehende Wand macht ihre Pixelspalte fast ganz dunkel;
+            # Spitzen im spaltenweisen Dunkelanteil sind also Wandachsen.
+            # Nur einrasten, wenn eine Achse NAH genug liegt (sonst bleibt die
+            # Kante, wo sie ist) — verschiebt also nie weit.
+            try:
+                import numpy as _np
+                _png = r.get("basis_png")
+                if _png and page is not None:
+                    import fitz as _fz2
+                    _pm = _fz2.Pixmap(_fz2.csGRAY, _fz2.Pixmap(_png))
+                    _a = _np.frombuffer(_pm.samples, dtype=_np.uint8).reshape(
+                        _pm.height, _pm.width)
+                    _dunkel = _a < 160
+
+                    def _achsen(profil, mind=0.30, luecke=10):
+                        _t = _np.where(profil >= mind)[0]
+                        if not len(_t):
+                            return []
+                        _out, _g = [], [_t[0]]
+                        for _p2 in _t[1:]:
+                            if _p2 - _g[-1] <= luecke:
+                                _g.append(_p2)
+                            else:
+                                _out.append(float(_np.mean(_g))); _g = [_p2]
+                        _out.append(float(_np.mean(_g)))
+                        return _out
+
+                    _vx = _achsen(_dunkel.mean(axis=0))
+                    _hy = _achsen(_dunkel.mean(axis=1))
+
+                    def _naechste(_wert, _liste, _tol):
+                        if not _liste:
+                            return _wert
+                        _b = min(_liste, key=lambda z: abs(z - _wert))
+                        return _b if abs(_b - _wert) <= _tol else _wert
+
+                    _gerastet = 0
+                    for _rm in raeume:
+                        _p = _rm.get("region_px") or []
+                        if len(_p) < 4:
+                            continue
+                        _x0 = min(q[0] for q in _p); _x1 = max(q[0] for q in _p)
+                        _y0 = min(q[1] for q in _p); _y1 = max(q[1] for q in _p)
+                        # Toleranz: 12% der Kantenlänge — nahe Wände ziehen an,
+                        # ferne lassen die Kante unberührt
+                        _tx = max(4.0, 0.12 * (_x1 - _x0))
+                        _ty = max(4.0, 0.12 * (_y1 - _y0))
+                        _n0 = _naechste(_x0, _vx, _tx); _n1 = _naechste(_x1, _vx, _tx)
+                        _m0 = _naechste(_y0, _hy, _ty); _m1 = _naechste(_y1, _hy, _ty)
+                        if _n1 - _n0 < 6 or _m1 - _m0 < 6:
+                            continue
+                        if (_n0, _n1, _m0, _m1) == (_x0, _x1, _y0, _y1):
+                            continue
+                        _rm["region_px"] = [[round(_n0, 1), round(_m0, 1)],
+                                            [round(_n1, 1), round(_m0, 1)],
+                                            [round(_n1, 1), round(_m1, 1)],
+                                            [round(_n0, 1), round(_m1, 1)]]
+                        _rm["region_gerastet"] = True
+                        _gerastet += 1
+                    if _gerastet:
+                        print(f"[nachzeichnen] {_gerastet} Scan-Raumkanten auf "
+                              f"Wandachsen eingerastet ({len(_vx)}v/{len(_hy)}h)")
+            except Exception as _we:
+                print(f"[nachzeichnen] Wandachsen-Einrastung: {_we!r}")
             r["raeume"] = raeume
             print(f"[nachzeichnen] {n} Scan-Raum-Polygone aus Vision eingezeichnet")
     except Exception as e:  # pragma: no cover
