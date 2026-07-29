@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.63"
+APP_REV = "2026-07-09.64"
 
 
 @app.get("/api/extract-health")
@@ -2670,8 +2670,61 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                         b_img = _render(_clip, 200, budget_mb=4.0)
                         if not b_img:
                             continue
-                        bp = _frage(RAUM_BBOX_PROMPT, b_img,
-                                    "Bounding-Box jedes beschrifteten Raums.", max_tok=2000)
+                        # VARIANZ-KLAMMER fuer die ANKER (dasselbe Muster wie
+                        # beim Fenster-Konsens): Sonnet erlaubt kein
+                        # temperature=0, darum streut JEDE Lesung. Am echten
+                        # 2510-Scan sichtbar — ein Lauf setzte GANG/SKIKELLER
+                        # korrekt, der naechste verschob sie um einen ganzen
+                        # Raum. Darum DREI parallele Lesungen und je Raum der
+                        # MEDIAN der Beschriftungs-Marke; Ausreisser fallen so
+                        # heraus, ohne dass eine einzelne Lesung entscheidet.
+                        def _bbox_lauf(_):
+                            try:
+                                return (_frage(RAUM_BBOX_PROMPT, b_img,
+                                               "Bounding-Box jedes beschrifteten Raums.",
+                                               max_tok=2000).get("raeume") or [])
+                            except Exception as _be:
+                                print(f"[raum-bbox] Lauf fehlgeschlagen: {_be!r}")
+                                return None
+                        with _F_TPE(max_workers=3) as _bex:
+                            _laeufe = [x for x in _bex.map(_bbox_lauf, range(3))
+                                       if x is not None]
+                        if not _laeufe:
+                            continue
+                        if len(_laeufe) == 1:
+                            bp = {"raeume": _laeufe[0]}
+                        else:
+                            # je Raumname die Werte aller Laeufe sammeln und
+                            # feldweise den Median nehmen
+                            _samml = {}
+                            for _lauf_ in _laeufe:
+                                for _e in _lauf_:
+                                    _k = _norm_name(_e.get("name") or "")
+                                    if _k:
+                                        _samml.setdefault(_k, []).append(_e)
+                            _med = []
+                            for _k, _liste in _samml.items():
+                                # nur uebernehmen, was in der MEHRHEIT der
+                                # Laeufe auftaucht (>=2 von 3) — Phantome raus
+                                if len(_liste) < max(2, (len(_laeufe) + 1) // 2):
+                                    continue
+                                _e0 = dict(_liste[0])
+                                for _feld in ("x0_pct", "y0_pct", "x1_pct",
+                                              "y1_pct", "mx_pct", "my_pct"):
+                                    _w = []
+                                    for _e in _liste:
+                                        try:
+                                            _w.append(float(_e[_feld]))
+                                        except (KeyError, TypeError, ValueError):
+                                            pass
+                                    if _w:
+                                        _w.sort()
+                                        _e0[_feld] = _w[len(_w) // 2]
+                                _med.append(_e0)
+                            bp = {"raeume": _med}
+                            print(f"[raum-bbox] {len(_laeufe)} Lesungen "
+                                  f"({'/'.join(str(len(x)) for x in _laeufe)}) "
+                                  f"→ {len(_med)} Räume im Konsens")
                         _cw = _clip.width if _clip is not None else pw3
                         _ch = _clip.height if _clip is not None else ph3
                         _ox = _clip.x0 if _clip is not None else 0.0
@@ -5830,7 +5883,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 48  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 49  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
