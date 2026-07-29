@@ -32,6 +32,7 @@ GUARDS = [
     ("LV-Import (A 2063)", "test_lv_import.py", "LV-Import"),
     ("ÖNORM-Nachweis (Rechenweg)", "mess_oenorm_nachweis.py", "Regeln nachgewiesen"),
     ("Gewerke-Breite (Sektoren)", "mess_gewerke_breite.py", "Gewerke liefern Mengen"),
+    ("Textfleck-Anker (Scan-Lage)", "test_textanker.py", "Textfleck-Anker"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
