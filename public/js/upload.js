@@ -1094,7 +1094,7 @@
     });
     // plan_ref-Kopplung: Konturen-/Öffnungs-Positionen pulsieren ihre Plan-Ebene
     function _pulse(selector) {
-      var sec = document.getElementById('nachzeichnen-section');
+      var sec = _wfZuPlan();
       if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
       var cont = document.getElementById('nachzeichnen-container');
       if (!cont) return;
@@ -2346,7 +2346,7 @@
   }
   // Kalibrier-Modus starten: Messwerkzeug in den 2-Punkt-Kalibriermodus schalten.
   window._nzKalibrierenStart = function () {
-    var sec = document.getElementById('nachzeichnen-section');
+    var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     _nzCalibMode = true; _nzMeasMode = true; _nzAddMode = false; _nzRaumEditMode = false;
     _nzMeasPts = []; _nzSel = null; _nzPaint();
@@ -2409,7 +2409,7 @@
   // Umfang als verdächtig flaggt, aktiviert dieser CTA direkt den Mess-Modus
   // und scrollt zum Plan — die App sagt WAS unsicher ist UND gibt den Klick-Weg.
   window._nzMessenStart = function () {
-    var sec = document.getElementById('nachzeichnen-section');
+    var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (_nzWrap && _nzData) {
       _nzMeasMode = true; _nzAddMode = false; _nzMeasPts = []; _nzSel = null;
@@ -3259,10 +3259,18 @@
   }
   // Kopplung Aufmaß-Zeile → Plan: den belegten RAUM am Plan pulsieren lassen.
   // (Traceability-Anker: jede Raum-Zeile der Gewerke trägt anker.raum.)
+  // „Im Plan zeigen" muss auch dann funktionieren, wenn der Nutzer gerade in
+  // einem Schritt steht, der die Planansicht ausblendet (Zuordnung, Positionen).
+  // Sonst scrollt der Klick ins Leere und der Beleg ist nicht auffindbar.
+  function _wfZuPlan() {
+    var sec = document.getElementById('nachzeichnen-section');
+    if (sec && sec.classList.contains('wf-hidden') && window.wfShow) window.wfShow(2);
+    return sec;
+  }
   window.nzHighlightRaum = function (name) {
     var key = _nrmRaum(name);
     if (!key) return;
-    var sec = document.getElementById('nachzeichnen-section');
+    var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     var cont = document.getElementById('nachzeichnen-container');
     if (!cont) return;
@@ -3281,7 +3289,7 @@
   // Kopplung Aufmaß-Zeile → Plan: die GEBÄUDE-HÜLLE (blaue Kontur) pulsieren
   // lassen — Beleg-Ort für flächige Mengen (Bodenplatte/Decke/WDVS/Gerüst).
   window.nzHighlightKontur = function () {
-    var sec = document.getElementById('nachzeichnen-section');
+    var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     var cont = document.getElementById('nachzeichnen-container');
     if (!cont) return;
@@ -3296,7 +3304,7 @@
   // der zugehörige Marker am Plan pulst (Traceability, beide Richtungen).
   // Match über Typ + nächstliegende Breite/Höhe (+ Raum, falls am Marker da).
   window.nzHighlightOeffnung = function (typ, raum, b, h) {
-    var sec = document.getElementById('nachzeichnen-section');
+    var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     var cont = document.getElementById('nachzeichnen-container');
     if (!cont || !_nzData || !_nzData.oeffnungen) return;
@@ -3324,7 +3332,7 @@
   };
   // Kopplung Liste → Plan: die Wände einer HLZ-Stärke am Plan pulsieren lassen.
   function nzHighlight(cm) {
-    var sec = document.getElementById('nachzeichnen-section');
+    var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     var cont = document.getElementById('nachzeichnen-container');
     if (!cont) return;
@@ -3586,17 +3594,20 @@
     });
   })();
 
-  // ── WORKFLOW-STEPPER: Pläne → Plan prüfen → Massen & Material → Export & Fragen ──
-  // Führt den Nutzer in 4 Schritten durch die Ermittlung, statt alles auf einmal zu
-  // zeigen. Schritt 2 (Plan prüfen) ist der Default nach der Analyse: ERST die
-  // Planansicht verifizieren/korrigieren, DANN die Massen ansehen.
+  // ── WORKFLOW-STEPPER: Pläne → Räume → Positionen → Zuordnung → Export ──
+  // Die Reihenfolge, in der ein Aufmaß tatsächlich entsteht: erst der Plan,
+  // dann die Räume verifizieren, daraus die Positionen, dann die Zuordnung
+  // Position↔Raum (das ist der Prüf-Schritt) und zuletzt die Übergabe.
+  // Schritt 2 ist der Default nach der Analyse — nichts wird gerechnet,
+  // bevor die Räume stimmen.
   var WF_GRUPPEN = {
     1: ['#upload-section', '#plans-section'],
     2: ['#ergebnis-status-banner', '#pruefliste', '#nachzeichnen-section'],
     3: ['#zielgruppen-presets', '#geo-box', '#fact-strip', '.ml-board-toolbar',
         '#mengen-board', '#ml-board', '#konf-kopf', '#auswertung-kennzahlen',
-        '#raum-aufmass', '.advanced-drawer'],
-    4: ['#projekt-chat']
+        '.advanced-drawer'],
+    4: ['#zuordnung-section'],
+    5: ['#projekt-chat']
   };
   function wfShow(step) {
     // step 0 = ÜBERSICHT (Default): ALLES sichtbar — exakt die bisherige Seite.
@@ -3622,6 +3633,14 @@
       if (typeof _nzApplyZoom === 'function') _nzApplyZoom();
       var nz = document.getElementById('nachzeichnen-section');
       if (nz) nz.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (step === 4) {
+      var zu = document.getElementById('zuordnung-section');
+      if (zu) zu.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (step === 5) {
+      // Die Export-Knöpfe stehen im Kopf und bleiben in jedem Schritt sichtbar
+      // (eine Hauptaktion darf nicht verschwinden) — Schritt 5 führt hin.
+      var ex = document.querySelector('.export-group');
+      if (ex) ex.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }
   var _wfUserPicked = false;   // hat der Nutzer selbst einen Schritt gewählt?

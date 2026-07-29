@@ -2781,6 +2781,19 @@ img {
 .advanced-block { margin-top: 1.1rem; }
 .advanced-h { font-size: 0.92rem; color: var(--primary); margin-bottom: 0.5rem; }
 
+/* ZUORDNUNG (Workflow-Schritt 4) — der Prüf-Schritt: jede Menge zurück zum
+   Bauteil. Steht bewusst als eigener Abschnitt und nicht in der Schublade. */
+#zuordnung-section { margin-top: 1.4rem; }
+.zuordnung-h {
+  font-size: 1.02rem; font-weight: 700; color: var(--text);
+  margin: 0 0 0.15rem; padding-left: 0.65rem;
+  border-left: 3px solid var(--primary);
+}
+.zuordnung-sub {
+  font-size: 0.86rem; color: var(--text-light); line-height: 1.45;
+  margin: 0 0 0.9rem; padding-left: 0.9rem; max-width: 62ch;
+}
+
 /* Zielgruppen-Presets */
 .zielgruppen-presets { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
   margin: 0.8rem 0 0.4rem; }

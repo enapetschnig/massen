@@ -33,6 +33,7 @@ GUARDS = [
     ("ÖNORM-Nachweis (Rechenweg)", "mess_oenorm_nachweis.py", "Regeln nachgewiesen"),
     ("Gewerke-Breite (Sektoren)", "mess_gewerke_breite.py", "Gewerke liefern Mengen"),
     ("Textfleck-Anker (Scan-Lage)", "test_textanker.py", "Textfleck-Anker"),
+    ("Workflow-Schritte", "test_workflow_schritte.py", "Pflicht-Bereiche"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
