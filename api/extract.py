@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.52"
+APP_REV = "2026-07-09.53"
 
 
 @app.get("/api/extract-health")
@@ -2517,10 +2517,24 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                                  "Lokalisiere alle Grundrisse auf diesem Blatt.", max_tok=800)
                     for g in (reg.get("grundrisse") or [])[:4]:
                         try:
-                            x0 = max(0.0, float(g["x0_pct"])) / 100.0 * pw3
-                            y0 = max(0.0, float(g["y0_pct"])) / 100.0 * ph3
-                            x1 = min(100.0, float(g["x1_pct"])) / 100.0 * pw3
-                            y1 = min(100.0, float(g["y1_pct"])) / 100.0 * ph3
+                            # PIXEL/PROZENT: derselbe Fallstrick wie bei den
+                            # Raum-Boxen — und hier UPSTREAM, also folgenschwer.
+                            # Mit Pixelwerten wurde y0 = 725/100*1698 = 12.310,
+                            # also groesser als y1; die Groessenpruefung schlug
+                            # fehl und ALLE Grundriss-Regionen fielen weg. Die
+                            # Raum-Boxen wurden dann gegen das ganze A0-Blatt
+                            # gerechnet statt gegen den Grundriss — daher die
+                            # versetzten Rechtecke am Scan.
+                            _gx0 = _pct(g["x0_pct"], "x")
+                            _gy0 = _pct(g["y0_pct"], "y")
+                            _gx1 = _pct(g["x1_pct"], "x")
+                            _gy1 = _pct(g["y1_pct"], "y")
+                            if None in (_gx0, _gy0, _gx1, _gy1):
+                                continue
+                            x0 = max(0.0, _gx0) / 100.0 * pw3
+                            y0 = max(0.0, _gy0) / 100.0 * ph3
+                            x1 = min(100.0, _gx1) / 100.0 * pw3
+                            y1 = min(100.0, _gy1) / 100.0 * ph3
                             if (x1 - x0) > 0.08 * pw3 and (y1 - y0) > 0.08 * ph3:
                                 regionen.append((fitz.Rect(x0, y0, x1, y1), g.get("geschoss")))
                         except (KeyError, TypeError, ValueError):
