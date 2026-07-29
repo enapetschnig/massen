@@ -28,6 +28,7 @@ GUARDS = [
     ("Aufmaß-Kreuztabelle", "test_aufmass_matrix.py", "Räume × Positionen, Abzüge raumscharf"),
     ("Aufmaßregeln (ÖNORM-Deckung)", "test_aufmassregeln.py", "Positionen mit Menge"),
     ("Eigene Positionen (Regel-Pflicht)", "test_eigene_positionen.py", "Aufmaßregeln"),
+    ("Vision-Antwort-Parser", "test_json_parser.py", "Vision-Parser"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),

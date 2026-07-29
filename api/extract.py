@@ -365,8 +365,7 @@ def _opus_call(content, api_key: str) -> dict:
         try:
             urteil = json.loads(raw)
         except Exception:
-            mjs = re.search(r"\{[\s\S]*\}", raw)
-            urteil = json.loads(mjs.group()) if mjs else {}
+            urteil = _json_aus_antwort(raw)
         urteil["_opus_hash"] = hashlib.sha1((raw or "").encode("utf-8")).hexdigest()[:16]
         print(f"[opus-bauingenieur] konf={urteil.get('gesamtkonfidenz')}, "
               f"bereiche={len(urteil.get('ueberdachte_bereiche') or [])}, "
@@ -511,8 +510,7 @@ def _run_opus_review(pdf_bytes: bytes, fakten: dict, materialliste: dict, api_ke
         try:
             urteil = json.loads(raw)
         except Exception:
-            mjs = re.search(r"\{[\s\S]*\}", raw)
-            urteil = json.loads(mjs.group()) if mjs else {}
+            urteil = _json_aus_antwort(raw)
         print(f"[opus-review] befunde={len(urteil.get('pruefung') or [])}, urteil={urteil.get('gesamturteil')}")
         return urteil
     except Exception as _exc:
@@ -789,7 +787,50 @@ async def extract(body: ExtractRequest):
 # liefert es als "rev": der EINZIGE verlässliche Lambda-Deploy-Marker
 # (statische Dateien sind Sekunden nach Push live, der Lambda-Build braucht
 # Minuten; SDK-Version taugt nur bei SDK-Wechseln).
-APP_REV = "2026-07-09.51"
+def _json_aus_antwort(raw):
+    """JSON aus einer Modell-Antwort holen — robust gegen ZWEI Fallen, die
+    beide am 2510-Scan belegt sind:
+
+    1) MEHRERE JSON-Bloecke. Das Modell antwortet manchmal erst falsch und
+       korrigiert sich dann selbst ("Korrektur mit korrekten Prozentwerten"),
+       liefert also zwei Bloecke. Das bisherige GIERIGE `\{[\s\S]*\}` griff
+       von der ERSTEN bis zur LETZTEN Klammer, spannte also ueber beide —
+       ungueltiges JSON, Ergebnis komplett verworfen. Darum: den LETZTEN
+       gueltigen Block nehmen (die Selbstkorrektur ist die bessere Antwort).
+    2) MARKDOWN-ZAUN (```json … ```), obwohl der Prompt "kein Markdown" sagt.
+
+    Rueckgabe: geparstes dict/list, sonst {}."""
+    if not raw:
+        return {}
+    kandidaten = []
+    # a) eingezaeunte Bloecke zuerst (die meint das Modell ernst)
+    for m in re.finditer(r"```(?:json)?\s*([\s\S]*?)```", raw):
+        kandidaten.append(m.group(1).strip())
+    # b) balancierte {...}-Spannen im Rohtext
+    tiefe, start = 0, None
+    for i, ch in enumerate(raw):
+        if ch == "{":
+            if tiefe == 0:
+                start = i
+            tiefe += 1
+        elif ch == "}":
+            if tiefe > 0:
+                tiefe -= 1
+                if tiefe == 0 and start is not None:
+                    kandidaten.append(raw[start:i + 1])
+                    start = None
+    # LETZTER gueltiger Kandidat gewinnt (Selbstkorrektur schlaegt Erstversuch)
+    for txt in reversed(kandidaten):
+        try:
+            d = json.loads(txt)
+            if isinstance(d, (dict, list)):
+                return d
+        except Exception:
+            continue
+    return {}
+
+
+APP_REV = "2026-07-09.52"
 
 
 @app.get("/api/extract-health")
@@ -2156,12 +2197,7 @@ Wichtig:
                     try:
                         parsed = json.loads(raw)
                     except Exception:
-                        m = re.search(r"\{[\s\S]*\}", raw)
-                        if m:
-                            try:
-                                parsed = json.loads(m.group())
-                            except Exception:
-                                pass
+                        parsed = _json_aus_antwort(raw) or None
                     if parsed:
                         wd["ketten_per_side"][side] = parsed
                 except Exception as _exc:
@@ -2331,8 +2367,7 @@ im Grundriss sichtbar — niemals Fenster oder Maße erfinden."""
                 try:
                     baudaten = json.loads(raw)
                 except Exception:
-                    m = re.search(r"\{[\s\S]*\}", raw)
-                    baudaten = json.loads(m.group()) if m else {}
+                    baudaten = _json_aus_antwort(raw)
         except Exception as _exc:
             print(f"[baudaten] Vision-Messung fehlgeschlagen: {_exc!r}")
             baudaten = {}
@@ -2471,8 +2506,7 @@ ERDGESCHOSS" -> "EG", KELLER -> "KG", OBERGESCHOSS -> "OG"); unbekannt -> null."
                 try:
                     return json.loads(raw_)
                 except Exception:
-                    m_ = re.search(r"\{[\s\S]*\}", raw_)
-                    return json.loads(m_.group()) if m_ else {}
+                    return _json_aus_antwort(raw_)
 
             # Stufe 0: Grundriss-Regionen (kleines Ganzblatt-Bild reicht)
             regionen = []
@@ -2952,8 +2986,7 @@ Wichtig:
                 try:
                     aussenkontur_vision = json.loads(raw)
                 except Exception:
-                    mjs = re.search(r"\{[\s\S]*\}", raw)
-                    aussenkontur_vision = json.loads(mjs.group()) if mjs else {}
+                    aussenkontur_vision = _json_aus_antwort(raw)
                 # Konsistenz: Summe seiten_m sollte ≈ umfang_m sein
                 seiten = aussenkontur_vision.get("seiten_m") or {}
                 if seiten:
@@ -3061,8 +3094,7 @@ Regeln:
                 try:
                     schnitt_vision = json.loads(raw)
                 except Exception:
-                    mjs = re.search(r"\{[\s\S]*\}", raw)
-                    schnitt_vision = json.loads(mjs.group()) if mjs else {}
+                    schnitt_vision = _json_aus_antwort(raw)
                 # Plausi-Klemmung: Geschoss-Höhe 2.2–4.5m, Attika 0.2–1.5m, Säulen 0–40
                 gh = schnitt_vision.get("geschosshoehe_rohbau_m")
                 if gh and not (2.2 <= float(gh) <= 4.5):
@@ -3152,8 +3184,7 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
                     try:
                         d_ = json.loads(raw)
                     except Exception:
-                        mjs = re.search(r"\{[\s\S]*\}", raw)
-                        d_ = json.loads(mjs.group()) if mjs else {}
+                        d_ = _json_aus_antwort(raw)
                     for kk in ("tueren_gesamt", "fenster_gesamt"):
                         v = d_.get(kk)
                         if v is not None:
