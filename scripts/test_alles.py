@@ -36,6 +36,7 @@ LANGSAM = [
     ("Rohbau-Raumcheck", "test_rohbau_raumcheck.py", "ROHBAU-verifiziert"),
     ("Räumlicher Beweis (IoU)", "exp_rohbau_iou_v3.py", "RÄUMLICH bewiesen"),
     ("Räume richtig markiert", "mess_raum_markierung.py", "KENNZAHL"),
+    ("Plan-Typ-Abdeckung", "mess_plantypen.py", "wie erwartet behandelt"),
 ]
 
 
