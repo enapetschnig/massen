@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.61"
+APP_REV = "2026-07-09.62"
 
 
 @app.get("/api/extract-health")
@@ -2660,6 +2660,9 @@ JSON, kein Markdown:
 ]}
 Koordinaten in PROZENT der Bildbreite/-hoehe (0-100). Box = INNENKANTE des
 Raums (Wandinnenseite zu Wandinnenseite, OHNE Waende/Bemassung).
+Zusaetzlich WICHTIG: gib fuer jeden Raum mit "mx_pct"/"my_pct" die Position
+der BESCHRIFTUNG an (Mittelpunkt des Raumnamen-Schriftzugs) — ebenfalls in
+Prozent. Diese Marke wird als Verankerung verwendet.
 Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                     from collections import defaultdict as _dd
                     _bx = _dd(list)   # norm_name → [(geschoss, aspect, area)]
@@ -2694,7 +2697,21 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                                 _py1 = round(_oy + _ry1 / 100.0 * _ch, 1)
                                 _corners = [[_px0, _py0], [_px1, _py0], [_px1, _py1], [_px0, _py1]]
                                 if _nn and 1.0 <= _asp <= 8.0:
-                                    _bx[_nn].append((_gesch, _asp, dx * dy, _corners))
+                                    # ANKER = Position der BESCHRIFTUNG.
+                                    # Gemessen (Angerer als Bild, gegen die
+                                    # Vektor-Wahrheit): eine Bounding-Box liegt
+                                    # 3-7 m daneben (IoU 0,00), die BESCHRIFTUNGS-
+                                    # position dagegen nur 0,39 m — zehnmal
+                                    # genauer. Vision kann lokalisieren, aber
+                                    # keine Ausdehnungen schaetzen.
+                                    _mx = _pct(rb.get("mx_pct"), "x") if rb.get("mx_pct") is not None else None
+                                    _my = _pct(rb.get("my_pct"), "y") if rb.get("my_pct") is not None else None
+                                    _anker = None
+                                    if _mx is not None and _my is not None:
+                                        _anker = [round(_ox + _mx / 100.0 * _cw, 1),
+                                                  round(_oy + _my / 100.0 * _ch, 1)]
+                                    _bx[_nn].append((_gesch, _asp, dx * dy,
+                                                     _corners, _anker))
                             except (KeyError, TypeError, ValueError, ZeroDivisionError):
                                 continue
                     # Zuordnung je (Name): beide Seiten größensortiert zippen
@@ -2706,7 +2723,7 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                         _rn[_norm_name(r.get("name") or "")].append(r)
                     _gefuellt = 0
 
-                    def _u_setzen(r, _asp, _quelle, _corners=None):
+                    def _u_setzen(r, _asp, _quelle, _corners=None, _ankerpkt=None):
                         _F = float(r["flaeche_m2"])
                         r["umfang_m"] = round(2.0 * (math.sqrt(_F * _asp) + math.sqrt(_F / _asp)), 2)
                         r["umfang_geschaetzt"] = True
@@ -2714,6 +2731,21 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                         # Box-Ecken als Raum-Polygon fürs Overlay (Scan: kein Vektor-
                         # Umriss vorhanden) — editierbar/kalibrierbar am Plan.
                         if _corners:
+                            # BOX AUF DEN ANKER ZENTRIEREN: Groesse der
+                            # Vision-Box behalten (wird spaeter ohnehin auf die
+                            # Stempelflaeche kalibriert), aber die LAGE von der
+                            # zehnmal genaueren Beschriftungs-Marke nehmen.
+                            if _ankerpkt:
+                                _bw = (max(c[0] for c in _corners)
+                                       - min(c[0] for c in _corners))
+                                _bh = (max(c[1] for c in _corners)
+                                       - min(c[1] for c in _corners))
+                                _ax, _ay = _ankerpkt
+                                _corners = [[round(_ax - _bw / 2, 1), round(_ay - _bh / 2, 1)],
+                                            [round(_ax + _bw / 2, 1), round(_ay - _bh / 2, 1)],
+                                            [round(_ax + _bw / 2, 1), round(_ay + _bh / 2, 1)],
+                                            [round(_ax - _bw / 2, 1), round(_ay + _bh / 2, 1)]]
+                                r["region_anker"] = "Beschriftung"
                             r["region_pt"] = _corners
 
                     # MEHRERE GRUNDRISSE AUF EINEM BLATT (Einreichtafel mit
@@ -2742,7 +2774,7 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                             if _gi is None:
                                 continue
                             _t = _kand.pop(_gi)
-                            _u_setzen(r, _t[1], "proportion-vision", _t[3] if len(_t) > 3 else None)
+                            _u_setzen(r, _t[1], "proportion-vision", _t[3] if len(_t) > 3 else None, _t[4] if len(_t) > 4 else None)
                             _gefuellt += 1
                     # Stufe 2b — FUZZY-NAME: Vision nennt Räume oft leicht anders
                     # ("Zimmer 1" vs "Zimmer", "Wohnen/Essen" vs "Wohnessraum") →
@@ -2763,7 +2795,7 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                                         break
                             if _tref:
                                 _t = _tref[0].pop(_tref[1])
-                                _u_setzen(r, _t[1], "proportion-vision-fuzzy", _t[3] if len(_t) > 3 else None)
+                                _u_setzen(r, _t[1], "proportion-vision-fuzzy", _t[3] if len(_t) > 3 else None, _t[4] if len(_t) > 4 else None)
                                 _gefuellt += 1
                     # Stufe 2c — DEFAULT-PROPORTION: Rest ohne Box bekommt das
                     # typische Wohnraum-Seitenverhältnis 1,35 (≈4,06·√F) — immer
@@ -5771,7 +5803,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 46  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 47  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
