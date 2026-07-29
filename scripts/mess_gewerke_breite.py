@@ -64,6 +64,41 @@ BEREICH = {
 }
 
 
+ECHTE_PLAENE = [
+    "A-5_Einreichplan_Alfred-Angerer",
+    "AP.01 Layout-1",
+    "AU_WM_01 Erdgeschoss",
+    "WA_Velden_Franzosen Allee_Ausführung_TG",
+]
+
+
+def _aus_echtem_plan(muster):
+    """Räume aus einem ECHTEN Plan lesen und die Gewerke daraus rechnen.
+
+    Damit steht die Sektor-Breite nicht auf einem erfundenen Beispielhaus,
+    sondern auf dem, was die Pipeline aus realen Plänen tatsächlich holt.
+    -> (dateiname, gewerke) oder None.
+    """
+    import glob
+    import fitz            # noqa: E402
+    import nachzeichnen    # noqa: E402
+    g = sorted(glob.glob(os.path.expanduser(f"~/Downloads/*{muster}*.pdf")))
+    if not g:
+        return None
+    doc = fitz.open(g[0])
+    r = nachzeichnen.analysiere_doc(doc, max_px=1400)
+    doc.close()
+    if not r.get("ok"):
+        return None
+    rooms = [{"name": x.get("name"), "flaeche_m2": x.get("f_m2"),
+              "umfang_m": x.get("u_m"), "hoehe_m": None}
+             for x in (r.get("raeume") or []) if x.get("f_m2")]
+    if len(rooms) < 2:
+        return None
+    return (os.path.basename(g[0]), ml.berechne_gewerke(
+        rooms, [], dict(BAUDATEN), geschoss="EG")["gewerke"])
+
+
 def run():
     g = ml.berechne_gewerke(ROOMS, FENSTER, BAUDATEN, geschoss="EG",
                             tueren=TUEREN)["gewerke"]
@@ -102,6 +137,37 @@ def run():
     assert len(alle_einh) >= 3, f"nur Einheiten {alle_einh} — zu schmal"
     print(f"\nWÄCHTER ok: {len(aktiv)} Gewerke, alle mit LG, "
           f"{len(alle_einh)} Einheiten ({', '.join(sorted(x for x in alle_einh if x))})")
+
+    # ── DIESELBE BREITE AN ECHTEN PLAENEN ────────────────────────────────
+    # Die Zusage "mehrere Bereiche der Baubranche" darf nicht auf einem
+    # erfundenen Beispielhaus stehen. Hier wird sie an realen Plaenen
+    # nachgerechnet — mit den Raeumen, die die Pipeline daraus liest.
+    print(f"\n{'echter Plan':<40}{'Räume':>6}{'Gewerke':>9}  Bereiche")
+    print("-" * 104)
+    echte, min_gew = 0, 99
+    for muster in ECHTE_PLAENE:
+        erg = _aus_echtem_plan(muster)
+        if not erg:
+            print(f"{muster[:38]:<40}{'—':>6}  (kein Grundriss / Datei fehlt)")
+            continue
+        name, gg = erg
+        n_raum = 0
+        akt = []
+        for k, v in gg.items():
+            if isinstance(v, dict) and any(p.get("endsumme")
+                                           for p in (v.get("positionen") or [])):
+                akt.append(k)
+        n_raum = sum(1 for _ in (gg.get("estrich", {}).get("positionen") or []))
+        echte += 1
+        min_gew = min(min_gew, len(akt))
+        print(f"{name[:38]:<40}{'':>6}{len(akt):>9}  "
+              f"{', '.join(BEREICH.get(k, k).split(' /')[0] for k in sorted(akt))[:52]}")
+    print("-" * 104)
+    if echte:
+        print(f"{echte} echte Pläne · mindestens {min_gew} Gewerke je Plan")
+        assert echte >= 3, f"nur {echte} echte Pläne — Aussage nicht belastbar"
+        assert min_gew >= 4, \
+            f"ein echter Plan liefert nur {min_gew} Gewerke — Breite bricht ein"
 
 
 if __name__ == "__main__":
