@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.53"
+APP_REV = "2026-07-09.54"
 
 
 @app.get("/api/extract-health")
@@ -2704,9 +2704,22 @@ Nur echte Raeume — keine Moebel, Tabellen, Legenden, Ansichten, Schnitte."""
                         if _corners:
                             r["region_pt"] = _corners
 
+                    # MEHRERE GRUNDRISSE AUF EINEM BLATT (Einreichtafel mit
+                    # KG/EG/OG nebeneinander): dann MUSS das Geschoss stimmen.
+                    # Die frühere Lockerung ("fehlt eine Angabe -> passt") liess
+                    # EG- und OG-Räume Boxen vom KELLER-Grundriss erben — im
+                    # Overlay sassen sie dann sichtbar auf dem falschen Plan.
+                    # Bei EINEM Grundriss bleibt die Lockerung richtig (dort
+                    # gibt es nichts zu verwechseln).
+                    _multi = len({(g or "").strip().upper()
+                                  for _c, g in (regionen or []) if g}) > 1
+
                     def _g_passt(k_g, r):
                         _rg = str(r.get("geschoss") or "").strip().upper()
-                        return not k_g or not _rg or str(k_g).strip().upper() == _rg
+                        _kg = str(k_g or "").strip().upper()
+                        if _multi:
+                            return bool(_kg) and bool(_rg) and _kg == _rg
+                        return not _kg or not _rg or _kg == _rg
 
                     for _nn, _rooms in _rn.items():
                         _rooms.sort(key=lambda r: -float(r.get("flaeche_m2") or 0))
