@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.68"
+APP_REV = "2026-07-09.69"
 
 
 @app.get("/api/extract-health")
@@ -5917,7 +5917,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 51  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+_NZ_CACHE_V = 52  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
@@ -6309,9 +6309,18 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
                                 _cy0 = sum(q[1] for q in _p) / len(_p)
                                 _bw3 = max(q[0] for q in _p) - min(q[0] for q in _p)
                                 _bh3 = max(q[1] for q in _p) - min(q[1] for q in _p)
-                                # nur einrasten, wenn ein Fleck NAH liegt —
-                                # sonst bleibt der Vision-Anker stehen
-                                _tol = max(20.0, 0.6 * max(_bw3, _bh3))
+                                # NUR einrasten, wenn ein Fleck NAH liegt —
+                                # sonst bleibt der Vision-Anker stehen.
+                                # Am Korpus gemessen: auf beschriftungsarmen
+                                # Plaenen trifft der naechste Fleck den Raum-
+                                # stempel auf 0,04 m; auf textdichten Polier-
+                                # plaenen (Kanal-/Masstext ueberall) ist der
+                                # naechste Fleck oft die FALSCHE Schrift
+                                # (0,74-1,80 m). Darum eng gefasst: ein
+                                # Viertel der Boxgroesse statt 0,6 — im
+                                # Zweifel lieber der Vision-Anker als ein
+                                # zuversichtlich falscher Textfleck.
+                                _tol = max(12.0, 0.25 * max(_bw3, _bh3))
                                 _bf = min(_flecken, key=lambda f: (f[0] - _cx0) ** 2
                                           + (f[1] - _cy0) ** 2)
                                 if ((_bf[0] - _cx0) ** 2 + (_bf[1] - _cy0) ** 2) ** 0.5 > _tol:
