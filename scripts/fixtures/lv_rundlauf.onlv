@@ -1,0 +1,789 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<onlv xmlns="http://www.oenorm.at/schema/A2063/2015-07-15">
+  <metadaten>
+    <erstelltam>2026-07-27T12:15:59</erstelltam>
+    <dateiname>LV_EFH_Angerer__E2E-Test_.onlv</dateiname>
+    <programmsystem>e-power KI-Massenermittlung</programmsystem>
+    <programmversion>2026-07-09.37</programmversion>
+  </metadaten>
+  <grafiktabelle />
+  <leistungsteiltabelle>
+    <leistungsteil nr="1">
+      <bezeichnung>Gesamt</bezeichnung>
+      <definition>
+        <festpreise />
+      </definition>
+    </leistungsteil>
+  </leistungsteiltabelle>
+  <zugelassenenachlaesse>
+    <aufsummen />
+    <hierarchiestufen />
+  </zugelassenenachlaesse>
+  <entwurfs-lv>
+    <kenndaten>
+      <lvcode>ME-EFH_Angerer__E2E-Test_</lvcode>
+      <vorhaben>EFH Angerer (E2E-Test)</vorhaben>
+      <lvbezeichnung>Massenermittlung (maschinell, frei formuliert)</lvbezeichnung>
+      <auftraggeber>
+        <firma>
+          <name>e-power Massenermittlung</name>
+        </firma>
+      </auftraggeber>
+      <preisanteilmodell>
+        <keinepreisanteile />
+      </preisanteilmodell>
+      <wkz>EUR</wkz>
+    </kenndaten>
+    <gliederung-lg>
+      <preiserstellungsverfahren>Preisangebotsverfahren</preiserstellungsverfahren>
+      <lb>
+        <bezeichnung>frei formuliert</bezeichnung>
+        <herausgeber>
+          <firma>
+            <name>frei formuliert</name>
+          </firma>
+        </herausgeber>
+        <lbkennung>FF</lbkennung>
+        <versionsnummer>999</versionsnummer>
+        <versionsdatum>2009-06-01</versionsdatum>
+        <status>freigegeben</status>
+      </lb>
+      <svb />
+      <lg-liste>
+        <lg nr="10">
+          <lg-eigenschaften>
+            <ueberschrift>Verputzer (LG 10 Putz — in Anlehnung an ÖNORM B 2204)</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Verputzer (LG 10 Putz — in Anlehnung an ÖNORM B 2204)</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Innenputz Wände bis 3,2 m — EG</stichwort>
+                      <langtext>
+                        <p>Innenputz Wände bis 3,2 m — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2204 (vormals B 2210) · Σ(U×H) − Öffnungen&gt;4.0m²</p>
+                        <p>Zimmer 1 — Wand brutto  · U=13.2 × H=2.95  = 38.94</p>
+                        <p>Bad — Wand brutto  · U=11.9 × H=2.7  = 32.13</p>
+                        <p>Zimmer 2 — Wand brutto  · U=19.553 × H=2.95  = 57.6814</p>
+                        <p>Flur — Wand brutto  · U=22.57 × H=2.7  = 60.939</p>
+                        <p>Abzug Tuer  · Öffnung &gt;4.0 m²  = -4.4</p>
+                        <p>WC — Wand brutto  · U=5.68 × H=2.95  = 16.756</p>
+                        <p>Waschen — Wand brutto  · U=10.98 × H=2.95  = 32.391</p>
+                        <p>Wohnraum Küche — Wand brutto  · U=25.951 × H=2.95  = 76.5555</p>
+                        <p>Geräte-Abstellraum — Wand brutto  · U=16.67 × H=2.95  = 49.1765</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>360.17</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1a] Leibungsputz bis 0,25 m Tiefe — EG</stichwort>
+                      <langtext>
+                        <p>Leibungsputz bis 0,25 m Tiefe — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>ÖNORM B 2204 §5.5.1.3 · Leibungen ≤ 0,25 m Tiefe als Laufmeter der Abwicklung (eigene Leibungs-Position)</p>
+                        <p>Flur  · Abwicklung 2H+B · Tiefe 19 cm ≤ 25 cm → lfm (B 2204)  = 6.2</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>6.20</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="03">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.2] Innenputz Decken — EG</stichwort>
+                      <langtext>
+                        <p>Innenputz Decken — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2204 (vormals B 2210) · Σ Raumfläche</p>
+                        <p>Zimmer 1  · F=10.53  = 10.53</p>
+                        <p>Bad  · F=8.75  = 8.75</p>
+                        <p>Zimmer 2  · F=19.66  = 19.66</p>
+                        <p>Flur  · F=15.84  = 15.84</p>
+                        <p>WC  · F=1.83  = 1.83</p>
+                        <p>Waschen  · F=6.2  = 6.2</p>
+                        <p>Wohnraum Küche  · F=31.12  = 31.12</p>
+                        <p>Geräte-Abstellraum  · F=14.82  = 14.82</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>108.75</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="04">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.3] Außenputz Fassade — EG</stichwort>
+                      <langtext>
+                        <p>Außenputz Fassade — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2204 · Außenwand-Ansichtsfläche brutto − Fassaden-Öffnungen&gt;4.0 m² (Fassaden-Bauweise prüfen)</p>
+                        <p>Außenwand Ansichtsfläche brutto  · Außenumfang × Höhe (gemeinsame Basis)  = 124.6</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>124.60</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="08">
+          <lg-eigenschaften>
+            <ueberschrift>Maurer / Rohbau (LG 08 Mauerarbeiten — in Anlehnung an ÖNORM</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Maurer / Rohbau (LG 08 Mauerarbeiten — in Anlehnung an ÖNORM</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.0] Mauerwerk Außenwand Ansichtsfläche — EG</stichwort>
+                      <langtext>
+                        <p>Mauerwerk Außenwand Ansichtsfläche — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2204 (vormals B 2206) · Außenwand brutto − Öffnungen&gt;0.5m²</p>
+                        <p>Außenwand brutto  · Umfang × Höhe (gemeinsame Basis)  = 124.6</p>
+                        <p>Abzug große Öffnungen  · Einzelfläche &gt;0.5 m²  = -7.58</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>117.02</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Wand-Abwicklung Raum-Innenseiten — EG</stichwort>
+                      <langtext>
+                        <p>Wand-Abwicklung Raum-Innenseiten — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Σ(U×H) aller Räume — Innenwände doppelt gezählt. Mauerwerks-Volumen erfordert Wand-Geometrie (eigener Schritt).</p>
+                        <p>Zimmer 1  · U=13.2 × H=2.95  = 38.94</p>
+                        <p>Bad  · U=11.9 × H=2.7  = 32.13</p>
+                        <p>Zimmer 2  · U=19.553 × H=2.95  = 57.6814</p>
+                        <p>Flur  · U=22.57 × H=2.7  = 60.939</p>
+                        <p>WC  · U=5.68 × H=2.95  = 16.756</p>
+                        <p>Waschen  · U=10.98 × H=2.95  = 32.391</p>
+                        <p>Wohnraum Küche  · U=25.951 × H=2.95  = 76.5555</p>
+                        <p>Geräte-Abstellraum  · U=16.67 × H=2.95  = 49.1765</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>364.57</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="03">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.2] Stahlbeton-Decke über EG</stichwort>
+                      <langtext>
+                        <p>Stahlbeton-Decke über EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2204 (vormals B 2211) · Decken-Fläche × Dicke 0.25m (gemeinsame Basis)</p>
+                        <p>Decke gesamt  · F=225.06 × d=0.25  = 56.265</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m³</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>56.27</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="04">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.3] Bodenplatte Stahlbeton — EG</stichwort>
+                      <langtext>
+                        <p>Bodenplatte Stahlbeton — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Grundfläche × Plattendicke 0.25m (gemeinsame Basis)</p>
+                        <p>Bodenplatte gesamt  · ΣF=128.32 × d=0.25  = 32.08</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m³</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>32.08</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="07">
+          <lg-eigenschaften>
+            <ueberschrift>Stahlbeton (LG 07 Beton- und Stahlbetonarbeiten)</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Stahlbeton (LG 07 Beton- und Stahlbetonarbeiten)</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Stahlbeton-Stützen — EG</stichwort>
+                      <langtext>
+                        <p>Stahlbeton-Stützen — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>2 Stk × 0.50 m³/Stk (inkl. Fundament)</p>
+                        <p>2 Stützen  · 2 × 0.50  = 1.0</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m³</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>1.00</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.2] Kamin / Schornstein — EG</stichwort>
+                      <langtext>
+                        <p>Kamin / Schornstein — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Anzahl aus Plan/Legende</p>
+                        <p>1 Kamin(e)  · 1 Stk  = 1</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>Stk</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>1.00</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="11">
+          <lg-eigenschaften>
+            <ueberschrift>Estrich / Boden (LG 11 Estricharbeiten — in Anlehnung an ÖNO</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Estrich / Boden (LG 11 Estricharbeiten — in Anlehnung an ÖNO</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Estrich-Fläche — EG</stichwort>
+                      <langtext>
+                        <p>Estrich-Fläche — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2232 · Σ Raumfläche</p>
+                        <p>Zimmer 1  · F=10.53  = 10.53</p>
+                        <p>Bad  · F=8.75  = 8.75</p>
+                        <p>Zimmer 2  · F=19.66  = 19.66</p>
+                        <p>Flur  · F=15.84  = 15.84</p>
+                        <p>WC  · F=1.83  = 1.83</p>
+                        <p>Waschen  · F=6.2  = 6.2</p>
+                        <p>Wohnraum Küche  · F=31.12  = 31.12</p>
+                        <p>Geräte-Abstellraum  · F=14.82  = 14.82</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>108.75</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.2] Randdämmstreifen — EG</stichwort>
+                      <langtext>
+                        <p>Randdämmstreifen — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2232 · Σ Raumumfang</p>
+                        <p>Zimmer 1  · U=13.2  = 13.2</p>
+                        <p>Bad  · U=11.9  = 11.9</p>
+                        <p>Zimmer 2  · U=19.553  = 19.553</p>
+                        <p>Flur  · U=22.57  = 22.57</p>
+                        <p>WC  · U=5.68  = 5.68</p>
+                        <p>Waschen  · U=10.98  = 10.98</p>
+                        <p>Wohnraum Küche  · U=25.951  = 25.951</p>
+                        <p>Geräte-Abstellraum  · U=16.67  = 16.67</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>126.50</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="46">
+          <lg-eigenschaften>
+            <ueberschrift>Maler / Anstrich (LG 46 Beschichtung auf Mauerwerk, Putz und</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Maler / Anstrich (LG 46 Beschichtung auf Mauerwerk, Putz und</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Anstrich Wände bis 3,2 m — EG</stichwort>
+                      <langtext>
+                        <p>Anstrich Wände bis 3,2 m — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Maler-Aufmaßpraxis (analog DIN 18363) · Σ(U×H) − Öffnungen&gt;2.5m²</p>
+                        <p>Zimmer 1 — Wand  · U=13.2 × H=2.95  = 38.94</p>
+                        <p>Bad — Wand  · U=11.9 × H=2.7  = 32.13</p>
+                        <p>Zimmer 2 — Wand  · U=19.553 × H=2.95  = 57.6814</p>
+                        <p>Flur — Wand  · U=22.57 × H=2.7  = 60.939</p>
+                        <p>Abzug Tuer    = -4.4</p>
+                        <p>WC — Wand  · U=5.68 × H=2.95  = 16.756</p>
+                        <p>Waschen — Wand  · U=10.98 × H=2.95  = 32.391</p>
+                        <p>Wohnraum Küche — Wand  · U=25.951 × H=2.95  = 76.5555</p>
+                        <p>Geräte-Abstellraum — Wand  · U=16.67 × H=2.95  = 49.1765</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>360.17</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1a] Anstrich Leibungen bis 0,25 m Tiefe — EG</stichwort>
+                      <langtext>
+                        <p>Anstrich Leibungen bis 0,25 m Tiefe — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Leibungen ≤ 0,25 m Tiefe als Laufmeter der Abwicklung (B 2204-Systematik)</p>
+                        <p>Flur  · Abwicklung 2H+B · Tiefe 19 cm ≤ 25 cm → lfm (B 2204)  = 6.2</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>6.20</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="03">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.2] Anstrich Decken — EG</stichwort>
+                      <langtext>
+                        <p>Anstrich Decken — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Σ Raumfläche</p>
+                        <p>Zimmer 1    = 10.53</p>
+                        <p>Bad    = 8.75</p>
+                        <p>Zimmer 2    = 19.66</p>
+                        <p>Flur    = 15.84</p>
+                        <p>WC    = 1.83</p>
+                        <p>Waschen    = 6.2</p>
+                        <p>Wohnraum Küche    = 31.12</p>
+                        <p>Geräte-Abstellraum    = 14.82</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>108.75</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="27">
+          <lg-eigenschaften>
+            <ueberschrift>Fliesenleger (LG 27 Fliesen- und Plattenarbeiten — in Anlehn</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Fliesenleger (LG 27 Fliesen- und Plattenarbeiten — in Anlehn</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Bodenfliesen Nassräume — EG</stichwort>
+                      <langtext>
+                        <p>Bodenfliesen Nassräume — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2207 · Σ Nassraum-Bodenfläche</p>
+                        <p>Bad  · F=8.75  = 8.75</p>
+                        <p>WC  · F=1.83  = 1.83</p>
+                        <p>Waschen  · F=6.2  = 6.2</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>16.78</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.2] Wandfliesen Nassräume — EG</stichwort>
+                      <langtext>
+                        <p>Wandfliesen Nassräume — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2207 · Nassraum-Umfang × Fliesenhöhe − Öffnungen im Fliesenband (Annahme Bad/Dusche 2,0 m, WC 1,5 m — Fliesenhöhe bauseits prüfen)</p>
+                        <p>Bad — Wandfläche  · U=11.9 × h=2.0 (angenommen)  = 23.8</p>
+                        <p>Abzug Fenster  · 0.6×0.38 m im Fliesenband  = -0.23</p>
+                        <p>Abzug Tuer  · 0.8×2.0 m im Fliesenband  = -1.6</p>
+                        <p>WC — Wandfläche  · U=5.68 × h=1.5 (angenommen)  = 8.52</p>
+                        <p>Abzug Tuer  · 0.8×1.5 m im Fliesenband  = -1.2</p>
+                        <p>Abzug Tuer  · 0.8×1.5 m im Fliesenband  = -1.2</p>
+                        <p>Waschen — Wandfläche  · U=10.98 × h=2.0 (angenommen)  = 21.96</p>
+                        <p>Abzug Fenster  · 0.8×1.0 m im Fliesenband  = -0.8</p>
+                        <p>Abzug Fenster  · 1.0×1.0 m im Fliesenband  = -1.0</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>48.25</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="09">
+          <lg-eigenschaften>
+            <ueberschrift>Fensterbau / Bauelemente (LG 09 Fenster, Fenstertüren — Stüc</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Fensterbau / Bauelemente (LG 09 Fenster, Fenstertüren — Stüc</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Fenster — EG</stichwort>
+                      <langtext>
+                        <p>Fenster — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>byte-exakt aus dem Plan (Fenster-Codes/Maße) · Stück-Liste</p>
+                        <p>1.30×1.28 m  · 3× à 1.66 m² = 4.98 m² Ansichtsfläche  = 3</p>
+                        <p>1.00×1.00 m  · 1× à 1.0 m² = 1.0 m² Ansichtsfläche  = 1</p>
+                        <p>0.80×1.00 m  · 1× à 0.8 m² = 0.8 m² Ansichtsfläche  = 1</p>
+                        <p>0.90×0.88 m  · 1× à 0.79 m² = 0.79 m² Ansichtsfläche  = 1</p>
+                        <p>0.60×0.60 m  · 2× à 0.36 m² = 0.72 m² Ansichtsfläche  = 2</p>
+                        <p>0.60×0.58 m  · 1× à 0.35 m² = 0.35 m² Ansichtsfläche  = 1</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>Stk</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>9.00</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.3] Innentüren — EG</stichwort>
+                      <langtext>
+                        <p>Innentüren — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>byte-exakt · Innentüren · Stück-Liste</p>
+                        <p>2.20×2.00 m  · 1× à 4.4 m² = 4.4 m² Ansichtsfläche  = 1</p>
+                        <p>1.13×2.20 m  · 1× à 2.49 m² = 2.49 m² Ansichtsfläche  = 1</p>
+                        <p>0.88×2.20 m  · 1× à 1.94 m² = 1.94 m² Ansichtsfläche  = 1</p>
+                        <p>0.80×2.30 m  · 1× à 1.84 m² = 1.84 m² Ansichtsfläche  = 1</p>
+                        <p>0.80×2.20 m  · 1× à 1.76 m² = 1.76 m² Ansichtsfläche  = 1</p>
+                        <p>0.80×2.05 m  · 3× à 1.64 m² = 4.92 m² Ansichtsfläche  = 3</p>
+                        <p>0.67×2.04 m  · 1× à 1.37 m² = 1.37 m² Ansichtsfläche  = 1</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>Stk</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>9.00</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="44">
+          <lg-eigenschaften>
+            <ueberschrift>Fassadendämmung / WDVS (LG 44 Wärmedämmverbundsysteme)</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Fassadendämmung / WDVS (LG 44 Wärmedämmverbundsysteme)</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] WDVS Fassadendämmung — EG</stichwort>
+                      <langtext>
+                        <p>WDVS Fassadendämmung — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>LG 44 WDVS · Außenwand-Ansichtsfläche brutto − Fassaden-Öffnungen&gt;4.0 m² (Fassaden-Bauweise prüfen)</p>
+                        <p>Außenwand Ansichtsfläche brutto  · Außenumfang × Höhe (gemeinsame Basis wie Rohbau/Außenputz)  = 124.6</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>124.60</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="04">
+          <lg-eigenschaften>
+            <ueberschrift>Gerüstbau (LG 04 Gerüste — Fassadengerüst, eingerüstete Ansi</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Gerüstbau (LG 04 Gerüste — Fassadengerüst, eingerüstete Ansi</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Fassadengerüst — EG</stichwort>
+                      <langtext>
+                        <p>Fassadengerüst — EG · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>LG 04 Gerüste · eingerüstete Ansichtsfläche = Außenumfang × Höhe · Öffnungen übermessen (Gerüst läuft durch)</p>
+                        <p>Eingerüstete Fassadenfläche  · Außenwand-Ansichtsfläche brutto (gemeinsame Basis)  = 124.6</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m²</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>124.60</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+        <lg nr="02">
+          <lg-eigenschaften>
+            <ueberschrift>Erdarbeiten (LG 02 — in Anlehnung an ÖNORM B 2205, Annahme-P</ueberschrift>
+            <herkunftskennzeichen>Z</herkunftskennzeichen>
+          </lg-eigenschaften>
+          <ulg-liste>
+            <ulg nr="01">
+              <ulg-eigenschaften>
+                <ueberschrift>Erdarbeiten (LG 02 — in Anlehnung an ÖNORM B 2205, Annahme-P</ueberschrift>
+                <herkunftskennzeichen>Z</herkunftskennzeichen>
+              </ulg-eigenschaften>
+              <positionen>
+                <grundtextnr nr="01">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.1] Humusabtrag und Zwischenlagerung</stichwort>
+                      <langtext>
+                        <p>Humusabtrag und Zwischenlagerung · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2205 · Grubenfläche × Humus-Annahme 0,20 m</p>
+                        <p>Baufeld (Bodenplatte + Arbeitsraum)  · (128.3 m² + U 45.3 m × 0.8 m) × 0.20 m (Annahme)  = 32.9136</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m³</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>32.91</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="02">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.2] Baugrubenaushub — frostfreie Gründung</stichwort>
+                      <langtext>
+                        <p>Baugrubenaushub — frostfreie Gründung · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>in Anlehnung an ÖNORM B 2205 · Grubenfläche × Aushubtiefe-ANNAHME — Tiefe/Böschung sind Projekt-Sache (Baugrundgutachten); aushub_tiefe_m je Firma überschreibbar</p>
+                        <p>Aushub bis Aushubsohle  · 164.6 m² × 0.50 m (kein KG — Annahme)  = 82.284</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m³</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>82.28</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="03">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.3] Rollierung/Frostkoffer unter Bodenplatte</stichwort>
+                      <langtext>
+                        <p>Rollierung/Frostkoffer unter Bodenplatte · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Bodenplatten-Fläche × 0,15 m Rollierung (Annahme, üblich 10–20 cm)</p>
+                        <p>Rollierung 15 cm  · 128.3 m² × 0,15 m  = 19.248</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m³</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>19.25</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+                <grundtextnr nr="04">
+                  <ungeteilteposition mfv="">
+                    <pos-eigenschaften>
+                      <stichwort>[1.4] Hinterfüllung Arbeitsraum (lagenweise verdichtet)</stichwort>
+                      <langtext>
+                        <p>Hinterfüllung Arbeitsraum (lagenweise verdichtet) · Maschinell ermittelte Menge aus Planauswertung (frei formuliert, ohne LB-Bezug).</p>
+                        <p>Außenumfang × Arbeitsraum-Streifen × Aushubtiefe (Annahme)</p>
+                        <p>Arbeitsraum-Verfüllung  · U 45.3 m × 0.8 m × 0.50 m  = 18.124</p>
+                      </langtext>
+                      <herkunftskennzeichen>Z</herkunftskennzeichen>
+                      <einheit>m³</einheit>
+                      <pzzv>
+                        <normalposition />
+                      </pzzv>
+                      <leistungsteil>1</leistungsteil>
+                      <lvmenge>18.12</lvmenge>
+                      <nichtangeboten />
+                    </pos-eigenschaften>
+                  </ungeteilteposition>
+                </grundtextnr>
+              </positionen>
+            </ulg>
+          </ulg-liste>
+        </lg>
+      </lg-liste>
+    </gliederung-lg>
+  </entwurfs-lv>
+</onlv>

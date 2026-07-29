@@ -96,7 +96,7 @@ except Exception as _e:  # pragma: no cover
     print(f"[nachzeichnen] Import fehlgeschlagen: {_e}")
     _NACHZEICHNEN_OK = False
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.55"
+APP_REV = "2026-07-09.56"
 
 
 @app.get("/api/extract-health")
@@ -7068,6 +7068,103 @@ async def eigene_position_api(body: EigenePositionRequest):
     except Exception as e:
         print(f"[eigene-position] fehlgeschlagen: {e!r}")
         return JSONResponse({"ok": False, "grund": f"Fehlgeschlagen: {e}"},
+                            status_code=200)
+
+
+def _onlv_lesen(daten: bytes):
+    """ÖNORM-A-2063-LV (.onlv) EINLESEN — der Anschluss in die andere Richtung.
+
+    Ein Betrieb bekommt das LV vom Auftraggeber/Planer und will die MENGEN
+    einsetzen, nicht die Positionen abtippen. Gelesen wird bewusst TOLERANT:
+    fremde Dateien (ABK, Nevaris, ORCA) unterscheiden sich in Namensraum und
+    Gliederung, tragen die Positionen aber alle als <ungeteilteposition> bzw.
+    <geteilteposition> mit <pos-eigenschaften>. Darum wird ueber die lokalen
+    Tagnamen gesucht statt ueber einen erwarteten Namensraum.
+
+    -> {ok, positionen:[{nr, stichwort, einheit, menge, langtext}], n}
+    """
+    import xml.etree.ElementTree as ET
+
+    def _lokal(tag):
+        return tag.rsplit("}", 1)[-1]
+
+    try:
+        wurzel = ET.fromstring(daten)
+    except Exception as e:
+        return {"ok": False, "grund": f"Kein lesbares XML: {str(e)[:120]}"}
+
+    def _kind(el, name):
+        for k in el:
+            if _lokal(k.tag) == name:
+                return k
+        return None
+
+    def _text(el, name):
+        k = _kind(el, name) if el is not None else None
+        return (k.text or "").strip() if k is not None and k.text else None
+
+    def _langtext(eig):
+        lt = _kind(eig, "langtext")
+        if lt is None:
+            return None
+        teile = []
+        for p_ in lt.iter():
+            if _lokal(p_.tag) == "p" and p_.text:
+                teile.append(p_.text.strip())
+        return " · ".join(teile) if teile else None
+
+    positionen = []
+    for el in wurzel.iter():
+        if _lokal(el.tag) not in ("ungeteilteposition", "geteilteposition"):
+            continue
+        eig = _kind(el, "pos-eigenschaften")
+        if eig is None:
+            continue
+        stich = _text(eig, "stichwort")
+        einh = _text(eig, "einheit")
+        menge = _text(eig, "lvmenge")
+        try:
+            menge = float(menge) if menge else None
+        except (TypeError, ValueError):
+            menge = None
+        # Positionsnummer: als Attribut ODER als eigenes Element, je nach Erzeuger
+        nr = (el.get("nr") or el.get("posnr") or _text(eig, "posnr")
+              or _text(el, "nr"))
+        if not (stich or nr):
+            continue
+        positionen.append({
+            "nr": nr, "stichwort": stich, "einheit": einh,
+            "menge": menge, "langtext": _langtext(eig),
+        })
+    if not positionen:
+        return {"ok": False,
+                "grund": "Keine Positionen gefunden — ist das eine A-2063-Datei?"}
+    return {"ok": True, "positionen": positionen, "n": len(positionen)}
+
+
+@app.post("/api/lv-import")
+async def lv_import(datei: UploadFile = File(...)):
+    """LV (.onlv, ÖNORM A 2063) EINLESEN — Positionen uebernehmen statt abtippen.
+
+    Der Gegenweg zu /api/aufmass-onlv: Positionen des Auftraggebers kommen
+    herein, bekommen eine Aufmassregel zugewiesen und werden dann aus dem Plan
+    gefuellt. Best-effort, nie 500."""
+    try:
+        roh = await datei.read()
+        if not roh:
+            return JSONResponse({"ok": False, "grund": "Leere Datei."},
+                                status_code=200)
+        if len(roh) > 20 * 1024 * 1024:
+            return JSONResponse({"ok": False, "grund": "Datei zu gross (>20 MB)."},
+                                status_code=200)
+        erg = _onlv_lesen(roh)
+        if erg.get("ok"):
+            print(f"[lv-import] {erg['n']} Positionen aus "
+                  f"{getattr(datei, 'filename', '?')} gelesen")
+        return erg
+    except Exception as e:
+        print(f"[lv-import] fehlgeschlagen: {e!r}")
+        return JSONResponse({"ok": False, "grund": f"Import fehlgeschlagen: {e}"},
                             status_code=200)
 
 
