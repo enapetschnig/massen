@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.64"
+APP_REV = "2026-07-09.65"
 
 
 @app.get("/api/extract-health")
@@ -2071,6 +2071,40 @@ Wenn ein Wert nicht zu sehen ist, feld weglassen. Keine Markdown, nur JSON."""
     # alten agent_log + altem (zufällig passenden) Hash einfrieren, während die
     # elemente weg sind. Geleerter Hash → nächster Aufruf rechnet sauber neu.
     sb.table("plaene").update({"input_hash": None}).eq("id", body.plan_id).execute()
+    # RAUM-LAGEN RETTEN, BEVOR GELOESCHT WIRD.
+    # Fehler, der das Schwanken verursacht hat (gemessen: ein Lauf 19 Raeume
+    # mit Lage, der naechste 0): der Scan-Bbox-Pass laeuft NUR fuer Raeume
+    # OHNE Umfang. Findet ein Lauf die Umfaenge — oder erbt sie —, wird der
+    # Pass uebersprungen, waehrend dieses delete die vorhandenen Lagen schon
+    # weggeraeumt hat. Die Uebernahme muss darum HIER stehen, unabhaengig
+    # davon ob der Bbox-Pass spaeter laeuft. Monoton: einmal gefunden, bleibt.
+    _alte_lagen = {}
+    try:
+        for _row in (sb.table("elemente").select("daten")
+                     .eq("plan_id", body.plan_id).eq("typ", "raum")
+                     .execute().data or []):
+            _ad = _row.get("daten") or {}
+            if _ad.get("region_pt") and _ad.get("name"):
+                _alte_lagen[(_norm_name(_ad["name"]), _ad.get("geschoss"))] = {
+                    "region_pt": _ad["region_pt"],
+                    "region_anker": _ad.get("region_anker"),
+                }
+    except Exception as _le:
+        print(f"[raum-lagen] Sichern fehlgeschlagen: {_le!r}")
+    if _alte_lagen:
+        _uebern = 0
+        for _r in unique_rooms:
+            if _r.get("region_pt") or not _r.get("name"):
+                continue
+            _tr = _alte_lagen.get((_norm_name(_r["name"]), _r.get("geschoss")))
+            if _tr:
+                _r["region_pt"] = _tr["region_pt"]
+                if _tr.get("region_anker"):
+                    _r["region_anker"] = _tr["region_anker"]
+                _r["region_pt_quelle"] = "früherer Lauf"
+                _uebern += 1
+        if _uebern:
+            print(f"[raum-lagen] {_uebern} Raum-Lagen aus früherem Lauf gerettet")
     sb.table("massen").delete().eq("plan_id", body.plan_id).execute()
     sb.table("elemente").delete().eq("plan_id", body.plan_id).execute()
 
