@@ -31,6 +31,7 @@ GUARDS = [
     ("Vision-Antwort-Parser", "test_json_parser.py", "Vision-Parser"),
     ("LV-Import (A 2063)", "test_lv_import.py", "LV-Import"),
     ("ÖNORM-Nachweis (Rechenweg)", "mess_oenorm_nachweis.py", "Regeln nachgewiesen"),
+    ("Gewerke-Breite (Sektoren)", "mess_gewerke_breite.py", "Gewerke liefern Mengen"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
