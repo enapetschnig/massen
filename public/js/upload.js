@@ -3622,12 +3622,21 @@
     // und nichts sagte das. Wer den Plan zum Pruefen benutzt, muss sehen,
     // wenn die Zeichnung und die Zahl nicht zusammenpassen: sonst prueft er
     // eine Flaeche, mit der gar nicht gerechnet wird.
-    if (f && r.f_ist != null && r.f_ist > 0) {
-      var _ab = Math.abs(r.f_ist - f) / f * 100;
+    // Die Flaeche des GEZEICHNETEN Umrisses selbst rechnen, nicht r.f_ist
+    // nehmen: das Feld enthaelt die Verifikations-Flaeche aus dem Raster,
+    // nicht die des Polygons, das am Plan zu sehen ist. Am Referenzplan
+    // weichen die beiden voneinander ab (Flur: f_ist 14,65 · Polygon 14,00 ·
+    // Stempel 15,84) — der Hinweis haette an der falschen Zahl gehangen und
+    // waere bei 7,5 % knapp unter der Schwelle stumm geblieben, obwohl der
+    // sichtbare Umriss 11,6 % daneben liegt.
+    var _fpoly = (r.region_px && r.region_px.length >= 3)
+      ? _nzPolyFlaeche(r.region_px) : null;
+    if (f && _fpoly && _fpoly > 0) {
+      var _ab = Math.abs(_fpoly - f) / f * 100;
       if (_ab >= 8) {
         z += '<div class="rw-abw">Der <strong>gezeichnete Umriss</strong> umschließt ' +
-          fmtNum(Math.round(r.f_ist * 100) / 100) + ' m² — ' +
-          Math.round(_ab) + ' % ' + (r.f_ist < f ? 'weniger' : 'mehr') +
+          fmtNum(Math.round(_fpoly * 100) / 100) + ' m² — ' +
+          Math.round(_ab) + ' % ' + (_fpoly < f ? 'weniger' : 'mehr') +
           ' als der Raumstempel. <strong>Gerechnet wird mit ' + fmtNum(f) +
           ' m²</strong> (byte-exakt aus dem Plan-Text). Der Umriss ist hier ' +
           'nur der Zeigefinger — zum Nachmessen bitte ✏️ Raum bearbeiten.</div>';
