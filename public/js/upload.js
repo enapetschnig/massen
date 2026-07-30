@@ -2986,6 +2986,23 @@
         _nzSel = parseInt(ln.getAttribute('data-wid'), 10); _nzPaint();
       });
     });
+    // RAUM ANKLICKEN = WERTE SEHEN. Direkt am Element gebunden, genau wie die
+    // Waende darueber — der Weg ueber ein Fenster-weites mouseup mit
+    // Pan-Zustand traegt nicht zuverlaessig (kein sauberes Ereignis-Paar bei
+    // Stift/Touch), und dann passiert beim Antippen eines Zimmers gar nichts.
+    cont.querySelectorAll('polygon[data-rpoly]').forEach(function (pg) {
+      pg.addEventListener('click', function (ev) {
+        if (_nzMoved || _nzAddMode || _nzMeasMode) return;
+        var ri = parseInt(pg.getAttribute('data-rpoly'), 10);
+        if (isNaN(ri)) return;
+        if (_nzRaumEditMode) { _nzRaumSel = ri; _nzPaint(); _nzRaumLiveReadout(ri); }
+        else {
+          _nzRaumInfo = (_nzRaumInfo === ri) ? null : ri;
+          _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+        }
+        ev.stopPropagation();
+      });
+    });
     // Öffnungs-Marker anklicken = keine Öffnung (Fehl-Erkennung entfernen)
     cont.querySelectorAll('g[data-oid]').forEach(function (mk) {
       mk.addEventListener('click', function () {
