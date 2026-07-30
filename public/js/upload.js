@@ -2969,7 +2969,7 @@
       (_nzRaumEditMode ? '<div class="nz-raum-editbar" id="nz-raum-out">' +
         (_nzRaumSel >= 0 ? '' : '<strong style="color:#0369a1">Klicke einen Raum</strong>, um seine Eckpunkte zu ziehen — Fläche &amp; Umfang rechnen live neu.') +
         '</div>' : '') +
-      _nzRaumLeiste() +
+      _nzRaumLeiste() + _nzRaumWerteHtml(_nzRaumInfo) +
       '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode || _nzMeasMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
       '<div class="nz-zoom" style="transform-origin:0 0;position:relative;width:100%">' +
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
@@ -2991,12 +2991,16 @@
     // Waende darueber — der Weg ueber ein Fenster-weites mouseup mit
     // Pan-Zustand traegt nicht zuverlaessig (kein sauberes Ereignis-Paar bei
     // Stift/Touch), und dann passiert beim Antippen eines Zimmers gar nichts.
+    var _rwZu = cont.querySelector('#raum-werte .rw-zu');
+    if (_rwZu) _rwZu.addEventListener('click', function () {
+      _nzRaumInfo = null; _nzPaint();
+    });
     cont.querySelectorAll('.nz-rl[data-rl]').forEach(function (b) {
       b.addEventListener('click', function () {
         var ri = parseInt(b.getAttribute('data-rl'), 10);
         if (isNaN(ri)) return;
         _nzRaumInfo = (_nzRaumInfo === ri) ? null : ri;
-        _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+        _nzPaint();
       });
     });
     cont.querySelectorAll('polygon[data-rpoly]').forEach(function (pg) {
@@ -3007,7 +3011,7 @@
         if (_nzRaumEditMode) { _nzRaumSel = ri; _nzPaint(); _nzRaumLiveReadout(ri); }
         else {
           _nzRaumInfo = (_nzRaumInfo === ri) ? null : ri;
-          _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+          _nzPaint();
         }
         ev.stopPropagation();
       });
@@ -3181,7 +3185,7 @@
       var ri = _nzRaumUnterPunkt(_nzScreenToImg(e));
       if (ri == null) return;
       _nzRaumInfo = (_nzRaumInfo === ri) ? null : ri;
-      _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+      _nzPaint();
     });
     _nzWrap.addEventListener('mousedown', function (e) {
       if (_nzAddMode) { _nzDraw = { p0: _nzScreenToImg(e), p1: null }; e.preventDefault(); return; }
@@ -3267,7 +3271,7 @@
             } else {
               // AUSSERHALB des Editors: Klick auf den Raum zeigt seine WERTE.
               _nzRaumInfo = (_nzRaumInfo === +rp) ? null : +rp;
-              _nzPan = null; _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+              _nzPan = null; _nzPaint();
             }
             return;
           }
@@ -3585,22 +3589,13 @@
   // Zeigt was der Raum ist (F/U/H byte-exakt oder geschaetzt) UND welche
   // Positionen er traegt. Genau das, was ein Polier wissen will, wenn er auf
   // ein Zimmer tippt.
-  function _nzRaumWerte(ri) {
-    var sec = document.getElementById('nachzeichnen-section');
-    var box = document.getElementById('raum-werte');
-    if (!box && sec) {
-      box = document.createElement('div');
-      box.id = 'raum-werte';
-      box.className = 'raum-werte';
-      var cont = document.getElementById('nachzeichnen-container');
-      if (cont && cont.parentNode) cont.parentNode.insertBefore(box, cont);
-      else sec.appendChild(box);
-    }
-    if (!box) return;
-    if (ri == null || !_nzData || !(_nzData.raeume || [])[ri]) {
-      box.style.display = 'none';
-      return;
-    }
+  // Das Feld wird MIT dem Plan gezeichnet, nicht nachtraeglich in den DOM
+  // gehaengt: sonst landet es weit oberhalb der Raumleiste, und wer einen
+  // Raum antippt, sieht die Werte nicht — sie stehen ausserhalb des Blicks.
+  function _nzRaumWerte(ri) { _nzPaint(); }
+
+  function _nzRaumWerteHtml(ri) {
+    if (ri == null || !_nzData || !(_nzData.raeume || [])[ri]) return '';
     var r = _nzData.raeume[ri];
     var nm = r.name || 'Raum';
     var f = r.f_m2, u = r.u_m, h = r.hoehe_m;
@@ -3654,12 +3649,7 @@
         }
       }
     }
-    box.innerHTML = z;
-    box.style.display = '';
-    var zu = box.querySelector('.rw-zu');
-    if (zu) zu.onclick = function () {
-      _nzRaumInfo = null; box.style.display = 'none'; _nzPaint();
-    };
+    return '<div class="raum-werte" id="raum-werte">' + z + '</div>';
   }
   window._nzRaumWerte = _nzRaumWerte;
 
