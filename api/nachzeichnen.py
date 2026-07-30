@@ -296,6 +296,145 @@ def textflecken(arr, zell=2, max_zellen=400):
     return out
 
 
+
+def rechtwinklig_ziehen(poly, tol_grad=22.0, max_schraeg=0.25, tol_flaeche=0.10):
+    """Raumumriss auf die vorherrschenden Achsen begradigen.
+
+    WARUM: die rekonstruierten Umrisse hatten die richtige FLAECHE, aber nicht
+    die richtige FORM — am Referenzplan Flur 39 Ecken bei einer
+    Rechteckigkeit von 0,44, Zimmer 2 26 Ecken bei 0,55, Parkplatz 43 Ecken.
+    Der Umriss zappelt dann in winzigen Stufen an der Wand entlang; im Plan
+    sieht das aus wie ein Bogen. Gemessen: 21 der 39 Flur-Kanten liegen
+    bereits innerhalb von 1 Grad an einer Achse — es fehlt nur das
+    Zusammenfassen.
+
+    WIE: die laengengewichtete Hauptrichtung gibt das Achsenkreuz (der Plan
+    kann gedreht sein, darum nicht stur waagrecht/senkrecht). Jede Kante wird
+    auf die naehere Achse gezogen; direkt aufeinanderfolgende Kanten
+    DERSELBEN Achse werden zu einer verschmolzen (laengengewichtetes Mittel).
+    Die Ecken sind danach die Schnittpunkte der wechselnden Achsen.
+
+    GRENZEN, damit echte Formen erhalten bleiben:
+      - Ist mehr als `max_schraeg` der Umfangslaenge wirklich schraeg
+        (Erker, Pultdach, Schraege), bleibt der Umriss unangetastet.
+      - Aendert die Begradigung die Flaeche um mehr als `tol_flaeche`,
+        war die Annahme falsch -> Original zurueck.
+    """
+    import math as _m
+    if not poly or len(poly) < 4:
+        return poly
+    pts = [(float(x), float(y)) for (x, y) in poly]
+    n = len(pts)
+
+    def _flaeche(ps):
+        a = 0.0
+        for i in range(len(ps)):
+            a += ps[i - 1][0] * ps[i][1] - ps[i][0] * ps[i - 1][1]
+        return abs(a) / 2.0
+
+    f0 = _flaeche(pts)
+    if f0 <= 0:
+        return poly
+
+    sx = sy = 0.0
+    for i in range(n):
+        dx = pts[(i + 1) % n][0] - pts[i][0]
+        dy = pts[(i + 1) % n][1] - pts[i][1]
+        L = _m.hypot(dx, dy)
+        if L < 1e-9:
+            continue
+        w = _m.atan2(dy, dx) * 4.0
+        sx += L * _m.cos(w)
+        sy += L * _m.sin(w)
+    if sx == 0 and sy == 0:
+        return poly
+    th = _m.atan2(sy, sx) / 4.0
+    ca, sa = _m.cos(th), _m.sin(th)
+    rot = [(x * ca + y * sa, -x * sa + y * ca) for (x, y) in pts]
+
+    tol = _m.radians(tol_grad)
+    tol_lang = _m.radians(6.0)     # strenger Massstab fuer lange Kanten
+    _xs = [q[0] for q in rot]
+    _ys = [q[1] for q in rot]
+    _bw = max(_xs) - min(_xs)
+    _bh = max(_ys) - min(_ys)
+    # Massstab fuer "lange Schraege" ist die KURZE Seite, nicht die Diagonale:
+    # ein Flur ist lang und schmal, seine Diagonale ist gross, und dann gilt
+    # jede Zickzack-Kante als gewollte Schraege — genau der Fall, der die
+    # Begradigung dort blockierte.
+    # Beide Massstaebe helfen verschiedenen Raumformen: die Diagonale fasst
+    # gedrungene Raeume besser, die kurze Seite lange schmale. Eine Kante gilt
+    # erst dann als GEWOLLTE Schraege, wenn sie nach beiden Massstaeben lang
+    # ist — sonst blockiert der jeweils strengere die Begradigung.
+    lang = max(0.18 * _m.hypot(_bw, _bh), 0.35 * max(1e-6, min(_bw, _bh)))
+    kanten, l_schraeg, l_ges = [], 0.0, 0.0
+    for i in range(n):
+        x1, y1 = rot[i]
+        x2, y2 = rot[(i + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
+        L = _m.hypot(dx, dy)
+        l_ges += L
+        if L < 1e-9:
+            continue
+        w = abs(_m.atan2(dy, dx))
+        if w > _m.pi / 2:
+            w = _m.pi - w
+        # KURZE Schraegen sind das Zickzack, das begradigt werden soll;
+        # LANGE Schraegen sind echte Formen (Erker, Pultdach) und bleiben.
+        # Ohne diese Unterscheidung steigt das Verfahren bei jedem Raum aus:
+        # der Flur hat 21 Kanten innerhalb von 1 Grad an einer Achse UND
+        # vier kurze bei 23-30 Grad — die vier duerfen nicht alles blockieren.
+        # LANGE Kanten muessen SEHR nah an der Achse liegen, um als
+        # achsparallel zu gelten. Sonst passiert Folgendes (im Waechter
+        # aufgefallen): eine lange gewollte Schraege zieht die Hauptrichtung
+        # zu sich, liegt danach scheinbar innerhalb der 22-Grad-Toleranz und
+        # wird flachgebuegelt — das Verfahren wuerde ein Trapez zum Rechteck
+        # machen und damit eine Form erfinden, die im Plan nicht steht.
+        if L >= lang and not (w <= tol_lang or w >= _m.pi / 2 - tol_lang):
+            kanten.append(["s", 0.0, L])       # echte, lange Schraege
+            l_schraeg += L
+        elif w <= _m.pi / 4:
+            kanten.append(["h", (y1 + y2) / 2.0, L])
+        else:
+            kanten.append(["v", (x1 + x2) / 2.0, L])
+    if not kanten or (l_ges > 0 and l_schraeg / l_ges > max_schraeg):
+        return poly                            # ueberwiegend schraeg -> unberuehrt
+    if any(k[0] == "s" for k in kanten):
+        return poly                            # echte Schraege dabei: nicht anfassen
+
+    # Aufeinanderfolgende Kanten DERSELBEN Achse verschmelzen (ringfoermig)
+    m = []
+    for k in kanten:
+        if m and m[-1][0] == k[0]:
+            L1, L2 = m[-1][2], k[2]
+            m[-1][1] = (m[-1][1] * L1 + k[1] * L2) / (L1 + L2)
+            m[-1][2] = L1 + L2
+        else:
+            m.append(list(k))
+    while len(m) > 2 and m[0][0] == m[-1][0]:
+        L1, L2 = m[-1][2], m[0][2]
+        m[0][1] = (m[0][1] * L2 + m[-1][1] * L1) / (L1 + L2)
+        m[0][2] = L1 + L2
+        m.pop()
+    if len(m) < 4 or len(m) % 2 != 0:
+        return poly                            # kein sauberer Wechsel h/v
+
+    ecken = []
+    for i in range(len(m)):
+        a, b = m[i - 1], m[i]
+        if a[0] == b[0]:
+            return poly
+        nx = a[1] if a[0] == "v" else b[1]
+        ny = a[1] if a[0] == "h" else b[1]
+        ecken.append((nx, ny))
+    zurueck = [(x * ca - y * sa, x * sa + y * ca) for (x, y) in ecken]
+
+    f1 = _flaeche(zurueck)
+    if f1 <= 0 or abs(f1 - f0) / f0 > tol_flaeche:
+        return poly
+    return zurueck
+
+
 def _koten_verteilt(koten, page, min_spalten=4, min_spanne=0.25):
     """HÖHENKOTEN oder GELDBETRÄGE? Beide sehen als Text gleich aus (+2.98 /
     -12,50) — die Schnitt-Erkennung hielt darum Booking-/Bank-Belege für
@@ -754,7 +893,8 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "status": r.get("status"),
                 "ebene": r.get("ebene"),   # 'roh'|'fertig' — welche Ebene bewies
                 "px": to_px(r["cx"], r["cy"]),
-                "region_px": [to_px(x, y) for (x, y) in reg] if reg else None,
+                "region_px": ([to_px(x, y) for (x, y) in
+                               rechtwinklig_ziehen(reg)] if reg else None),
                 "u_geometrie": (u_geo or {}).get("u_m"),
                 "u_geometrie_poly": (u_geo or {}).get("u_poly_m"),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)

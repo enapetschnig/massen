@@ -38,6 +38,7 @@ GUARDS = [
     ("Klick-Handler (Im Plan zeigen)", "test_klick_handler.py", "Inline-Handler"),
     ("Außenumfang plausibel", "test_umfang_plausibel.py", "richtig bewertet"),
     ("Quellen-Konflikt (Text schlägt Vision)", "test_quellen_konflikt.py", "Konfliktfälle"),
+    ("Umriss begradigen", "test_umriss_begradigen.py", "Zickzack wird begradigt"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
