@@ -3083,6 +3083,33 @@
     _nzZoom.s = s1; _nzApplyZoom();
   }
 
+  // Welcher Raum liegt unter diesem Punkt? Rein rechnerisch (Strahlensatz),
+  // damit der Treffer nicht davon abhaengt, was gerade oben gezeichnet ist.
+  function _nzRaumUnterPunkt(pt) {
+    if (!_nzData || !(_nzData.raeume || []).length) return null;
+    var tref = null, klein = Infinity;
+    (_nzData.raeume || []).forEach(function (r, ri) {
+      var poly = r.region_px;
+      if (!poly || poly.length < 3) return;
+      var inside = false;
+      for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        var xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+        if (((yi > pt[1]) !== (yj > pt[1])) &&
+            (pt[0] < (xj - xi) * (pt[1] - yi) / ((yj - yi) || 1e-9) + xi)) {
+          inside = !inside;
+        }
+      }
+      if (!inside) return;
+      var a = 0;
+      for (var k = 0, l = poly.length - 1; k < poly.length; l = k++) {
+        a += (poly[l][0] + poly[k][0]) * (poly[l][1] - poly[k][1]);
+      }
+      a = Math.abs(a / 2);
+      if (a < klein) { klein = a; tref = ri; }   // verschachtelt -> kleinster
+    });
+    return tref;
+  }
+
   function _nzWireZoom(cont) {
     _nzWrap = cont.querySelector('.nz-wrap'); if (!_nzWrap) return;
     _nzApplyZoom();
@@ -3091,6 +3118,21 @@
       var rect = _nzWrap.getBoundingClientRect();
       _nzZoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
     }, { passive: false });
+    // KLICK-EREIGNIS als zweiter, unabhaengiger Weg. Der Weg ueber
+    // mousedown/mouseup + _nzPan traegt nicht ueberall: bei Stift- und
+    // Touch-Eingabe und bei synthetischen Klicks kommt kein sauberes Paar an,
+    // und dann passiert gar nichts. Ein Klick auf einen Raum muss aber
+    // funktionieren.
+    _nzWrap.addEventListener('click', function (e) {
+      if (_nzAddMode || _nzMeasMode || _nzRaumEditMode || _nzMoved) return;
+      if (e.target && e.target.getAttribute &&
+          (e.target.getAttribute('data-wid') != null ||
+           e.target.getAttribute('data-rv') != null)) return;   // Wand/Griff
+      var ri = _nzRaumUnterPunkt(_nzScreenToImg(e));
+      if (ri == null) return;
+      _nzRaumInfo = (_nzRaumInfo === ri) ? null : ri;
+      _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+    });
     _nzWrap.addEventListener('mousedown', function (e) {
       if (_nzAddMode) { _nzDraw = { p0: _nzScreenToImg(e), p1: null }; e.preventDefault(); return; }
       // RAUM-EDITOR: Eckpunkt ziehen oder (auf Kanten-Mitte) einfügen.
@@ -3165,31 +3207,8 @@
           // Leere. Darum zusaetzlich rechnerisch pruefen, in welchem
           // Raum-Polygon der Punkt liegt. Das haengt an keiner
           // Zeichenreihenfolge.
-          if (rp == null && _nzWrap && _nzData && (_nzData.raeume || []).length) {
-            var _pt = _nzScreenToImg(e);
-            var _tref = null, _kl = Infinity;
-            (_nzData.raeume || []).forEach(function (r, ri) {
-              var poly = r.region_px;
-              if (!poly || poly.length < 3) return;
-              var inside = false;
-              for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-                var xi = poly[i][0], yi = poly[i][1];
-                var xj = poly[j][0], yj = poly[j][1];
-                if (((yi > _pt[1]) !== (yj > _pt[1])) &&
-                    (_pt[0] < (xj - xi) * (_pt[1] - yi) / ((yj - yi) || 1e-9) + xi)) {
-                  inside = !inside;
-                }
-              }
-              if (!inside) return;
-              // Bei verschachtelten Umrissen (Raum in Ueberdachung) den
-              // KLEINSTEN nehmen — das ist der gemeinte Raum.
-              var a = 0;
-              for (var k = 0, l = poly.length - 1; k < poly.length; l = k++) {
-                a += (poly[l][0] + poly[k][0]) * (poly[l][1] - poly[k][1]);
-              }
-              a = Math.abs(a / 2);
-              if (a < _kl) { _kl = a; _tref = ri; }
-            });
+          if (rp == null && _nzWrap) {
+            var _tref = _nzRaumUnterPunkt(_nzScreenToImg(e));
             if (_tref != null) rp = String(_tref);
           }
           if (rp != null) {
