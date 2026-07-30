@@ -3333,7 +3333,16 @@
       '<button type="button" class="pb-zu" title="Ausblenden">&times;</button>';
     el.style.display = '';
     var zu = el.querySelector('.pb-zu');
-    if (zu) zu.onclick = function () { el.style.display = 'none'; };
+    if (zu) zu.onclick = function () {
+      el.style.display = 'none';
+      var c = document.getElementById('nachzeichnen-container');
+      if (c) {
+        var m = c.querySelectorAll('.nz-belegmarke');
+        Array.prototype.forEach.call(m, function (x) {
+          if (x.parentNode) x.parentNode.removeChild(x);
+        });
+      }
+    };
   }
   window._planBeleg = _planBeleg;
 
@@ -3427,10 +3436,14 @@
       g.classList.add('nz-hi');
       _planMarke(g, kurz);
     });
+    // Das PULSEN hoert auf, die MARKE bleibt. Wer eine Menge prueft, schaut
+    // erst auf die Zahl, dann auf den Plan, dann wieder auf die Zahl — eine
+    // Beschriftung, die nach ein paar Sekunden verschwindet, zwingt zum
+    // Nachklicken. Sie geht mit dem × der Beleg-Leiste oder mit der naechsten
+    // geprueften Menge.
     setTimeout(function () {
       sel.forEach(function (g) { g.classList.remove('nz-hi'); });
-      _markenWeg(cont);
-    }, 6000);
+    }, 3200);
   };
   // Kopplung Aufmaß-Zeile → Plan: die GEBÄUDE-HÜLLE (blaue Kontur) pulsieren
   // lassen — Beleg-Ort für flächige Mengen (Bodenplatte/Decke/WDVS/Gerüst).
