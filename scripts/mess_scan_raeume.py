@@ -91,6 +91,27 @@ def _fluten(frei, sx, sy, max_zellen):
     return zellen
 
 
+def _umfang_raster(zellen, form, zelle_m):
+    """Umfang der gefluteten Region in Metern (Randkanten x Zellkante).
+
+    DIE ZWEITE UNABHAENGIGE ZAHL. Die Flaeche allein ist als Kriterium
+    widerlegt — eine entkommene Flutung findet irgendwo eine Region passender
+    GROESSE. Ihre FORM verraet sie aber: sie ist eine Schlange durch Gaenge
+    und hat fuer ihre Flaeche einen viel zu grossen Umfang. Der Stempel nennt
+    F UND U byte-exakt, also ist die Form pruefbar.
+    """
+    H, W = form
+    m = np.zeros((H, W), dtype=bool)
+    for (y, x) in zellen:
+        m[y, x] = True
+    kanten = 0
+    kanten += int((m[:, 0]).sum()) + int((m[:, -1]).sum())
+    kanten += int((m[0, :]).sum()) + int((m[-1, :]).sum())
+    kanten += int((m[:, 1:] & ~m[:, :-1]).sum()) + int((m[:, :-1] & ~m[:, 1:]).sum())
+    kanten += int((m[1:, :] & ~m[:-1, :]).sum()) + int((m[:-1, :] & ~m[1:, :]).sum())
+    return kanten * zelle_m
+
+
 def _bbox(zellen):
     ys = [z[0] for z in zellen]
     xs = [z[1] for z in zellen]
@@ -206,16 +227,17 @@ def rekonstruieren(arr, pkt, flaechen, ppm, gitter=4, tol=0.30,
                 if _fremd:
                     continue
             f_ist = len(zellen) * (zelle_m ** 2)
+            u_ist = _umfang_raster(zellen, wand0.shape, zelle_m)
             ab = abs(f_ist - f_soll) / f_soll
             if bester is None or ab < bester[0]:
-                bester = (ab, zellen, r, f_ist)
+                bester = (ab, zellen, r, f_ist, u_ist)
             if f_ist < (1 - tol) * f_soll:
                 break     # ab hier wird es nur noch kleiner
         # NICHT den ersten passenden Radius nehmen, sondern den BESTEN. Die
         # Flaeche faellt mit wachsendem r monoton; der Treffer liegt dazwischen
         # und wird von einer groben Radien-Leiter sonst uebersprungen.
         if bester and bester[0] <= tol:
-            treffer = (bester[1], bester[2], bester[3], bester[0])
+            treffer = (bester[1], bester[2], bester[3], bester[0], bester[4])
         ergebnis.append(treffer)
     return ergebnis
 
@@ -267,7 +289,7 @@ def run():
                     continue
                 n_ang += 1
                 g_ang += 1
-                zellen, r, f_ist, f_ab = e
+                zellen, r, f_ist, f_ab = e[:4]
                 pw = (np.array(polys[i], dtype=np.float64) * k_um
                       if len(polys[i]) >= 3 else None)
                 iou = _iou_maske(zellen, pw, gitter,
@@ -335,7 +357,7 @@ def latte():
                     ein_raum_ein_stempel=TOR_STEMPEL)):
                 if not e:
                     continue
-                zellen, r, f_ist, f_ab = e
+                zellen, r, f_ist, f_ab = e[:4]
                 pw = (np.array(polys[i], dtype=np.float64) * k_um
                       if len(polys[i]) >= 3 else None)
                 iou = _iou_maske(zellen, pw, gitter,
