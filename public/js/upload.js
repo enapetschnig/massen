@@ -2709,14 +2709,23 @@
       // einschalten, um zu sehen, was ein Raum traegt.
       var _pe = 'auto';
       if (_nzRaumFill) {
-        var rc = _NZ_RAUMFARBEN[_rIdx % _NZ_RAUMFARBEN.length]; _rIdx++;
+        var rc = _NZ_RAUMFARBEN[_rIdx % _NZ_RAUMFARBEN.length];
         var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
         var _synth = (r._synthetic || r.region_geschaetzt) && !r._edited;
+        // FREIFLÄCHE (Wiese/Spielplatz/Pflaster): am WM-Plan sind das 2153 m²
+        // gegenüber 810 m² echter Räume — als normale Raumfarben überzogen sie
+        // den halben Plan und ließen die Raumliste unglaubwürdig aussehen.
+        // Grau, ohne Füllung, nicht in der Farbrotation: sichtbar für die
+        // Nachvollziehbarkeit, aber nicht als Raum ausgegeben.
+        var _frei = !!r.aussenanlage;
+        if (_frei) { rc = '#94a3b8'; } else { _rIdx++; }
         lines += '<polygon data-rpoly="' + _ri + '" points="' + pts + '" fill="' + rc + '" fill-opacity="' +
-          (_edit ? 0.16 : (_nzRaumInfo === _ri ? 0.22 : (_synth ? 0.10 : 0.09)))
+          (_frei ? (_nzRaumInfo === _ri ? 0.10 : 0.02)
+                 : (_edit ? 0.16 : (_nzRaumInfo === _ri ? 0.22 : (_synth ? 0.10 : 0.09))))
           + '" stroke="' + rc + '" stroke-width="'
-          + (_edit ? 3 : (_nzRaumInfo === _ri ? 2.4 : (_synth ? 1.6 : 1.3))) + '"' +
-          ' stroke-opacity="1"' + ((_synth && !_edit) ? ' stroke-dasharray="9 5"' : '') +
+          + (_frei ? 1 : (_edit ? 3 : (_nzRaumInfo === _ri ? 2.4 : (_synth ? 1.6 : 1.3)))) + '"' +
+          ' stroke-opacity="' + (_frei ? 0.55 : 1) + '"' +
+          ((_frei || (_synth && !_edit)) ? ' stroke-dasharray="9 5"' : '') +
           ' cursor="pointer" pointer-events="' + _pe + '">' +
           '<title>' + esc(r.name || '') + (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +
           (_synth ? ' — geschätzte Startform, bitte am Plan anpassen (✏️ Raum bearbeiten)'
@@ -3146,9 +3155,14 @@
   // sonst lange, und mit Stift oder am Touchgeraet trifft man daneben.
   function _nzRaumLeiste() {
     var rs = (_nzData && _nzData.raeume) || [];
-    var mit = rs.map(function (r, i) { return { r: r, i: i }; })
+    var alle = rs.map(function (r, i) { return { r: r, i: i }; })
       .filter(function (x) { return x.r && x.r.name; });
-    if (mit.length < 2) return '';
+    // Freiflächen ans ENDE, hinter eine eigene Beschriftung. Sie gehören auf
+    // den Plan (Nachvollziehbarkeit), aber nicht zwischen die Räume — sonst
+    // sucht der Polier seine Wohnung zwischen Wiesen.
+    var mit = alle.filter(function (x) { return !x.r.aussenanlage; });
+    var frei = alle.filter(function (x) { return x.r.aussenanlage; });
+    if (alle.length < 2) return '';
     var h = '<div class="nz-raumleiste" id="nz-raumleiste">' +
       '<span class="nz-rl-lab">Räume — anklicken zeigt die Werte:</span>';
     mit.forEach(function (x) {
@@ -3161,6 +3175,21 @@
         (x.r.f_m2 ? '<span class="nz-rl-f">' + fmtNum(x.r.f_m2) + ' m²</span>' : '') +
         '</button>';
     });
+    if (frei.length) {
+      h += '<span class="nz-rl-lab nz-rl-lab2">Freiflächen (keine Raumfläche, ' +
+        'nicht in den Mengen):</span>';
+      frei.forEach(function (x) {
+        h += '<button type="button" class="nz-rl nz-rl-frei' +
+          (_nzRaumInfo === x.i ? ' nz-rl-on' : '') +
+          '" data-rl="' + x.i + '" title="' + esc(x.r.name || '') +
+          (x.r.f_m2 ? ' · ' + fmtNum(x.r.f_m2) + ' m²' : '') +
+          ' — Geländefläche ohne Umfangs-Stempel, geht in keine Position ein">' +
+          '<span class="nz-rl-pt" style="background:#94a3b8"></span>' +
+          esc(String(x.r.name || '').slice(0, 18)) +
+          (x.r.f_m2 ? '<span class="nz-rl-f">' + fmtNum(x.r.f_m2) + ' m²</span>' : '') +
+          '</button>';
+      });
+    }
     return h + '</div>';
   }
 

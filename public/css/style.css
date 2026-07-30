@@ -3320,6 +3320,11 @@ g[data-raum].nz-hi circle {
 .nz-raumleiste { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
   margin: 0.5rem 0 0.6rem; }
 .nz-rl-lab { font-size: 0.82rem; color: var(--text-light); margin-right: 0.3rem; }
+/* Freiflächen-Abschnitt: eigene Beschriftung, gedämpfte Chips — Wiesen und
+   Spielplätze stehen am Plan, aber nicht zwischen den Räumen. */
+.nz-rl-lab2 { margin-left: 0.6rem; opacity: 0.85; }
+.nz-rl-frei { opacity: 0.72; }
+.nz-rl-frei .nz-rl-f { font-variant-numeric: tabular-nums; }
 .nz-rl { display: inline-flex; align-items: center; gap: 0.35rem;
   border: 1px solid var(--border); background: var(--white); border-radius: 999px;
   padding: 0.24rem 0.6rem; font-size: 0.82rem; cursor: pointer;

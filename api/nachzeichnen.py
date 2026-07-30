@@ -852,6 +852,15 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         # Räume zeigen die Abweichung). Aus dem finalen Label-Grid des Roh-
         # Passes (dbg_r); best-effort, große Pläne nicht (Latenz/Rausch).
         regionen = {}
+        # Freiflächen-Erkennung liegt in massen_logic (dort wohnt die
+        # Raum-Kategorie). Import lokal, damit nachzeichnen ohne die
+        # Mengen-Engine lauffähig bleibt.
+        try:
+            from massen_logic import ist_aussenanlage as _ist_aussen
+        except Exception:      # pragma: no cover
+            def _ist_aussen(_n, _f, _u):
+                return False
+
         region_gates = {}   # je Raum: warum wurde der Umriss (nicht) gezeichnet
         try:
             # Läuft jetzt AUCH auf Großplänen (Nachvollziehbarkeit: WM/TG-Räume hatten
@@ -888,6 +897,12 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 # abgelehnter Umriss (nur Diagnose, NICHT gezeichnet)
                 "_umriss_verworfen": ([to_px(x, y) for (x, y) in _g["poly_pt"]]
                                       if (not reg and _g.get("poly_pt")) else None),
+                # FREIFLÄCHE statt Raum (Wiese/Spielplatz/Pflaster): wird in
+                # der Liste und am Plan getrennt gezeigt, damit die Raumliste
+                # nur Räume enthält. Mengen sind davon unberührt — die Innen-
+                # Gewerke filtern ohnehin auf die Raum-Kategorie.
+                "aussenanlage": _ist_aussen(r.get("name"), r.get("f_m2"),
+                                            r.get("u_m")),
                 "name": r.get("name"), "f_m2": r.get("f_m2"), "u_m": r.get("u_m"),
                 "f_ist": r.get("f_ist"), "u_ist": r.get("u_ist"),
                 "status": r.get("status"),

@@ -85,6 +85,44 @@ def kategorie_of(name: str):
     return None
 
 
+def ist_aussenanlage(name, f_m2, u_m):
+    """Ist dieser Stempel eine FREIFLÄCHE (Wiese, Spielplatz, Pflaster)?
+
+    Am WM-Plan stehen 8 solcher Stempel mit zusammen 1175 m² — sie erschienen
+    als Räume in der Liste und überzogen den halben Plan mit Umriss-Lappen.
+    Auf die MENGEN wirken sie nicht (end-zu-Ende gemessen: 0 Positionen ändern
+    sich, weil jedes Innen-Gewerk auf kategorie_of() == 'Innenraum_warm'
+    filtert) — aber ein Polier, der 'Kinderspielfläche 313,96 m²' in seiner
+    Raumliste findet, glaubt der ganzen Liste nicht mehr.
+
+    Die Regel ist SPRACHUNABHÄNGIG und kommt aus dem Stempel selbst:
+    ein Raumstempel führt Fläche UND Umfang, weil beides für den Innenausbau
+    gebraucht wird; eine Geländefläche bekommt nur eine Fläche.
+
+        INNEN-Stempel   107 · 83 mit U-Angabe (78%)
+        AUSSEN-Stempel   15 ·  0 mit U-Angabe ( 0%)
+
+    Weil 22% echter Räume ebenfalls kein U tragen, reicht das allein nicht.
+    Erst die Kombination aus drei Bedingungen ist am Korpus trennscharf:
+    kein U + keine bekannte Raum-Kategorie + mindestens 100 m².
+
+        122 Stempel auf 4 Plänen -> 12 erkannt, 0 Fehlalarm, 3 verpasst
+        (die verpassten sind Radabstellplätze mit 22,70 m², unter der
+         Flächenschwelle — sie bleiben lieber Raum als falsch verschwunden)
+
+    Die Schwelle ist bewusst konservativ: einen echten Raum aus dem Plan zu
+    nehmen wäre viel teurer, als eine Wiese stehen zu lassen.
+    """
+    if u_m:
+        return False
+    if kategorie_of(name) is not None:
+        return False
+    try:
+        return float(f_m2 or 0) >= 100.0
+    except (TypeError, ValueError):
+        return False
+
+
 # ════════════════════════════════════════════════════════════════════════
 # LV-Position (Buchform)
 # ════════════════════════════════════════════════════════════════════════
