@@ -85,6 +85,13 @@ def bauen(kurz, muster):
     wahr_pt = [(x["px"][0] / sc0 + box[0], x["px"][1] / sc0 + box[1])
                for x in r["raeume"] if x.get("px")]
     flaechen = [float(x.get("f_m2") or 0.0) for x in r["raeume"] if x.get("px")]
+    umfaenge = [float(x.get("u_m") or 0.0) for x in r["raeume"] if x.get("px")]
+    # WAHRE UMRISSE: der Vektor-Plan hat sie rekonstruiert, der Scan nicht.
+    # Damit ist zum ersten Mal messbar, wie gut eine Rekonstruktion AUS DEM
+    # BILD ist — nicht nur, wie nah ein Punkt liegt. In Overlay-px des
+    # Original-Renders; unten in die Scan-Pixel umgerechnet.
+    poly0 = [np.array(x.get("region_px") or [], dtype=np.float64)
+             for x in r["raeume"] if x.get("px")]
     if len(wahr_pt) < 2:
         print(f"{kurz:10} zu wenige Stempel")
         doc.close()
@@ -105,6 +112,16 @@ def bauen(kurz, muster):
         a, b, c, d, e, f = M
         pkt = np.stack([a * pkt[:, 0] + b * pkt[:, 1] + c,
                         d * pkt[:, 0] + e * pkt[:, 1] + f], axis=1)
+        # Wahre Umrisse durch DIESELBE Kette: Skala des Original-Renders auf
+        # die Scan-Skala, dann dieselbe Drehung.
+        poly = []
+        for q in poly0:
+            if len(q) < 3:
+                poly.append(np.zeros((0, 2)))
+                continue
+            qq = q * (sc / sc0)
+            poly.append(np.stack([a * qq[:, 0] + b * qq[:, 1] + c,
+                                  d * qq[:, 0] + e * qq[:, 1] + f], axis=1))
         # 2) Sensorrauschen
         if rausch > 0:
             rng = np.random.default_rng(hash(kurz) % 2**32)
@@ -131,7 +148,9 @@ def bauen(kurz, muster):
 
         np.savez_compressed(
             os.path.join(SP, f"scan_{kurz}_{hname}.npz"),
-            pkt=pkt, flaeche=np.array(flaechen), ppm=sc * ptm,
+            pkt=pkt, flaeche=np.array(flaechen),
+            umfang=np.array(umfaenge),
+            poly=np.array(poly, dtype=object), ppm=sc * ptm,
             sc=sc, ptm=ptm, pdf=ziel)
         print(f"{kurz:10} {hname:7} {arr.shape[1]}x{arr.shape[0]}px · "
               f"{sc * ptm:.0f} px/m · {len(pkt)} Stempel · "
