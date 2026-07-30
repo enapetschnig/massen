@@ -3312,3 +3312,25 @@ g[data-raum].nz-hi circle {
 #nachzeichnen-container .nz-wrap,
 #nachzeichnen-container svg { max-height: none; }
 .nz-plan-gross #nachzeichnen-container .nz-wrap { height: min(76vh, 900px); }
+
+/* RAUMLEISTE über dem Plan — jeder Raum ein Knopf. Der Klick im Plan ist der
+   schönere Weg, aber nicht der einzige, der tragen muss: auf einer A0-Tafel
+   mit 70 Räumen sucht man sonst lange, und mit Stift oder am Touchgerät
+   trifft man daneben. */
+.nz-raumleiste { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem;
+  margin: 0.5rem 0 0.6rem; }
+.nz-rl-lab { font-size: 0.82rem; color: var(--text-light); margin-right: 0.3rem; }
+.nz-rl { display: inline-flex; align-items: center; gap: 0.35rem;
+  border: 1px solid var(--border); background: var(--white); border-radius: 999px;
+  padding: 0.24rem 0.6rem; font-size: 0.82rem; cursor: pointer;
+  color: var(--text); }
+.nz-rl:hover { border-color: var(--accent, #f39301); }
+.nz-rl-on { border-color: var(--accent, #f39301); background: #fff7ed;
+  font-weight: 700; }
+.nz-rl-pt { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.nz-rl-f { color: var(--text-light); font-variant-numeric: tabular-nums; }
+.nz-rl-on .nz-rl-f { color: var(--text); }
+@media (prefers-color-scheme: dark) {
+  .nz-rl { background: rgba(255,255,255,0.04); }
+  .nz-rl-on { background: rgba(243,147,1,0.14); }
+}

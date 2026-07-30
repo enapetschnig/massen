@@ -2969,6 +2969,7 @@
       (_nzRaumEditMode ? '<div class="nz-raum-editbar" id="nz-raum-out">' +
         (_nzRaumSel >= 0 ? '' : '<strong style="color:#0369a1">Klicke einen Raum</strong>, um seine Eckpunkte zu ziehen — Fläche &amp; Umfang rechnen live neu.') +
         '</div>' : '') +
+      _nzRaumLeiste() +
       '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode || _nzMeasMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
       '<div class="nz-zoom" style="transform-origin:0 0;position:relative;width:100%">' +
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
@@ -2990,6 +2991,14 @@
     // Waende darueber — der Weg ueber ein Fenster-weites mouseup mit
     // Pan-Zustand traegt nicht zuverlaessig (kein sauberes Ereignis-Paar bei
     // Stift/Touch), und dann passiert beim Antippen eines Zimmers gar nichts.
+    cont.querySelectorAll('.nz-rl[data-rl]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var ri = parseInt(b.getAttribute('data-rl'), 10);
+        if (isNaN(ri)) return;
+        _nzRaumInfo = (_nzRaumInfo === ri) ? null : ri;
+        _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+      });
+    });
     cont.querySelectorAll('polygon[data-rpoly]').forEach(function (pg) {
       pg.addEventListener('click', function (ev) {
         if (_nzMoved || _nzAddMode || _nzMeasMode) return;
@@ -3125,6 +3134,30 @@
       if (a < klein) { klein = a; tref = ri; }   // verschachtelt -> kleinster
     });
     return tref;
+  }
+
+  // RAUMLEISTE ueber dem Plan: jeder Raum ein Knopf mit Name und Flaeche.
+  // Der Klick im Plan ist der schoenere Weg, aber er ist nicht der einzige,
+  // der funktionieren muss — auf einer A0-Tafel mit 70 Raeumen sucht man
+  // sonst lange, und mit Stift oder am Touchgeraet trifft man daneben.
+  function _nzRaumLeiste() {
+    var rs = (_nzData && _nzData.raeume) || [];
+    var mit = rs.map(function (r, i) { return { r: r, i: i }; })
+      .filter(function (x) { return x.r && x.r.name; });
+    if (mit.length < 2) return '';
+    var h = '<div class="nz-raumleiste" id="nz-raumleiste">' +
+      '<span class="nz-rl-lab">Räume — anklicken zeigt die Werte:</span>';
+    mit.forEach(function (x) {
+      var ok = x.r.status === 'verifiziert' || x.r.rohbau_ok || x.r.iou_bewiesen;
+      h += '<button type="button" class="nz-rl' + (_nzRaumInfo === x.i ? ' nz-rl-on' : '') +
+        '" data-rl="' + x.i + '" title="' + esc(x.r.name || '') +
+        (x.r.f_m2 ? ' · ' + fmtNum(x.r.f_m2) + ' m²' : '') + '">' +
+        '<span class="nz-rl-pt" style="background:' + (ok ? '#16a34a' : '#d97706') + '"></span>' +
+        esc(String(x.r.name || '').slice(0, 18)) +
+        (x.r.f_m2 ? '<span class="nz-rl-f">' + fmtNum(x.r.f_m2) + ' m²</span>' : '') +
+        '</button>';
+    });
+    return h + '</div>';
   }
 
   function _nzWireZoom(cont) {
