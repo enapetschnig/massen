@@ -36,6 +36,22 @@ _KOMPAKT_MIN = 3   # Kompaktheits-Schwelle des F-Ausgleichs (Ziel-Nachbarn von 8
 _KEIN_RAUMNAME = ("fliesen", "parkett", "laminat", "teppich", "estrich", "beton",
                   "betonplatten", "kies", "wiese", "rasen", "pflaster", "asphalt",
                   "holz", "vlies", "epoxy", "keramik", "stein", "feinstein")
+# Einheiten-Reste: beim Trennen von "24,52 m" bleibt ein nacktes "m" übrig und
+# gewann als Raumname (TG-Plan: Raum "m", 21,21 m²). Ein Raum heißt nie so.
+_EINHEIT_REST = {"m", "m2", "m²", "cm", "mm", "st", "stk", "lfm", "pa", "kg"}
+
+
+def _ist_raumname(t):
+    """Kann dieser Text-Span überhaupt ein Raumname sein?
+
+    Zwei Buchstaben Minimum (WC/AR sind echte Raumnamen, ein nacktes 'm' nie)
+    und keine Einheit. Bewusst getrennt von den Belag-/Code-Sperren, damit die
+    Regel an BEIDEN Auswerte-Zweigen gleich gilt.
+    """
+    t = (t or "").strip()
+    if len(t) < 2 or not re.match(r"^[A-Za-zÄÖÜäöüß]", t):
+        return False
+    return t.lower().rstrip(".:") not in _EINHEIT_REST
 
 # Punkt-Dezimal ("Fl: 5.90m²", 1762788650811-Plan) UND Komma mit Tausender-Punkt.
 # BF: = Bodenfläche (Polierplan-Konvention, AP.01: 6 von 9 Seeds fehlten sonst).
@@ -45,8 +61,12 @@ _F_ANKER_RX = re.compile(r"^(?:F[lL]\s*[.:]?|BF\s*[.:]?|F\s*[.:])$", re.I)
 _U_ANKER_RX = re.compile(r"^U\s*[.:]$", re.I)
 # Bauteil-/Wandtyp-Codes sind KEINE Raumnamen (stehen auf Polierplänen näher
 # am Stempel als der Name und gewannen die Nächster-Span-Suche: 'IW 2' statt Bad)
+# \b allein reicht nicht: bei 'RDOK-0,24' trennt der Bindestrich, bei 'OK0,71'
+# steht die Ziffer direkt am Buchstaben — dort gibt es keine Wortgrenze, der
+# Code rutschte als Raumname durch (am WM-Plan gemessen).
 _CODE_RX = re.compile(r"^(?:IW|AW|TW|STB|RBL|STUK|RPH|FBH|FFB|RH|BF"
-                      r"|FFOK|RDOK|RFOK|FOK|OK|UK)\b", re.I)   # + Höhenkoten (WM: 'RDOK-0,24' gewann sonst als Name)
+                      r"|FFOK|RDOK|RFOK|FOK|OK|UK)(?:\b|(?=[0-9]))",
+                      re.I)   # + Höhenkoten (WM: 'RDOK-0,24' gewann sonst als Name)
 _U_CM_RX = re.compile(r"U\s*[:=]?\s*([0-9][0-9\s.]*,?[0-9]*)\s*cm", re.I)
 _U_M_RX = re.compile(r"U\s*[:=]?\s*([0-9]+,[0-9]+)\s*m\b", re.I)
 
@@ -79,7 +99,8 @@ def raum_stempel(page, box):
                 cx, cy = (bb[0] + bb[2]) / 2.0, (bb[1] + bb[3]) / 2.0
                 if bx0 <= cx <= bx1 and by0 <= cy <= by1:
                     spans.append({"text": txt, "cx": cx, "cy": cy,
-                                  "x0": bb[0], "x1": bb[2]})
+                                  "x0": bb[0], "x1": bb[2],
+                                  "h": max(1.0, bb[3] - bb[1])})
     # GEZIELTER SPLIT-ZAHL-JOIN: manche Encoder trennen MITTEN in der Zahl
     # ("Fl: 64." + "15m²", 1762788650811). Nur joinen wenn der linke Span auf
     # Ziffer+[.,] ENDET und der rechte mit Ziffer BEGINNT (der breite Join
@@ -172,7 +193,7 @@ def raum_stempel(page, box):
         u = _u_unter(s)
         name, best = None, 1e9
         for s2 in spans:
-            if s2 is s or not re.match(r"^[A-Za-zÄÖÜäöüß]", s2["text"]):
+            if s2 is s or not _ist_raumname(s2["text"]):
                 continue
             if _CODE_RX.match(s2["text"]):
                 continue    # Wandtyp-/Bauteil-Code, kein Raumname (AP.01: 'IW 2')
@@ -226,8 +247,19 @@ def raum_stempel(page, box):
                     dup.update({"f_m2": f, "cx": s["cx"], "cy": s["cy"]})
                 continue
             name, best = None, 1e9
+            # BÜNDIGKEIT: ein Raumstempel ist eine Textsäule — der Name steht
+            # ÜBER dem Wert und ist mit ihm bündig (links, mittig oder rechts).
+            # Eine Zeichnungsbeschriftung DANEBEN ist kein Name. Am WM-Plan
+            # gemessen: 'Lift D' stand auf derselben Zeile 37pt rechts vom
+            # Wert und schlug das 'Stiegenhaus' darüber, weil der waagrechte
+            # Abstand nur mit 0,3 gewichtet wurde. Ergebnis: das Stiegenhaus
+            # hieß 'Lift' — und bekam damit die Gewerke eines Aufzugsschachts.
+            # Die Schranke hängt an der Schrifthöhe, nicht an festen Punkten,
+            # damit sie auf jedem Planmaßstab gleich streng ist.
+            _buend = max(18.0, 2.2 * s.get("h", 10.0))
             for s2 in spans:
-                if s2 is s or not re.match(r"^[A-Za-zÄÖÜäöüß]{3,}", s2["text"]):
+                if s2 is s or not _ist_raumname(s2["text"]) \
+                        or len(s2["text"].strip()) < 3:
                     continue
                 # Bodenbeläge/Materialien sind KEINE Raumnamen (standen im Stempel näher
                 # als der Name — gemessen am WM-Plan: 'Fliesen', 'Betonplatten' …)
@@ -237,8 +269,18 @@ def raum_stempel(page, box):
                 if _CODE_RX.match(s2["text"]):
                     continue    # Bauteil-/Koten-Code (WM: 'RDOK-0,24' statt Vorraum)
                 d = abs(s["cy"] - s2["cy"]) + abs(s["cx"] - s2["cx"]) * 0.3
-                if s2["cy"] < s["cy"] + 5 and d < best and d < 90:
-                    best, name = d, s2["text"]
+                if not (s2["cy"] < s["cy"] + 5 and d < 90):
+                    continue
+                # bündig auf EINER der drei Kanten (links/mittig/rechts)?
+                if min(abs(s["cx"] - s2["cx"]), abs(s["x0"] - s2["x0"]),
+                       abs(s["x1"] - s2["x1"])) <= _buend:
+                    if d < best:
+                        best, name = d, s2["text"]
+            # KEIN Rückfall auf "irgendeinen Kandidaten": gemessen liefert der
+            # 'BD 25 /25', 'C/D/E - IW03', 'RB266' — Bauteil-Beschriftungen,
+            # die als Raumname in die Gewerkezuordnung gehen. Ein FALSCHER
+            # Name ist schlechter als keiner; '?' ist die ehrliche Antwort und
+            # das Frontend bietet dafür die Nachbenennung an.
             out.append({"name": name or "?", "f_m2": f, "u_m": _u_unter(s),
                         "cx": s["cx"], "cy": s["cy"]})
     return out
@@ -2414,7 +2456,8 @@ def raum_iou_beweis(res_liste, label, rst, fv, fh, ptm, iou_min=0.85, nur_bbox=F
 
 def raum_rechteck_aus_fluchten(cx, cy, f_soll, fv, fh, ptm, tol=0.18,
                                min_seite_m=0.6, max_seite_m=25.0,
-                               fremde_stempel=None):
+                               fremde_stempel=None, fremde_flaechen=None,
+                               max_ueberlappung=0.15):
     """RAUM-RECHTECK aus Wandfluchten — für Räume OHNE beweisbare Region.
 
     Die IoU-Beweis-Suche findet dasselbe, ist aber an eine strenge Beweis-
@@ -2426,9 +2469,19 @@ def raum_rechteck_aus_fluchten(cx, cy, f_soll, fv, fh, ptm, tol=0.18,
       * der Raumstempel (cx,cy) liegt INNERHALB des Rechtecks
       * die Fläche trifft die byte-exakte Stempelfläche (±tol)
       * plausible Seitenlängen
-    Gewählt wird das flächengenaueste, bei Gleichstand das ENGSTE (kleinste)
-    Rechteck — so gewinnt die tatsächliche Raumbegrenzung gegen weiter außen
-    liegende Fluchten. Rückgabe (l, r, o, u) in Seiten-pt oder None.
+    Gewählt wird das ÜBERLAPPUNGSÄRMSTE, dann das flächengenaueste, bei
+    Gleichstand das ENGSTE (kleinste) Rechteck — so gewinnt die tatsächliche
+    Raumbegrenzung gegen weiter außen liegende Fluchten.
+    Rückgabe (l, r, o, u) in Seiten-pt oder None.
+
+    fremde_flaechen: [(l, r, o, u, f_echt_pt2), ...] — schon gezeichnete
+    Umrisse anderer Räume als Hüllrechteck plus ihre WAHRE Polygonfläche.
+    Der Stempel-Test allein reicht nicht: ein Rechteck kann den halben
+    Nachbarraum überdecken, ohne dessen Stempel zu enthalten. Am WM-Plan
+    gemessen — 16 von 18 überlappenden Raumpaaren hatten genau hier ihre
+    Ursache (Lift E überdeckte den Vorraum zu 95%). Überlappung wird nicht
+    hart verboten, sondern als erstes Gütekriterium bewertet: so verliert
+    kein Raum seinen Umriss, es gewinnt nur der, der niemanden verdrängt.
     """
     if not f_soll or f_soll <= 0 or not ptm or ptm <= 0:
         return None
@@ -2444,6 +2497,7 @@ def raum_rechteck_aus_fluchten(cx, cy, f_soll, fv, fh, ptm, tol=0.18,
     links.reverse(); rechts.reverse(); oben.reverse(); unten.reverse()
     lo, hi = min_seite_m * ptm, max_seite_m * ptm
     bester = None
+    notnagel = None     # bestes Rechteck, das einen Nachbarn verdrängen würde
     for l_ in links[:14]:
         for r_ in rechts[:14]:
             b = r_ - l_
@@ -2470,8 +2524,36 @@ def raum_rechteck_aus_fluchten(cx, cy, f_soll, fv, fh, ptm, tol=0.18,
                                 break
                         if _kollision:
                             continue
-                    # Güte: Flächentreue zuerst, dann kompakteres Rechteck
+                    # ÜBERLAPPUNG mit schon gezeichneten Räumen. Das Hüll-
+                    # rechteck des fremden Umrisses ist eine OBERGRENZE der
+                    # echten Überschneidung — verglichen wird darum gegen die
+                    # wahre Polygonfläche, damit ein verwinkelter Nachbar kein
+                    # legitimes Rechteck blockiert.
+                    ov = 0.0
+                    if fremde_flaechen:
+                        _ca = b * h
+                        for (fl_, fr_, fo_, fu_, ff_) in fremde_flaechen:
+                            iw = min(r_, fr_) - max(l_, fl_)
+                            ih = min(u_, fu_) - max(o_, fo_)
+                            if iw <= 0 or ih <= 0:
+                                continue
+                            bez = min(_ca, ff_) if ff_ and ff_ > 0 else _ca
+                            ov = max(ov, min(1.0, iw * ih / max(1e-9, bez)))
+                    # Güte UNVERÄNDERT: Flächentreue zuerst, dann kompakter.
+                    # Die Überlappung darf hier NICHT mitranken — gemessen
+                    # wurde das: als Rangkriterium gewinnt ein Rechteck mit
+                    # 0% Überlappung und 18% falscher Fläche, wandert dadurch
+                    # woandershin und überlappt am Ende MEHR (25 -> 27 Räume
+                    # am Korpus). Sie ist ein Ausschluss, kein Geschmack.
                     g = (round(d, 3), b * h)
-                    if bester is None or g < bester[0]:
-                        bester = (g, (l_, r_, o_, u_))
-    return bester[1] if bester else None
+                    if ov <= max_ueberlappung:
+                        if bester is None or g < bester[0]:
+                            bester = (g, (l_, r_, o_, u_))
+                    elif notnagel is None or g < notnagel[0]:
+                        notnagel = (g, (l_, r_, o_, u_))
+    # RÜCKFALLEBENE: verdrängt jedes mögliche Rechteck einen Nachbarn, ist ein
+    # grob platzierter Umriss immer noch besser als gar keiner — der Raum wäre
+    # sonst im Plan unsichtbar und seine Menge nicht nachprüfbar.
+    if bester:
+        return bester[1]
+    return notnagel[1] if notnagel else None

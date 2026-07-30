@@ -1119,9 +1119,16 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         #     das Rechteck sitzt darum oft sichtbar versetzt (am Live-Plan
         #     gesehen: Zimmer 1/Bad ragten über die Wände hinaus).
         _erg_flucht = _erg_fu = 0
-        for _rm in raeume:
-            if (_rm.get("region_px") or []) or not _rm.get("px"):
-                continue
+
+        def _ersatz_setzen(_rm):
+            """Einen Ersatz-Umriss setzen -> 'flucht' | 'fu' | None.
+
+            Als Schleifenrumpf geschrieben, damit ein ZWEITER Durchgang
+            möglich ist: im ersten Durchgang kennt ein früh gesetztes
+            Rechteck die später gesetzten Nachbarn noch nicht und legt sich
+            über sie (am WM-Plan: Lift E überdeckte den Vorraum zu 95%, beide
+            waren Ersatz). Erst der zweite Durchgang sieht das ganze Bild.
+            """
             _rc = _rm.get("iou_rect_pt")
             if _rc and len(_rc) == 4:
                 _l, _r2, _o, _u2 = _rc
@@ -1130,11 +1137,10 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                                     [_p2[0], _p2[1]], [_p1[0], _p2[1]]]
                 _rm["region_geschaetzt"] = True
                 _rm["region_quelle"] = "aus Wandfluchten · IoU-Beweis"
-                _erg_flucht += 1
-                continue
+                return "flucht"
             _f = _rm.get("f_m2")
             if not _f or _f <= 0 or not ptm:
-                continue
+                return None
             # 1b) EIGENSTÄNDIGE Flucht-Suche (ohne Beweis-Anspruch): das
             # engste Wandflucht-Rechteck, das den Stempel enthält und die
             # gestempelte Fläche trifft. Fängt genau die Räume, die an der
@@ -1144,9 +1150,26 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     _fremd = [(o["cx"], o["cy"]) for o in raeume
                               if o is not _rm and o.get("cx") is not None
                               and o.get("cy") is not None]
+                    # SCHON GEZEICHNETE UMRISSE als Hüllrechteck in Seiten-pt
+                    # (region_px ist Bild-Pixel: px/scale + Rand = pt) plus
+                    # ihre wahre Polygonfläche. Ohne das setzt jedes Ersatz-
+                    # Rechteck blind über die Nachbarn.
+                    _ff = []
+                    for o in raeume:
+                        _op = o.get("region_px") if o is not _rm else None
+                        if not _op:
+                            continue
+                        _ox = [p[0] / scale + bx0 for p in _op]
+                        _oy = [p[1] / scale + by0 for p in _op]
+                        _fa = 0.0
+                        for _k in range(len(_ox)):
+                            _fa += (_ox[_k - 1] * _oy[_k]
+                                    - _ox[_k] * _oy[_k - 1])
+                        _ff.append((min(_ox), max(_ox), min(_oy), max(_oy),
+                                    abs(_fa) / 2.0))
                     _fr = raumnetz.raum_rechteck_aus_fluchten(
                         _rm["cx"], _rm["cy"], _f, _ddp(fv2), _ddp(fh2), ptm,
-                        fremde_stempel=_fremd)
+                        fremde_stempel=_fremd, fremde_flaechen=_ff)
                 except Exception:
                     _fr = None
                 if _fr:
@@ -1157,8 +1180,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     _rm["region_geschaetzt"] = True
                     _rm["region_quelle"] = ("aus Wandfluchten · engste Fassung "
                                             "(nur eigener Stempel)")
-                    _erg_flucht += 1
-                    continue
+                    return "flucht"
             _u = _rm.get("u_m")
             _a = _b = None
             if _u and _u > 0:
@@ -1176,7 +1198,26 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                                 [_cx + _hw, _cy + _hh], [_cx - _hw, _cy + _hh]]
             _rm["region_geschaetzt"] = True
             _rm["region_quelle"] = "aus Fläche+Umfang geschätzt (Lage ungenau)"
-            _erg_fu += 1
+            return "fu"
+
+        for _rm in raeume:
+            if (_rm.get("region_px") or []) or not _rm.get("px"):
+                continue
+            _k = _ersatz_setzen(_rm)
+            _erg_flucht += 1 if _k == "flucht" else 0
+            _erg_fu += 1 if _k == "fu" else 0
+        # ZWEITER DURCHGANG: jedes Ersatz-Rechteck noch einmal setzen, jetzt
+        # mit ALLEN Nachbarn im Blick. Nur Ersatz-Umrisse werden angefasst —
+        # ein echter Umriss aus dem Bild ist Beweis und wird nie überschrieben.
+        # Bleibt der Raum ohne Rechteck, gilt wieder das alte (lieber grob
+        # markiert als unsichtbar).
+        for _rm in raeume:
+            if not _rm.get("region_geschaetzt"):
+                continue
+            _alt = _rm.get("region_px")
+            _rm["region_px"] = None
+            if not _ersatz_setzen(_rm):
+                _rm["region_px"] = _alt
         if _erg_flucht or _erg_fu:
             print(f"[nachzeichnen] Ersatz-Umrisse: {_erg_flucht} aus Wandfluchten, "
                   f"{_erg_fu} aus Fläche+Umfang (Lage ungenau)")

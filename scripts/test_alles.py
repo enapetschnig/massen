@@ -39,8 +39,10 @@ GUARDS = [
     ("Außenumfang plausibel", "test_umfang_plausibel.py", "richtig bewertet"),
     ("Quellen-Konflikt (Text schlägt Vision)", "test_quellen_konflikt.py", "Konfliktfälle"),
     ("Umriss begradigen", "test_umriss_begradigen.py", "Zickzack wird begradigt"),
+    ("Raumname aus dem Stempel", "test_raumname_buendig.py", "Stempel-Formen"),
 ]
 LANGSAM = [
+    ("Umriss-Treue am Plan", "mess_umriss_treue.py", "ABDECKUNG"),
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
     ("Raum-Verifikation", "test_raumverifikation.py", "ERGEBNIS:"),
     ("Rohbau-Raumcheck", "test_rohbau_raumcheck.py", "ROHBAU-verifiziert"),
