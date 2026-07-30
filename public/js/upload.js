@@ -1845,8 +1845,11 @@
     });
     h += '</tr></thead><tbody>';
     zeilen.forEach(function (r) {
+      // Wohnung mit anzeigen: in einem Wohnbau heissen drei Zeilen "Bad" und
+      // waeren sonst nicht auseinanderzuhalten.
       h += '<tr><td style="position:sticky;left:0;background:inherit"><strong>' +
         esc(r.raum || '') + '</strong>' +
+        (r.wohnung ? ' <span style="color:#6c757d;font-size:.75rem">' + esc(r.wohnung) + '</span>' : '') +
         (r.geschoss ? ' <span style="color:#6c757d;font-size:.75rem">' + esc(r.geschoss) + '</span>' : '') +
         '</td><td>' + (r.f_m2 != null ? fmtNum(r.f_m2) : '—') + '</td>';
       spalten.forEach(function (p) {

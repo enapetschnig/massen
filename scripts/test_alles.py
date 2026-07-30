@@ -34,6 +34,7 @@ GUARDS = [
     ("Gewerke-Breite (Sektoren)", "mess_gewerke_breite.py", "Gewerke liefern Mengen"),
     ("Textfleck-Anker (Scan-Lage)", "test_textanker.py", "Textfleck-Anker"),
     ("Workflow-Schritte", "test_workflow_schritte.py", "Pflicht-Bereiche"),
+    ("Gleichnamige Räume (MFH)", "test_namens_kollision.py", "eigene Zahlen"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),

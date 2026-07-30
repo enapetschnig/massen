@@ -165,7 +165,7 @@ def isoperimetrischer_umfang(f_m2, aspekt=1.35):
     return round(u, 2)
 
 
-def textflecken(arr, zell=4, max_zellen=400):
+def textflecken(arr, zell=2, max_zellen=400):
     """Textartige Flecken in einem Graustufenbild finden -> [(cx, cy)] in Pixeln.
 
     DER Positions-Anker fuer Scans. Vision weiss WELCHE Raeume es gibt (Name
@@ -195,6 +195,62 @@ def textflecken(arr, zell=4, max_zellen=400):
     nicht Pixel — bei 28 px/m deckelt der Meter-Filter die Texthoehe auf rund
     4 Zellen statt 12 und wirft zweizeilige Raumstempel weg. Nicht nochmal
     als "massstabsunabhaengige Verbesserung" einbauen: es ist keine.
+
+    ZUR ZELLGROESSE 2 (frueher 4) — die URSACHE, gemessen 2026-07-29:
+    Der Anker war auf grob aufgeloesten Plaenen unbrauchbar (AU_WM_01 1,50 m,
+    Velden 0,90 m) und auf fein aufgeloesten sehr gut (Angerer 0,04 m). Der
+    Grund ist nicht Textdichte, wie lange vermutet, sondern die RASTERUNG:
+
+        dunkelster Grauwert an der Raumbeschriftung (Median je Plan)
+        Angerer  100 px/m ->   0    AU_WM_01  28 px/m -> 153
+        AP.01     96 px/m ->   0    Velden    28 px/m -> 149
+
+    Bei 28 px/m ist die Stempelschrift so klein, dass sie zu hellgrau
+    verwischt; sie reisst die Schwelle 160 kaum und fuellt eine 4-px-Zelle
+    nicht zu den geforderten 8 %. Die Schrift kommt also gar nicht erst in
+    die Maske — an 88 von 98 verfehlten Stempeln lag nicht einmal eine
+    VERWORFENE Komponente in der Naehe. Kein Filter- und kein
+    Zuordnungsproblem.
+
+    Zwei Gegenmittel gemessen, dasselbe Ziel: feiner RENDERN (140 px/m kaeme
+    auf 0,26 m, braucht aber 62 MPixel fuer AU_WM_01 — serverless nicht
+    tragbar) oder feinere ZELLE bei unveraendertem Bild. Zweiteres gewaehlt.
+
+    Am Bild, das die Pipeline wirklich benutzt (je Plan seine eigene Skala),
+    ueber alle 113 Stempel der vier Referenzplaene:
+
+        zell   Median   unter 0,5 m   unter 0,25 m   Zeit (schlimmster Plan)
+          2    0,56 m     51/113        25/113            0,42 s   <- jetzt
+          3    0,71 m     41/113        17/113            0,33 s
+          4    1,12 m     24/113        14/113            0,17 s   <- vorher
+          5    1,19 m     18/113        10/113            0,11 s
+
+    Monoton und auf JEDEM der vier Plaene besser (Angerer 0,04->0,04 m,
+    AP.01 0,52->0,45, AU_WM_01 1,48->0,66, Velden 0,90->0,55).
+
+    ACHTUNG bei diesen Zahlen — zwei Einschraenkungen, beide gemessen:
+
+    (1) "Median" ist hier der Median ueber ALLE 113 Stempel. Eine frueher
+        hier stehende Tabelle nannte 0,90 statt 1,12 m fuer zell=4: das war
+        der Median der vier PLAN-Mediane, also der drittkleinste von vier
+        Werten, nicht der Korpus-Median. Der Unterschied ist erheblich, weil
+        AU_WM_01 allein 70 der 113 Stempel stellt.
+
+    (2) WICHTIGER: diese vier Plaene sind VEKTOR-Plaene, und auf ihnen laeuft
+        diese Funktion in der Produktion gar nicht. Der einzige Aufrufer ist
+        api/extract.py::_vision_raum_regionen, und der steigt sofort aus,
+        sobald auch nur EIN Raum ein rekonstruiertes Polygon hat — bei allen
+        vier ist das fuer JEDEN Raum der Fall (9/9, 9/9, 70/70, 25/25). Der
+        Anker greift nur bei echten Scans ohne Vektor-Geometrie. Die Zahlen
+        oben sind also ein STELLVERTRETER: sie belegen, dass der Detektor
+        Raumbeschriftungen in einem gerasterten Plan besser findet, nicht,
+        dass die Einrastung beim Nutzer besser wird. Fuer den Beweis fehlt
+        ein Korpus aus echten Plan-Scans; lokal liegt keiner.
+
+    Den Groessenfilter mitzuskalieren (bw<=120, bh<=24, damit er dieselbe
+    physische Groesse meint) bringt 51 -> 53 von 113: im Rauschen. Bewusst
+    NICHT gemacht — eine Aenderung mit klarem Beleg ist besser als zwei, von
+    denen eine geraten ist.
     """
     import numpy as _np
     from collections import deque as _dq

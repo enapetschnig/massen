@@ -163,11 +163,16 @@ def run():
         print(f"{name[:38]:<40}{'':>6}{len(akt):>9}  "
               f"{', '.join(BEREICH.get(k, k).split(' /')[0] for k in sorted(akt))[:52]}")
     print("-" * 104)
-    if echte:
-        print(f"{echte} echte Pläne · mindestens {min_gew} Gewerke je Plan")
-        assert echte >= 3, f"nur {echte} echte Pläne — Aussage nicht belastbar"
-        assert min_gew >= 4, \
-            f"ein echter Plan liefert nur {min_gew} Gewerke — Breite bricht ein"
+    print(f"{echte} echte Pläne · mindestens {min_gew if echte else 0} Gewerke je Plan")
+    # Die Zusicherungen standen INNERHALB von "if echte:" — bei fehlendem
+    # Korpus wurde also gar nichts geprüft und das Skript meldete grün.
+    # Genau der Fall, in dem ein Wächter alarmieren muss: er kann seine
+    # Aussage nicht mehr belegen.
+    assert echte >= 3, \
+        f"nur {echte} echte Pläne ausgewertet — Aussage nicht belastbar " \
+        f"(liegen die Referenzpläne in ~/Downloads?)"
+    assert min_gew >= 4, \
+        f"ein echter Plan liefert nur {min_gew} Gewerke — Breite bricht ein"
 
 
 if __name__ == "__main__":

@@ -75,7 +75,17 @@ def run():
               f"  Box {meta.get('box_m')}")
     print("-" * 92)
     print(f"ABDECKUNG: {n_ansicht}/{n_gesamt} Pläne mit funktionierender Planansicht.")
-    print("(Schnitt-Blätter ohne Grundriss zählen ehrlich als ✗ — dort gibt es nichts nachzuzeichnen.)")
+    # ZUSICHERUNGEN — vorher hatte dieses Skript KEINE einzige. Es lief in der
+    # Suite über `returncode == 0` und meldete deshalb auch dann einen grünen
+    # Haken, wenn die Abdeckung auf 0/7 gefallen wäre. Ein Messskript ohne
+    # Zusicherung misst, es bewacht nicht.
+    assert n_gesamt >= 5, \
+        f"nur {n_gesamt} Korpus-Pläne gefunden — die Aussage trägt nicht " \
+        f"(liegen die Referenzpläne in ~/Downloads?)"
+    assert n_ansicht >= 5, \
+        f"nur {n_ansicht}/{n_gesamt} Pläne mit Planansicht — geregressiert"
+    print(f"WÄCHTER ok: {n_gesamt} Pläne im Korpus, davon {n_ansicht} mit "
+          f"Planansicht (Mindestzusage: 5 von 5)")
     return 0
 
 

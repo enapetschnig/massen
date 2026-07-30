@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.72"
+APP_REV = "2026-07-09.74"
 
 
 @app.get("/api/extract-health")
@@ -4220,21 +4220,47 @@ async def projekt_massen(body: ProjektMassenRequest):
     # aus der byte-exakten Fläche. STRIKTES GATE: byte-exakter Text-U (_verified.U)
     # bleibt IMMER unangetastet → Angerer/Sadiku (U im Stempel) unverändert.
     def _plan_geo_umfaenge(plan):
-        """{norm_name: u_geometrie_m} — aus Nachzeichnen-Cache (v39, gratis) oder
-        best-effort frisch rekonstruiert (+ gecacht). Leeres Dict bei Fehlschlag."""
+        """{norm_name: [[f_m2, u_geometrie_m], ...]} — aus Nachzeichnen-Cache
+        (gratis) oder best-effort frisch rekonstruiert (+ gecacht).
+
+        NICHT nur nach dem Namen schluesseln. Hier stand frueher
+            out.setdefault(_nk(_r["name"]), _ug)
+        und damit bekam JEDER gleichnamige Raum den Umfang des ERSTEN. Am
+        eingefrorenen Korpus teilen sich 66 von 113 Stempeln ihren normierten
+        Namen mit einem anderen (AU_WM_01: 56 von 70, also 80 % — "Zimmer"
+        kommt 16x vor, mit Flaechen von 3,40 bis 13,12 m²). Am Velden-Plan
+        gemessen bekamen 2 von 8 betroffenen Raeumen einen FREMDEN Umfang,
+        Median-Abweichung 2,00 m = 14 % — und dieser Umfang geht direkt in
+        Putz und Maler (U x H). Ein stiller Mengenfehler, kein Schoenheits-
+        fehler.
+
+        Der Name allein identifiziert eine BESCHRIFTUNG, nicht einen Raum.
+        Die Flaeche kommt byte-exakt aus dem Stempel und steht auf beiden
+        Seiten zur Verfuegung — sie unterscheidet die gleichnamigen Raeume.
+        Darum je Name eine LISTE aus (Flaeche, Umfang).
+        """
         log = plan.get("agent_log") or {}
+
+        def _sammeln(_raeume, _ziel):
+            for _r in (_raeume or []):
+                _ug = _r.get("u_geometrie")
+                if _ug and _r.get("name"):
+                    _ziel.setdefault(_nk(_r["name"]), []).append(
+                        [_r.get("f_m2"), _ug])
+
         out = {}
         for _ck in [k for k in log if str(k).startswith("nachzeichnen_cache")]:
             _c = log.get(_ck)
             if isinstance(_c, dict) and _c.get("v") == _NZ_CACHE_V:
-                for _r in ((_c.get("daten") or {}).get("raeume") or []):
-                    _ug = _r.get("u_geometrie")
-                    if _ug and _r.get("name"):
-                        out.setdefault(_nk(_r["name"]), _ug)
+                _sammeln((_c.get("daten") or {}).get("raeume"), out)
         if out:
             return out
         _gc = log.get("geometrie_umfaenge")
-        if isinstance(_gc, dict) and _gc.get("v") == _NZ_CACHE_V:
+        # gv = Version DIESER Ablage. Getrennt von _NZ_CACHE_V, damit die
+        # Formatumstellung nicht die teure Nachzeichnen-Analyse verwirft:
+        # deren Daten haben sich nicht geaendert, nur diese Ableitung daraus.
+        if (isinstance(_gc, dict) and _gc.get("v") == _NZ_CACHE_V
+                and _gc.get("gv") == _GEO_U_V):
             return _gc.get("map") or {}
         if not _NACHZEICHNEN_OK or not plan.get("storage_path"):
             return {}
@@ -4245,11 +4271,9 @@ async def projekt_massen(body: ProjektMassenRequest):
             _res = _nachzeichnen.analysiere_doc(_doc, max_px=1800)
             _doc.close()
             _m = {}
-            for _r in (_res.get("raeume") or []):
-                _ug = _r.get("u_geometrie")
-                if _ug and _r.get("name"):
-                    _m.setdefault(_nk(_r["name"]), _ug)
-            log["geometrie_umfaenge"] = {"v": _NZ_CACHE_V, "map": _m}
+            _sammeln(_res.get("raeume"), _m)
+            log["geometrie_umfaenge"] = {"v": _NZ_CACHE_V, "gv": _GEO_U_V,
+                                         "map": _m}
             try:
                 sb.table("plaene").update({"agent_log": log}).eq("id", plan["id"]).execute()
             except Exception:
@@ -4264,14 +4288,41 @@ async def projekt_massen(body: ProjektMassenRequest):
     if _brauchen_u:
         _geo_map = {}
         for _p in plaene:
-            for _nn, _ug in _plan_geo_umfaenge(_p).items():
-                _geo_map.setdefault(_nn, _ug)
-        _n_geo = _n_iso = 0
+            for _nn, _paare in _plan_geo_umfaenge(_p).items():
+                _geo_map.setdefault(_nn, []).extend(_paare or [])
+
+        def _geo_u_fuer(_name, _f):
+            """Umfang des Raums (_name, _f) — oder None, wenn nicht eindeutig.
+
+            Reihenfolge bewusst konservativ:
+              1. Gibt es unter diesem Namen nur EINEN Raum, ist er gemeint.
+                 (Der Normalfall; hier aendert sich nichts gegenueber frueher.)
+              2. Bei mehreren gleichnamigen entscheidet die byte-exakte
+                 FLAECHE — sie trennt "Zimmer" von "Zimmer".
+              3. Passt die Flaeche auf keinen oder auf MEHRERE, wird nichts
+                 gesetzt. Dann greift die isoperimetrische Schaetzung, die
+                 als "geschaetzt" gekennzeichnet ist und damit sichtbar
+                 bleibt — besser als der Umfang eines fremden Raums, der wie
+                 eine gemessene Groesse aussieht.
+            """
+            _k = _geo_map.get(_nk(_name or ""))
+            if not _k:
+                return None
+            if len(_k) == 1:
+                return _k[0][1]
+            _tol = max(0.05, 0.01 * _f)
+            _tr = [u for (fc, u) in _k
+                   if fc is not None and abs(float(fc) - _f) <= _tol]
+            return _tr[0] if len(_tr) == 1 else None
+
+        _n_geo = _n_iso = _n_mehrdeutig = 0
         for r in merged_rooms:
             f = r.get("flaeche_m2")
             if not f or (r.get("_verified") or {}).get("U"):
                 continue   # kein F oder byte-exakter U-Stempel → NICHT anfassen
-            _ug = _geo_map.get(_nk(r.get("name") or ""))
+            _ug = _geo_u_fuer(r.get("name"), float(f))
+            if _ug is None and _geo_map.get(_nk(r.get("name") or "")):
+                _n_mehrdeutig += 1
             if _ug:
                 r["umfang_m"] = _ug
                 r["umfang_quelle"] = "geometrie"
@@ -4284,7 +4335,10 @@ async def projekt_massen(body: ProjektMassenRequest):
                     _n_iso += 1
         if _n_geo or _n_iso:
             print(f"[geometrie-umfang] {_n_geo} Räume aus Polygon, {_n_iso} isoperimetrisch "
-                  f"geschätzt (byte-exakte U-Stempel unberührt)")
+                  f"geschätzt (byte-exakte U-Stempel unberührt)"
+                  + (f", {_n_mehrdeutig} gleichnamig und über die Fläche nicht "
+                     f"eindeutig — bewusst kein Geometrie-Umfang gesetzt"
+                     if _n_mehrdeutig else ""))
 
     # 4a3) RAUM-POLYGON-KORREKTUR (Nutzer zieht die Eckpunkte am Plan): die
     # editierte Fläche/Umfang eines Raums überschreibt die gelesene — byte-exakt
@@ -5918,6 +5972,12 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
 
 
 _NZ_CACHE_V = 52  # Stempel-Gate für Umrisse + konstruierter Ersatz-Umriss (115/115 markiert)
+# Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
+# Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
+# ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
+# Analyse aber unverändert ist. Ein _NZ_CACHE_V-Sprung würde jeden Plan neu
+# durchrechnen lassen, ohne dass sich an dessen Daten etwas geändert hat.
+_GEO_U_V = 2
 
 
 def _aufmass_matrix_safe(gewerke, raeume):
@@ -6275,17 +6335,62 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
                             _bw3 = max(q[0] for q in _p) - min(q[0] for q in _p)
                             _bh3 = max(q[1] for q in _p) - min(q[1] for q in _p)
                             # NUR einrasten, wenn ein Fleck NAH liegt —
-                            # sonst bleibt der Vision-Anker stehen.
-                            # Am Korpus gemessen: auf beschriftungsarmen
-                            # Plaenen trifft der naechste Fleck den Raum-
-                            # stempel auf 0,04 m; auf textdichten Polier-
-                            # plaenen (Kanal-/Masstext ueberall) ist der
-                            # naechste Fleck oft die FALSCHE Schrift
-                            # (0,74-1,80 m). Darum eng gefasst: ein
-                            # Viertel der Boxgroesse statt 0,6 — im
+                            # sonst bleibt der Vision-Anker stehen. Im
                             # Zweifel lieber der Vision-Anker als ein
                             # zuversichtlich falscher Textfleck.
-                            _tol = max(12.0, 0.25 * max(_bw3, _bh3))
+                            #
+                            # FAKTOR 0,10 (frueher 0,25) — gemessen
+                            # 2026-07-29, gemeinsam mit der feineren
+                            # Zellgroesse in nachzeichnen.textflecken.
+                            # Die feinere Zelle findet rund dreimal so
+                            # viele Flecken. Allein ausgeliefert waere das
+                            # ein Rueckschritt gewesen: die Regel findet
+                            # dann fast immer IRGENDETWAS und rastet von
+                            # 45 % auf 75 % der Raeume ein, ohne
+                            # treffsicherer zu werden.
+                            #
+                            # Ende-zu-Ende simuliert (Vision-Lage =
+                            # Wahrheit + Rauschen, mehrere Rauschstaerken
+                            # und Startwerte, 4 Referenzplaene). Gemessen
+                            # wurde der MITTLERE LAGEFEHLER je Raum — nicht
+                            # nur "eingerastet ja/nein", denn eine
+                            # Einrastung, die die Lage verschlechtert, sieht
+                            # in einer Ja/Nein-Zaehlung wie ein Erfolg aus:
+                            #
+                            #   gar nicht einrasten        0,681 m
+                            #   zell 4 · 0,25 (vorher)     0,904 m
+                            #   zell 2 · 0,25              0,906 m
+                            #   zell 2 · 0,15              0,770 m
+                            #   zell 2 · 0,10 (jetzt)      0,727 m
+                            #   zell 2 · 0,05              0,700 m
+                            #
+                            # Die feinere Zelle findet dreimal so viele
+                            # Flecken; mit der alten weiten Toleranz rastet
+                            # die Regel dadurch von 45 % auf 75 % der
+                            # Raeume ein, ohne treffsicherer zu werden.
+                            # Erst die engere Toleranz macht sie nutzbar.
+                            #
+                            # DREI OFFENE PUNKTE, ehrlich hierher notiert:
+                            # (a) Die Reihe ist streng monoton Richtung
+                            #     null — 0,10 ist kein Optimum, sondern ein
+                            #     bewusster Halt. Der Grenzwert waere "nie
+                            #     einrasten" (0,681 m).
+                            # (b) Selbst ein Orakel, das immer den
+                            #     stempelnaechsten Fleck waehlt, landet im
+                            #     Mittel 0,80 m daneben (zell=2; 1,26 m bei
+                            #     zell=4). Jede Vision-Lage, die besser als
+                            #     diese Decke ist, wird durch Einrasten
+                            #     schlechter. Ob Vision das ist, weiss
+                            #     niemand: der Code behauptet an einer
+                            #     Stelle 0,39 m und an anderer 3-7 m.
+                            #     DIESE Zahl zu messen ist der naechste
+                            #     Schritt, nicht eine feinere Toleranz.
+                            # (c) Gemessen wurde auf VEKTOR-Plaenen, auf
+                            #     denen dieser Zweig gar nicht laeuft (er
+                            #     greift nur ohne rekonstruierte Polygone,
+                            #     also bei echten Scans). Stellvertreter,
+                            #     kein Produktionsbeweis.
+                            _tol = max(12.0, 0.10 * max(_bw3, _bh3))
                             _bf = min(_flecken, key=lambda f: (f[0] - _cx0) ** 2
                                       + (f[1] - _cy0) ** 2)
                             if ((_bf[0] - _cx0) ** 2 + (_bf[1] - _cy0) ** 2) ** 0.5 > _tol:

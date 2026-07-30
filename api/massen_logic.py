@@ -352,19 +352,50 @@ def _nk(s):
 
 def fenster_pro_raum(rooms, windows):
     """Ordnet jedes Fenster einem Raum zu — per Raum-Name (Vision-Fenster)
-    oder per Position (FE_-Code-Fenster mit cx/cy)."""
+    oder per Position (FE_-Code-Fenster mit cx/cy).
+
+    BEI GLEICHNAMIGEN RAEUMEN reicht der Name nicht. Hier stand frueher
+    `zuord[id(matches[0])].append(w)` — damit landeten in einem Wohnbau ALLE
+    Fenster der drei "Wohnkueche" in der ERSTEN, die beiden anderen bekamen
+    keines. Am echten Korpus teilen sich 66 von 113 Stempeln ihren Namen.
+
+    Jetzt in dieser Reihenfolge:
+      1. genau ein Namenstreffer  -> dorthin (der Normalfall, unveraendert)
+      2. mehrere Treffer, Fenster hat eine Position -> der naechste davon
+      3. mehrere Treffer, keine Position -> reihum verteilen. Das ist eine
+         Annahme, aber die tragfaehigste: die SUMME der Abzuege bleibt so
+         oder so gleich (die ÖNORM-Schwelle gilt je Oeffnung), unsicher ist
+         nur die Aufteilung — und "je einer" ist bei drei gleich benannten
+         Raeumen mit drei Fenstern deutlich naeher an der Wirklichkeit als
+         "alle drei in den ersten".
+    """
     zuord = {id(r): [] for r in rooms}
     # Name-Index für Vision-Fenster
     name_idx = {}
     for r in rooms:
         name_idx.setdefault(_nk(_room_name(r)), []).append(r)
+    _reihum = {}
     for w in windows:
         # 1. Vision-Fenster: Zuordnung per Raum-Name
         wraum = w.get("raum")
         if wraum:
-            matches = name_idx.get(_nk(wraum))
-            if matches:
+            _key = _nk(wraum)
+            matches = name_idx.get(_key)
+            if matches and len(matches) == 1:
                 zuord[id(matches[0])].append(w)
+                continue
+            if matches:
+                wx, wy = w.get("cx"), w.get("cy")
+                if wx is not None and wy is not None:
+                    _mit_pos = [r for r in matches if r.get("cx") is not None]
+                    if _mit_pos:
+                        _b = min(_mit_pos, key=lambda r: math.hypot(
+                            r["cx"] - wx, r["cy"] - wy))
+                        zuord[id(_b)].append(w)
+                        continue
+                _i = _reihum.get(_key, 0)
+                _reihum[_key] = _i + 1
+                zuord[id(matches[_i % len(matches)])].append(w)
                 continue
         # 2. FE_-Code-Fenster: Zuordnung per Position
         wx, wy = w.get("cx"), w.get("cy")
@@ -397,6 +428,48 @@ def _room_value(r, *keys):
 
 def _room_name(r):
     return r.get("name") or r.get("bezeichnung") or (r.get("daten") or {}).get("name") or "?"
+
+
+def _room_key(r):
+    """EINDEUTIGE Kennung eines Raums — nicht sein Name.
+
+    Ein Wohnbau hat in jeder Wohnung ein "Bad". Wer Aufmass-Zeilen nach dem
+    Namen gruppiert, wirft sie zusammen: gemessen wurden aus 6 Raeumen
+    (3x Bad, 3x Wohnkueche, alle mit verschiedenen Massen) 2 Zeilen, und die
+    Zeile "Bad" zeigte U=10,4 m, obwohl die drei Baeder 9,6 / 10,1 / 10,4 m
+    haben. Am echten Korpus teilen sich 66 von 113 Stempeln ihren normierten
+    Namen mit einem anderen.
+
+    Wohnung und Geschoss trennen, wo sie gelesen wurden; die byte-exakte
+    Flaeche trennt den Rest. Der Name allein waere die Beschriftung, nicht
+    der Raum.
+    """
+    d = r.get("daten") or {}
+
+    def _g(*keys):
+        for k in keys:
+            v = r.get(k) if r.get(k) is not None else d.get(k)
+            if v not in (None, ""):
+                return str(v)
+        return ""
+
+    f = r.get("flaeche_m2")
+    if f is None:
+        f = r.get("f_m2") if r.get("f_m2") is not None else d.get("flaeche_m2")
+    try:
+        fs = f"{float(f):.2f}"
+    except (TypeError, ValueError):
+        fs = ""
+    return "|".join([_room_name(r), _g("wohnung", "top"), _g("geschoss"), fs])
+
+
+def _anker(r):
+    """Plan-Anker einer Aufmass-Zeile: Anzeigename UND eindeutige Kennung.
+
+    "raum" bleibt der Klartext (Frontend zeigt ihn und springt damit an den
+    Plan), "rkey" identifiziert den Raum eindeutig — siehe _room_key.
+    """
+    return {"raum": _room_name(r), "rkey": _room_key(r)}
 
 
 def _u_lbl(r, u):
@@ -438,7 +511,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
         _ziel = pos_hoch if h > 3.2 else pos
         _ziel.add_zeile(f"{_room_name(r)} — Wand brutto", laenge=u, hoehe=h,
                         summe=u * h, quelle=f"{_u_lbl(r, u)} × H={h}",
-                        anker={"raum": _room_name(r)})
+                        anker=_anker(r))
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
@@ -449,7 +522,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
                             laenge=bw, hoehe=-hw, summe=-netto["abzug"],
                             quelle=f"Öffnung >{schwelle:.1f} m²",
-                            anker={"raum": _room_name(r)})
+                            anker=_anker(r))
             # Leibung → EIGENE Position (B 2204 §5.5.1.3 ist zweigleisig:
             # MIT Leibungs-Positionen wird abgezogen UND die Leibung separat
             # verrechnet); ≤0,25 m Tiefe als lfm (1.1a), darüber m² (1.1b).
@@ -474,7 +547,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
         f = _room_value(r, "flaeche_m2")
         if f:
             pos.add_zeile(_room_name(r), summe=f, quelle=f"F={f}",
-                          anker={"raum": _room_name(r)})
+                          anker=_anker(r))
     pos.konfidenz = 0.97
     positionen.append(pos)
 
@@ -546,7 +619,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
         u = _room_value(r, "umfang_m")
         hh = _room_value(r, "hoehe_m") or h_def
         if u:
-            pos.add_zeile(_room_name(r), laenge=u, hoehe=hh, summe=u * hh, anker={"raum": _room_name(r)},
+            pos.add_zeile(_room_name(r), laenge=u, hoehe=hh, summe=u * hh, anker=_anker(r),
                           quelle=f"{_u_lbl(r, u)} × H={hh}")
     # Σ(U×H) ist byte-exakt: Raum-Umfänge kommen aus dem Text-Layer, die Höhe je Raum
     # aus dem Text oder — uniform — aus der verifizierten Geschoss-Höhe. Das ist ein
@@ -591,7 +664,7 @@ def gewerk_rohbau(rooms, windows, baudaten, geschoss="EG", tueren=None):
         for r in innen:
             f = _room_value(r, "flaeche_m2")
             if f:
-                pos.add_zeile(_room_name(r), laenge=f, hoehe=decke_m, summe=f * decke_m, anker={"raum": _room_name(r)},
+                pos.add_zeile(_room_name(r), laenge=f, hoehe=decke_m, summe=f * decke_m, anker=_anker(r),
                               quelle=f"F={f} × d={decke_m:.2f}")
     # Fläche byte-exakt (Σ Raumfläche) × Dicke. Konfidenz nach DICKE-Quelle:
     # Legende/Doppelcheck = byte-exakt (hoch), Schnitt/Vision = mittel, sonst Default.
@@ -632,7 +705,7 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
         f = _room_value(r, "flaeche_m2")
         if f:
             pos.add_zeile(_room_name(r), summe=f, quelle=f"F={f}",
-                          anker={"raum": _room_name(r)})
+                          anker=_anker(r))
     pos.konfidenz = 0.97
     positionen.append(pos)
 
@@ -641,7 +714,7 @@ def gewerk_estrich(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in innen:
         u = _room_value(r, "umfang_m")
         if u:
-            pos.add_zeile(_room_name(r), laenge=u, summe=u, quelle=_u_lbl(r, u), anker={"raum": _room_name(r)})
+            pos.add_zeile(_room_name(r), laenge=u, summe=u, quelle=_u_lbl(r, u), anker=_anker(r))
     pos.konfidenz = 0.95
     positionen.append(pos)
     return positionen
@@ -680,7 +753,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
             continue
         _ziel = pos_hoch if h > 3.2 else pos
         _ziel.add_zeile(f"{_room_name(r)} — Wand", laenge=u, hoehe=h, summe=u * h,
-                        quelle=f"{_u_lbl(r, u)} × H={h}", anker={"raum": _room_name(r)})
+                        quelle=f"{_u_lbl(r, u)} × H={h}", anker=_anker(r))
         for w in fzuord.get(id(r), []):
             bw, hw = w.get("breite_m") or 0, w.get("hoehe_m") or 0
             netto = oeffnung_netto(bw, hw, _wand_cm_of(w, baudaten),
@@ -690,7 +763,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
             _art = (w.get("_art") or "Öffnung").capitalize()
             _ziel.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
                             laenge=bw, hoehe=-hw, summe=-netto["abzug"],
-                            anker={"raum": _room_name(r)})
+                            anker=_anker(r))
             leibung_zeile(pos_laib, pos_laib_m2,
                           f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
                           bw, hw, netto)
@@ -711,7 +784,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in innen:
         f = _room_value(r, "flaeche_m2")
         if f:
-            pos.add_zeile(_room_name(r), summe=f, anker={"raum": _room_name(r)})
+            pos.add_zeile(_room_name(r), summe=f, anker=_anker(r))
     pos.konfidenz = 0.97
     positionen.append(pos)
     return positionen
@@ -772,7 +845,7 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
     for r in nass:
         f = _room_value(r, "flaeche_m2")
         if f:
-            pos_b.add_zeile(_room_name(r), summe=f, quelle=f"F={f}", anker={"raum": _room_name(r)})
+            pos_b.add_zeile(_room_name(r), summe=f, quelle=f"F={f}", anker=_anker(r))
     if pos_b.zeilen:
         pos_b.konfidenz = 0.9
         positionen.append(pos_b)
@@ -789,7 +862,7 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
             continue
         nm = (_room_name(r) or "").lower()
         h = 1.5 if ("wc" in nm and "bad" not in nm and "dusch" not in nm) else 2.0
-        pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h, anker={"raum": _room_name(r)},
+        pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h, anker=_anker(r),
                         summe=u * h, quelle=f"{_u_lbl(r, u)} × h={h} (angenommen)")
         # Öffnungen im Fliesenband [0..h] abziehen: Tür (fph=0) → volle Bandhöhe,
         # Fenster ab Parapet fph → nur der Teil unter der Fliesenhöhe ist gefliest.
@@ -805,7 +878,7 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
             _art = (w.get("_art") or "Öffnung").capitalize()
             pos_w.add_zeile(f"  Abzug {_art} {w.get('code', '')}".rstrip(),
                             summe=-abzug, quelle=f"{bw}×{round(band, 2)} m im Fliesenband",
-                            anker={"raum": _room_name(r)})
+                            anker=_anker(r))
     if pos_w.zeilen:
         pos_w.konfidenz = 0.75
         positionen.append(pos_w)
@@ -1150,37 +1223,54 @@ def aufmass_matrix(gewerke, raeume=None):
                 "regel_obj": p.get("regel"),       # maschinenlesbar (art/norm/formel)
             })
             for z in (p.get("zeilen") or []):
-                rn = ((z.get("anker") or {}).get("raum") or "").strip()
+                _a = z.get("anker") or {}
+                # Nach der eindeutigen Raumkennung gruppieren, NICHT nach dem
+                # Namen — sonst werden die drei "Bad" eines Wohnbaus zu einer
+                # Zeile und zeigen die Zahlen des letzten. "raum" bleibt der
+                # Anzeigetext. Aeltere Zeilen ohne rkey fallen auf den Namen
+                # zurueck (dann eben mit der alten Ungenauigkeit, aber ohne
+                # Absturz).
+                rk = (_a.get("rkey") or _a.get("raum") or "").strip()
                 w = z.get("wert")
                 if w is None:
                     continue
-                if rn:
-                    zellen.setdefault(rn, {}).setdefault(skey, 0.0)
-                    zellen[rn][skey] += float(w)
+                if rk:
+                    zellen.setdefault(rk, {}).setdefault(skey, 0.0)
+                    zellen[rk][skey] += float(w)
                 else:
                     ohne.append({"pos": skey, "beschreibung": p.get("beschreibung"),
                                  "text": z.get("text"), "wert": float(w)})
 
-    # Zeilenköpfe: bekannte Räume zuerst (mit F/U), dann nur-in-Zeilen genannte
+    # Zeilenköpfe: bekannte Räume zuerst (mit F/U), dann nur-in-Zeilen genannte.
+    # Schluessel ist dieselbe Kennung wie im Anker.
     fu = {}
     for r in (raeume or []):
         n = (r.get("name") or r.get("raum") or "").strip()
         if n:
-            fu[n] = {"f_m2": r.get("flaeche_m2") if r.get("flaeche_m2") is not None
-                     else r.get("f_m2"),
-                     "u_m": r.get("umfang_m") if r.get("umfang_m") is not None
-                     else r.get("u_m"),
-                     "geschoss": r.get("geschoss")}
-    namen = list(fu.keys()) + [n for n in zellen if n not in fu]
+            fu[_room_key(r)] = {
+                "raum": n,
+                "f_m2": r.get("flaeche_m2") if r.get("flaeche_m2") is not None
+                else r.get("f_m2"),
+                "u_m": r.get("umfang_m") if r.get("umfang_m") is not None
+                else r.get("u_m"),
+                "geschoss": r.get("geschoss"),
+                "wohnung": r.get("wohnung") or r.get("top")}
+    keys = list(fu.keys()) + [k for k in zellen if k not in fu]
     zeilen_out = []
-    for n in namen:
-        mengen = {k: round(v, 2) for k, v in (zellen.get(n) or {}).items()
+    for k in keys:
+        mengen = {sk: round(v, 2) for sk, v in (zellen.get(k) or {}).items()
                   if abs(v) >= 0.005}
+        _k = fu.get(k) or {}
         zeilen_out.append({
-            "raum": n,
-            "f_m2": (fu.get(n) or {}).get("f_m2"),
-            "u_m": (fu.get(n) or {}).get("u_m"),
-            "geschoss": (fu.get(n) or {}).get("geschoss"),
+            # Anzeigename: bei gleichnamigen Raeumen die Wohnung dazu, sonst
+            # sieht der Nutzer dreimal "Bad" und kann sie nicht auseinander-
+            # halten.
+            "raum": (_k.get("raum") or (k.split("|")[0] if k else "?")),
+            "wohnung": _k.get("wohnung"),
+            "rkey": k,
+            "f_m2": _k.get("f_m2"),
+            "u_m": _k.get("u_m"),
+            "geschoss": _k.get("geschoss"),
             "mengen": mengen,
             "n_positionen": len(mengen),
         })
@@ -1278,7 +1368,7 @@ def eigene_position(regel_id, posnr, bezeichnung, rooms, windows=None,
         f = _room_value(r, "flaeche_m2")
         u = _room_value(r, "umfang_m")
         h = _room_value(r, "hoehe_m") or h_def
-        ank = {"raum": nm}
+        ank = _anker(r)
         if regel_id in ("boden", "decke"):
             if f:
                 pos.add_zeile(nm, summe=f, quelle=f"F={f}", anker=ank)
