@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.75"
+APP_REV = "2026-07-09.76"
 
 
 @app.get("/api/extract-health")
@@ -6346,11 +6346,40 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
             # "LAGE UNBESTIMMT (bitte am Plan zurechtziehen)" beschriftet.
             # Das ist besser als eine Lage, die sicher aussieht und falsch ist.
             #
-            # Der Code bleibt stehen, weil die Messung reproduzierbar ist
-            # (scripts/mess_scan_anker.py) und ein besseres Auswahlverfahren
-            # ihn wiederbeleben koennte — etwa eine GEMEINSAME Verschiebung
-            # aller Raeume statt einer Einrastung je Raum. Wer ihn
-            # einschaltet, muss vorher jene Messung gruen bekommen.
+            # AUCH DIE GEMEINSAME VERSCHIEBUNG TRAEGT NICHT (gemessen
+            # 2026-07-30, scripts/mess_scan_verschiebung.py). Die Hoffnung
+            # war: Vision kennt die RELATIVE Lage besser als die absolute,
+            # also einen einzigen Versatzvektor aus allen Raeumen gemeinsam
+            # schaetzen (Median / getrimmter Median / RANSAC) statt je Raum
+            # einzurasten. Mittlerer Lagefehler bei 0,6 m Fehlerstaerke:
+            #   Regime          ohne   Median  getrimmt  RANSAC
+            #   unabhaengig     0,59     0,60     0,60     0,66
+            #   gemischt        0,57     0,54     0,56     0,58
+            #   systematisch    0,60     0,54     0,57     0,50
+            # Der beste Schaetzer gewinnt in 6 von 12 Faellen, und dort um
+            # Zentimeter. Grund: das Fleckenfeld ist so dicht, dass die
+            # Paarungen ueberwiegend falsch sind — gemittelt wird Rauschen,
+            # nicht der echte Versatz. Welches Regime bei Vision vorliegt,
+            # ist zudem ungemessen.
+            #
+            # Damit sind ACHT Verfahren fuer die Raumlage auf Scans gemessen
+            # und alle widerlegt: Vision-Bbox (3-7 m), Vision-Polygone
+            # (33 %), Raster-Flutung (35 %), Kanten-Einrasten, Wandachsen-
+            # Einrasten, Textfleck je Raum, Stapel-Gruppierung, gemeinsame
+            # Verschiebung. Die Lage eines Raums laesst sich aus dem
+            # SCAN-BILD mit diesen Mitteln nicht bestimmen.
+            #
+            # Der ehrliche Weg ist deshalb der, den die App schon geht: die
+            # Flaeche byte-exakt aus dem Stempel, die Lage als Anhaltspunkt
+            # mit sichtbarem Hinweis, und der Nutzer zieht sie zurecht. Der
+            # naechste ECHTE Hebel ist kein besserer Anker, sondern
+            # Geometrie: nach der 2-Punkt-Massstabskalibrierung die Waende
+            # aus dem Rasterbild rekonstruieren (Prototyp vorhanden, an
+            # Tuerluecken haengend).
+            #
+            # Der Detektor-Code bleibt, weil die Messungen reproduzierbar
+            # sind und er intakt bleiben soll. Wer den Schalter umlegt, muss
+            # mess_scan_anker.py gruen bekommen.
             _ANKER_EINRASTEN = False
             # (Historische Begruendung, die zum Einbau gefuehrt hat:) die
             # Vision-Anker
