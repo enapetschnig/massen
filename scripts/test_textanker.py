@@ -29,16 +29,29 @@ bei echten Scans ohne Vektor-Geometrie.
 
 Dieser Wächter belegt also: die Fleck-Erkennung findet Raumbeschriftungen in
 einem gerasterten Plan, deterministisch und messbar besser als vorher. Er
-belegt NICHT, dass die Einrastung beim Nutzer die Lage verbessert. Dafür
-fehlen zwei Dinge:
-  1. ein Korpus aus echten Plan-Scans (lokal liegt keiner),
-  2. die gemessene LAGE-Genauigkeit der Vision-Anker. Solange die unbekannt
-     ist, ist unentschieden, ob Einrasten überhaupt hilft: ein Orakel, das
-     immer den stempelnächsten Fleck wählt, landet im Mittel 0,80 m daneben
-     — jede Vision-Lage, die besser ist als diese Decke, wird durchs
-     Einrasten schlechter.
-Die Simulation unten vergleicht deshalb NUR alte gegen neue Einstellung.
-Sie beantwortet nicht die Frage, ob eingerastet werden soll.
+belegt NICHT, dass die Einrastung beim Nutzer die Lage verbessert.
+
+DIESE FRAGE IST INZWISCHEN BEANTWORTET — mit Nein. Der fehlende Scan-Korpus
+wurde HERGESTELLT (scripts/_scan_korpus.py: die Referenzpläne bei 120–150 dpi
+gerastert, verrauscht, JPEG-komprimiert, als reines Bild-PDF neu geschrieben;
+0 Text-Spans, 0 Vektoren, 8 Scans, 226 Stempel — und die Wahrheit stammt aus
+dem Text-Layer des Originals, ist also byte-exakt bekannt). Darauf gemessen
+(scripts/mess_scan_anker.py):
+
+  mittlerer Lagefehler je Raum   Vision-Versatz 0,2 m   0,4 m   0,8 m
+    ohne Anker                                   0,20    0,39    0,78
+    mit Einrastung                               0,27    0,45    0,80
+
+Einrasten verschlechtert die Lage bei jedem Versatz. Ursache ist die Decke
+des Verfahrens: selbst der jeweils stempelnächste Fleck liegt im Mittel
+0,77 m daneben. Drei Laufzeit-Tore ändern daran nichts — das sichere Tor
+öffnet bei 1 % der Räume (also faktisch „aus"), die häufiger öffnenden sind
+schlechter.
+
+Die Einrastung ist deshalb abgeschaltet (api/extract.py::_ANKER_EINRASTEN).
+Dieser Wächter hält den Schalter fest und prüft die Erkennung weiter, damit
+sie intakt bleibt, falls ein besseres Auswahlverfahren sie wiederbelebt —
+etwa eine GEMEINSAME Verschiebung aller Räume statt einer Einrastung je Raum.
 """
 import glob
 import os
@@ -132,108 +145,63 @@ def _messe(pfad):
         "Fleck-Erkennung nicht deterministisch"
     d = sorted(min(((f[0] - t[0]) ** 2 + (f[1] - t[1]) ** 2) ** 0.5
                    for f in fl) / sc / ptm for t in wahr)
-    # Flecken der ALTEN Einstellung fuer den Vorher-Nachher-Vergleich.
-    fl_alt = nachzeichnen.textflecken(arr, zell=4)
     doc.close()
     return (len(fl), d[len(d) // 2], sum(1 for x in d if x < 0.5), len(d),
-            {"fl": fl, "fl_alt": fl_alt, "wahr": wahr, "flaechen": flaechen,
+            {"fl": fl, "wahr": wahr, "flaechen": flaechen,
              "ppm": sc * ptm, "abstaende": d})
 
 
-def _tol_faktor_aus_produktion():
-    """Den Einrast-Faktor aus api/extract.py lesen, nicht hier nachschreiben.
+def _einrasten_ist_aus():
+    """Ist die Einrastung in der Produktion abgeschaltet?
 
-    Zellgroesse und Toleranz wirken nur ZUSAMMEN: die feinere Zelle findet
-    dreimal so viele Flecken, und mit der alten weiten Toleranz rastet die
-    Regel dann fast immer auf irgendetwas ein. Wer eine der beiden Zahlen
-    allein zurueckdreht, macht die Einrastung schlechter als vorher. Darum
-    liest dieser Waechter beide aus dem echten Code.
+    Sie IST abgeschaltet, und zwar gemessen: auf einem hergestellten
+    Scan-Korpus (8 Scans, 226 Stempel, scripts/mess_scan_anker.py)
+    verschlechtert das Einrasten die Raumlage bei JEDEM Vision-Versatz —
+    0,20 -> 0,27 m bei 0,2 m Versatz, 0,39 -> 0,45 bei 0,4 m, und bei
+    grossem Versatz bestenfalls gleichauf. Grund ist die Decke des
+    Verfahrens: selbst der jeweils stempelnaechste Fleck liegt im Mittel
+    0,78 m daneben.
+
+    Dieser Waechter haelt den Schalter fest. Wer ihn umlegt, muss vorher
+    scripts/mess_scan_anker.py gruen bekommen — sonst wandert eine Lage in
+    die App, die sicher aussieht und falsch ist.
     """
     import re
     p = os.path.join(os.path.dirname(__file__), "..", "api", "extract.py")
-    m = re.search(r"_tol = max\(12\.0,\s*([0-9.]+)\s*\* max\(_bw3, _bh3\)\)",
-                  open(p, encoding="utf-8").read())
-    assert m, "Einrast-Toleranz in api/extract.py nicht gefunden (umbenannt?)"
-    return float(m.group(1))
-
-
-def _einrasten(daten, zell_neu, tol_faktor, rausch_m, startwert):
-    """Die ECHTE Pipeline-Regel auf simulierter Vision-Lage.
-
-    -> (richtig, falsch, offen). "falsch" heisst: eingerastet, aber weiter
-    als 0,5 m vom echten Stempel — der teure Fehler, weil er sicher aussieht.
-    """
-    import math
-    import random
-    rnd = random.Random(startwert)
-    richtig = falsch = offen = 0
-    for d in daten:
-        fl = d["fl"] if zell_neu else d["fl_alt"]
-        ppm = d["ppm"]
-        if not fl:
-            offen += len(d["wahr"])
-            continue
-        for i, (tx, ty) in enumerate(d["wahr"]):
-            w = rnd.uniform(0, 2 * math.pi)
-            r = rnd.gauss(rausch_m, rausch_m * 0.4)
-            vx, vy = tx + r * ppm * math.cos(w), ty + r * ppm * math.sin(w)
-            f = d["flaechen"][i] if i < len(d["flaechen"]) else 0.0
-            seite = (max(f, 1.0) ** 0.5) * ppm
-            tol = max(12.0, tol_faktor * seite)
-            best = min(fl, key=lambda p: (p[0] - vx) ** 2 + (p[1] - vy) ** 2)
-            if ((best[0] - vx) ** 2 + (best[1] - vy) ** 2) ** 0.5 > tol:
-                offen += 1
-                continue
-            if ((best[0] - tx) ** 2 + (best[1] - ty) ** 2) ** 0.5 / ppm < 0.5:
-                richtig += 1
-            else:
-                falsch += 1
-    return richtig, falsch, offen
+    q = open(p, encoding="utf-8").read()
+    m = re.search(r"_ANKER_EINRASTEN\s*=\s*(True|False)", q)
+    assert m, ("_ANKER_EINRASTEN in api/extract.py nicht gefunden — "
+               "wurde der Schalter entfernt?")
+    return m.group(1) == "False"
 
 
 def _einrasten_pruefen(daten):
-    """Bringt die heutige Einstellung dem NUTZER mehr als die alte?
+    """Ist die Einrastung abgeschaltet — und stimmt der Grund noch?
 
-    "Abstand zum naechsten Fleck" ist nur ein Stellvertreter. Entscheidend
-    ist, was die Pipeline-Regel daraus macht — und dort kann eine bessere
-    Erkennung sogar schaden, wenn die Regel zu grosszuegig ist.
+    Frueher stand hier eine Simulation, die die ALTE gegen die NEUE
+    Einrast-Einstellung verglich und "mehr richtige, nicht mehr falsche"
+    verlangte. Diese Zusage war erfuellbar, waehrend das Produkt schlechter
+    wurde: sie verglich nie gegen "gar nicht einrasten". Am hergestellten
+    Scan-Korpus (scripts/mess_scan_anker.py, 8 Scans, 226 Stempel) gemessen
+    ist genau das der Fall — Einrasten verschlechtert die Lage bei jedem
+    Vision-Versatz. Die Simulation ist deshalb ersatzlos entfallen; sie hat
+    eine falsche Sicherheit erzeugt.
     """
-    tf = _tol_faktor_aus_produktion()
-    print(f"\nEinrasten (Pipeline-Regel, Toleranzfaktor {tf} aus extract.py)")
-    print(f"  {'Vision-Versatz':>15}{'alt r/f':>14}{'heute r/f':>14}{'Differenz':>16}")
-    print("  " + "-" * 60)
-    sR = sF = 0
-    schlimmster = None
-    for rm in (0.2, 0.3, 0.4, 0.6, 0.8):
-        aR = aF = nR = nF = 0
-        for sw in (1, 7, 23):
-            x, y, _ = _einrasten(daten, False, 0.25, rm, sw)
-            aR += x; aF += y
-            x, y, _ = _einrasten(daten, True, tf, rm, sw)
-            nR += x; nF += y
-        sR += nR - aR; sF += nF - aF
-        if schlimmster is None or (nR - aR) - (nF - aF) < schlimmster[0]:
-            schlimmster = ((nR - aR) - (nF - aF), rm, nR - aR, nF - aF)
-        print(f"  {rm:14.1f}m{aR:>8}/{aF:<5}{nR:>8}/{nF:<5}"
-              f"{nR - aR:>+9}/{nF - aF:<5}")
-    print("  " + "-" * 60)
-    print(f"  gesamt: richtig {sR:+d} · falsch {sF:+d}")
-    # (e) die heutige Einstellung muss dem Nutzer MEHR richtige Einrastungen
-    #     bringen als die alte — und nicht mehr falsche. Beides zusammen,
-    #     sonst ist es kein Fortschritt, sondern eine Verschiebung.
-    assert sR > 0, \
-        f"keine zusaetzlichen richtigen Einrastungen ({sR:+d}) — die feinere " \
-        f"Zelle bringt dem Nutzer nichts"
-    assert sF <= 0, \
-        f"{sF:+d} FALSCHE Einrastungen mehr — eine falsche Lage sieht sicher " \
-        f"aus und ist schlimmer als gar keine. Toleranzfaktor pruefen " \
-        f"(gemessen: 0,25 kostet +155 falsche, 0,10 spart 464)"
-    # (f) auch der schlechteste Vision-Versatz darf nicht ins Minus kippen
-    assert schlimmster[3] <= 2, \
-        f"bei Vision-Versatz {schlimmster[1]} m: {schlimmster[3]:+d} falsche " \
-        f"Einrastungen — die Regel ist dort zu grosszuegig"
-    print(f"  schlechtester Vision-Versatz {schlimmster[1]} m: "
-          f"richtig {schlimmster[2]:+d} · falsch {schlimmster[3]:+d} ✓")
+    aus = _einrasten_ist_aus()
+    print(f"\nEinrastung in der Produktion: "
+          f"{'AUS' if aus else 'EIN'} (api/extract.py::_ANKER_EINRASTEN)")
+    assert aus, (
+        "Die Textfleck-Einrastung ist eingeschaltet, obwohl sie am Scan-Korpus "
+        "die Raumlage VERSCHLECHTERT (0,20 -> 0,27 m bei 0,2 m Vision-Versatz; "
+        "Decke des Verfahrens 0,78 m). Wer sie einschaltet, muss vorher "
+        "scripts/mess_scan_anker.py gruen bekommen — dort wird gegen 'gar "
+        "nicht einrasten' gemessen, nicht gegen die vorige Einstellung.")
+    print("  -> Raumlage auf Scans bleibt die Vision-Lage, ehrlich als "
+          "'LAGE UNBESTIMMT' beschriftet.")
+    print("  -> Der Fleck-Detektor bleibt geprueft (oben), damit er intakt "
+          "bleibt, falls ein besseres Auswahlverfahren ihn wiederbelebt.")
+
+
 
 
 def run():
@@ -326,13 +294,15 @@ def run():
         _einrasten_pruefen(sim_daten)
     print(f"bester Plan {min(alle_med):.2f} m · deterministisch "
           f"(je Plan zwei identische Läufe) ✓")
-    print("HINWEIS: der begrenzende Faktor ist die RASTERUNG, nicht die "
-          "Textdichte — bei 28 px/m verwischt die Stempelschrift zu hellgrau "
-          "und faellt aus der Maske. Eine feinere Zelle faengt sie (Zellgroesse "
-          "2 statt 4). Textdichte bleibt ein Nebeneffekt: AP.01 hat trotz "
-          "96 px/m 0,45 m, weil dort viel Fremdschrift steht. In der Pipeline "
-          "rastet der Anker nur ein, wenn ein Fleck NAH genug liegt; sonst "
-          "bleibt der Vision-Anker stehen.")
+    print("HINWEIS: der begrenzende Faktor der ERKENNUNG ist die Rasterung, "
+          "nicht die Textdichte — bei 28 px/m verwischt die Stempelschrift zu "
+          "hellgrau und faellt aus der Maske; eine feinere Zelle faengt sie "
+          "(Zellgroesse 2 statt 4). Textdichte bleibt ein Nebeneffekt: AP.01 "
+          "hat trotz 96 px/m 0,45 m, weil dort viel Fremdschrift steht.")
+    print("WICHTIG: die Erkennung ist gut, die EINRASTUNG traegt trotzdem "
+          "nicht — am Scan-Korpus verschlechtert sie die Lage (Decke des "
+          "Verfahrens 0,77 m). Sie ist deshalb abgeschaltet; die Raumlage auf "
+          "Scans bleibt die Vision-Lage. Beweis: scripts/mess_scan_anker.py.")
 
 
 if __name__ == "__main__":

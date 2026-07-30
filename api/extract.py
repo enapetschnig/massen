@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.74"
+APP_REV = "2026-07-09.75"
 
 
 @app.get("/api/extract-health")
@@ -6305,7 +6305,55 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
             except Exception as _ke:
                 print(f"[nachzeichnen] Scan-Flaechenkalibrierung: {_ke!r}")
 
-            # TEXTFLECKEN-EINRASTUNG (der eigentliche Hebel): die Vision-Anker
+            # TEXTFLECKEN-EINRASTUNG — AUSGESCHALTET, gemessen 2026-07-30.
+            #
+            # Die Idee war gut und die Begruendung darunter stimmt in jedem
+            # Einzelschritt. Nur half sie nicht: am ECHTEN Pfad gemessen
+            # verschlechtert das Einrasten die Lage.
+            #
+            # Warum das so lange unbemerkt blieb: gemessen wurde an
+            # VEKTOR-Plaenen, auf denen dieser Zweig nie laeuft (er greift
+            # nur ohne rekonstruierte Polygone). Fuer die richtige Messung
+            # wurde ein Scan-Korpus HERGESTELLT — die vier Referenzplaene
+            # bei 120-150 dpi gerastert, verrauscht, JPEG-komprimiert und
+            # als reines Bild-PDF neu geschrieben (0 Text-Spans, 0 Vektoren,
+            # 8 Scans, 226 Stempel). Die Wahrheit ist dabei byte-exakt
+            # bekannt, weil sie aus dem Text-Layer des Originals stammt.
+            # Gemessen ueber genau diese Kette: basis_png -> csGRAY ->
+            # textflecken, also das, was hier laufen wuerde.
+            #
+            # DECKE des Verfahrens (Orakel: immer der stempelnaechste Fleck):
+            #   angerer 0,10-0,12 m · ap01 0,30-0,43 · velden 0,66-0,72 ·
+            #   AU_WM_01 0,93-0,98   -> Korpus 0,78 m im Mittel
+            # Jede Vision-Lage, die besser als 0,78 m ist, wird durch
+            # Einrasten also schlechter — und Vision ist besser.
+            #
+            # MITTLERER LAGEFEHLER je Raum, Vision simuliert als Wahrheit
+            # plus Rauschen (3 Startwerte, 226 Stempel):
+            #   Vision-Versatz        0,2 m   0,4 m   0,8 m   1,5 m
+            #   ohne Anker             0,20    0,39    0,78    1,47
+            #   Einrasten (0,10)       0,27    0,45    0,80    1,48
+            # Schlechter bei JEDEM Versatz. Auch drei Laufzeit-Tore aendern
+            # das nicht: "genau ein Fleck im Raumkasten" ist zwar unschaedlich,
+            # oeffnet aber nur bei 1 % der Raeume (= aus); "eindeutig naeher
+            # als der zweitnaechste" oeffnet bei 19 % und ist schlechter.
+            #
+            # Der Determinismus-Gewinn traegt das nicht: die Regel kippt
+            # lauf-zu-lauf zwischen einrasten und nicht einrasten und erhoeht
+            # die Streuung, statt sie zu senken.
+            #
+            # Die Raumlage bleibt darum die Vision-Lage — ehrlich als
+            # "LAGE UNBESTIMMT (bitte am Plan zurechtziehen)" beschriftet.
+            # Das ist besser als eine Lage, die sicher aussieht und falsch ist.
+            #
+            # Der Code bleibt stehen, weil die Messung reproduzierbar ist
+            # (scripts/mess_scan_anker.py) und ein besseres Auswahlverfahren
+            # ihn wiederbeleben koennte — etwa eine GEMEINSAME Verschiebung
+            # aller Raeume statt einer Einrastung je Raum. Wer ihn
+            # einschaltet, muss vorher jene Messung gruen bekommen.
+            _ANKER_EINRASTEN = False
+            # (Historische Begruendung, die zum Einbau gefuehrt hat:) die
+            # Vision-Anker
             # schwanken lauf-zu-lauf um 20-24 px. Die RAUMBESCHRIFTUNG steht
             # aber im Bild und liegt bei gleichem Bild IMMER gleich. Gemessen
             # (Angerer, gegen die byte-exakten Stempelpositionen): der naechste
@@ -6314,7 +6362,7 @@ def _vision_raum_regionen(plan_id, r, seite, page=None):
             # ungefaehr, der Textfleck sagt GENAU wo. Deterministisch.
             try:
                 import numpy as _np
-                _png2 = r.get("basis_png")
+                _png2 = r.get("basis_png") if _ANKER_EINRASTEN else None
                 if _png2:
                     import fitz as _fz3
                     _pm2 = _fz3.Pixmap(_fz3.csGRAY, _fz3.Pixmap(_png2))

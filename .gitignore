@@ -28,3 +28,7 @@ uploads/
 dist/
 build/
 *.egg-info/
+
+# Hergestellter Scan-Korpus (rund 100 MB Bild-PDFs) — reproduzierbar
+# aus scripts/_scan_korpus.py, gehoert nicht ins Repo.
+scripts/_scan_korpus_daten/
