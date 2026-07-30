@@ -35,6 +35,7 @@ GUARDS = [
     ("Textfleck-Anker (Scan-Lage)", "test_textanker.py", "Textfleck-Anker"),
     ("Workflow-Schritte", "test_workflow_schritte.py", "Pflicht-Bereiche"),
     ("Gleichnamige Räume (MFH)", "test_namens_kollision.py", "eigene Zahlen"),
+    ("Klick-Handler (Im Plan zeigen)", "test_klick_handler.py", "Inline-Handler"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),

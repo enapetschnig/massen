@@ -1783,8 +1783,7 @@
           '<table class="oa-tab"><tbody>' +
           (p.zeilen || []).map(function (z) {
             var raum = (z.anker || {}).raum;
-            return '<tr><td' + (raum ? ' style="cursor:pointer" onclick="nzHighlightRaum(' +
-              JSON.stringify(raum) + ')" title="Im Plan zeigen"' : '') + '>' +
+            return '<tr><td' + _raumKlick(raum) + '>' +
               esc(z.text || '') + '</td><td style="text-align:right">' + fmtNum(z.wert) +
               '</td><td style="color:#6c757d;font-size:.76rem">' + esc(z.quelle || '') + '</td></tr>';
           }).join('') + '</tbody></table></div>';
@@ -1794,6 +1793,24 @@
           esc(e.message) + '</p>';
       });
     });
+  }
+
+  // Klick-Attribut "Im Plan zeigen" — EINE Stelle statt drei.
+  //
+  // Hier stand dreimal JSON.stringify(name) INNERHALB eines doppelt
+  // gequoteten Attributs. JSON.stringify liefert aber DOPPELTE
+  // Anfuehrungszeichen, und damit endet das Attribut mitten im Aufruf:
+  //     onclick="nzHighlightRaum("Zimmer 1")"
+  // Der Browser liest daraus onclick="nzHighlightRaum(" — ein Syntaxfehler,
+  // der Klick blieb wirkungslos. Im Browser nachgestellt und bestaetigt.
+  // Innen gehoeren EINFACHE Anfuehrungszeichen hin, JS-escaped und danach
+  // HTML-escaped.
+  function _raumKlick(name) {
+    var s = String(name || '');
+    if (!s) return '';
+    var js = esc(s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+    return ' style="cursor:pointer" onclick="nzHighlightRaum(\'' + js +
+      '\')" title="Im Plan zeigen"';
   }
 
   function renderAufmassMatrix(m) {
@@ -1844,19 +1861,28 @@
         '<br>' + esc(p.einheit || '') + (kz ? ' · ' + kz : '') + '</div></th>';
     });
     h += '</tr></thead><tbody>';
+    // Welche Raumnamen kommen mehrfach vor? Nur dort hilft die Wohnung.
+    var _mehrfach = {};
     zeilen.forEach(function (r) {
-      // Wohnung mit anzeigen: in einem Wohnbau heissen drei Zeilen "Bad" und
-      // waeren sonst nicht auseinanderzuhalten.
+      _mehrfach[r.raum] = (_mehrfach[r.raum] || 0) + 1;
+    });
+    Object.keys(_mehrfach).forEach(function (k) {
+      _mehrfach[k] = _mehrfach[k] > 1;
+    });
+    zeilen.forEach(function (r) {
+      // Wohnung NUR anzeigen, wenn sie wirklich unterscheidet: in einem
+      // Wohnbau heissen drei Zeilen "Bad" und brauchen sie, in einem
+      // Einfamilienhaus stuende hinter jedem Raum "Haus" — reiner Lärm.
       h += '<tr><td style="position:sticky;left:0;background:inherit"><strong>' +
         esc(r.raum || '') + '</strong>' +
-        (r.wohnung ? ' <span style="color:#6c757d;font-size:.75rem">' + esc(r.wohnung) + '</span>' : '') +
+        ((r.wohnung && _mehrfach[r.raum]) ? ' <span style="color:#6c757d;font-size:.75rem">'
+          + esc(r.wohnung) + '</span>' : '') +
         (r.geschoss ? ' <span style="color:#6c757d;font-size:.75rem">' + esc(r.geschoss) + '</span>' : '') +
         '</td><td>' + (r.f_m2 != null ? fmtNum(r.f_m2) : '—') + '</td>';
       spalten.forEach(function (p) {
         var v = (r.mengen || {})[p.key];
         h += '<td' + (v != null
-          ? ' style="cursor:pointer" onclick="nzHighlightRaum(' + JSON.stringify(r.raum || '') + ')" ' +
-            'title="Im Plan zeigen">' + fmtNum(v)
+          ? _raumKlick(r.raum) + '>' + fmtNum(v)
           : ' style="color:#c8ccd0">—') + '</td>';
       });
       h += '</tr>';
@@ -2523,8 +2549,9 @@
         'stimmt (aus dem Raumstempel), die Position ist nur ein Anhaltspunkt ' +
         'und bitte mit ✏️ zurechtzuziehen: </span>' +
         geschaetzt.slice(0, 6).map(function (r) {
-          return '<a href="#" onclick="nzHighlightRaum(' +
-            JSON.stringify(r.name || '') + ');return false" ' +
+          var _js = esc(String(r.name || '').replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'"));
+          return '<a href="#" onclick="nzHighlightRaum(\'' + _js + '\');return false" ' +
             'style="color:#b45309;text-decoration:underline">' + esc(r.name || 'Raum') + '</a>';
         }).join(', ');
     }
