@@ -3614,6 +3614,25 @@
         einheit + ex(exakt) + '</span></div>';
     };
     z += zeile('Boden (=F)', f, 'm²', r.f_ist == null || r.status === 'verifiziert');
+    // DER GEZEICHNETE UMRISS GEGEN DIE GERECHNETE ZAHL.
+    //
+    // Die Menge kommt aus dem byte-exakten Raumstempel; der Umriss am Plan
+    // kommt aus der Rekonstruktion. Beim Flur des Referenzplans umschliesst
+    // der gezeichnete Umriss 14,00 m², gestempelt sind 15,84 — 12 % weniger,
+    // und nichts sagte das. Wer den Plan zum Pruefen benutzt, muss sehen,
+    // wenn die Zeichnung und die Zahl nicht zusammenpassen: sonst prueft er
+    // eine Flaeche, mit der gar nicht gerechnet wird.
+    if (f && r.f_ist != null && r.f_ist > 0) {
+      var _ab = Math.abs(r.f_ist - f) / f * 100;
+      if (_ab >= 8) {
+        z += '<div class="rw-abw">Der <strong>gezeichnete Umriss</strong> umschließt ' +
+          fmtNum(Math.round(r.f_ist * 100) / 100) + ' m² — ' +
+          Math.round(_ab) + ' % ' + (r.f_ist < f ? 'weniger' : 'mehr') +
+          ' als der Raumstempel. <strong>Gerechnet wird mit ' + fmtNum(f) +
+          ' m²</strong> (byte-exakt aus dem Plan-Text). Der Umriss ist hier ' +
+          'nur der Zeigefinger — zum Nachmessen bitte ✏️ Raum bearbeiten.</div>';
+      }
+    }
     z += zeile('Umfang U', u, 'm', !r.umfang_geschaetzt);
     z += zeile('Höhe', h, 'm', true);
     if (f && u && h) z += zeile('Wandabwicklung U×H', u * h, 'm²', false);

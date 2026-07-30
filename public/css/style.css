@@ -3334,3 +3334,15 @@ g[data-raum].nz-hi circle {
   .nz-rl { background: rgba(255,255,255,0.04); }
   .nz-rl-on { background: rgba(243,147,1,0.14); }
 }
+
+/* Umriss gegen Stempel: wenn die Zeichnung und die gerechnete Zahl
+   auseinanderlaufen, muss das dastehen — sonst prüft jemand eine Fläche,
+   mit der gar nicht gerechnet wird. */
+.rw-abw {
+  margin: 0.55rem 0 0; padding: 0.5rem 0.7rem;
+  background: #fef3c7; border-left: 3px solid #b45309;
+  border-radius: 0 6px 6px 0; font-size: 0.85rem; line-height: 1.45;
+}
+@media (prefers-color-scheme: dark) {
+  .rw-abw { background: rgba(180,83,9,0.16); }
+}
