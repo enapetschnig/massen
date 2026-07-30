@@ -882,7 +882,9 @@
             var ank = z.anker && z.anker.raum;
             var ankK = !ank && z.anker && z.anker.ebene === 'konturen';
             html += '<div class="auf-z' + ((ank || ankK) ? ' auf-z-anker' : '') + '"' +
-              (ank ? ' onclick="nzHighlightRaum(\'' + esc(z.anker.raum).replace(/'/g, "\\'") + '\')"' +
+              (ank ? ' onclick="nzHighlightRaum(\'' + _jsStr(z.anker.raum) + '\', \''
+                + _jsStr((z.text || '') + (z.quelle ? ' · ' + z.quelle : '')
+                  + (z.wert != null ? ' = ' + fmtNum(z.wert) : '')) + '\')"' +
                 ' title="Am Plan zeigen: ' + esc(z.anker.raum) + '"' : '') +
               (ankK ? ' onclick="nzHighlightKontur()"' +
                 ' title="Am Plan zeigen: Gebäude-Hülle (blaue Kontur)"' : '') +
@@ -1783,7 +1785,9 @@
           '<table class="oa-tab"><tbody>' +
           (p.zeilen || []).map(function (z) {
             var raum = (z.anker || {}).raum;
-            return '<tr><td' + _raumKlick(raum) + '>' +
+            return '<tr><td' + _raumKlick(raum, (z.text || '') +
+              (z.quelle ? ' · ' + z.quelle : '') +
+              (z.wert != null ? ' = ' + fmtNum(z.wert) : '')) + '>' +
               esc(z.text || '') + '</td><td style="text-align:right">' + fmtNum(z.wert) +
               '</td><td style="color:#6c757d;font-size:.76rem">' + esc(z.quelle || '') + '</td></tr>';
           }).join('') + '</tbody></table></div>';
@@ -1805,12 +1809,16 @@
   // der Klick blieb wirkungslos. Im Browser nachgestellt und bestaetigt.
   // Innen gehoeren EINFACHE Anfuehrungszeichen hin, JS-escaped und danach
   // HTML-escaped.
-  function _raumKlick(name) {
+  function _jsStr(x) {
+    return esc(String(x || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  }
+
+  function _raumKlick(name, beleg) {
     var s = String(name || '');
     if (!s) return '';
-    var js = esc(s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
-    return ' style="cursor:pointer" onclick="nzHighlightRaum(\'' + js +
-      '\')" title="Im Plan zeigen"';
+    return ' style="cursor:pointer" onclick="nzHighlightRaum(\'' + _jsStr(s) +
+      '\'' + (beleg ? ", '" + _jsStr(beleg) + "'" : '') +
+      ')" title="Im Plan zeigen"';
   }
 
   function renderAufmassMatrix(m) {
@@ -1882,7 +1890,10 @@
       spalten.forEach(function (p) {
         var v = (r.mengen || {})[p.key];
         h += '<td' + (v != null
-          ? _raumKlick(r.raum) + '>' + fmtNum(v)
+          ? _raumKlick(r.raum, (p.posnr ? p.posnr + ' ' : '') +
+              (p.beschreibung || '').replace(/\s*—.*$/, '') + ' · ' +
+              (r.raum || '') + ' · ' + fmtNum(v) + ' ' + (p.einheit || '') +
+              (p.regel ? ' · ' + p.regel : '')) + '>' + fmtNum(v)
           : ' style="color:#c8ccd0">—') + '</td>';
       });
       h += '</tr>';
@@ -3297,9 +3308,39 @@
     if (sec && sec.classList.contains('wf-hidden') && window.wfShow) window.wfShow(2);
     return sec;
   }
-  window.nzHighlightRaum = function (name) {
+  // BELEG-LEISTE im Plan: was wird hier gerade geprueft?
+  //
+  // Der Sprung liess bisher nur den Raum aufleuchten. Was man angeklickt hat
+  // und welche Zahl dahinter steht, musste man im Kopf behalten — auf einem
+  // A0-Blatt mit 70 Raeumen ist das keine Nachvollziehbarkeit, sondern
+  // Gedaechtnisarbeit. Jetzt steht die Position, der Raum und der Rechenweg
+  // direkt ueber dem Plan, bis man sie wegklickt.
+  function _planBeleg(text) {
+    var sec = document.getElementById('nachzeichnen-section');
+    if (!sec) return;
+    var el = document.getElementById('plan-beleg');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'plan-beleg';
+      el.className = 'plan-beleg';
+      var cont = document.getElementById('nachzeichnen-container');
+      if (cont && cont.parentNode) cont.parentNode.insertBefore(el, cont);
+      else sec.appendChild(el);
+    }
+    if (!text) { el.style.display = 'none'; return; }
+    el.innerHTML = '<span class="pb-marke">\uD83D\uDCCD im Plan geprüft</span>' +
+      '<span class="pb-text">' + text + '</span>' +
+      '<button type="button" class="pb-zu" title="Ausblenden">&times;</button>';
+    el.style.display = '';
+    var zu = el.querySelector('.pb-zu');
+    if (zu) zu.onclick = function () { el.style.display = 'none'; };
+  }
+  window._planBeleg = _planBeleg;
+
+  window.nzHighlightRaum = function (name, beleg) {
     var key = _nrmRaum(name);
     if (!key) return;
+    _planBeleg(beleg || '');
     var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     var cont = document.getElementById('nachzeichnen-container');
@@ -3312,7 +3353,14 @@
       var k = g.getAttribute('data-raum') || '';
       if (k === key || (k && (k.indexOf(key) === 0 || key.indexOf(k) === 0))) sel.push(g);
     });
-    if (!sel.length) return;
+    if (!sel.length) {
+      // Ehrlich statt stumm: der Raum liegt auf einem anderen Blatt oder hat
+      // keinen Marker. Vorher passierte hier gar nichts — der Nutzer sah nur
+      // einen Sprung ins Nichts und wusste nicht, ob er sich verklickt hat.
+      _planBeleg((beleg ? beleg + ' &middot; ' : '')
+        + '<em>auf diesem Blatt nicht eingezeichnet — Blatt oben wechseln</em>');
+      return;
+    }
     sel.forEach(function (g) { g.classList.add('nz-hi'); });
     setTimeout(function () { sel.forEach(function (g) { g.classList.remove('nz-hi'); }); }, 3200);
   };

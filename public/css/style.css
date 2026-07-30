@@ -3225,3 +3225,31 @@ g[data-raum].nz-hi circle {
 .result-grid.wf-rail-only .result-main { display: none; }
 .result-grid.wf-rail-only .pruefliste { margin-top: 0; }
 .result-grid.wf-rail-only .pl-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.7rem; }
+
+/* BELEG-LEISTE über dem Plan: was wird hier gerade geprüft?
+   Der Sprung aus einer Menge ließ bisher nur den Raum aufleuchten — was
+   angeklickt wurde und welche Zahl dahinter steht, musste man im Kopf
+   behalten. Auf einem A0-Blatt mit 70 Räumen ist das Gedächtnisarbeit,
+   keine Nachvollziehbarkeit. */
+.plan-beleg {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  margin: 0.6rem 0 0.5rem; padding: 0.6rem 0.8rem;
+  border-left: 3px solid var(--accent, #f39301);
+  background: #fffaf2; border-radius: 0 6px 6px 0;
+  font-size: 0.88rem; line-height: 1.45;
+}
+.pb-marke {
+  flex: 0 0 auto; font-weight: 700; color: #b45309;
+  font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em;
+  padding-top: 0.1rem;
+}
+.pb-text { flex: 1 1 auto; color: var(--text); }
+.pb-text em { color: #b45309; font-style: normal; font-weight: 600; }
+.pb-zu {
+  flex: 0 0 auto; border: none; background: transparent; cursor: pointer;
+  font-size: 1.1rem; line-height: 1; color: #9a9a9a; padding: 0 0.2rem;
+}
+.pb-zu:hover { color: var(--text); }
+@media (prefers-color-scheme: dark) {
+  .plan-beleg { background: rgba(243,147,1,0.10); }
+}
