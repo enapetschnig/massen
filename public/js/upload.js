@@ -3159,6 +3159,39 @@
         // RAUM-EDITOR: Klick auf ein Polygon → diesen Raum bearbeiten.
         if (_nzPan && !_nzMoved && e.target) {
           var rp = e.target.getAttribute && e.target.getAttribute('data-rpoly');
+          // ROBUST TREFFEN: der Treffer auf das SVG-Element allein reicht
+          // nicht — ueber dem Raum liegen Wandlinien, Beschriftungen und
+          // Marker, und je nachdem, was gerade oben liegt, geht der Klick ins
+          // Leere. Darum zusaetzlich rechnerisch pruefen, in welchem
+          // Raum-Polygon der Punkt liegt. Das haengt an keiner
+          // Zeichenreihenfolge.
+          if (rp == null && _nzWrap && _nzData && (_nzData.raeume || []).length) {
+            var _pt = _nzScreenToImg(e);
+            var _tref = null, _kl = Infinity;
+            (_nzData.raeume || []).forEach(function (r, ri) {
+              var poly = r.region_px;
+              if (!poly || poly.length < 3) return;
+              var inside = false;
+              for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                var xi = poly[i][0], yi = poly[i][1];
+                var xj = poly[j][0], yj = poly[j][1];
+                if (((yi > _pt[1]) !== (yj > _pt[1])) &&
+                    (_pt[0] < (xj - xi) * (_pt[1] - yi) / ((yj - yi) || 1e-9) + xi)) {
+                  inside = !inside;
+                }
+              }
+              if (!inside) return;
+              // Bei verschachtelten Umrissen (Raum in Ueberdachung) den
+              // KLEINSTEN nehmen — das ist der gemeinte Raum.
+              var a = 0;
+              for (var k = 0, l = poly.length - 1; k < poly.length; l = k++) {
+                a += (poly[l][0] + poly[k][0]) * (poly[l][1] - poly[k][1]);
+              }
+              a = Math.abs(a / 2);
+              if (a < _kl) { _kl = a; _tref = ri; }
+            });
+            if (_tref != null) rp = String(_tref);
+          }
           if (rp != null) {
             if (_nzRaumEditMode) {
               _nzRaumSel = +rp; _nzPan = null; _nzPaint(); _nzRaumLiveReadout(_nzRaumSel);
