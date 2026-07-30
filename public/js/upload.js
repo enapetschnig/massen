@@ -3355,9 +3355,22 @@
   function _kurzAusBeleg(b) {
     if (!b) return '';
     var t = String(b).replace(/&[a-z]+;/g, ' ');
-    var m = t.match(/=\s*(-?[\d.,]+)\s*(m²|m³|lfm|Stk|m)?/);
-    if (!m) m = t.match(/·\s*(-?[\d.,]+)\s*(m²|m³|lfm|Stk|m)\b/);
-    return m ? (m[1] + (m[2] ? ' ' + m[2] : '')) : '';
+    // Zwei Fallen, beide im Browser aufgefallen:
+    // 1) KEIN \b hinter der Einheit. Nach "m²" folgt ein Leerzeichen, und
+    //    weder "²" noch " " sind Wortzeichen — die Wortgrenze fehlt, die
+    //    Alternative "m²" scheitert und der Ausdruck faellt auf "m" zurueck.
+    //    Aus "38,94 m²" wurde so "38,94 m".
+    // 2) Das LETZTE Gleichheitszeichen zaehlt. Eine Aufmass-Zeile lautet
+    //    "U=13.2 × H=2.95 = 38,94" — das erste "=" liefert die Wandlaenge,
+    //    nicht das Ergebnis.
+    var EIN = /(-?[\d.,]+)\s*(m²|m³|lfm|Stk|m)?/;
+    var letzte = null;
+    var re = /=\s*(-?[\d.,]+)\s*(m²|m³|lfm|Stk|m)?/g;
+    var tr;
+    while ((tr = re.exec(t)) !== null) letzte = tr;
+    if (!letzte) letzte = t.match(/·\s*(-?[\d.,]+)\s*(m²|m³|lfm|Stk|m)/);
+    if (!letzte) letzte = t.match(EIN);
+    return letzte ? (letzte[1] + (letzte[2] ? ' ' + letzte[2] : '')) : '';
   }
 
   function _markenWeg(cont) {
