@@ -3606,6 +3606,7 @@
         : ((r._synthetic || r.region_geschaetzt)
           ? '<span class="rw-warn">Umriss geschätzt — bitte anpassen</span>' : '')) +
       '<button type="button" class="rw-zu" title="Schließen">&times;</button></div>';
+    var _abwHtml = '';
     z += '<div class="rw-grid">';
     var zeile = function (lab, wert, einheit, exakt) {
       if (wert == null || wert === '') return '';
@@ -3634,7 +3635,10 @@
     if (f && _fpoly && _fpoly > 0) {
       var _ab = Math.abs(_fpoly - f) / f * 100;
       if (_ab >= 8) {
-        z += '<div class="rw-abw">Der <strong>gezeichnete Umriss</strong> umschließt ' +
+        // NICHT ins Werte-Raster schreiben: dort wird der Kasten zu einer
+        // Rasterzelle und quetscht Umfang/Höhe/Sockel zusammen. Erst
+        // sammeln, dann UNTER dem Raster ausgeben.
+        _abwHtml = '<div class="rw-abw">Der <strong>gezeichnete Umriss</strong> umschließt ' +
           fmtNum(Math.round(_fpoly * 100) / 100) + ' m² — ' +
           Math.round(_ab) + ' % ' + (_fpoly < f ? 'weniger' : 'mehr') +
           ' als der Raumstempel. <strong>Gerechnet wird mit ' + fmtNum(f) +
@@ -3646,7 +3650,7 @@
     z += zeile('Höhe', h, 'm', true);
     if (f && u && h) z += zeile('Wandabwicklung U×H', u * h, 'm²', false);
     if (u) z += zeile('Sockel', u, 'lfm', false);
-    z += '</div>';
+    z += '</div>' + _abwHtml;
 
     // Welche Positionen haengen an diesem Raum? Aus der Kreuztabelle, die
     // ohnehin schon gerechnet ist — kein zweiter Weg, keine zweite Wahrheit.
