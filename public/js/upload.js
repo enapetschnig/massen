@@ -3921,8 +3921,9 @@
     // und drängten den Plan nach unten; wer Räume prüfen will, braucht den
     // Plan gross, nicht eine Liste. Die Prüfpunkte bleiben in der Übersicht
     // und in Schritt 3 erreichbar.
-    2: ['#ergebnis-status-banner', '#nachzeichnen-section'],
-    3: ['#zielgruppen-presets', '#geo-box', '#pruefliste', '#fact-strip', '.ml-board-toolbar',
+    2: ['#nachzeichnen-section'],
+    3: ['#ergebnis-status-banner', '#zielgruppen-presets', '#geo-box', '#pruefliste',
+        '#fact-strip', '.ml-board-toolbar',
         '#mengen-board', '#ml-board', '#konf-kopf', '#auswertung-kennzahlen',
         '.advanced-drawer'],
     4: ['#zuordnung-section'],
