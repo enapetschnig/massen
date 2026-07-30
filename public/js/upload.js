@@ -2842,12 +2842,54 @@
           if (cm != null && _nzIstAussen(w, cm)) _ovU += (w.laenge_m || 0);
         });
         if (_ovU > 3) {
-          var _d = Math.abs(_ovU - _gemU) / _gemU * 100;
-          var _ok = _d <= 8;
-          legend += '<span class="nz-leg-item" title="Zwei unabhängige Wege: Σ der im Overlay als AUSSEN erkannten Wände vs. Außenumfang der Mengenermittlung (Plan-Maße). Kleine Abweichung = gegenseitige Bestätigung.">' +
-            '<span class="nz-sw" style="background:' + (_ok ? '#0f766e' : '#b42318') + ';border-radius:50%"></span>' +
-            'Abgleich Außenwand: Overlay <strong>' + fmtNum(Math.round(_ovU * 10) / 10) + ' m</strong> vs. Mengen <strong>' +
-            fmtNum(_gemU) + ' m</strong> (Δ ' + Math.round(_d) + '%' + (_ok ? ' ✓' : ' — prüfen!') + ')</span>';
+          // RICHTUNG BEACHTEN. Die Overlay-Summe zählt nur die Wände, die als
+          // AUSSEN ERKANNT wurden — sie ist eine UNTERGRENZE, keine zweite
+          // Messung. Hier stand vorher |Δ| > 8 % → rotes "prüfen!", und das
+          // schlug am Referenzplan gegen die einzige byte-exakt belegte Zahl an:
+          //   Overlay 32,4 m · Mengen 45,31 m · Grundfläche 128,32 m²
+          // Der kleinstmögliche Umfang für 128,32 m² ist der eines Quadrats,
+          // 4·√128,32 = 45,31 m. Die Mengen-Zahl trifft dieses physikalische
+          // Minimum exakt; die Overlay-Summe liegt mit einem isoperimetrischen
+          // Quotienten von 0,65 UNTER dem Kreis — sie kann die Fläche gar nicht
+          // umschließen. Die Warnung stand also an der richtigen Zahl.
+          //
+          // Jetzt wird geprüft, was wirklich ein Fehler wäre:
+          var _bp = _lastGemessen && _lastGemessen.bodenplatte_flaeche_m2;
+          var _isoMin = _bp > 0 ? 4 * Math.sqrt(_bp) : 0;
+          var _zuKlein = _isoMin > 0 && _gemU < _isoMin * 0.98;
+          var _ovMehr = _ovU > _gemU * 1.08;
+          var _txt, _farbe, _tip;
+          if (_zuKlein) {
+            _farbe = '#b42318';
+            _tip = 'Der Außenumfang der Mengen ist kleiner als der kleinste '
+              + 'Umfang, der die Grundfläche überhaupt umschließen kann '
+              + '(Quadrat = 4·√Fläche). Eine der beiden Zahlen ist falsch.';
+            _txt = 'Außenumfang <strong>' + fmtNum(_gemU) + ' m</strong> zu klein für '
+              + fmtNum(Math.round(_bp * 10) / 10) + ' m² Grundfläche (Minimum '
+              + fmtNum(Math.round(_isoMin * 10) / 10) + ' m) — prüfen!';
+          } else if (_ovMehr) {
+            _farbe = '#b42318';
+            _tip = 'Im Plan sind MEHR Außenwand-Meter eingezeichnet als die '
+              + 'Mengenermittlung annimmt — dann fehlt in den Mengen ein Stück Hülle.';
+            _txt = 'Außenwand: im Plan <strong>' + fmtNum(Math.round(_ovU * 10) / 10)
+              + ' m</strong> erkannt, Mengen rechnen nur mit <strong>'
+              + fmtNum(_gemU) + ' m</strong> — prüfen!';
+          } else {
+            var _abd = Math.round(_ovU / _gemU * 100);
+            _farbe = '#0f766e';
+            _tip = 'Die Overlay-Summe zählt nur die als AUSSEN ERKANNTEN '
+              + 'Wandstücke und ist damit eine Untergrenze — nicht jede Außenwand '
+              + 'ist als durchgehende Linie gezeichnet. Die Mengen-Zahl stammt '
+              + 'aus den Maßketten und ist gegen die Grundfläche geprüft '
+              + '(Minimum ' + fmtNum(Math.round(_isoMin * 10) / 10) + ' m).';
+            _txt = 'Außenwand: <strong>' + fmtNum(Math.round(_ovU * 10) / 10)
+              + ' m</strong> von <strong>' + fmtNum(_gemU) + ' m</strong> am Plan '
+              + 'eingezeichnet (' + _abd + '%)'
+              + (_isoMin > 0 ? ' · Umfang geometrisch plausibel ✓' : '');
+          }
+          legend += '<span class="nz-leg-item" title="' + _tip + '">' +
+            '<span class="nz-sw" style="background:' + _farbe + ';border-radius:50%"></span>' +
+            _txt + '</span>';
         }
       }
     } catch (e) { /* Abgleich ist Zusatzinfo — nie das Rendern brechen */ }

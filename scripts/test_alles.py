@@ -36,6 +36,7 @@ GUARDS = [
     ("Workflow-Schritte", "test_workflow_schritte.py", "Pflicht-Bereiche"),
     ("Gleichnamige Räume (MFH)", "test_namens_kollision.py", "eigene Zahlen"),
     ("Klick-Handler (Im Plan zeigen)", "test_klick_handler.py", "Inline-Handler"),
+    ("Außenumfang plausibel", "test_umfang_plausibel.py", "richtig bewertet"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
