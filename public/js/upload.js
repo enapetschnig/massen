@@ -222,6 +222,7 @@
   // Letzte Werte für Refresh (ohne Plans-Liste neu zu laden)
   var _lastFertig = 0, _lastTotal = 0;
   var _lastML = null, _lastGemessen = null;  // für Rechenweg-Toggle-Rerender
+  var _lastMatrix = null;   // Aufmaß-Kreuztabelle, auch für die Raum-Werte am Plan
   function refreshProjektMassen() {
     if (_lastFertig > 0) loadProjektMassen(_lastFertig, _lastTotal);
   }
@@ -1823,6 +1824,9 @@
 
   function renderAufmassMatrix(m) {
     var el = document.getElementById('aufmass-matrix');
+    // Auch fuer die Raum-Werte am Plan merken — dieselbe gerechnete Grundlage,
+    // damit Plan und Kreuztabelle nie auseinanderlaufen.
+    _lastMatrix = m || null;
     if (!el) return;
     if (!m || !(m.positionen || []).length || !(m.raeume || []).length) {
       el.innerHTML = ''; return;
@@ -2177,6 +2181,7 @@
     flush(grp);
   }
   var _nzSel = null;
+  var _nzRaumInfo = null;   // angeklickter Raum (Werte-Anzeige, ohne Editor)
   var _nzZoom = { s: 1, x: 0, y: 0 }, _nzMoved = false;   // Zoom/Pan-Zustand + Drag-Erkennung
   var _nzWrap = null, _nzPan = null, _nzZoomWinBound = false;
   var _nzAddMode = false, _nzDraw = null;   // "Wand hinzufügen"-Modus + laufende Zeichnung
@@ -2699,15 +2704,20 @@
       var pts = r.region_px.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
       var _edit = _nzRaumEditMode && _nzRaumSel === _ri;
       // Im Editier-Modus sind die Polygone anklickbar (Raum wählen).
-      var _pe = _nzRaumEditMode ? 'auto' : 'none';
+      // Raeume sind IMMER anklickbar — ein Klick zeigt die Werte. Vorher ging
+      // das nur im Bearbeiten-Modus, also musste man erst ein Werkzeug
+      // einschalten, um zu sehen, was ein Raum traegt.
+      var _pe = 'auto';
       if (_nzRaumFill) {
         var rc = _NZ_RAUMFARBEN[_rIdx % _NZ_RAUMFARBEN.length]; _rIdx++;
         var rok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
         var _synth = (r._synthetic || r.region_geschaetzt) && !r._edited;
         lines += '<polygon data-rpoly="' + _ri + '" points="' + pts + '" fill="' + rc + '" fill-opacity="' +
-          (_edit ? 0.12 : (_synth ? 0.24 : 0.26)) + '" stroke="' + rc + '" stroke-width="' + (_edit ? 3 : (_synth ? 2.5 : 2)) + '"' +
+          (_edit ? 0.16 : (_nzRaumInfo === _ri ? 0.22 : (_synth ? 0.10 : 0.09)))
+          + '" stroke="' + rc + '" stroke-width="'
+          + (_edit ? 3 : (_nzRaumInfo === _ri ? 2.4 : (_synth ? 1.6 : 1.3))) + '"' +
           ' stroke-opacity="1"' + ((_synth && !_edit) ? ' stroke-dasharray="9 5"' : '') +
-          ' cursor="' + (_nzRaumEditMode ? 'pointer' : 'default') + '" pointer-events="' + _pe + '">' +
+          ' cursor="pointer" pointer-events="' + _pe + '">' +
           '<title>' + esc(r.name || '') + (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +
           (_synth ? ' — geschätzte Startform, bitte am Plan anpassen (✏️ Raum bearbeiten)'
                   : (_nzRaumEditMode ? ' — klicken zum Bearbeiten' : (rok ? ' ✓ geometrisch bestätigt' : ' — prüfen'))) +
@@ -2728,9 +2738,9 @@
         var rok2 = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
         var rcol = rok2 ? '#16a34a' : (r.status === 'u_daneben' ? '#0d9488' : '#d97706');
         lines += '<polygon data-rpoly="' + _ri + '" points="' + pts + '" fill="' + rcol + '" fill-opacity="0.07"' +
-          ' stroke="' + rcol + '" stroke-width="1.6" stroke-opacity="0.5"' +
-          ' stroke-dasharray="7 4" cursor="' + (_nzRaumEditMode ? 'pointer' : 'default') +
-          '" pointer-events="' + _pe + '"/>';
+          ' stroke="' + rcol + '" stroke-width="1.4" stroke-opacity="0.45"' +
+          ' stroke-dasharray="7 4" cursor="pointer"' +
+          ' pointer-events="' + _pe + '"/>';
       }
       // GRIFFE des bearbeiteten Raums: Eckpunkte (ziehen) + Kanten-Mittelpunkte
       // (klicken = Punkt einfügen). Zuletzt gezeichnet → liegen ganz oben.
@@ -3147,9 +3157,18 @@
           _nzRaumMarkEdited(_nzRvDrag.ri); _nzRvDrag = null; _nzPaint(); return;
         }
         // RAUM-EDITOR: Klick auf ein Polygon → diesen Raum bearbeiten.
-        if (_nzRaumEditMode && _nzPan && !_nzMoved && e.target) {
+        if (_nzPan && !_nzMoved && e.target) {
           var rp = e.target.getAttribute && e.target.getAttribute('data-rpoly');
-          if (rp != null) { _nzRaumSel = +rp; _nzPan = null; _nzPaint(); _nzRaumLiveReadout(_nzRaumSel); return; }
+          if (rp != null) {
+            if (_nzRaumEditMode) {
+              _nzRaumSel = +rp; _nzPan = null; _nzPaint(); _nzRaumLiveReadout(_nzRaumSel);
+            } else {
+              // AUSSERHALB des Editors: Klick auf den Raum zeigt seine WERTE.
+              _nzRaumInfo = (_nzRaumInfo === +rp) ? null : +rp;
+              _nzPan = null; _nzPaint(); _nzRaumWerte(_nzRaumInfo);
+            }
+            return;
+          }
         }
         // MESSEN: ein sauberer Klick (kein Pan) setzt einen Mess-Punkt.
         if (_nzMeasMode && _nzPan && !_nzMoved && _nzWrap) {
@@ -3459,6 +3478,88 @@
     grp.appendChild(tx);
     svg.appendChild(grp);
   }
+
+  // RAUM-WERTE beim Klick — direkt am Plan, ohne Umweg ueber eine Tabelle.
+  // Zeigt was der Raum ist (F/U/H byte-exakt oder geschaetzt) UND welche
+  // Positionen er traegt. Genau das, was ein Polier wissen will, wenn er auf
+  // ein Zimmer tippt.
+  function _nzRaumWerte(ri) {
+    var sec = document.getElementById('nachzeichnen-section');
+    var box = document.getElementById('raum-werte');
+    if (!box && sec) {
+      box = document.createElement('div');
+      box.id = 'raum-werte';
+      box.className = 'raum-werte';
+      var cont = document.getElementById('nachzeichnen-container');
+      if (cont && cont.parentNode) cont.parentNode.insertBefore(box, cont);
+      else sec.appendChild(box);
+    }
+    if (!box) return;
+    if (ri == null || !_nzData || !(_nzData.raeume || [])[ri]) {
+      box.style.display = 'none';
+      return;
+    }
+    var r = _nzData.raeume[ri];
+    var nm = r.name || 'Raum';
+    var f = r.f_m2, u = r.u_m, h = r.hoehe_m;
+    var ex = function (v) { return v ? ' <span class="rw-ex">✓</span>' : ''; };
+    var z = '<div class="rw-kopf"><strong>' + esc(nm) + '</strong>' +
+      (r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen
+        ? '<span class="rw-ok">geometrisch bestätigt</span>'
+        : ((r._synthetic || r.region_geschaetzt)
+          ? '<span class="rw-warn">Umriss geschätzt — bitte anpassen</span>' : '')) +
+      '<button type="button" class="rw-zu" title="Schließen">&times;</button></div>';
+    z += '<div class="rw-grid">';
+    var zeile = function (lab, wert, einheit, exakt) {
+      if (wert == null || wert === '') return '';
+      return '<div class="rw-z"><span class="rw-l">' + lab + '</span>' +
+        '<span class="rw-w">' + fmtNum(Math.round(wert * 100) / 100) + ' ' +
+        einheit + ex(exakt) + '</span></div>';
+    };
+    z += zeile('Boden (=F)', f, 'm²', r.f_ist == null || r.status === 'verifiziert');
+    z += zeile('Umfang U', u, 'm', !r.umfang_geschaetzt);
+    z += zeile('Höhe', h, 'm', true);
+    if (f && u && h) z += zeile('Wandabwicklung U×H', u * h, 'm²', false);
+    if (u) z += zeile('Sockel', u, 'lfm', false);
+    z += '</div>';
+
+    // Welche Positionen haengen an diesem Raum? Aus der Kreuztabelle, die
+    // ohnehin schon gerechnet ist — kein zweiter Weg, keine zweite Wahrheit.
+    var m = _lastMatrix;
+    if (m && (m.raeume || []).length) {
+      var _nk = function (x) { return _nrmRaum(x || ''); };
+      var zeileR = (m.raeume || []).filter(function (x) {
+        return _nk(x.raum) === _nk(nm);
+      })[0];
+      if (zeileR && zeileR.mengen) {
+        var sp = {};
+        (m.positionen || []).forEach(function (p) { sp[p.key] = p; });
+        var items = Object.keys(zeileR.mengen).map(function (k) {
+          var p = sp[k] || {};
+          return { t: (p.posnr ? p.posnr + ' ' : '') +
+            String(p.beschreibung || '').replace(/\s*—.*$/, ''),
+            v: zeileR.mengen[k], e: p.einheit || '', g: p.gewerk_label || '' };
+        }).sort(function (a, b) { return (b.v || 0) - (a.v || 0); });
+        if (items.length) {
+          z += '<div class="rw-pos-kopf">' + items.length +
+            ' Positionen hängen an diesem Raum</div><div class="rw-pos">';
+          items.forEach(function (it) {
+            z += '<div class="rw-p"><span class="rw-pt">' + esc(it.t) + '</span>' +
+              '<span class="rw-pg">' + esc(it.g) + '</span>' +
+              '<span class="rw-pv">' + fmtNum(it.v) + ' ' + esc(it.e) + '</span></div>';
+          });
+          z += '</div>';
+        }
+      }
+    }
+    box.innerHTML = z;
+    box.style.display = '';
+    var zu = box.querySelector('.rw-zu');
+    if (zu) zu.onclick = function () {
+      _nzRaumInfo = null; box.style.display = 'none'; _nzPaint();
+    };
+  }
+  window._nzRaumWerte = _nzRaumWerte;
 
   window.nzHighlightRaum = function (name, beleg) {
     var key = _nrmRaum(name);
@@ -3816,8 +3917,12 @@
   // bevor die Räume stimmen.
   var WF_GRUPPEN = {
     1: ['#upload-section', '#plans-section'],
-    2: ['#ergebnis-status-banner', '#pruefliste', '#nachzeichnen-section'],
-    3: ['#zielgruppen-presets', '#geo-box', '#fact-strip', '.ml-board-toolbar',
+    // SCHRITT 2 IST DIE PLANANSICHT. Die Prüf-Kacheln standen hier daneben
+    // und drängten den Plan nach unten; wer Räume prüfen will, braucht den
+    // Plan gross, nicht eine Liste. Die Prüfpunkte bleiben in der Übersicht
+    // und in Schritt 3 erreichbar.
+    2: ['#ergebnis-status-banner', '#nachzeichnen-section'],
+    3: ['#zielgruppen-presets', '#geo-box', '#pruefliste', '#fact-strip', '.ml-board-toolbar',
         '#mengen-board', '#ml-board', '#konf-kopf', '#auswertung-kennzahlen',
         '.advanced-drawer'],
     4: ['#zuordnung-section'],
@@ -3839,7 +3944,10 @@
     // Schritt 2 zeigt aus dem Ergebnis-Grid nur die Rail (Prüfliste) — Grid
     // einspaltig machen, sonst bleibt die ausgeblendete Hauptspalte als Loch stehen.
     var rg = document.querySelector('.result-grid');
-    if (rg) rg.classList.toggle('wf-rail-only', step === 2);
+    if (rg) rg.classList.remove('wf-rail-only');
+    // Schritt 2: der Plan bekommt die volle Hoehe.
+    var _ns = document.getElementById('nachzeichnen-section');
+    if (_ns) _ns.classList.toggle('nz-plan-gross', step === 2);
     if (step === 1) {
       var up = document.getElementById('upload-section');
       if (up) up.scrollIntoView({ behavior: 'smooth', block: 'start' });

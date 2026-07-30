@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.82"
+APP_REV = "2026-07-09.84"
 
 
 @app.get("/api/extract-health")
@@ -5497,9 +5497,23 @@ async def projekt_massen(body: ProjektMassenRequest):
         agree = all(abs(v - med) <= tol for _, v, _ in vv)
         typen = set(t for _, _, t in vv)
         status = ("widerspruch" if not agree else "bestätigt" if len(typen) >= 2 else "verstaerkt")
-        return {"groesse": label, "key": key, "einheit": einheit, "wert": med,
-                "quellen": [{"quelle": q, "wert": v, "typ": t} for q, v, t in vv],
-                "typen_n": len(typen), "unabhaengig": len(typen) >= 2, "status": status}
+        _ents = None
+        if not agree:
+            # Wie in opus_konsum.doppelcheck_num: bei Widerspruch entscheidet
+            # die QUELLE. Der blosse Median nimmt bei zwei Werten immer den
+            # groesseren — eine Entscheidung nach Zahlenhoehe, nicht nach
+            # Verlaesslichkeit.
+            _text = [v for _, v, t in vv if t == "text"]
+            if _text and len(_text) < len(vv):
+                med = sorted(_text)[len(_text) // 2]
+                _ents = ("Text-Quelle bevorzugt (byte-exakt gelesen) "
+                         "gegenüber geschätzter Lesung")
+        _o = {"groesse": label, "key": key, "einheit": einheit, "wert": med,
+              "quellen": [{"quelle": q, "wert": v, "typ": t} for q, v, t in vv],
+              "typen_n": len(typen), "unabhaengig": len(typen) >= 2, "status": status}
+        if _ents:
+            _o["entscheidung"] = _ents
+        return _o
     def _dc_num(label, key, einheit, quellen, tol):
         d = (_ok.doppelcheck_num(label, key, einheit, quellen, tol)
              if _OPUS_KONSUM_OK else _dc_num_inline(label, key, einheit, quellen, tol))
@@ -5785,8 +5799,18 @@ async def projekt_massen(body: ProjektMassenRequest):
         if _d.get("status") == "widerspruch":
             _qs = " vs ".join(f"{q.get('quelle')} {q.get('wert')}{_einh(_d)}"
                               for q in (_d.get("quellen") or []))
+            # SAGEN, WOMIT GERECHNET WIRD. "Quellen widersprechen sich, bitte
+            # pruefen" laesst den Polier raten, welche Zahl in den Mengen
+            # steckt — und ob sein Nachmessen ueberhaupt etwas aendert. Also
+            # den genommenen Wert und den Grund dazuschreiben.
+            _gew = _d.get("wert")
+            _sat = (f"Quellen widersprechen sich ({_qs}). "
+                    f"Gerechnet wird mit {_gew}{_einh(_d)}")
+            _sat += (f" — {_d['entscheidung']}." if _d.get("entscheidung")
+                     else " (mittlerer Wert).")
+            _sat += " Am Plan prüfen; abweichender Wert lässt sich im Drawer setzen."
             pruefliste.append({"prio": "hoch", "thema": _d.get("groesse"),
-                               "hinweis": f"Quellen widersprechen sich ({_qs}) — am Plan prüfen."})
+                               "hinweis": _sat})
         elif _d.get("status") == "unter_symbol":
             _w, _sy = (_d.get("wert") or 0), (_d.get("symbol") or 0)
             _fehlt = max(0, _sy - _w)

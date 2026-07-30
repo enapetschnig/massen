@@ -37,6 +37,7 @@ GUARDS = [
     ("Gleichnamige Räume (MFH)", "test_namens_kollision.py", "eigene Zahlen"),
     ("Klick-Handler (Im Plan zeigen)", "test_klick_handler.py", "Inline-Handler"),
     ("Außenumfang plausibel", "test_umfang_plausibel.py", "richtig bewertet"),
+    ("Quellen-Konflikt (Text schlägt Vision)", "test_quellen_konflikt.py", "Konfliktfälle"),
 ]
 LANGSAM = [
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),

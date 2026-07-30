@@ -3265,3 +3265,50 @@ g[data-raum].nz-hi circle {
 @media (prefers-reduced-motion: reduce) {
   .nz-belegmarke { animation: none; }
 }
+
+/* ══ RAUM-WERTE: Klick auf einen Raum im Plan zeigt sofort, was er trägt ══
+   Vorher musste man erst ein Werkzeug einschalten, um überhaupt einen Raum
+   anklicken zu können — und die Werte standen in einer Tabelle weit weg vom
+   Plan. Jetzt: antippen, ablesen. */
+.raum-werte {
+  margin: 0.6rem 0 0.7rem; padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border); border-left: 3px solid var(--accent, #f39301);
+  border-radius: 0 8px 8px 0; background: var(--white);
+}
+.rw-kopf { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+.rw-kopf strong { font-size: 1.02rem; }
+.rw-ok { font-size: 0.74rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.03em; color: #166534; background: #dcfce7;
+  padding: 0.12rem 0.45rem; border-radius: 999px; }
+.rw-warn { font-size: 0.74rem; font-weight: 700; color: #b45309;
+  background: #fef3c7; padding: 0.12rem 0.45rem; border-radius: 999px; }
+.rw-zu { margin-left: auto; border: none; background: transparent; cursor: pointer;
+  font-size: 1.2rem; line-height: 1; color: #9a9a9a; padding: 0 0.2rem; }
+.rw-zu:hover { color: var(--text); }
+.rw-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.35rem 1rem; }
+.rw-z { display: flex; justify-content: space-between; gap: 0.5rem;
+  padding: 0.2rem 0; border-bottom: 1px dotted var(--border); }
+.rw-l { color: var(--text-light); font-size: 0.86rem; }
+.rw-w { font-weight: 700; font-variant-numeric: tabular-nums; }
+.rw-ex { color: #16a34a; }
+.rw-pos-kopf { margin: 0.7rem 0 0.3rem; font-size: 0.82rem; font-weight: 700;
+  color: var(--primary); }
+.rw-pos { display: grid; gap: 0.15rem; max-height: 240px; overflow-y: auto; }
+.rw-p { display: grid; grid-template-columns: 1fr auto auto; gap: 0.6rem;
+  align-items: baseline; font-size: 0.85rem; padding: 0.16rem 0;
+  border-bottom: 1px dotted var(--border); }
+.rw-pg { color: var(--text-light); font-size: 0.78rem; }
+.rw-pv { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 5.5rem;
+  text-align: right; }
+@media (prefers-color-scheme: dark) {
+  .raum-werte { background: rgba(255,255,255,0.03); }
+}
+
+/* ══ PLAN ZUERST ══ Die Planansicht ist das Werkzeug, nicht eine Beilage.
+   Sie bekommt die volle Breite und deutlich mehr Höhe; die Prüf-Kacheln
+   rücken in eine Schublade, statt den Plan nach unten zu drängen. */
+#nachzeichnen-section { margin-top: 0.6rem; }
+#nachzeichnen-container .nz-wrap,
+#nachzeichnen-container svg { max-height: none; }
+.nz-plan-gross #nachzeichnen-container .nz-wrap { height: min(76vh, 900px); }

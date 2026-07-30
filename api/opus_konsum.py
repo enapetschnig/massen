@@ -202,17 +202,40 @@ def doppelcheck_num(label, key, einheit, quellen, tol):
     med = sorted(v for _, v, _ in vv)[len(vv) // 2]
     agree = all(abs(v - med) <= tol for _, v, _ in vv)
     payload, typen = _quellen_struktur(vv)
+    entscheidung = None
     if not agree:
         status = "widerspruch"
+        # BEI WIDERSPRUCH ENTSCHEIDET DIE QUELLE, NICHT DIE GROESSE.
+        #
+        # Hier stand allein der Median. Bei GENAU ZWEI Werten ist
+        # sorted(...)[1] aber immer der GROESSERE — die Entscheidung hing
+        # also daran, welche Zahl zufaellig hoeher war, nicht daran, welche
+        # Quelle etwas taugt. Am Referenzplan (Decke: Legende 25 cm aus dem
+        # Text-Layer gegen Schnitt 20 cm aus Vision) fiel sie richtig aus,
+        # aber nur zufaellig: waere die Vision-Lesung groesser gewesen,
+        # haette sie den byte-exakten Text geschlagen — und die Decke ist
+        # Flaeche x Dicke, ein Viertel Unterschied schlaegt voll durch.
+        #
+        # Byte-exakter Text ist eine gelesene Zahl, eine Vision-Lesung eine
+        # geschaetzte. Bei Widerspruch gewinnt darum der Text; gibt es
+        # mehrere Text-Quellen, deren Median.
+        _text = [v for _, v, t in vv if t == "text"]
+        if _text and len(_text) < len(vv):
+            med = sorted(_text)[len(_text) // 2]
+            entscheidung = ("Text-Quelle bevorzugt (byte-exakt gelesen) "
+                            "gegenüber geschätzter Lesung")
     elif len(typen) >= 2:
         status = "bestätigt"
     else:
         status = "verstaerkt"
-    return {
+    out = {
         "groesse": label, "key": key, "einheit": einheit, "wert": med,
         "quellen": payload, "typen_n": len(typen), "unabhaengig": len(typen) >= 2,
         "status": status,
     }
+    if entscheidung:
+        out["entscheidung"] = entscheidung
+    return out
 
 
 def doppelcheck_kat(label, key, quellen):
