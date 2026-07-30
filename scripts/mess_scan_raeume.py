@@ -130,7 +130,8 @@ def _iou_maske(zellen, poly, gitter, form):
 
 
 def rekonstruieren(arr, pkt, flaechen, ppm, gitter=4, tol=0.30,
-                   radien=(1, 2, 3, 4, 5, 6, 8, 10, 12, 15)):
+                   radien=(1, 2, 3, 4, 5, 6, 8, 10, 12, 15),
+                   ein_raum_ein_stempel=False):
     """Raeume aus dem Bild. -> je Raum (zellen, radius, f_ist) oder None.
 
     Kern ist das ANNAHME-KRITERIUM: die Flutung wird nur uebernommen, wenn
@@ -188,6 +189,22 @@ def rekonstruieren(arr, pkt, flaechen, ppm, gitter=4, tol=0.30,
             # UNVERDICKTEN freien Raum. Ohne diesen Schritt ist die Flaeche
             # systematisch zu klein (am Korpus 13-26 % zu wenig).
             zellen = _zurueckgeben(zellen, cache[0], r, wand0.shape)
+            # EIN RAUM, EIN STEMPEL — das Kriterium, das auf Vektor-Plaenen
+            # traegt (raumnetz.raum_rechteck_aus_fluchten). Eine Flutung, die
+            # ueber eine Tuerluecke entkommen ist, verschluckt fast immer den
+            # Stempel eines NACHBARN. Das erkennt man ohne jede Wahrheit —
+            # die Stempelpositionen sind bekannt.
+            if ein_raum_ein_stempel:
+                _zs = set(zellen)
+                _fremd = False
+                for j, (qx, qy) in enumerate(pkt):
+                    if j == i:
+                        continue
+                    if (int(qy / gitter), int(qx / gitter)) in _zs:
+                        _fremd = True
+                        break
+                if _fremd:
+                    continue
             f_ist = len(zellen) * (zelle_m ** 2)
             ab = abs(f_ist - f_soll) / f_soll
             if bester is None or ab < bester[0]:
@@ -198,7 +215,7 @@ def rekonstruieren(arr, pkt, flaechen, ppm, gitter=4, tol=0.30,
         # Flaeche faellt mit wachsendem r monoton; der Treffer liegt dazwischen
         # und wird von einer groben Radien-Leiter sonst uebersprungen.
         if bester and bester[0] <= tol:
-            treffer = (bester[1], bester[2], bester[3])
+            treffer = (bester[1], bester[2], bester[3], bester[0])
         ergebnis.append(treffer)
     return ergebnis
 
@@ -250,7 +267,7 @@ def run():
                     continue
                 n_ang += 1
                 g_ang += 1
-                zellen, r, f_ist = e
+                zellen, r, f_ist, f_ab = e
                 pw = (np.array(polys[i], dtype=np.float64) * k_um
                       if len(polys[i]) >= 3 else None)
                 iou = _iou_maske(zellen, pw, gitter,
@@ -282,5 +299,69 @@ def run():
               f"2 von 11 Räumen.")
 
 
+
+
+TOR_STEMPEL = True
+
+
+def latte():
+    """Wie treffsicher wird es, wenn die Annahme-Latte hoeher liegt?
+
+    28 % Abdeckung bei 27 % brauchbaren Umrissen ist nicht auslieferbar —
+    ein falsch eingezeichneter Raum ist schlimmer als gar keiner. Die Frage
+    fuer die Auslieferung ist deshalb nicht "wie viele", sondern: gibt es
+    eine Schwelle, ab der das Gezeichnete VERLAESSLICH ist?
+
+    Die Schwelle ist die Flaechen-Abweichung zur byte-exakten Stempelflaeche
+    — sie ist zur Laufzeit bekannt, ohne jede Wahrheit. Gemessen wird, wie
+    Abdeckung und Treffsicherheit (Anteil mit IoU>=0,5) miteinander laufen.
+    """
+    _korpus_sicherstellen()
+    print("\nANNAHME-LATTE — Abdeckung gegen Treffsicherheit")
+    print("=" * 88)
+    roh = []          # (f_abweichung, radius, iou)
+    for k in KURZ:
+        for hh in HAERTEN:
+            g = laden(k, hh)
+            if not g:
+                continue
+            arr, pkt, fla, ppm, _t, _n = g
+            d = np.load(os.path.join(SP, f"scan_{k}_{hh}.npz"), allow_pickle=True)
+            polys = d["poly"]
+            k_um = ppm / float(d["ppm"])
+            gitter = 4
+            for i, e in enumerate(rekonstruieren(
+                    arr, pkt, fla, ppm, gitter=gitter, tol=0.60,
+                    ein_raum_ein_stempel=TOR_STEMPEL)):
+                if not e:
+                    continue
+                zellen, r, f_ist, f_ab = e
+                pw = (np.array(polys[i], dtype=np.float64) * k_um
+                      if len(polys[i]) >= 3 else None)
+                iou = _iou_maske(zellen, pw, gitter,
+                                 (arr.shape[0] // gitter, arr.shape[1] // gitter))
+                if iou is not None:
+                    roh.append((f_ab, r, iou))
+    if not roh:
+        print("keine Daten")
+        return
+    n_ges = 226
+    print(f"{'Flächen-Latte':>16}{'gezeichnet':>12}{'Abdeckung':>11}"
+          f"{'IoU≥0,5':>10}{'Treffsicherheit':>17}{'IoU-Median':>12}")
+    print("-" * 88)
+    for lat in (0.60, 0.40, 0.30, 0.20, 0.12, 0.08, 0.05, 0.03):
+        s = [x for x in roh if x[0] <= lat]
+        if not s:
+            continue
+        gut = sum(1 for x in s if x[2] >= 0.5)
+        med = float(np.median([x[2] for x in s]))
+        print(f"{f'±{lat*100:.0f}%':>16}{len(s):>12}{len(s)/n_ges*100:10.0f}%"
+              f"{gut:>10}{gut/len(s)*100:16.0f}%{med:12.2f}")
+    print("-" * 88)
+    print("Auslieferbar ist eine Zeile erst, wenn die Treffsicherheit hoch")
+    print("genug ist, dass ein gezeichneter Umriss dem Nutzer nicht schadet.")
+
+
 if __name__ == "__main__":
     run()
+    latte()
