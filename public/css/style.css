@@ -3253,3 +3253,15 @@ g[data-raum].nz-hi circle {
 @media (prefers-color-scheme: dark) {
   .plan-beleg { background: rgba(243,147,1,0.10); }
 }
+
+/* PLAN-MARKE: die geprüfte Menge steht AM Raum, nicht nur über dem Blatt.
+   Wer den Ausdruck auf der Baustelle in der Hand hat, braucht die Zahl dort,
+   wo der Raum ist. Erscheint mit der Hervorhebung und geht mit ihr wieder. */
+.nz-belegmarke { animation: nz-marke-auf 0.22s ease-out; }
+@keyframes nz-marke-auf {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nz-belegmarke { animation: none; }
+}

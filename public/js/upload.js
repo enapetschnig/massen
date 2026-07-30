@@ -3337,6 +3337,65 @@
   }
   window._planBeleg = _planBeleg;
 
+  // Die MENGE AN DEN RAUM schreiben — nicht nur ueber den Plan.
+  //
+  // Eine Leiste ueber dem Blatt sagt WAS geprueft wird; auf dem Blatt selbst
+  // stand die Zahl bisher nicht. Wer mit dem Ausdruck auf der Baustelle steht,
+  // braucht sie aber dort, wo der Raum ist. Die Marke haengt am Raum-Badge und
+  // verschwindet mit der Hervorhebung.
+  function _kurzAusBeleg(b) {
+    if (!b) return '';
+    var t = String(b).replace(/&[a-z]+;/g, ' ');
+    var m = t.match(/=\s*(-?[\d.,]+)\s*(m²|m³|lfm|Stk|m)?/);
+    if (!m) m = t.match(/·\s*(-?[\d.,]+)\s*(m²|m³|lfm|Stk|m)\b/);
+    return m ? (m[1] + (m[2] ? ' ' + m[2] : '')) : '';
+  }
+
+  function _markenWeg(cont) {
+    if (!cont) return;
+    var alt = cont.querySelectorAll('.nz-belegmarke');
+    Array.prototype.forEach.call(alt, function (x) {
+      if (x.parentNode) x.parentNode.removeChild(x);
+    });
+  }
+
+  function _planMarke(g, kurz) {
+    if (!kurz) return;
+    var svg = g.ownerSVGElement;
+    var c = g.querySelector('circle');
+    if (!svg || !c) return;
+    var cx = parseFloat(c.getAttribute('cx'));
+    var cy = parseFloat(c.getAttribute('cy'));
+    var rr = parseFloat(c.getAttribute('r')) || 8;
+    if (!isFinite(cx) || !isFinite(cy)) return;
+    var fs = Math.max(9, rr * 1.45);
+    var br = kurz.length * fs * 0.58 + fs * 0.9;
+    var NS = 'http://www.w3.org/2000/svg';
+    var grp = document.createElementNS(NS, 'g');
+    grp.setAttribute('class', 'nz-belegmarke');
+    grp.setAttribute('pointer-events', 'none');
+    var re = document.createElementNS(NS, 'rect');
+    re.setAttribute('x', cx + rr + fs * 0.35);
+    re.setAttribute('y', cy - fs * 0.85);
+    re.setAttribute('width', br);
+    re.setAttribute('height', fs * 1.7);
+    re.setAttribute('rx', fs * 0.35);
+    re.setAttribute('fill', '#1f2937');
+    re.setAttribute('stroke', '#f39301');
+    re.setAttribute('stroke-width', Math.max(1, fs * 0.11));
+    var tx = document.createElementNS(NS, 'text');
+    tx.setAttribute('x', cx + rr + fs * 0.8);
+    tx.setAttribute('y', cy);
+    tx.setAttribute('font-size', fs);
+    tx.setAttribute('dy', fs * 0.33);
+    tx.setAttribute('fill', '#fff');
+    tx.setAttribute('style', 'font-weight:700');
+    tx.textContent = kurz;
+    grp.appendChild(re);
+    grp.appendChild(tx);
+    svg.appendChild(grp);
+  }
+
   window.nzHighlightRaum = function (name, beleg) {
     var key = _nrmRaum(name);
     if (!key) return;
@@ -3357,12 +3416,21 @@
       // Ehrlich statt stumm: der Raum liegt auf einem anderen Blatt oder hat
       // keinen Marker. Vorher passierte hier gar nichts — der Nutzer sah nur
       // einen Sprung ins Nichts und wusste nicht, ob er sich verklickt hat.
+      _markenWeg(cont);
       _planBeleg((beleg ? beleg + ' &middot; ' : '')
         + '<em>auf diesem Blatt nicht eingezeichnet — Blatt oben wechseln</em>');
       return;
     }
-    sel.forEach(function (g) { g.classList.add('nz-hi'); });
-    setTimeout(function () { sel.forEach(function (g) { g.classList.remove('nz-hi'); }); }, 3200);
+    _markenWeg(cont);
+    var kurz = _kurzAusBeleg(beleg);
+    sel.forEach(function (g) {
+      g.classList.add('nz-hi');
+      _planMarke(g, kurz);
+    });
+    setTimeout(function () {
+      sel.forEach(function (g) { g.classList.remove('nz-hi'); });
+      _markenWeg(cont);
+    }, 6000);
   };
   // Kopplung Aufmaß-Zeile → Plan: die GEBÄUDE-HÜLLE (blaue Kontur) pulsieren
   // lassen — Beleg-Ort für flächige Mengen (Bodenplatte/Decke/WDVS/Gerüst).
