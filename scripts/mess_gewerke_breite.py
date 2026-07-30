@@ -9,6 +9,7 @@ Fenster, Tür, Keller), damit möglichst viele Gewerke tatsächlich anspringen.
 Leere Gewerke werden bewusst ausgelassen — die App erfindet keine Position,
 für die im Plan die Grundlage fehlt.
 """
+import glob
 import os
 import sys
 
@@ -72,6 +73,33 @@ ECHTE_PLAENE = [
 ]
 
 
+def _alle_plandateien():
+    """JEDE Plandatei finden, nicht nur die vier Referenzen.
+
+    "Für mehrere Bereiche der Baubranche" an vier handverlesenen Plänen zu
+    zeigen ist keine Zusage, sondern ein Beispiel. Hier wird dieselbe Regel
+    benutzt wie im Breitentest: Seitenformat ≥ 1200 pt = Plan, alles darunter
+    ist ein Dokument. Duplikate (gleiche Dateigröße) fallen raus — sechs
+    Kopien desselben Plans belegen keine Breite.
+    """
+    import fitz
+    out, gesehen = [], set()
+    for p in sorted(glob.glob(os.path.expanduser("~/Downloads/*.pdf"))):
+        try:
+            gr = os.path.getsize(p)
+            if gr in gesehen:
+                continue
+            d = fitz.open(p)
+            r = d[0].rect
+            d.close()
+            if max(r.width, r.height) >= 1200:
+                gesehen.add(gr)
+                out.append(p)
+        except Exception:
+            continue
+    return out
+
+
 def _aus_echtem_plan(muster):
     """Räume aus einem ECHTEN Plan lesen und die Gewerke daraus rechnen.
 
@@ -79,10 +107,12 @@ def _aus_echtem_plan(muster):
     sondern auf dem, was die Pipeline aus realen Plänen tatsächlich holt.
     -> (dateiname, gewerke) oder None.
     """
-    import glob
     import fitz            # noqa: E402
     import nachzeichnen    # noqa: E402
-    g = sorted(glob.glob(os.path.expanduser(f"~/Downloads/*{muster}*.pdf")))
+    if os.path.isabs(str(muster)) and os.path.exists(str(muster)):
+        g = [muster]        # fertiger Pfad (Breiten-Durchlauf)
+    else:
+        g = sorted(glob.glob(os.path.expanduser(f"~/Downloads/*{muster}*.pdf")))
     if not g:
         return None
     doc = fitz.open(g[0])
@@ -90,9 +120,13 @@ def _aus_echtem_plan(muster):
     doc.close()
     if not r.get("ok"):
         return None
+    # FREIFLÄCHEN RAUS: Wiesen und Spielplätze sind keine Räume und haben in
+    # keiner Gewerke-Position etwas verloren (die Kategorie-Sperre hält sie
+    # ohnehin, aber sie sollen die Grundflächen-Basis nicht aufblähen).
     rooms = [{"name": x.get("name"), "flaeche_m2": x.get("f_m2"),
               "umfang_m": x.get("u_m"), "hoehe_m": None}
-             for x in (r.get("raeume") or []) if x.get("f_m2")]
+             for x in (r.get("raeume") or [])
+             if x.get("f_m2") and not x.get("aussenanlage")]
     if len(rooms) < 2:
         return None
     # DIE ÖFFNUNGEN UND DIE GEBÄUDEHÜLLE MITGEBEN — sonst untertreibt die
@@ -165,13 +199,19 @@ def run():
     # Die Zusage "mehrere Bereiche der Baubranche" darf nicht auf einem
     # erfundenen Beispielhaus stehen. Hier wird sie an realen Plaenen
     # nachgerechnet — mit den Raeumen, die die Pipeline daraus liest.
+    # JEDER Plan, nicht nur die vier Referenzen — sonst misst man die Auswahl
+    # statt die App. Fällt der breite Korpus weg (andere Maschine), bleiben
+    # die vier Referenzen als Rückfallebene.
+    breit = _alle_plandateien()
+    ziel = breit if len(breit) >= len(ECHTE_PLAENE) else ECHTE_PLAENE
     print(f"\n{'echter Plan':<40}{'Räume':>6}{'Gewerke':>9}  Bereiche")
     print("-" * 104)
-    echte, min_gew = 0, 99
-    for muster in ECHTE_PLAENE:
+    echte, min_gew, ohne = 0, 99, 0
+    gew_zaehler = {}
+    for muster in ziel:
         erg = _aus_echtem_plan(muster)
         if not erg:
-            print(f"{muster[:38]:<40}{'—':>6}  (kein Grundriss / Datei fehlt)")
+            ohne += 1
             continue
         name, gg = erg
         n_raum = 0
@@ -183,10 +223,18 @@ def run():
         n_raum = sum(1 for _ in (gg.get("estrich", {}).get("positionen") or []))
         echte += 1
         min_gew = min(min_gew, len(akt))
+        for k in akt:
+            gew_zaehler[k] = gew_zaehler.get(k, 0) + 1
         print(f"{name[:38]:<40}{'':>6}{len(akt):>9}  "
               f"{', '.join(BEREICH.get(k, k).split(' /')[0] for k in sorted(akt))[:52]}")
     print("-" * 104)
-    print(f"{echte} echte Pläne · mindestens {min_gew if echte else 0} Gewerke je Plan")
+    print(f"{echte} echte Pläne mit Grundriss · mindestens {min_gew if echte else 0} "
+          f"Gewerke je Plan · {ohne} Dateien ohne Raumstempel übersprungen")
+    if gew_zaehler:
+        print(f"\nAuf WIE VIELEN der {echte} Pläne rechnet jedes Gewerk?")
+        for k, c in sorted(gew_zaehler.items(), key=lambda kv: -kv[1]):
+            print(f"   {BEREICH.get(k, k):<32}{c:>3}/{echte} Pläne"
+                  f"   {'█' * c}")
     # Die Zusicherungen standen INNERHALB von "if echte:" — bei fehlendem
     # Korpus wurde also gar nichts geprüft und das Skript meldete grün.
     # Genau der Fall, in dem ein Wächter alarmieren muss: er kann seine

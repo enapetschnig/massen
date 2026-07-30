@@ -91,15 +91,33 @@ def _einer(pfad):
 
 
 def _plaene():
+    """Alle Plandateien — OHNE Duplikate.
+
+    Das ist keine Kosmetik: ~/Downloads enthält den WM-Plan fünfmal und die
+    drei anderen je zweimal. Ohne Entdopplung meldet die Messung "11 Pläne
+    tragen Raumstempel, 436 Stempel" — tatsächlich sind es VIER verschiedene
+    Grundrisse mit 113 Stempeln. Eine Kennzahl, die Kopien zählt, behauptet
+    eine Breite, die es nicht gibt.
+
+    Verglichen wird der Datei-Inhalt (sha256), nicht der Name — die Kopien
+    heißen "(1)", "(2)", "testtt.pdf".
+    """
+    import hashlib
     import fitz
-    out = []
+    out, gesehen = [], {}
     for p in sorted(glob.glob(os.path.expanduser("~/Downloads/*.pdf"))):
         try:
             d = fitz.open(p)
             r = d[0].rect
             d.close()
-            if max(r.width, r.height) >= MIN_PLAN_PT:
-                out.append(p)
+            if max(r.width, r.height) < MIN_PLAN_PT:
+                continue
+            with open(p, "rb") as fh:
+                h = hashlib.sha256(fh.read()).hexdigest()
+            if h in gesehen:
+                continue
+            gesehen[h] = p
+            out.append(p)
         except Exception:
             continue
     return out
@@ -112,7 +130,8 @@ def run(grenze=None):
         ps = ps[:int(grenze)]
     print("PLAN-KORPUS BREIT — läuft die Erkennung auf ALLEN Plänen?")
     print("=" * 108)
-    print(f"{len(ps)} Pläne im Planformat (≥{MIN_PLAN_PT:.0f} pt) aus ~/Downloads\n")
+    print(f"{len(ps)} VERSCHIEDENE Pläne im Planformat (≥{MIN_PLAN_PT:.0f} pt) "
+          f"aus ~/Downloads — Kopien desselben Plans zählen nicht mit\n")
     if not ps:
         print("KEIN Plan gefunden — Messung wertlos")
         return
