@@ -95,8 +95,31 @@ def _aus_echtem_plan(muster):
              for x in (r.get("raeume") or []) if x.get("f_m2")]
     if len(rooms) < 2:
         return None
+    # DIE ÖFFNUNGEN UND DIE GEBÄUDEHÜLLE MITGEBEN — sonst untertreibt die
+    # Messung die Breite. Vorher stand hier eine leere Öffnungsliste und keine
+    # Hüllen-Basis; damit blieben drei Gewerke stumm, die in der echten
+    # Pipeline rechnen: Fensterbau braucht bemaßte Öffnungen, WDVS und
+    # Gerüstbau brauchen _basis_aussenwand_flaeche_m2. Gemessen wurden so
+    # 7 Gewerke je Plan statt der tatsächlichen 9-10.
+    import math
+    oeff = [{"code": o.get("code"), "breite_m": o.get("breite_m"),
+             "hoehe_m": o.get("hoehe_m"),
+             "_art": ("tuer" if (o.get("art") == "tuer" or o.get("typ") == "tuer")
+                      else "fenster")}
+            for o in (r.get("oeffnungen") or []) if o.get("breite_m")]
+    f_ges = sum(x["flaeche_m2"] for x in rooms if x.get("flaeche_m2"))
+    bd = dict(BAUDATEN)
+    if f_ges > 0:
+        # Hülle aus der byte-exakten Grundfläche: Umfang mindestens der eines
+        # Quadrats (geometrische Untergrenze), Ansichtsfläche = Umfang × Höhe.
+        u_min = 4.0 * math.sqrt(f_ges)
+        bd["_basis_bodenplatte_m2"] = round(f_ges, 2)
+        bd["_basis_aussenumfang_m"] = round(u_min, 2)
+        bd["_basis_aussenwand_flaeche_m2"] = round(
+            u_min * bd.get("geschosshoehe_m", 3.0), 2)
     return (os.path.basename(g[0]), ml.berechne_gewerke(
-        rooms, [], dict(BAUDATEN), geschoss="EG")["gewerke"])
+        rooms, [o for o in oeff if o["_art"] != "tuer"], bd, geschoss="EG",
+        tueren=[o for o in oeff if o["_art"] == "tuer"])["gewerke"])
 
 
 def run():
