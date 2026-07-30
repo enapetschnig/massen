@@ -44,6 +44,7 @@ GUARDS = [
 ]
 LANGSAM = [
     ("Umriss-Treue am Plan", "mess_umriss_treue.py", "ABDECKUNG"),
+    ("Plan-Korpus BREIT (alle Pläne)", "mess_plankorpus_breit.py", "MIT RÄUMEN"),
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
     ("Raum-Verifikation", "test_raumverifikation.py", "ERGEBNIS:"),
     ("Rohbau-Raumcheck", "test_rohbau_raumcheck.py", "ROHBAU-verifiziert"),

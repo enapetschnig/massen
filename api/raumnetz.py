@@ -1277,7 +1277,13 @@ def _streifen_ausgleich(grid, label, rst, stempel, AUSSEN, max_runden=40):
             fl[label[idx]] += 1
     min_run = max(3, int(0.6 / rst.zm))
 
-    def geber(lab):
+    # PERF (Profiling am WM-Plan): geber() wurde 130,8 MILLIONEN mal gerufen —
+    # 11,1 s reine Aufrufkosten plus der Anteil in der Schleife selbst. Die
+    # Bedingung steht darum unten AUSGESCHRIEBEN an beiden Stellen. Sie liest
+    # fl[] LIVE (fl ändert sich, während ein Streifen übernommen wird), darum
+    # darf sie NICHT je Runde vorberechnet werden — Inlining ist exakt
+    # gleichwertig, ein Cache wäre es nicht.
+    def geber(lab):     # bleibt für Lesbarkeit/Tests, im Heißpfad ausgeschrieben
         return lab == AUSSEN or (0 <= lab < n and fl[lab] > soll[lab])
 
     for _ in range(max_runden):
@@ -1289,10 +1295,17 @@ def _streifen_ausgleich(grid, label, rst, stempel, AUSSEN, max_runden=40):
         # (niemand nimmt einem Unterfüller Zellen) und gewinnt sie erst BEI seiner
         # Verarbeitung → der Round-Start-Snapshot ist für den verarbeiteten Raum
         # deckungsgleich mit dem Live-Stand (verifiziert: Angerer/WM Grün-Zahl gleich).
+        # Nur die Zellen der UNTERFÜLLTEN Räume einsammeln. Satte Räume werden
+        # unten ohnehin per continue übersprungen — ihre Zellenlisten wurden
+        # bisher trotzdem jede Runde neu aufgebaut. Am WM-Plan sind das die
+        # meisten Räume, also der größte Teil der Sammelarbeit.
+        unter = {b for b in range(n) if fl[b] < soll[b]}
+        if not unter:
+            break
         zellen_je = {}
         for idx in range(W * H):
             lab = label[idx]
-            if 0 <= lab < n:
+            if lab in unter:
                 zellen_je.setdefault(lab, []).append(idx)
         for b in range(n):
             if fl[b] >= soll[b]:
@@ -1304,14 +1317,33 @@ def _streifen_ausgleich(grid, label, rst, stempel, AUSSEN, max_runden=40):
             linien = {}
             for idx in zellen:
                 i, j = idx % W, idx // W
-                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    ni, nj = i + di, j + dj
-                    nidx = nj * W + ni
-                    if not (0 <= ni < W and 0 <= nj < H) or grid[nidx]:
-                        continue
-                    if geber(label[nidx]):
-                        key = ((di, dj), ni if di else nj)
-                        linien.setdefault(key, set()).add(nj if di else ni)
+                # 4-Nachbarschaft ausgeschrieben: die Richtungs-Tupel-Schleife
+                # kostete pro Zelle vier Tupel-Entpackungen, und geber() vier
+                # Funktionsaufrufe. Bei 32 Mio. Zellbesuchen zählt beides.
+                if i + 1 < W:
+                    nidx = idx + 1
+                    lab0 = label[nidx]
+                    if not grid[nidx] and (lab0 == AUSSEN
+                                           or (0 <= lab0 < n and fl[lab0] > soll[lab0])):
+                        linien.setdefault(((1, 0), i + 1), set()).add(j)
+                if i > 0:
+                    nidx = idx - 1
+                    lab0 = label[nidx]
+                    if not grid[nidx] and (lab0 == AUSSEN
+                                           or (0 <= lab0 < n and fl[lab0] > soll[lab0])):
+                        linien.setdefault(((-1, 0), i - 1), set()).add(j)
+                if j + 1 < H:
+                    nidx = idx + W
+                    lab0 = label[nidx]
+                    if not grid[nidx] and (lab0 == AUSSEN
+                                           or (0 <= lab0 < n and fl[lab0] > soll[lab0])):
+                        linien.setdefault(((0, 1), j + 1), set()).add(i)
+                if j > 0:
+                    nidx = idx - W
+                    lab0 = label[nidx]
+                    if not grid[nidx] and (lab0 == AUSSEN
+                                           or (0 <= lab0 < n and fl[lab0] > soll[lab0])):
+                        linien.setdefault(((0, -1), j - 1), set()).add(i)
             # längsten zusammenhängenden Lauf finden
             best = None
             for key, poss in linien.items():
