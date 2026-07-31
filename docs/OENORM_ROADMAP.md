@@ -23,6 +23,12 @@ Bluebeam/Togal/Kreo/ABK) + Code-Audit über 5 Säulen. Reifegrade = ehrliche Ist
 >   Werte + 7 ÖNORM-Positionen je Raum-Klick; Umriss-Editor mit Live-F/U.
 > * **Workflow:** Stepper (1 Pläne … 5 Export & Fragen) ist verdrahtet und
 >   bewacht (`test_workflow_schritte.py`).
+> * **Mehrschichtige Aufbauten (Holzbau/WDVS) sind repariert:** der
+>   Kernbefund nennt "6,95 m statt ~42 m" — am selben Holzbau-Plan heute
+>   gemessen: **74,33 m** über drei getrennt geführte Stärken (38/34/10 cm),
+>   dickste Gesamtspanne 38 cm statt einer 3-cm-Beplankung. Füllflächen-
+>   Gesamtspannen verdrängen die Schicht-Fehllesungen (9 verdrängt, 21
+>   additiv ergänzt). Jetzt bewacht: `test_schicht_aufbau.py`.
 > * **Offen bleiben ehrlich:** Scans liefern weiter keine belastbaren Mengen
 >   (Scan-Modus rendert + lehnt ehrlich ab statt zu raten); Tür-Dichtung der
 >   Raumfarben 59 % (Dossier im Projektgedächtnis); Trockenbau als Gewerk fehlt; Erdarbeiten nach B 2205 rudimentär.
