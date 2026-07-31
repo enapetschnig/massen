@@ -3,6 +3,31 @@
 Erstellt aus ÖNORM-Recherche (B 2110/2204/2230/2232/A 2063/LB-HB, Wettbewerb:
 Bluebeam/Togal/Kreo/ABK) + Code-Audit über 5 Säulen. Reifegrade = ehrliche Ist-Bewertung.
 
+> **NACHTRAG 2026-07-31 — der Kernbefund unten ist in mehreren Punkten ÜBERHOLT.**
+> Ein Dokument, das gelöste Fehler als offen führt, lenkt jede Session auf die
+> falsche Baustelle. Belegter Stand (jeweils mit Wächter im Scoreboard
+> `scripts/test_alles.py`, alle grün):
+>
+> * **Alle drei Norm-Fehler sind BEHOBEN:** Mauerwerk/Beton ziehen Öffnungen ab
+>   0,5 m² ab (`_schwelle_fuer`, gegen die echte Polier-Liste verifiziert:
+>   13/13); die 2,5-m²-Maler-Schwelle ist als *nicht AT-belegt* (`norm_offen`)
+>   ausgewiesen statt still als DIN angewandt, je Firma überschreibbar; der
+>   **3,2-m-Höhensplit existiert** für Putz und Maler (Positionen `1.1h`,
+>   lotrechte Abgrenzung) — bewacht durch `mess_oenorm_nachweis.py` (3,5-m-Raum)
+>   und `test_massen_logic.py` Phase 4.
+> * **A 2063 ist angeschlossen — in beide Richtungen:** Export `.onlv` gegen das
+>   amtliche `onlv.xsd` validiert (`test_onlv_export.py`), LV-Import mit
+>   Rundlauf-Zusicherung (`test_lv_import.py`).
+> * **Traceability:** Räume sind am Plan farbig markiert und klickbar (113/122
+>   verlässlich, 0 flächenfalsche Umrisse, Schlussprüfung verwirft Falsches);
+>   Werte + 7 ÖNORM-Positionen je Raum-Klick; Umriss-Editor mit Live-F/U.
+> * **Workflow:** Stepper (1 Pläne … 5 Export & Fragen) ist verdrahtet und
+>   bewacht (`test_workflow_schritte.py`).
+> * **Offen bleiben ehrlich:** Scans liefern weiter keine belastbaren Mengen
+>   (Scan-Modus rendert + lehnt ehrlich ab statt zu raten); Tür-Dichtung der
+>   Raumfarben 59 % (Dossier im Projektgedächtnis); Fliesen/Trockenbau ohne
+>   Höhensplit; Erdarbeiten nach B 2205 rudimentär.
+
 ## Kernbefund
 
 Die App hat einen echten, verteidigbaren Kern — byte-exakter Text-Layer, 12/12 Guards, 13/13 Polier-Positionen auf dem Referenzplan, 9 Gewerke, Kalibrierungs-Moat — aber sie ist heute die beste App für EINE Plan-Klasse (native Wohnbau-Polierpläne mit HLZ-Mauerwerk), nicht für "alle Pläne": Scans liefern null belastbare Mengen, mehrschichtige Aufbauten (Holzbau/WDVS) werden nachweislich falsch gepaart (6,95 m statt ~42 m), und "label"-kalibrierte Pläne sperren den Export. Beim Kernversprechen "Massen laut ÖNORM" gibt es drei belegte Norm-Fehler im Code: globale 4,0-m²-Öffnungsschwelle auch für Mauerwerk (B 2204 verlangt 0,5 m²), Maler-Schwelle 2,5 m² ist deutsche DIN-18363-Kontamination statt B 2230-1, und der 3,2-m-Höhensplit (Putz/Fliesen/Trockenbau) fehlt komplett — dazu kein A-2063-taugliches Format, also kein Anschluss an ABK/Nevaris. Traceability ist ein Parallel-Universum: nur HLZ-Zeilen sind plan-klickbar, ganze Mengen-Familien (Bodenplatte, Decke, WDVS-Fassade, Gerüst) sind auf keinem Blatt eingezeichnet, und ein Seiten-Key-Bug lässt OG-Korrekturen auf EG-Wänden landen. Im Workflow ist Vorhandenes abgerissen verdrahtet: Stepper ist toter Code, die Gewerk-Wahl tut nichts, die Kalibrierungsseite ist von nirgends verlinkt. Ehrlich gesagt: gegen Togal/Kreo gewinnt die App durch ÖNORM-Logik nur, wenn diese Logik gewerksrichtig, am Plan belegt und im A-2063-Format prüffähig ist — alle drei Stücke fehlen noch teilweise.
