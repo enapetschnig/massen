@@ -25,8 +25,10 @@ Bluebeam/Togal/Kreo/ABK) + Code-Audit über 5 Säulen. Reifegrade = ehrliche Ist
 >   bewacht (`test_workflow_schritte.py`).
 > * **Offen bleiben ehrlich:** Scans liefern weiter keine belastbaren Mengen
 >   (Scan-Modus rendert + lehnt ehrlich ab statt zu raten); Tür-Dichtung der
->   Raumfarben 59 % (Dossier im Projektgedächtnis); Fliesen/Trockenbau ohne
->   Höhensplit; Erdarbeiten nach B 2205 rudimentär.
+>   Raumfarben 59 % (Dossier im Projektgedächtnis); Trockenbau als Gewerk fehlt; Erdarbeiten nach B 2205 rudimentär.
+>   (Fliesen-Höhensplit 2026-07-31 GESCHLOSSEN — mit Begründung statt Code:
+>   das Band endet bei 2,0/1,5 m, die Erschwernis „über 3,2 m" kann nie
+>   greifen; Wächter pinnt die Voraussetzung in test_massen_logic.)
 
 ## Kernbefund
 

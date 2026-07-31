@@ -899,6 +899,13 @@ def gewerk_fliesen(rooms, windows, baudaten, geschoss="EG", tueren=None):
         if not u:
             continue
         nm = (_room_name(r) or "").lower()
+        # KEIN 3,2-m-Höhensplit für Fliesen — mit Begründung, nicht aus
+        # Vergessen (offener Roadmap-Punkt, hier geschlossen): die LB-HB-
+        # Erschwernis gilt für ARBEITEN über 3,2 m Höhe. Das Fliesenband
+        # endet konstruktiv bei 2,0 m (WC 1,5 m) — egal wie hoch der Raum
+        # ist, gearbeitet wird nie über 3,2 m. Ein Split wäre tote Position.
+        # Der Wächter (test_massen_logic) pinnt die Bandhöhen ≤ 3,2 m: wer
+        # das Band je raumhoch macht, MUSS die Split-Frage neu entscheiden.
         h = 1.5 if ("wc" in nm and "bad" not in nm and "dusch" not in nm) else 2.0
         pos_w.add_zeile(f"{_room_name(r)} — Wandfläche", laenge=u, hoehe=h, anker=_anker(r),
                         summe=u * h, quelle=f"{_u_lbl(r, u)} × h={h} (angenommen)")

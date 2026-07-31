@@ -323,6 +323,18 @@ def run():
                   or (z.get("anker") or {}).get("raum")
                   for z in _zl))
 
+    # Fliesen brauchen KEINEN 3,2-m-Split, SOLANGE das Band ≤3,2 m endet
+    # (Erschwernis gilt für Arbeiten ÜBER 3,2 m; Band endet bei 2,0/1,5 m).
+    # Diese Zusage pinnt die Voraussetzung: ein 5-m-Raum darf die Wandfliesen-
+    # Menge NICHT über Umfang×2,0 hinaus treiben. Wer das Band raumhoch macht,
+    # bricht diesen Check und muss die Split-Frage bewusst neu entscheiden.
+    _hoch_bad = [{"name": "Bad", "flaeche_m2": 8.0, "umfang_m": 12.0,
+                  "hoehe_m": 5.0}]
+    _fl_hoch = gewerk_fliesen(_hoch_bad, [], BAUDATEN)
+    _fw_hoch = next((p for p in _fl_hoch if p.posnr == "1.2"), None)
+    check("Fliesen: Band bleibt 2,0 m auch im 5-m-Raum (kein Split nötig)",
+          _fw_hoch is not None and abs(_fw_hoch.endsumme - 24.0) < 0.01)
+
     # ── PHASE 4: ÖNORM-3,2-m-Höhensplit (lotrechte Abgrenzung) ──
     _rooms_hoch = [{"name": "Zimmer 1", "flaeche_m2": 30.0, "umfang_m": 22.0, "hoehe_m": 2.70},
                    {"name": "Wohnzimmer", "flaeche_m2": 50.0, "umfang_m": 30.0, "hoehe_m": 3.50}]
