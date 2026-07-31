@@ -82,6 +82,50 @@ def _plan(pfad, zeilen):
     return soll
 
 
+def _streutreffer(tmp):
+    """EIN fremder Anker auf einem Plan im Büro-Format darf nicht alles löschen.
+
+    Das war eine echte Falle: der Anker-Zweig schaltete den Fallback-Zweig ab,
+    sobald er IRGENDETWAS fand. Beim Versuch, 'WNF' als Anker aufzunehmen,
+    fiel der WM-Plan von 77 Stempeln auf 5 — vier Wohnungs-Summenstempel
+    verdrängten 77 echte Räume. Dieselbe Falle stellt jeder Plankopf, der
+    irgendwo ein einzelnes 'Fläche:' oder 'NF:' trägt.
+
+    Hier steht sie als Fall im Wächter: vier Räume im Büro-Format (nackte
+    Zahl + ²-Span) plus EIN 'Fläche: 999,00 m²' im Plankopf.
+    """
+    import fitz
+    import raumnetz
+    pfad = os.path.join(tmp, "streu.pdf")
+    doc = fitz.open()
+    pg = doc.new_page(width=2384, height=1684)
+    pg.insert_text((100, 60), "M 1:50", fontsize=11)
+    # der Streutreffer im Plankopf
+    pg.insert_text((1900, 60), "Fläche: 999,00 m²", fontsize=9)
+    soll = []
+    for i in range(4):
+        f = round(12.34 + i * 3.11, 2)
+        soll.append(f)
+        x, y = 200 + (i % 2) * 520, 200 + (i // 2) * 380
+        pg.draw_rect(fitz.Rect(x - 60, y - 60, x + 300, y + 220),
+                     color=(0.35, 0.35, 0.35), width=6)
+        pg.insert_text((x, y), "Zimmer", fontsize=9)
+        t = f"{f:.2f}".replace('.', ',') + " m"
+        pg.insert_text((x, y + 13), t, fontsize=9)
+        pg.insert_text((x + 4.6 * len(t), y + 11), "²", fontsize=6)
+    doc.save(pfad)
+    doc.close()
+    doc = fitz.open(pfad)
+    r = doc[0].rect
+    st = raumnetz.raum_stempel(doc[0], (r.x0, r.x1, r.y0, r.y1))
+    doc.close()
+    gefunden = sum(1 for f in soll
+                   if any(abs((x.get("f_m2") or 0) - f) < 0.005 for x in st))
+    print(f"\nSTREUTREFFER-FALLE: 4 Büro-Stempel + 1 'Fläche:' im Plankopf")
+    print(f"   {len(st)} Stempel gelesen, davon {gefunden}/4 der echten Räume")
+    return gefunden, len(soll)
+
+
 def run():
     import raumnetz
     import fitz
@@ -115,6 +159,7 @@ def run():
             print(f"{name[:39]:<40}{'ja' if bekannt else 'NEIN':>12}"
                   f"{len(st):>10}{f_ok:>7}/4{u_ok:>7}/4"
                   f"   {'✓' if f_ok == 4 else '—'}")
+        _sg, _ss = _streutreffer(tmp)
     print("-" * 96)
     print(f"BEKANNTE Schreibweisen  {bekannt_ok}/{bekannt_n} vollständig gelesen")
     print(f"FREMDE  Schreibweisen   {fremd_ok}/{fremd_n} vollständig gelesen")
@@ -130,6 +175,11 @@ def run():
     assert bekannt_ok == bekannt_n, (
         f"nur {bekannt_ok}/{bekannt_n} der BEKANNTEN Stempel-Schreibweisen "
         f"gelesen — das ist eine Regression an den echten Plänen")
+    # Und die Falle, die 77 Raeume gekostet haette:
+    assert _sg == _ss, (
+        f"Streutreffer-Falle offen: EIN fremder Anker im Plankopf laesst nur "
+        f"{_sg} von {_ss} echten Raumstempeln uebrig — genau so fiel der "
+        f"WM-Plan im Versuch von 77 auf 5")
 
 
 if __name__ == "__main__":

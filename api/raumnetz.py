@@ -254,7 +254,23 @@ def raum_stempel(page, box):
     # FALLBACK (Büro-Format ohne "Fl:"-Anker, z.B. AU/WM): nackte "88,11 m"-Spans sind
     # nur dann Flächen, wenn DIREKT daneben ein eigener "²"-Span liegt (das ² ist als
     # Superscript ein separater Span) — unterscheidet Flächen von Längenangaben.
-    if not out:
+    #
+    # DIE SCHWELLE IST NEU, und sie ist wichtiger als sie aussieht. Vorher stand
+    # hier "if not out:" — ein EINZIGER Treffer des Anker-Zweigs schaltete den
+    # Fallback komplett ab. Gemessen beim Versuch, 'WNF' als Flächen-Anker
+    # aufzunehmen: der WM-Plan fiel von 77 Stempeln auf 5, weil vier Wohnungs-
+    # Summenstempel ("TOP 25 · WNF 45,26 m²") anschlugen und damit die 77 echten
+    # Raumstempel des Büro-Formats verdrängten. Nicht 77+4, sondern 5.
+    #
+    # Das ist eine Falle für JEDE Anker-Erweiterung: ein Plan im Büro-Format,
+    # der irgendwo ein einzelnes "NF:" oder "Fläche:" im Plankopf trägt, hätte
+    # still ALLE Räume verloren. Darum greift der Fallback jetzt auch, wenn der
+    # Anker-Zweig nur eine Handvoll fand — ein Grundriss mit drei Räumen ist
+    # selten, ein Streutreffer häufig. Die Ergebnisse werden zusammengeführt,
+    # Doppelte nach Position verworfen (der Anker-Fund gewinnt: er trägt einen
+    # ausdrücklichen Flächen-Marker).
+    _anker_funde = list(out)
+    if len(out) < 5:
         hoch2 = [s2 for s2 in spans if len(s2["text"]) == 1 and s2["text"] in ("²", "2")]
         nackt_rx = re.compile(r"^([0-9]{1,3},[0-9]{1,2})\s*m$")
         # "qm" ist eindeutig Quadratmeter — anders als das nackte "m", das
@@ -335,6 +351,17 @@ def raum_stempel(page, box):
             # das Frontend bietet dafür die Nachbenennung an.
             out.append({"name": name or "?", "f_m2": f, "u_m": _u_unter(s),
                         "cx": s["cx"], "cy": s["cy"]})
+        # ZUSAMMENFÜHREN statt ersetzen: die Anker-Funde von oben bleiben, der
+        # Fallback ergänzt nur, was er an anderer Stelle findet. Doppelte
+        # (derselbe Stempel über beide Wege gelesen) fallen nach Position raus —
+        # der Anker-Fund gewinnt, weil er einen ausdrücklichen Flächen-Marker
+        # trägt und nicht nur eine nackte Zahl mit ²-Nachbar.
+        if _anker_funde:
+            _neu = [x for x in out if x not in _anker_funde
+                    and not any(abs(x["cx"] - a["cx"]) < 25
+                                and abs(x["cy"] - a["cy"]) < 25
+                                for a in _anker_funde)]
+            out = _anker_funde + _neu
     return out
 
 
