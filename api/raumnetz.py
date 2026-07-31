@@ -33,9 +33,28 @@ _KOMPAKT_MIN = 3   # Kompaktheits-Schwelle des F-Ausgleichs (Ziel-Nachbarn von 8
 
 # Wörter, die im Raum-Stempel stehen, aber KEINE Raumnamen sind (Bodenbeläge/Material/
 # Außenflächen-Beschriftungen — empirisch am WM-Plan gefunden)
+# Bodenbeläge sind KEINE Raumnamen. Der Belag steht im Stempel zwischen Name
+# und Flächenwert, also NÄHER am Wert — er gewinnt die Nächster-Span-Suche,
+# wenn er nicht gesperrt ist. Diese Liste war auf den Wohnbau zugeschnitten:
+# an einem gebauten Schulgrundriss hießen vier Klassenzimmer und das
+# Lehrerzimmer "Linoleum" (Flächen byte-exakt, Namen falsch) — der Belag, den
+# man im Wohnbau nie sieht. Darum jetzt die im österreichischen Hochbau
+# üblichen Beläge quer durch alle Bauarten: Bildungs-, Gesundheits-,
+# Gewerbe- und Industriebau.
+# EHRLICHE GRENZE: das bleibt eine Sperrliste und ist damit nie vollständig.
+# Sie ist die zweite Verteidigungslinie hinter der Bündigkeits-Regel; ein
+# unbekannter Belag kostet einen Namen, nie eine Menge.
 _KEIN_RAUMNAME = ("fliesen", "parkett", "laminat", "teppich", "estrich", "beton",
                   "betonplatten", "kies", "wiese", "rasen", "pflaster", "asphalt",
-                  "holz", "vlies", "epoxy", "keramik", "stein", "feinstein")
+                  "holz", "vlies", "epoxy", "keramik", "stein", "feinstein",
+                  # Bildungs-/Gesundheitsbau
+                  "linoleum", "vinyl", "kautschuk", "pvc", "kork",
+                  # Gewerbe-/Industriebau
+                  "industrieboden", "hartstoff", "gussasphalt", "terrazzo",
+                  "sichtbeton", "doppelboden", "hohlboden", "spachtelboden",
+                  "beschichtung", "anhydrit", "zementestrich",
+                  # Naturstein/Sonstiges
+                  "marmor", "granit", "naturstein", "schiefer", "osb")
 # Einheiten-Reste: beim Trennen von "24,52 m" bleibt ein nacktes "m" übrig und
 # gewann als Raumname (TG-Plan: Raum "m", 21,21 m²). Ein Raum heißt nie so.
 _EINHEIT_REST = {"m", "m2", "m²", "cm", "mm", "st", "stk", "lfm", "pa", "kg"}

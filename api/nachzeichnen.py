@@ -519,18 +519,58 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         import raumnetz as _rn
         _st = _rn.raum_stempel(page, (0, page.rect.width, 0, page.rect.height))
         if len(_st) >= 3:
-            drin = sum(1 for x in _st
-                       if box and box[0] <= x["cx"] <= box[1]
-                       and box[2] <= x["cy"] <= box[3])
-            if not box or drin < 0.5 * len(_st):
-                pos = [(x["cx"], x["cy"]) for x in _st]
-                # Marge skaliert mit dem größten Stempel: der 555,9m²-Hallen-
-                # Stempel sitzt MITTIG, die Außenkante liegt ~√F/2 entfernt —
-                # die 4m-Marge kappte die Halle auf 225m² (gemessen). EFH
-                # (max F ≤ 40) bleibt bei 4m.
-                _fmax = max((x.get("f_m2") or 0) for x in _st)
-                _marge = max(4.0, 0.6 * (_fmax ** 0.5))
-                box = vektor._view_bbox(pos, ptm, marge_m=_marge, radius_m=40.0)
+            pos = [(x["cx"], x["cy"]) for x in _st]
+            # Marge skaliert mit dem größten Stempel: der 555,9m²-Hallen-
+            # Stempel sitzt MITTIG, die Außenkante liegt ~√F/2 entfernt —
+            # die 4m-Marge kappte die Halle auf 225m² (gemessen). EFH
+            # (max F ≤ 40) bleibt bei 4m.
+            _fmax = max((x.get("f_m2") or 0) for x in _st)
+            _marge = max(4.0, 0.6 * (_fmax ** 0.5))
+            _box_st = vektor._view_bbox(pos, ptm, marge_m=_marge,
+                                        radius_m=40.0)
+
+            def _drin(b):
+                return 0 if not b else sum(
+                    1 for x in _st
+                    if b[0] <= x["cx"] <= b[1] and b[2] <= x["cy"] <= b[3])
+
+            # WELCHE BOX ENTHÄLT MEHR STEMPEL? Vorher stand hier "nimm die
+            # Stempel-Box, wenn WENIGER ALS 50% der Stempel in der Wort-Box
+            # liegen". An einem gebauten Schulgrundriss lagen exakt 4 von 8
+            # drin — die Schwelle verfehlte um einen Raum, und vier
+            # Klassenzimmer fielen aus dem Plan.
+            #
+            # Die Ursache ist grundsätzlicher: RAUM_WORTE ist eine Liste aus
+            # 16 WOHNBAU-Begriffen. "Klasse", "Produktionshalle",
+            # "Patientenzimmer", "Gästezimmer" stehen nicht darin. Trifft die
+            # Liste NICHTS, fällt die Auswertung sauber auf die Stempel
+            # zurück; trifft sie ZUFÄLLIG EIN PAAR Wörter (Schule: die WCs und
+            # den Gang), entsteht eine falsche Box — ein Teiltreffer ist
+            # schlimmer als kein Treffer.
+            #
+            # Die Stempel sind byte-exakt und sprachunabhängig: wo ein
+            # F/U-Stempel steht, ist ein Raum. Also entscheidet die Anzahl
+            # gefasster Stempel, nicht eine Prozentschwelle.
+            #
+            # ABER die Box ist nicht nur für Räume da — an ihr hängt auch die
+            # WANDMESSUNG, und die will das Gegenteil: eine engere Box. Beide
+            # Varianten wurden gemessen:
+            #
+            #   "Stempel-Box, sobald sie mehr Räume fasst"  -> Schule 8/8 ✓,
+            #      aber Angerer 50-cm-Wand 41 m -> 33 m (32 statt 27 Wände:
+            #      die größere Box zieht Fremdsegmente herein und verschiebt
+            #      die Stärken-Zuordnung)
+            #   dasselbe als VEREINIGUNG beider Boxen -> identisch schlecht,
+            #      die Vergrößerung selbst ist die Ursache, nicht der Zuschnitt
+            #
+            # Also bleibt der Auslöser eng: die Stempel-Box greift erst, wenn
+            # die Wort-Box HÖCHSTENS die Hälfte der Stempel fasst — dann ist
+            # sie erwiesen unbrauchbar. Vorher stand hier "weniger als die
+            # Hälfte"; der gebaute Schulgrundriss traf mit exakt 4 von 8 die
+            # Grenze und verlor vier Klassenzimmer. Ein Gleichstand ist kein
+            # Vertrauensbeweis für die Wortliste.
+            if _box_st and _drin(box) <= 0.5 * len(_st):
+                box = _box_st
     except Exception:
         pass
     # SCHNITT-GATE vor _wandbox (Audit): ein kompaktes Schnitt-/Ansichts-Blatt (12×10 m
