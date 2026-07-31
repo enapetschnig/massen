@@ -74,9 +74,33 @@ def _ist_raumname(t):
 
 # Punkt-Dezimal ("Fl: 5.90m²", 1762788650811-Plan) UND Komma mit Tausender-Punkt.
 # BF: = Bodenfläche (Polierplan-Konvention, AP.01: 6 von 9 Seeds fehlten sonst).
-_F_RX = re.compile(r"^(?:F[lL]\s*[.:]?|BF\s*[.:]?|F\s*[.:])\s*([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9]{1,2}|[0-9]+)\s*m", re.I)
+#
+# SCHREIBWEISEN-SWEEP (scripts/mess_stempel_konventionen.py): an gebauten
+# Stempeln gemessen las der Leser die vier Konventionen unserer echten Pläne
+# vollständig — und von acht FREMDEN Schreibweisen genau eine. "NF:"
+# (Nutzfläche) und "Fläche:" sind österreichischer Alltag, "qm" steht auf
+# jedem älteren Plan. Wer so einen Plan hochlud, bekam NULL Räume, nicht
+# etwa weniger.
+#
+# Ergänzt sind darum: Fläche/Flaeche, NF (Nutzfläche), '=' als Trenner und
+# die Einheiten m² / m2 / qm.
+# BEWUSST NICHT ergänzt:
+#   'A:'  — zu mehrdeutig, 'A' bezeichnet auf Plänen Achsen und Ansichten
+#   'WNF' — das ist der WOHNUNGS-Summenstempel (TOP 37 / Loggia / WNF 45,26),
+#           der absichtlich ausgefiltert wird; als Flächen-Anker würde er die
+#           Wohnungssummen als Phantom-Räume zurückbringen (am WM-Plan
+#           gemessen, siehe Wohnungs-Stempel-Gate weiter unten)
+_F_EINHEIT = r"(?:m\s*[²2]?|qm)"
+# [.:=]{0,2} statt {0,1}: "Fl.:" traegt BEIDE Trennzeichen (Punkt und
+# Doppelpunkt) — mit nur einem erlaubten Zeichen fiel diese Schreibweise
+# komplett durch (0 von 4 Stempeln gelesen).
+_F_ANKER = (r"(?:F[lL]\s*[.:=]{0,2}|BF\s*[.:=]{0,2}|NF\s*[.:=]{0,2}"
+            r"|F\s*[.:=]|Fl[\u00e4a]che\s*[.:=]{0,2})")
+_F_ZAHL = r"([0-9][0-9\s.]*,[0-9]+|[0-9]+\.[0-9]{1,2}|[0-9]+)"
+_F_RX = re.compile(r"^" + _F_ANKER + r"\s*" + _F_ZAHL + r"\s*" + _F_EINHEIT,
+                   re.I)
 # Solo-Anker ("BF:" allein, Zahl als Tab-Spalte 20-28pt rechts — AP.01-Encoding)
-_F_ANKER_RX = re.compile(r"^(?:F[lL]\s*[.:]?|BF\s*[.:]?|F\s*[.:])$", re.I)
+_F_ANKER_RX = re.compile(r"^" + _F_ANKER + r"$", re.I)
 _U_ANKER_RX = re.compile(r"^U\s*[.:]$", re.I)
 # Bauteil-/Wandtyp-Codes sind KEINE Raumnamen (stehen auf Polierplänen näher
 # am Stempel als der Name und gewannen die Nächster-Span-Suche: 'IW 2' statt Bad)
@@ -233,15 +257,24 @@ def raum_stempel(page, box):
     if not out:
         hoch2 = [s2 for s2 in spans if len(s2["text"]) == 1 and s2["text"] in ("²", "2")]
         nackt_rx = re.compile(r"^([0-9]{1,3},[0-9]{1,2})\s*m$")
+        # "qm" ist eindeutig Quadratmeter — anders als das nackte "m", das
+        # auch eine Laenge sein kann. Darum braucht diese Schreibweise
+        # KEINEN hochgestellten ²-Nachbar-Span als Beweis.
+        qm_rx = re.compile(r"^([0-9]{1,3},[0-9]{1,2})\s*qm$", re.I)
         for s in spans:
             m2 = nackt_rx.match(s["text"])
+            _ist_qm = False
+            if not m2:
+                m2 = qm_rx.match(s["text"])
+                _ist_qm = bool(m2)
             if not m2:
                 continue
             f = _num(m2.group(1))
             if not f or f < 1.0 or f > 500:
                 continue
-            if not any(0 < (h["cx"] - s["cx"]) < 60 and abs(h["cy"] - s["cy"]) < 8
-                       for h in hoch2):
+            if not _ist_qm and not any(
+                    0 < (h["cx"] - s["cx"]) < 60 and abs(h["cy"] - s["cy"]) < 8
+                    for h in hoch2):
                 continue    # kein ²-Nachbar → Länge, keine Fläche
             # WOHNUNGS-STEMPEL-GATE (WM: 'TOP 25 / Loggia 11,25 / WNF 45,26 /
             # 56,51 m²' — der Summen-Seed flutete den Watershed als 'Loggia

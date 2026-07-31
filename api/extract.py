@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-10.5"
+APP_REV = "2026-07-10.6"
 
 
 @app.get("/api/extract-health")
@@ -6011,7 +6011,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 57  # + Ansicht aus Stempeln statt Wortliste, Belag-Sperre fuer Nicht-Wohnbau
+_NZ_CACHE_V = 58  # + Stempel-Schreibweisen NF/Flaeche/qm/= und Mehrfach-Trenner
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

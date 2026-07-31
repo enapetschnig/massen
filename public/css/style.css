@@ -3351,3 +3351,10 @@ g[data-raum].nz-hi circle {
 @media (prefers-color-scheme: dark) {
   .rw-abw { background: rgba(180,83,9,0.16); }
 }
+
+/* SCROLL-HINWEIS in der Planansicht: der Plan ist meist hoeher als sein
+   Fenster. Ohne Rueckmeldung haelt man den sichtbaren Ausschnitt fuer den
+   ganzen Plan — genau das ist passiert. Der Streifen zeigt, wo man ist, und
+   verschwindet, sobald alles hineinpasst. */
+.nz-scrollbar { position: absolute; right: 3px; width: 5px; border-radius: 3px;
+  background: rgba(15, 23, 42, 0.28); pointer-events: none; transition: top .08s linear; }

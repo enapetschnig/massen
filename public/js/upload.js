@@ -3087,9 +3087,57 @@
     if (!_nzWrap || !_nzData) return;
     var zoom = _nzWrap.querySelector('.nz-zoom'); if (!zoom) return;
     var Wv = _nzWrap.clientWidth, Hv = _nzWrap.clientHeight || (Wv * _nzData.bild_h / _nzData.bild_w), s = _nzZoom.s;
-    _nzZoom.x = Math.min(0, Math.max(Wv * (1 - s), _nzZoom.x));
-    _nzZoom.y = Math.min(0, Math.max(Hv * (1 - s), _nzZoom.y));
+    // ECHTE Inhaltsgröße statt der Annahme "Inhalt = Fenster".
+    //
+    // Hier steckte ein handfester Fehler: die Schranken waren Wv*(1-s) und
+    // Hv*(1-s) — bei s=1 also beide 0, das Verschieben war abgeschaltet.
+    // Das Bild wird aber mit width:100% gezeichnet, ist bei einem quadra-
+    // tischen Plan also ~1500px hoch, während das Fenster 76vh (~540px)
+    // misst. Ergebnis: man sah das obere Drittel und kam nicht weiter —
+    // am Angerer-Plan im Browser bestätigt.
+    //
+    // Richtig ist die Schranke gegen die WIRKLICHE Inhaltsgröße: passt der
+    // Inhalt ins Fenster, bleibt es bei 0 (kein Zappeln); ist er größer,
+    // darf genau um die Differenz geschoben werden — in jeder Zoomstufe.
+    var cw = (zoom.offsetWidth || Wv) * s;
+    var ch = (zoom.offsetHeight || Hv) * s;
+    _nzZoom.x = Math.min(0, Math.max(Math.min(0, Wv - cw), _nzZoom.x));
+    _nzZoom.y = Math.min(0, Math.max(Math.min(0, Hv - ch), _nzZoom.y));
     zoom.style.transform = 'translate(' + _nzZoom.x + 'px,' + _nzZoom.y + 'px) scale(' + s + ')';
+    // Scrollbalken-Ersatz: ohne Rückmeldung weiß niemand, dass da noch mehr
+    // ist. Ein dünner Streifen am Rand zeigt, welcher Ausschnitt gerade dran
+    // ist — und verschwindet, sobald alles ins Fenster passt.
+    _nzScrollHinweis(Wv, Hv, cw, ch);
+  }
+
+  function _nzScrollHinweis(Wv, Hv, cw, ch) {
+    if (!_nzWrap) return;
+    var bar = _nzWrap.querySelector('.nz-scrollbar');
+    if (ch <= Hv + 1) { if (bar) bar.remove(); return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'nz-scrollbar';
+      _nzWrap.appendChild(bar);
+    }
+    var anteil = Math.max(0.06, Hv / ch);
+    var pos = ch > Hv ? (-_nzZoom.y) / (ch - Hv) : 0;
+    bar.style.height = (anteil * 100) + '%';
+    bar.style.top = (pos * (1 - anteil) * 100) + '%';
+  }
+
+  // GANZEN PLAN INS FENSTER: Startansicht so wählen, dass der Plan komplett
+  // sichtbar ist. Vorher startete er bei 100% Breite und war damit höher als
+  // das Fenster — der Nutzer sah nur den oberen Teil und hielt das für den
+  // ganzen Plan. Läuft NUR einmal je Plan, sonst würde es gegen jeden Zoom
+  // des Nutzers arbeiten.
+  function _nzFitGanz() {
+    if (!_nzWrap) return;
+    var zoom = _nzWrap.querySelector('.nz-zoom'); if (!zoom) return;
+    var Hv = _nzWrap.clientHeight, ch = zoom.offsetHeight;
+    if (!Hv || !ch || ch <= Hv) return;
+    _nzZoom.s = Math.max(0.15, Hv / ch);
+    _nzZoom.x = 0; _nzZoom.y = 0;
+    _nzApplyZoom();
   }
 
   // SCAN-AUTO-ZOOM: bei einem Scan (dichte Multi-View-Tafel) auf die erkannten
@@ -3964,6 +4012,13 @@
       // Scan (dichte Multi-View-Tafel): einmalig auf die erkannten Räume zoomen,
       // damit sie groß & sauber liegen. Nur beim ersten Laden dieses Blatts.
       if (d.typ === 'scan') setTimeout(function () { _nzFitToRooms(); }, 60);
+      // Vektorplan: einmalig den GANZEN Plan ins Fenster holen. Zweimal
+      // versetzt, weil das Bild beim ersten Lauf noch nicht geladen sein
+      // muss — offsetHeight wäre dann 0 und die Einpassung liefe ins Leere.
+      else {
+        setTimeout(function () { _nzFitGanz(); }, 80);
+        setTimeout(function () { _nzFitGanz(); }, 400);
+      }
       // Analyse fertig + Plan überzeichnet → zuerst NUR die Planansicht zeigen
       // (statt der überladenen Gesamtansicht). Einmalig, respektiert Nutzer-Klick.
       if (typeof window.wfAutoPlan === 'function') window.wfAutoPlan();
