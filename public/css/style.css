@@ -3274,6 +3274,11 @@ g[data-raum].nz-hi circle {
   margin: 0.6rem 0 0.7rem; padding: 0.75rem 0.9rem;
   border: 1px solid var(--border); border-left: 3px solid var(--accent, #f39301);
   border-radius: 0 8px 8px 0; background: var(--white);
+  /* Nutzer-Befund: das Werte-Feld (7 Positionen) schob sich ueber den Plan
+     und drueckte ihn aus dem Fenster — "nicht mal das ganze Gebaeude oben,
+     Wohnraum Kueche ist abgeschnitten". Der Plan ist das Groesste auf der
+     Seite; das Feld ist begrenzt und scrollt in sich. */
+  max-height: 34vh; overflow-y: auto;
 }
 .rw-kopf { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
 .rw-kopf strong { font-size: 1.02rem; }
@@ -3358,3 +3363,5 @@ g[data-raum].nz-hi circle {
    verschwindet, sobald alles hineinpasst. */
 .nz-scrollbar { position: absolute; right: 3px; width: 5px; border-radius: 3px;
   background: rgba(15, 23, 42, 0.28); pointer-events: none; transition: top .08s linear; }
+.rw-edit-hint { margin-top: 0.55rem; padding-top: 0.5rem; border-top: 1px dashed var(--border);
+  display: flex; align-items: center; gap: 0.55rem; font-size: 0.8rem; color: var(--text-light); }

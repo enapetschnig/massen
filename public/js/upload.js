@@ -3758,8 +3758,29 @@
         }
       }
     }
+    // BEARBEITEN AUFFINDBAR MACHEN: "Fläche verkleinern/verschieben, und die
+    // Fläche rechnet mit" gibt es längst (✏️-Werkzeug: Eckpunkte ziehen,
+    // F+U rechnen live, Übernahme in die Mengen) — aber als einer von sechs
+    // Werkzeugknöpfen war es unsichtbar. Der Nutzer hat danach GEFRAGT,
+    // während das Werkzeug auf der Seite stand. Darum steht der Einstieg
+    // jetzt DORT, wo man mit dem Raum beschäftigt ist: im Werte-Feld.
+    z += '<div class="rw-edit-hint"><button type="button" class="nz-btn" ' +
+      'onclick="window._nzRaumEditStart&&window._nzRaumEditStart(' + ri + ')">' +
+      '✏️ Umriss anpassen</button> <span>Eckpunkte ziehen — Fläche &amp; ' +
+      'Umfang rechnen live, Übernahme geht in die Mengen.</span></div>';
     return '<div class="raum-werte" id="raum-werte">' + z + '</div>';
   }
+
+  // Einstieg aus dem Werte-Feld: Editiermodus an + diesen Raum vorwählen.
+  window._nzRaumEditStart = function (ri) {
+    _nzRaumEditMode = true;
+    _nzRaumSel = ri;
+    _nzRaumInfo = null;
+    _nzPaint();
+    _nzRaumLiveReadout(ri);
+    var w = document.querySelector('.nz-wrap');
+    if (w) w.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   window._nzRaumWerte = _nzRaumWerte;
 
   window.nzHighlightRaum = function (name, beleg) {
