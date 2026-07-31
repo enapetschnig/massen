@@ -2958,9 +2958,19 @@
           ' | Innen: 25cm ' + s.anteile.wand_anteil_25cm_innen + '% · 20cm ' + s.anteile.wand_anteil_20cm + '% · 12cm ' + s.anteile.wand_anteil_12cm + '%</div>' : '') +
         '</div>';
     }
+    // TROCKENBAU-HINWEIS (byte-exakt aus dem Plan-Text, kein Mengen-Eingriff):
+    // der Plan kennzeichnet nichttragende Wände als Trockenbau — die App
+    // rechnet sie derzeit als Mauerwerk. Das muss der Kalkulant WISSEN,
+    // bevor er die LG-08-Mengen übernimmt (LG 39 ist ein anderes Gewerk
+    // mit anderen Preisen). Erste Stufe eines echten LG-39-Aufmaßes.
+    var tbHinweis = (meta.trockenbau_hinweis
+      ? '<div class="nz-tb-hinweis">🧱→🪛 Der Plan kennzeichnet <strong>Trockenbauwände/' +
+        'Vorsatzschalen</strong> (byte-exakt gelesen). Nichttragende Innenwände sind ' +
+        'hier vermutlich <strong>LG 39 (Trockenbau)</strong>, nicht Mauerwerk — die ' +
+        '12er-Wandlängen unten entsprechend zuordnen.</div>' : '');
     var cont = document.getElementById('nachzeichnen-container');
     cont.querySelector('.nz-dynamic').innerHTML =
-      '<div class="nz-legend">' + legend + '</div>' + tb + apply +
+      '<div class="nz-legend">' + legend + '</div>' + tb + tbHinweis + apply +
       '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +

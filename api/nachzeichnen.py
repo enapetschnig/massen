@@ -1357,6 +1357,18 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             "tragfaehig": bool(kal.get("tragfaehig")),
             "streuung_pct": kal.get("streuung_pct"),
             "massstab": m_label,
+            # TROCKENBAU-SIGNAL, byte-exakt aus dem Text-Layer (erste Stufe
+            # eines LG-39-Gewerks — Hinweis OHNE Mengen-Eingriff, wie bei
+            # Bestand/Abbruch): der WM-Plan schreibt wörtlich "Alle
+            # Trockenbauwände und Vorsatzschalen …" — heute rechnen solche
+            # nichttragenden Wände stumm als Mauerwerk. Ein volles LG-39-
+            # Aufmaß braucht die Material-Trennung je Wand (sonst
+            # Doppelzählung mit LG 08); bis dahin sagt die App ehrlich, DASS
+            # der Plan Trockenbau kennzeichnet.
+            "trockenbau_hinweis": any(
+                ("trockenbauw" in w[4].lower() or "gipskarton" in w[4].lower()
+                 or "vorsatzschale" in w[4].lower())
+                for w in (worte or [])),
         },
     }
 
