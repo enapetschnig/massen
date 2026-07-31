@@ -997,8 +997,13 @@ def gewerk_daemmung(rooms, windows, baudaten, geschoss="EG", tueren=None):
         if netto["uebermessen"] or netto["abzug"] <= 0:
             continue
         _art = (w.get("_art") or "Öffnung").capitalize()
+        # Hüllen-Anker auch am ABZUG: die Zeile gehört zur Fassade — ohne
+        # Anker war sie die einzige WDVS-Zeile ohne "Im Plan zeigen"
+        # (vom erweiterten Hüllen-Anker-Wächter gefunden).
         pos.add_zeile(f"  Abzug {_art} {w.get('code','')}".rstrip(),
-                      summe=-netto["abzug"], quelle=f"Fassaden-Öffnung >{schwelle:.1f} m²")
+                      summe=-netto["abzug"], quelle=f"Fassaden-Öffnung >{schwelle:.1f} m²",
+                      anker=({"raum": w.get("raum")} if w.get("raum")
+                             else {"ebene": "konturen"}))
         leibung_zeile(pos_laib, pos_laib_m2,
                       f"{_art} {w.get('code','')}".rstrip(" —"),
                       w.get("breite_m", 0), w.get("hoehe_m", 0), netto)

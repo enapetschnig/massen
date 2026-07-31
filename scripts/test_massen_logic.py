@@ -297,6 +297,32 @@ def run():
           all((z.get("anker") or {}).get("ebene") == "konturen"
               for p in erd for z in p.zeilen))
 
+    # ── HÜLLEN-ANKER für ALLE Hüllen-Familien (Nachvollziehbarkeit) ──
+    # "Alles beim Plan eingezeichnet" gilt nicht nur für Räume: Bodenplatte,
+    # WDVS-Fassade und Gerüst rechnen aus der GEBÄUDEHÜLLE — ihre Zeilen
+    # müssen den Konturen-Anker tragen, damit "Im Plan zeigen" die gemauerte
+    # Hülle pulsen lässt. Die Anker existierten, bewacht war nur Erdbau —
+    # eine stille Regression hätte drei Familien vom Plan getrennt, ohne
+    # dass irgendein Wächter rot wird.
+    _bd_h = dict(BAUDATEN)
+    _bd_h["_basis_bodenplatte_m2"] = 128.32
+    _bd_h["_basis_aussenumfang_m"] = 45.31
+    _bd_h["_basis_aussenwand_flaeche_m2"] = 45.31 * 3.0
+    _gg_h = berechne_gewerke(ROOMS, WINDOWS, _bd_h,
+                             geschoss="EG")["gewerke"]
+    for _gw, _pn, _lbl in (("rohbau", "1.3", "Bodenplatte"),
+                           ("daemmung", "1.1", "WDVS-Fassade"),
+                           ("geruest", None, "Gerüst")):
+        _pos_h = [p for p in (_gg_h.get(_gw) or {}).get("positionen", [])
+                  if (_pn is None or p.get("posnr") == _pn)
+                  and p.get("endsumme")]
+        _zl = [z for p in _pos_h for z in p.get("zeilen", [])]
+        check(f"{_lbl}: Zeilen tragen Hüllen-Anker (Plan-Beleg)",
+              bool(_zl) and all(
+                  (z.get("anker") or {}).get("ebene") == "konturen"
+                  or (z.get("anker") or {}).get("raum")
+                  for z in _zl))
+
     # ── PHASE 4: ÖNORM-3,2-m-Höhensplit (lotrechte Abgrenzung) ──
     _rooms_hoch = [{"name": "Zimmer 1", "flaeche_m2": 30.0, "umfang_m": 22.0, "hoehe_m": 2.70},
                    {"name": "Wohnzimmer", "flaeche_m2": 50.0, "umfang_m": 30.0, "hoehe_m": 3.50}]
