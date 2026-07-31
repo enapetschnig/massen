@@ -1233,6 +1233,50 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             _rm["region_px"] = None
             if not _ersatz_setzen(_rm):
                 _rm["region_px"] = _alt
+        # ── SCHLUSSPRÜFUNG: nichts Falsches einzeichnen ──────────────────
+        # Jeder Umriss — echt, begradigt oder Ersatz — muss am Ende die
+        # gestempelte Fläche umschließen (±20%) UND seinen eigenen Stempel
+        # enthalten. Die Einzelschritte prüfen jeder für sich (Watershed ±20%,
+        # Ersatz-Rechteck ±18%, Begradigen ±10%), aber die Fehler ADDIEREN
+        # sich, und die Ersatz-Rückfallebene darf notfalls verdrängen.
+        # Am Korpus schlugen so drei Umrisse durch, die nicht zu ihrem Stempel
+        # passen. Ein falscher Umriss ist schlechter als gar keiner: er
+        # behauptet etwas. Wer hier durchfällt, verliert die Markierung und
+        # bekommt einen Grund, den das Frontend anzeigen kann.
+        def _pt_in_poly(pt, poly):
+            x, y = pt[0], pt[1]
+            d = False
+            for _k in range(len(poly)):
+                x1, y1 = poly[_k - 1][0], poly[_k - 1][1]
+                x2, y2 = poly[_k][0], poly[_k][1]
+                if (y1 > y) != (y2 > y) and y2 != y1:
+                    if x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+                        d = not d
+            return d
+
+        _ppm = (ptm or 0.0) * (scale or 0.0)     # Bild-Pixel je Meter
+        _verworfen = 0
+        for _rm in raeume:
+            _p = _rm.get("region_px")
+            _f = _rm.get("f_m2")
+            if not _p or len(_p) < 3 or not _f or _ppm <= 0:
+                continue
+            _a = 0.0
+            for _k in range(len(_p)):
+                _a += (_p[_k - 1][0] * _p[_k][1] - _p[_k][0] * _p[_k - 1][1])
+            _fm = abs(_a) / 2.0 / (_ppm * _ppm)
+            _lage = (_pt_in_poly(_rm["px"], _p) if _rm.get("px") else True)
+            if abs(_fm / _f - 1.0) > 0.20 or not _lage:
+                _rm["region_px"] = None
+                _rm["region_geschaetzt"] = False
+                _rm["region_quelle"] = None
+                _rm["umriss_grund"] = ("flaeche_unplausibel" if _lage
+                                       else "stempel_ausserhalb")
+                _verworfen += 1
+        if _verworfen:
+            print(f"[nachzeichnen] Schlussprüfung: {_verworfen} Umrisse "
+                  f"verworfen (Fläche oder Lage passt nicht zum Stempel)")
+
         if _erg_flucht or _erg_fu:
             print(f"[nachzeichnen] Ersatz-Umrisse: {_erg_flucht} aus Wandfluchten, "
                   f"{_erg_fu} aus Fläche+Umfang (Lage ungenau)")

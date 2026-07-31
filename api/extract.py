@@ -830,7 +830,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-09.99"
+APP_REV = "2026-07-10.1"
 
 
 @app.get("/api/extract-health")
@@ -5995,7 +5995,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 55  # + Freiflaechen-Kennzeichnung (Wiese/Spielplatz nicht als Raum)
+_NZ_CACHE_V = 56  # + zusammenhaengende Grundriss-Ansicht (WM: 70 -> 77 Raeume, Randraeume waren abgeschnitten)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

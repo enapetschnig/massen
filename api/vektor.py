@@ -721,8 +721,27 @@ def _view_bbox(label_pos, pt_per_m, marge_m=4.0, radius_m=12.0):
         n = sum(1 for x, y in label_pos if (x - cx) ** 2 + (y - cy) ** 2 <= R * R)
         if n > best_n:
             best_n, best_c = n, (cx, cy)
-    cx, cy = best_c
-    nah = [(x, y) for x, y in label_pos if (x - cx) ** 2 + (y - cy) ** 2 <= R * R]
+    # ZUSAMMENHÄNGENDE Ansicht statt fester Scheibe. Die Scheibe mit Radius
+    # radius_m um den dichtesten Punkt schneidet jedes Geschoss ab, das länger
+    # als 2·radius_m ist — an einem gebauten 24-Zimmer-Geschoss gemessen
+    # fehlten die letzten vier Räume, und ein 40-m-Riegel verliert seine
+    # Enden. Ein Geschoss ist aber keine Scheibe, sondern eine KETTE: Raum
+    # hängt an Raum. Darum die Zusammenhangskomponente des dichtesten Labels
+    # (Verbindungsabstand = derselbe Radius) — sie folgt dem Gebäude, so lang
+    # es ist, und bricht trotzdem am Weißraum zum Schnitt/OG daneben ab.
+    from collections import deque
+    idx0 = label_pos.index(best_c) if best_c in label_pos else 0
+    offen, drin = deque([idx0]), {idx0}
+    while offen:
+        i = offen.popleft()
+        xi, yi = label_pos[i]
+        for j, (xj, yj) in enumerate(label_pos):
+            if j in drin:
+                continue
+            if (xi - xj) ** 2 + (yi - yj) ** 2 <= R * R:
+                drin.add(j)
+                offen.append(j)
+    nah = [label_pos[i] for i in sorted(drin)]
     m = marge_m * pt_per_m
     return (min(x for x, _ in nah) - m, max(x for x, _ in nah) + m,
             min(y for _, y in nah) - m, max(y for _, y in nah) + m)

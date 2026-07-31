@@ -41,6 +41,7 @@ GUARDS = [
     ("Umriss begradigen", "test_umriss_begradigen.py", "Zickzack wird begradigt"),
     ("Raumname aus dem Stempel", "test_raumname_buendig.py", "Stempel-Formen"),
     ("Freifläche ist kein Raum", "test_aussenanlage.py", "richtig eingeordnet"),
+    ("Plan-Varianten (gebaute Pläne)", "test_planvarianten.py", "Planarten"),
 ]
 LANGSAM = [
     ("Umriss-Treue am Plan", "mess_umriss_treue.py", "ABDECKUNG"),
