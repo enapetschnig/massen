@@ -101,20 +101,42 @@ def _plaene():
 
     Verglichen wird der Datei-Inhalt (sha256), nicht der Name — die Kopien
     heißen "(1)", "(2)", "testtt.pdf".
+
+    Gefunden wird ein Plan über ZWEI Wege, weil keiner allein reicht:
+      * Blattformat ≥ MIN_PLAN_PT — fängt auch Schnitte und Ansichten, die
+        keine Raumstempel tragen. Die MÜSSEN mitlaufen: dass die App sie
+        sauber abweist statt zu raten, ist selbst eine Zusage.
+      * Raumstempel im Text-Layer — fängt Grundrisse auf JEDEM Format.
+        A3 ist 1191 pt und wäre am 1200-pt-Filter knapp vorbeigerutscht.
+
+    Nachgemessen am 30.07.2026 über alle 1136 PDFs in ~/Downloads (1019
+    verschiedene): genau 4 tragen Raumstempel, und KEINER davon war durch den
+    Format-Filter gefallen. Der schmale Korpus ist also die Wirklichkeit, kein
+    Messfehler — das war vorher nicht belegt, sondern angenommen.
     """
     import hashlib
     import fitz
+    import raumnetz
     out, gesehen = [], {}
     for p in sorted(glob.glob(os.path.expanduser("~/Downloads/*.pdf"))):
         try:
-            d = fitz.open(p)
-            r = d[0].rect
-            d.close()
-            if max(r.width, r.height) < MIN_PLAN_PT:
-                continue
             with open(p, "rb") as fh:
                 h = hashlib.sha256(fh.read()).hexdigest()
             if h in gesehen:
+                continue
+            d = fitz.open(p)
+            r = d[0].rect
+            gross = max(r.width, r.height) >= MIN_PLAN_PT
+            stempel = False
+            if not gross:
+                # nur dann der teurere Inhalts-Test (Text-Layer, kein Rendern)
+                _pg = d[0]
+                _st = raumnetz.raum_stempel(
+                    _pg, (r.x0, r.x1, r.y0, r.y1))
+                stempel = sum(1 for x in _st if x.get("f_m2")
+                              and 1.0 <= x["f_m2"] <= 3000) >= 3
+            d.close()
+            if not (gross or stempel):
                 continue
             gesehen[h] = p
             out.append(p)
