@@ -77,6 +77,7 @@ GUARDS = [
 ]
 LANGSAM = [
     ("Umriss-Treue am Plan", "mess_umriss_treue.py", "ABDECKUNG"),
+    ("Tür-Dichtung (Ausgangslinie)", "mess_tuer_dichtung.py", "KORPUS"),
     ("Plan-Korpus BREIT (alle Pläne)", "mess_plankorpus_breit.py", "MIT RÄUMEN"),
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),
     ("Raum-Verifikation", "test_raumverifikation.py", "ERGEBNIS:"),

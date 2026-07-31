@@ -122,6 +122,19 @@ def run():
     else:
         print("keine Türen bewertbar — Messung trägt nicht")
 
+    # STAND 2026-07-31: 46/73 undicht (63%). Das ist die gemessene Wahrheit
+    # hinter dem Nutzer-Befund "die Räume hören nicht bei den Türen auf" —
+    # KEIN Ziel, sondern die Ausgangslinie. Erster Reparaturversuch (Balken
+    # bis zur Laibung verlängern) gemessen: exakt null Wirkung, wieder
+    # ausgebaut. Diagnose dazu: 4 von 5 Angerer-Türen laufen über den
+    # BOGEN-Skip (kein Balken), der fünfte Balken sitzt neben der Wandflucht.
+    # Der Hebel liegt in der Versiegelungs-LAGE, nicht der Balken-LÄNGE.
+    # Die Schwelle bewacht nur, dass es nicht SCHLECHTER wird.
+    assert bew >= 40, f"nur {bew} Türen bewertbar — Messung untauglich"
+    assert ges_u / bew <= 0.70, (
+        f"Tür-Dichtung geregressiert: {ges_u}/{bew} undicht "
+        f"({ges_u / bew * 100:.0f}%, Ausgangslinie 63%)")
+
 
 if __name__ == "__main__":
     run()
