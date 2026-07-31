@@ -152,6 +152,57 @@ class PlanBauer:
         return pfad
 
 
+def sanierungsplan(pfad, massstab=50, blatt=A1, n_bestand=14, n_abbruch=9):
+    """UMBAU-/SANIERUNGSPLAN mit Farb-Legende — der Plantyp, den ein
+    Baubetrieb am häufigsten auf dem Tisch hat und den unser Korpus nicht
+    enthielt.
+
+    Aufgebaut wie ein echter Umbauplan:
+      * Legende mit drei Farbfeldern + Wörtern (Neubau/Bestand/Abbruch)
+      * Bauteile in genau diesen Farben GEZEICHNET, nicht nur beschriftet
+      * die Wörter stehen zusätzlich am Objekt (so unterscheidet das
+        Präzisions-Gate echte Bauteil-Labels von Plankopf-Boilerplate)
+
+    Wahrheit per Konstruktion: welche Farbe welche Bedeutung trägt und wie
+    viele Bauteile es je Klasse gibt.
+    """
+    W, H = blatt
+    ptm = 2835.0 / massstab
+    doc = fitz.open()
+    pg = doc.new_page(width=W, height=H)
+    rand = 0.10 * min(W, H)
+    # Legende: Wort + Farbfeld direkt rechts daneben (Swatch-Suche: max_dx 180)
+    farben = {"Neubau": (1.0, 0.0, 0.0),        # rot  = neu
+              "Bestand": (0.0, 0.0, 0.0),       # schwarz = Bestand
+              "Abbruch": (1.0, 1.0, 0.0)}       # gelb = Abbruch
+    ly = rand * 0.45
+    pg.insert_text((rand, ly - 14), f"M 1:{massstab}", fontsize=11)
+    for i, (wort, rgb) in enumerate(farben.items()):
+        y = ly + i * 15
+        pg.insert_text((rand, y), wort, fontsize=9)
+        pg.draw_rect(fitz.Rect(rand + 62, y - 8, rand + 90, y - 1),
+                     color=rgb, fill=rgb, width=0)
+    # Bauteile in den Legende-Farben, jedes mit seinem Wort daneben
+    def _balken(x_m, y_m, b_m, h_m, rgb, wort):
+        r = fitz.Rect(rand + x_m * ptm, rand + 60 + y_m * ptm,
+                      rand + (x_m + b_m) * ptm, rand + 60 + (y_m + h_m) * ptm)
+        pg.draw_rect(r, color=rgb, fill=rgb, width=0)
+        pg.insert_text((r.x0, r.y1 + 8), wort, fontsize=7)
+    for i in range(n_bestand):
+        _balken(1.0 + (i % 7) * 2.2, 1.0 + (i // 7) * 1.6, 1.8, 0.30,
+                farben["Bestand"], "Bestand")
+    for i in range(n_abbruch):
+        _balken(1.0 + (i % 5) * 2.2, 5.0 + (i // 5) * 1.6, 1.8, 0.30,
+                farben["Abbruch"], "Abbruch")
+    for i in range(6):
+        _balken(1.0 + (i % 4) * 2.2, 9.0 + (i // 4) * 1.6, 1.8, 0.30,
+                farben["Neubau"], "Neubau")
+    doc.save(pfad)
+    doc.close()
+    return {"pfad": pfad, "farben": farben,
+            "n": {"bestand": n_bestand, "abbruch": n_abbruch, "neubau": 6}}
+
+
 def zimmerreihe(bauer, n, b=3.6, h=4.2, pro_reihe=4, namen=None):
     """n Räume in einem Raster — für Stress- und Skalenvarianten."""
     for i in range(n):

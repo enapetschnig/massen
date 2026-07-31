@@ -43,6 +43,7 @@ GUARDS = [
     ("Freifläche ist kein Raum", "test_aussenanlage.py", "richtig eingeordnet"),
     ("Plan-Varianten (gebaute Pläne)", "test_planvarianten.py", "Planarten"),
     ("Sektoren der Baubranche", "test_sektoren.py", "Bauarten"),
+    ("Sanierung + Scan (gebaut)", "test_sanierung_und_scan.py", "Sanierungsplan"),
     # ── NACHGETRAGEN 2026-07-30 ────────────────────────────────────────
     # Diese 22 Waechter existierten, wurden vom Scoreboard aber NIE
     # ausgefuehrt. Es meldete "ALLE METRIKEN GRÜN", waehrend ein Drittel der
