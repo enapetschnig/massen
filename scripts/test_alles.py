@@ -43,6 +43,35 @@ GUARDS = [
     ("Freifläche ist kein Raum", "test_aussenanlage.py", "richtig eingeordnet"),
     ("Plan-Varianten (gebaute Pläne)", "test_planvarianten.py", "Planarten"),
     ("Sektoren der Baubranche", "test_sektoren.py", "Bauarten"),
+    # ── NACHGETRAGEN 2026-07-30 ────────────────────────────────────────
+    # Diese 22 Waechter existierten, wurden vom Scoreboard aber NIE
+    # ausgefuehrt. Es meldete "ALLE METRIKEN GRÜN", waehrend ein Drittel der
+    # Pruefungen gar nicht lief — und genau darauf stuetzt sich jede Aussage
+    # dieses Projekts. Beim Nachtragen fiel ein echter Fehler heraus
+    # (test_oeffnungen_dedup: Symbol-Cap bei Konfidenz 0,4 loeschte
+    # byte-exakte Tueren) und fuenf Waechter waren wegen PEP-604-Annotationen
+    # unter Python 3.9 ueberhaupt nicht startbar.
+    ("Öffnungs-Dedup (Symbol-Cap)", "test_oeffnungen_dedup.py", "Dedup robust"),
+    ("ONLV-Export (A 2063 XSD)", "test_onlv_export.py", "onlv.xsd"),
+    ("Maßketten byte-exakt", "test_massketten.py", "byte-exakt"),
+    ("Maßketten Rohbau", "test_massketten_rohbau.py", "GESAMT"),
+    ("Geometrie-Umfang", "test_geometrie_umfang.py", "grün"),
+    ("Geometrie-Präzision", "test_geometrie_precision.py", "korrekt"),
+    ("Generalisierung", "test_generalisierung.py", "bestanden"),
+    ("Schnitt-/Ansichtslesung", "test_schnitt.py", "korrekt verarbeitet"),
+    ("Türbögen (Geometrie)", "test_tuerboegen.py", "ABDECKUNG"),
+    ("Vorwand-Abzug", "test_vorwand.py", "Vorwand"),
+    ("Fundamentkante", "test_fundamentkante.py", "korrekt geroutet"),
+    ("Legende-Verteilung", "test_legende_verteilung.py", "unveraendert"),
+    ("Inventar-Crosscheck", "test_inventar_check.py", "Crosscheck"),
+    ("Ensemble/Reconciliation", "test_ensemble.py", "deterministisch"),
+    ("Opus-Konsum", "test_opus_konsum.py", "additiv"),
+    ("Opus-Korrektur-Loop", "test_opus_nudge.py", "byte-exakt tabu"),
+    ("Opus projektweit", "test_opus_projekt.py", "projekt-weit"),
+    ("Rückspeisung (Schatten)", "test_rueckspeisung_schatten.py", "HLZ"),
+    ("Sektoren synchron (UI/Engine)", "test_sektoren_sync.py", "synchron"),
+    ("Vektor gegen Polier-Liste", "test_vektor_angerer.py", "Paletten"),
+    ("Echter Green-Count", "test_echter_greencount.py", "Roh-Status"),
 ]
 LANGSAM = [
     ("Umriss-Treue am Plan", "mess_umriss_treue.py", "ABDECKUNG"),
@@ -54,6 +83,42 @@ LANGSAM = [
     ("Räume richtig markiert", "mess_raum_markierung.py", "KENNZAHL"),
     ("Plan-Typ-Abdeckung", "mess_plantypen.py", "wie erwartet behandelt"),
 ]
+
+
+# Skripte, die BEWUSST nicht im Scoreboard laufen — mit Grund, damit die
+# Liste nicht zur Ausrede wird.
+NICHT_IM_SCOREBOARD = {
+    "test_alles.py": "das Scoreboard selbst",
+    "mess_raumnamen.py": "Vorher/Nachher-Diff, braucht einen Vergleichsstand",
+    "mess_scan_anker.py": "braucht den gitignorierten Scan-Korpus (~80 MB)",
+    "mess_scan_raeume.py": "braucht den gitignorierten Scan-Korpus (~80 MB)",
+    "mess_scan_verschiebung.py": "braucht den gitignorierten Scan-Korpus (~80 MB)",
+    "test_multiple_plans.py": "meldet Befunde, bricht aber nicht ab — "
+                              "als Waechter untauglich, bis er zusichert",
+}
+
+
+def selbstpruefung():
+    """Läuft JEDER Wächter, den es gibt — oder nur die, an die wir uns erinnern?
+
+    Am 30.07.2026 lagen 22 Wächter im Ordner, die das Scoreboard nie aufrief.
+    Es meldete trotzdem "ALLE METRIKEN GRÜN". Beim Nachtragen fiel sofort ein
+    echter Fehler heraus (Symbol-Cap löschte byte-exakte Türen), und fünf
+    Wächter waren wegen PEP-604-Annotationen unter Python 3.9 überhaupt nicht
+    startbar. Ein Wächter, der nicht läuft, ist schlimmer als keiner: er
+    erzeugt Sicherheit, die es nicht gibt.
+    """
+    hier = os.path.dirname(os.path.abspath(__file__))
+    quelle = open(os.path.abspath(__file__), encoding="utf-8").read()
+    verwaist = []
+    for b in sorted(os.listdir(hier)):
+        if not (b.startswith("test_") or b.startswith("mess_")):
+            continue
+        if not b.endswith(".py") or b in NICHT_IM_SCOREBOARD:
+            continue
+        if f'"{b}"' not in quelle:
+            verwaist.append(b)
+    return verwaist
 
 
 def lauf(skript):
@@ -68,6 +133,16 @@ def run():
     print("SCOREBOARD — Kern-Metriken (Messwert statt Behauptung)")
     print("=" * 72)
     alle_ok = True
+    verwaist = selbstpruefung()
+    if verwaist:
+        print(f"  ✗ {len(verwaist)} Wächter liegen im Ordner, laufen hier aber "
+              f"NICHT: {verwaist}")
+        print("     (eintragen oder mit Grund in NICHT_IM_SCOREBOARD stellen)")
+        alle_ok = False
+    else:
+        print(f"  ✓ Selbstprüfung: jeder Wächter im Ordner läuft "
+              f"({len(GUARDS)} schnell + {len(LANGSAM)} langsam, "
+              f"{len(NICHT_IM_SCOREBOARD)} begründete Ausnahmen)")
     for name, skript, was in GUARDS:
         try:
             ok, _ = lauf(skript)

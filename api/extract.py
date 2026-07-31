@@ -4,6 +4,13 @@ Extracts ALL text with exact positions, groups into rooms/fenster/dimensions.
 Called after PDF upload, stores results in Supabase for the orchestrator.
 """
 from __future__ import annotations
+
+# Optional[...] statt 'X | None': die PEP-604-Schreibweise ist mit
+# from __future__ import annotations ein STRING, den Pydantic zur
+# Laufzeit auswerten muss — unter Python 3.9 (die lokale venv, die
+# PyMuPDF 1.24.14 wie die Produktion pinnt) scheitert das. Fünf
+# Waechter waren dadurch lokal gar nicht ausfuehrbar.
+from typing import Optional
 import json, os, re, math, tempfile, time
 
 # ÖNORM-Gewerk-Engine — robuster Import (Vercel bündelt api/ mit).
@@ -830,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-10.2"
+APP_REV = "2026-07-10.3"
 
 
 @app.get("/api/extract-health")
@@ -3639,22 +3646,22 @@ class ProjektMassenRequest(BaseModel):
       - baudaten_override: User-Werte für aussenwand_cm/decke_cm/
         geschosshoehe_m etc., überschreiben Vision-Werte 1:1.
     """
-    projekt_id: str | None = None
-    plan_id: str | None = None
-    gewerke_filter: list[str] | None = None
-    plan_ids: list[str] | None = None
-    baudaten_override: dict | None = None
+    projekt_id: Optional[str] = None
+    plan_id: Optional[str] = None
+    gewerke_filter: Optional[list[str]] = None
+    plan_ids: Optional[list[str]] = None
+    baudaten_override: Optional[dict] = None
     # Override für die Materialliste-Faustformeln (Bodenplatten-Aufschlag,
     # HLZ-Verteilung, Frostschürze-Tiefe, etc.). Schlüssel siehe
     # materialliste.DEFAULTS.
-    materialliste_override: dict | None = None
+    materialliste_override: Optional[dict] = None
     # intern: firmenspezifische Kalibrierung NICHT anwenden (für den Ist-Default-
     # Vergleich beim Soll-Listen-Upload — sonst würde gegen schon korrigierte
     # Werte kalibriert).
     ohne_kalibrierung: bool = False
     # Export-Format: "rohbau" = nur die saubere Bestell-Materialliste (Bauteil/
     # Material/Menge/Einheit), sonst der vollständige Dump (Räume/ÖNORM/Detail).
-    export_format: str | None = None
+    export_format: Optional[str] = None
 
 
 def _bbox_from_sides(seiten):
@@ -4675,7 +4682,16 @@ async def projekt_massen(body: ProjektMassenRequest):
             # sicher, darf also auch mittlere Konfidenz nutzen. Gemessen: die
             # raumgenaue Symbol-Zählung (konf 0,45) war korrekt, während der
             # Fenster-Pass 30 statt ~20 lieferte — der Cap wurde weggeworfen.
-            if v is None or (k is not None and float(k) < 0.4):
+            # STRIKT GRÖSSER als 0,4. Vorher stand hier "< 0.4", die Schwelle
+            # war also einschließend: eine Symbol-Zählung mit Konfidenz GENAU
+            # 0,4 durfte kappen und loeschte damit Tueren, die byte-exakt aus
+            # dem Text-Layer (STUK/FPH) gelesen waren. Ein Abzug weniger ist
+            # bares Geld in Putz, Maler und Mauerwerk.
+            # Der gemessene Fall, der die Schwelle ueberhaupt begruendet hat
+            # (raumgenaue Zaehlung mit konf 0,45), bleibt unberuehrt.
+            # Gefunden hat das scripts/test_oeffnungen_dedup.py — ein Waechter,
+            # der wegen der PEP-604-Annotationen lokal nie ausfuehrbar war.
+            if v is None or (k is not None and float(k) <= 0.4):
                 continue
             try:
                 v = int(v)
@@ -5979,10 +5995,10 @@ async def projekt_massen(body: ProjektMassenRequest):
 
 
 class NachzeichnenRequest(BaseModel):
-    projekt_id: str | None = None
-    plan_id: str | None = None
-    seite: int | None = None   # Multi-Geschoss: explizite PDF-Seite (on-demand)
-    massen: dict | None = None  # Aufmaßblatt S.2: Materialliste vom Frontend (bauteile+kennzahlen)
+    projekt_id: Optional[str] = None
+    plan_id: Optional[str] = None
+    seite: Optional[int] = None   # Multi-Geschoss: explizite PDF-Seite (on-demand)
+    massen: Optional[dict] = None  # Aufmaßblatt S.2: Materialliste vom Frontend (bauteile+kennzahlen)
 
 
 def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
@@ -6752,11 +6768,11 @@ async def plan_aufmassblatt(body: NachzeichnenRequest):
 
 class NachzeichnenKorrekturRequest(BaseModel):
     plan_id: str
-    korrekturen: dict | None = None
+    korrekturen: Optional[dict] = None
     # Seite, auf der korrigiert wurde. OHNE Seiten-Key landeten Korrekturen von
     # Blatt 2 (OG) beim nächsten Laden auf Blatt 1 (EG) — Wand-IDs sind nur je
     # Seite eindeutig. None = Default-Seite (bestehender Key, rückwärtskompatibel).
-    seite: int | None = None
+    seite: Optional[int] = None
 
 
 @app.post("/api/nachzeichnen-korrektur")
@@ -7103,7 +7119,7 @@ REGELN — strikt:
 class ProjektChatRequest(BaseModel):
     frage: str
     kontext: dict                       # kompakte, bereits berechnete Auswertung (vom Frontend)
-    verlauf: list[dict] | None = None   # [{role:'user'|'assistant', text:str}] optional
+    verlauf: Optional[list[dict]] = None   # [{role:'user'|'assistant', text:str}] optional
 
 
 @app.post("/api/projekt-chat")
@@ -7146,18 +7162,18 @@ async def projekt_chat(body: ProjektChatRequest):
 # Global > Default. Tabellen: kalibrierungen, soll_listen (siehe db/kalibrierung.sql).
 # ═══════════════════════════════════════════════════════════════════════════
 class KalibrierungUploadRequest(BaseModel):
-    projekt_id: str | None = None
-    plan_id: str | None = None
-    soll_text: str | None = None        # Polier-Soll-Liste (CSV/Freitext) — ODER:
-    soll_storage_path: str | None = None  # PDF im 'plaene'-Bucket → Text server-seitig
-    plan_ids: list[str] | None = None   # Ist nur aus DIESEN Plänen (Referenz-Paar)
-    firma_id: str | None = None         # direkter Firma-Bezug (dedizierter Kalib-Bereich)
-    titel: str | None = None            # Anzeigename des Referenz-Paars
+    projekt_id: Optional[str] = None
+    plan_id: Optional[str] = None
+    soll_text: Optional[str] = None        # Polier-Soll-Liste (CSV/Freitext) — ODER:
+    soll_storage_path: Optional[str] = None  # PDF im 'plaene'-Bucket → Text server-seitig
+    plan_ids: Optional[list[str]] = None   # Ist nur aus DIESEN Plänen (Referenz-Paar)
+    firma_id: Optional[str] = None         # direkter Firma-Bezug (dedizierter Kalib-Bereich)
+    titel: Optional[str] = None            # Anzeigename des Referenz-Paars
 
 
 class KalibrierungMerkenRequest(BaseModel):
-    projekt_id: str | None = None
-    plan_id: str | None = None
+    projekt_id: Optional[str] = None
+    plan_id: Optional[str] = None
     overrides: dict                     # manuelle Materiallisten-Korrekturen der Firma
 
 
@@ -7294,7 +7310,7 @@ async def kalibrierung_upload(body: KalibrierungUploadRequest):
 
 
 @app.get("/api/kalibrierung")
-async def kalibrierung_status(projekt_id: str | None = None, firma_id: str | None = None):
+async def kalibrierung_status(projekt_id: Optional[str] = None, firma_id: Optional[str] = None):
     """Aktuelle Kalibrierung einer Firma (gelernte Faktoren + globale Basis)."""
     if not sb:
         raise HTTPException(500, "Supabase nicht konfiguriert")
@@ -7322,7 +7338,7 @@ async def kalibrierung_status(projekt_id: str | None = None, firma_id: str | Non
 
 
 @app.get("/api/kalibrierung-referenzen")
-async def kalibrierung_referenzen(firma_id: str | None = None, projekt_id: str | None = None):
+async def kalibrierung_referenzen(firma_id: Optional[str] = None, projekt_id: Optional[str] = None):
     """Listet die hochgeladenen Referenz-Paare (Polier-Listen) einer Firma — für den
     dedizierten Kalibrierungs-Bereich. Je Eintrag: Titel, Positionen, Belege-Anzahl,
     gelernte Wandverteilung, Datum."""
@@ -7441,14 +7457,14 @@ async def kalibrierung_merken(body: KalibrierungMerkenRequest):
 # normale Auth client-seitig läuft, ist das die pragmatische, sichere MVP-Schranke.
 # ═══════════════════════════════════════════════════════════════════════════
 class AdminRequest(BaseModel):
-    admin_token: str | None = None     # klassischer Token (Fallback)
-    auth_firma_id: str | None = None   # eingeloggter Super-Admin → token-freier Zugang
-    name: str | None = None
-    email: str | None = None
-    passwort: str | None = None
-    firma_id: str | None = None
-    gesperrt: bool | None = None
-    faktoren: dict | None = None       # für globale Basis-Kalibrierung
+    admin_token: Optional[str] = None     # klassischer Token (Fallback)
+    auth_firma_id: Optional[str] = None   # eingeloggter Super-Admin → token-freier Zugang
+    name: Optional[str] = None
+    email: Optional[str] = None
+    passwort: Optional[str] = None
+    firma_id: Optional[str] = None
+    gesperrt: Optional[bool] = None
+    faktoren: Optional[dict] = None       # für globale Basis-Kalibrierung
 
 
 def _super_admin_emails():
@@ -7513,26 +7529,26 @@ async def admin_firmen(body: AdminRequest):
 class AufmassXlsxRequest(BaseModel):
     """WYSIWYG-Export: der Client schickt die BEREITS GELADENEN Daten (exakt
     das, was er anzeigt) — kein Neu-Rechnen, keine Abweichung Anzeige/Export."""
-    projekt_name: str | None = None
-    gewerke: dict | None = None
-    materialliste: list | None = None
-    raeume: list | None = None
+    projekt_name: Optional[str] = None
+    gewerke: Optional[dict] = None
+    materialliste: Optional[list] = None
+    raeume: Optional[list] = None
 
 
 class EigenePositionRequest(BaseModel):
     """BETRIEBS-EIGENE Position: der Nutzer waehlt eine Aufmassregel und
     (optional) die Raeume — die Menge faellt daraus ab, mit Rechenweg und
     Plan-Ankern. Ohne gueltige Regel gibt es keine Menge."""
-    projekt_id: str | None = None
-    regel: str | None = None
-    posnr: str | None = None
-    bezeichnung: str | None = None
-    raeume: list | None = None          # Raumliste (WYSIWYG vom Client)
-    fenster: list | None = None
-    tueren: list | None = None
-    baudaten: dict | None = None
-    raum_filter: list | None = None     # Namen der zugeordneten Raeume
-    verschnitt_pct: float | None = 0.0
+    projekt_id: Optional[str] = None
+    regel: Optional[str] = None
+    posnr: Optional[str] = None
+    bezeichnung: Optional[str] = None
+    raeume: Optional[list] = None          # Raumliste (WYSIWYG vom Client)
+    fenster: Optional[list] = None
+    tueren: Optional[list] = None
+    baudaten: Optional[dict] = None
+    raum_filter: Optional[list] = None     # Namen der zugeordneten Raeume
+    verschnitt_pct: Optional[float] = 0.0
 
 
 @app.get("/api/aufmassregeln")
@@ -7672,9 +7688,9 @@ class RaumlisteRequest(BaseModel):
     """RAUMLISTE als eigenständiger Zwischen-Export: WYSIWYG (der Client
     schickt die angezeigten Räume) — kein Neu-Rechnen, keine Abweichung
     zwischen Bildschirm und Ausdruck."""
-    projekt_name: str | None = None
-    raeume: list | None = None
-    format: str | None = "pdf"          # pdf | xlsx
+    projekt_name: Optional[str] = None
+    raeume: Optional[list] = None
+    format: Optional[str] = "pdf"          # pdf | xlsx
 
 
 def _raum_herkunft(r):
@@ -8017,8 +8033,8 @@ async def aufmass_xlsx(body: AufmassXlsxRequest):
 
 class AufmassOnlvRequest(BaseModel):
     """ÖNORM-A-2063-Export: Client schickt die geladenen Gewerke (WYSIWYG)."""
-    projekt_name: str | None = None
-    gewerke: dict | None = None
+    projekt_name: Optional[str] = None
+    gewerke: Optional[dict] = None
 
 
 # ÖNORM A 2063:2015 ONLV — Struktur 1:1 aus einer echten ABK8-Datei verifiziert
