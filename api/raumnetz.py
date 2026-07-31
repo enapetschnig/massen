@@ -26,6 +26,7 @@ PIPELINE (alles deterministisch, KEIN Vision):
 LOG-ONLY: kein Eingriff in die Live-Mengen. Harness: scripts/test_raumverifikation.py
 """
 import math
+import os
 import re
 from collections import deque
 
@@ -665,6 +666,8 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 return n_w
 
             na, nb = _flucht_fort(bg["a"]), _flucht_fort(bg["b"])
+            if os.environ.get("TUER_DEBUG"):
+                print(f"[bogen] kandidat hinge=({hx:.0f},{hy:.0f}) na={na} nb={nb}")
             if na == nb:
                 # TIE-BREAKER: kollineare DUNKLE SEGMENTE jenseits der Enden
                 # (CAD-Linien statt Grid — unpochierte Fassaden-/Fensterbänder
@@ -718,7 +721,15 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         L2 = math.hypot(ex, ey) or 1.0
         ex, ey = ex / L2, ey / L2
         prof = []
-        for k2 in range(1, 26):
+        # PROFIL 1,8 m statt 1,0 m (Tür-Dichtungs-Messung 2026-07-31): das
+        # Muster [Wandanlauf · Lücke ≥0,16m · Wand] braucht Anlauf + GANZE
+        # Türbreite. An Tür 1 des Angerer-Plans: 0,35 m Anlauf + 0,81 m Lücke
+        # = 1,16 m — der ferne Pfosten lag AUSSERHALB des 1,0-m-Profils, der
+        # Burn unterblieb ('fortsetzung=nein' bei 6 von 8 Bögen), und die Tür
+        # galt trotzdem als bogenversiegelt: die Raumfarbe lief durch. Die
+        # Lücken- und Wand-Bedingung bleiben unverändert — gebrannt wird nur
+        # eine BEGRENZTE Lücke zwischen zwei Wänden auf der Angel-Linie.
+        for k2 in range(1, 46):
             dm = 0.04 * k2
             i2, j2 = rst.ij(hx + ex * dm * rst.ptm, hy + ey * dm * rst.ptm)
             prof.append(bool(0 <= i2 < W and 0 <= j2 < H and grid[j2 * W + i2]))
@@ -736,6 +747,9 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 rst.line(grid, hx + px * off, hy + py * off,
                          tx + px * off, ty + py * off)
                 off += rst.cell
+        if os.environ.get("TUER_DEBUG"):
+            print(f"[bogen] hinge=({hx:.0f},{hy:.0f}) z=({zx:.0f},{zy:.0f}) "
+                  f"r={bg['r_m']:.2f} fortsetzung={'ja' if k < len(prof) and (k - g0) * 0.04 >= 0.16 else 'nein'}")
         bogen_ok.append((hx, hy, bg["r_m"]))
 
     for o in (oeffnungen or []):
