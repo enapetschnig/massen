@@ -365,6 +365,30 @@ def analysiere_dokument(doc):
             hinweis = (f"Plan enthält {t}-Bauteile (laut Legende + im Plan gezeichnet). "
                        f"Die Massen beziehen sich auf den Neubau — {t} ist NICHT automatisch "
                        f"herausgerechnet, bitte separat prüfen.")
+            # UMFANG DES UMBAUS EINORDNEN statt nur melden DASS es ihn gibt.
+            # abb_inhalt ist der Längen-Anteil der Abbruch-Farbe an allen
+            # gezeichneten Linien — er lag bisher nur im _debug und trennt
+            # dort echten Abbruch (13,5%) von Plankopf-Boilerplate (0,1%).
+            # BEWUSST KEINE METER: gezeichnete Linienlänge ist nicht
+            # Wandlänge (jede Wand wird zweiseitig gezeichnet, Schraffuren
+            # zählen mit). Eine erfundene Abbruch-Menge wäre schlechter als
+            # eine ehrliche Größenordnung — B 2251 verlangt ein eigenes
+            # Aufmaß (0,5 m² / 0,10 m³), das dieser Plan nicht hergibt.
+            # abb_inhalt ist ein ANTEIL (0..1), das _debug-Feld multipliziert
+            # mit 100 — die Schwelle muss auf den Anteil, die Anzeige auf das
+            # Prozent. Beim ersten Wurf verglich ich gegen 5.0 und bekam
+            # darum immer "gering" (0,3 % statt 31 %): eine Kennzahl, die
+            # nie ausschlägt, ist schlimmer als keine.
+            _abb_pct = abb_inhalt * 100.0
+            if hat_a and abb_inhalt >= 0.05:
+                hinweis += (f" Der Abbruch-Anteil ist ERHEBLICH "
+                            f"({_abb_pct:.0f} % der Zeichnung) — ein eigenes "
+                            f"Abbruch-Aufmaß nach ÖNORM B 2251 ist hier die Regel, "
+                            f"nicht die Ausnahme.")
+            elif hat_a:
+                hinweis += (f" Der Abbruch-Anteil ist gering "
+                            f"({_abb_pct:.1f} % der Zeichnung) — vermutlich "
+                            f"einzelne Bauteile.")
 
         return {
             "hat_bestand": hat_b,

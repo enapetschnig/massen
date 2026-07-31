@@ -56,6 +56,27 @@ def _sanierung(tmp, fehler):
     else:
         print(f"   Urteil: Bestand ✓ Abbruch ✓ · Hinweis steht "
               f"({len(erg.get('hinweis') or '')} Zeichen)")
+    # ABBRUCH-UMFANG EINORDNEN: der Hinweis muss sagen, ob es um einzelne
+    # Bauteile oder um einen Umbau geht — sonst weiss der Kalkulant nicht,
+    # ob ein eigenes B-2251-Aufmass noetig ist. Beide Richtungen pruefen.
+    _h = erg.get("hinweis") or ""
+    if "ERHEBLICH" not in _h or "B 2251" not in _h:
+        fehler.append(f"viel Abbruch: Hinweis ordnet den Umfang nicht ein "
+                      f"({_h[-90:]!r})")
+    else:
+        print("   Abbruch-Umfang eingeordnet: ERHEBLICH + B-2251-Verweis ✓")
+    w_gering = sanierungsplan(os.path.join(tmp, "gering.pdf"),
+                              n_bestand=14, n_abbruch=1)
+    doc = fitz.open(w_gering["pfad"])
+    e_g = farben.analysiere_dokument(doc)
+    doc.close()
+    _hg = e_g.get("hinweis") or ""
+    if "ERHEBLICH" in _hg or "gering" not in _hg:
+        fehler.append(f"wenig Abbruch faelschlich als erheblich gemeldet "
+                      f"({_hg[-90:]!r})")
+    else:
+        print("   wenig Abbruch → 'gering', kein Fehlalarm ✓")
+
     dbg = erg.get("_debug") or {}
     # die gebauten Anzahlen müssen sich wiederfinden (14 Bauteile + 1 Legende)
     if dbg.get("n_bestand_wort") != w["n"]["bestand"] + 1:
