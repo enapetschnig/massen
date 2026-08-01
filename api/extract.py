@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-01.4"
+APP_REV = "2026-08-01.5"
 
 
 @app.get("/api/extract-health")
@@ -6011,7 +6011,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 63  # + Umriss an die Wandkante geschnappt (achsparallel 55 -> 91%)
+_NZ_CACHE_V = 64  # + meta.oeffnungen_hinweis (Oeffnungen ohne Mass benannt)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

@@ -874,6 +874,17 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         oeff_pt = []
         print(f"[nachzeichnen] Öffnungen fehlgeschlagen: {e}")
 
+    # UNVOLLSTÄNDIGE ÖFFNUNGEN SICHTBAR MACHEN (Begründung und Schwellen-Logik
+    # stehen bei oeffnungen.hinweis_unvollstaendig — eine Quelle für App und
+    # Wächter). Kurz: fehlt ein Maß, ist die Abzugsfläche rechnerisch 0 und die
+    # Mengenliste sieht trotzdem vollständig aus.
+    oeffnungen_hinweis = ""
+    try:
+        import oeffnungen as _oeff_h
+        oeffnungen_hinweis = _oeff_h.hinweis_unvollstaendig(oeffnungen)
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Öffnungs-Hinweis fehlgeschlagen: {e}")
+
     # RAUM-VERIFIKATION (Stufe 4): der Plan validiert sich selbst — rekonstruierte
     # Raum-Gebiete gegen die byte-exakten F/U-Stempel prüfen → grüne (bewiesene) vs
     # gelbe (prüfen!) Räume in der Planansicht. Best-effort, gröberes Raster (3cm)
@@ -1370,6 +1381,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 ("trockenbauw" in w[4].lower() or "gipskarton" in w[4].lower()
                  or "vorsatzschale" in w[4].lower())
                 for w in (worte or [])),
+            # Öffnungen ohne vollständiges Maß → stiller Nulldurchgang beim
+            # ÖNORM-Abzug. Siehe Begründung bei der Berechnung oben.
+            "oeffnungen_hinweis": oeffnungen_hinweis,
         },
     }
 

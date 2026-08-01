@@ -480,3 +480,76 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
         cleaned.append(ro)
 
     return cleaned
+
+
+# Breite, die ein Fenster/eine Tür im Wohnbau üblicherweise nicht überschreitet.
+# Nur zur EINORDNUNG einer fehlenden Breite — nie als Maß eingesetzt.
+_UEBLICHE_BREITE_M = 2.0
+
+
+def hinweis_unvollstaendig(oeffnungen, schwelle=None):
+    """Benennt Öffnungen, denen ein Maß fehlt — und ob das die Mengen ändert.
+
+    Fehlt einer Öffnung ein Maß, ist ihre Abzugsfläche rechnerisch 0:
+    `oeffnung_netto(breite=0, …)` liefert 0, ohne Fehler und ohne Warnung. Die
+    Mengenliste sieht dabei VOLLSTÄNDIG aus — nichts fehlt, nichts ist rot.
+    Ohne diesen Hinweis merkt das niemand.
+
+    Entscheidend ist aber die ÖNORM-Übermessung: Öffnungen bis 4,0 m² werden
+    gar nicht abgezogen. Bei einer fehlenden Breite ändert sich die Menge also
+    nur, wenn die Öffnung die Schwelle überhaupt reißen KANN. Am WM-Plan sind
+    das 17 von 46 — bei den übrigen 29 ist das fehlende Maß folgenlos. Ein
+    pauschaler Alarm über alle 46 wäre darum falsch: er würde vor etwas
+    warnen, das die Zahlen nicht berührt, und damit die Warnungen entwerten,
+    die es tun.
+
+    Warum kein Maß erfunden wird: drei Wege zur fehlenden Breite sind gemessen
+    und verworfen (nächste cm-Zahl im Umkreis; Breite aus der Wandlücke,
+    0,63 m Median-Abweichung; Lücke gegen gedruckte Zahl kreuzvalidiert,
+    1 Vorschlag auf 6 bekannte Fenster und der 2,70 m daneben).
+
+    Gibt "" zurück, wenn alle Maße vollständig sind oder es keine Öffnungen
+    gibt — ein Fehlalarm auf einem sauberen Plan lässt den Kalkulanten an der
+    ganzen Massenermittlung zweifeln.
+    """
+    try:
+        from massen_logic import OEFFNUNG_ABZUG_SCHWELLE_M2 as _S
+    except Exception:                                     # pragma: no cover
+        _S = 4.0
+    s = _S if schwelle is None else schwelle
+    oe = list(oeffnungen or [])
+    ohne = [o for o in oe if not (o.get("breite_m") and o.get("hoehe_m"))]
+    if not ohne:
+        return ""
+
+    # Kann eine übliche Breite die Übermessungs-Schwelle reißen? Ohne bekannte
+    # Höhe lässt sich das nicht ausschließen → zählt als betroffen.
+    def _kann_wirken(o):
+        h = o.get("hoehe_m")
+        if not h:
+            return True
+        return (s / h) <= _UEBLICHE_BREITE_M
+
+    wirksam = [o for o in ohne if _kann_wirken(o)]
+    n_folgenlos = len(ohne) - len(wirksam)
+    kopf = f"{len(ohne)} von {len(oe)} Öffnungen ohne vollständiges Maß"
+    if not wirksam:
+        return (f"{kopf}. Bei allen liegt die Öffnung nach ÖNORM unter der "
+                f"Übermessungs-Schwelle von {s:g} m² — sie würde also auch "
+                f"mit Maß nicht abgezogen. Die Mengen sind davon nicht "
+                f"betroffen.")
+    _f = sum(1 for o in wirksam if o.get("typ") == "fenster")
+    _t = len(wirksam) - _f
+    teile = []
+    if _f:
+        teile.append(f"{_f} Fenster")
+    if _t:
+        teile.append(f"{_t} Tür" if _t == 1 else f"{_t} Türen")
+    txt = (f"{kopf}. Bei {' und '.join(teile)} davon kann ein ÖNORM-Abzug "
+           f"entstehen (Öffnung über {s:g} m²) — dort rechnen Putz (LG 10), "
+           f"Maler (LG 46) und Mauerwerk (LG 08) mit der vollen Wandfläche, "
+           f"die Mengen sind also eher zu hoch als zu niedrig.")
+    if n_folgenlos:
+        txt += (f" Die übrigen {n_folgenlos} bleiben unter der "
+                f"Übermessungs-Schwelle und ändern die Mengen nicht.")
+    return txt

@@ -2968,9 +2968,17 @@
         'Vorsatzschalen</strong> (byte-exakt gelesen). Nichttragende Innenwände sind ' +
         'hier vermutlich <strong>LG 39 (Trockenbau)</strong>, nicht Mauerwerk — die ' +
         '12er-Wandlängen unten entsprechend zuordnen.</div>' : '');
+    // ÖFFNUNGEN OHNE MASS: fehlt ein Maß, ist die Abzugsfläche rechnerisch 0 —
+    // die Menge steht da, nur eben brutto. Ohne diesen Hinweis merkt das
+    // niemand, weil nichts fehlt und nichts rot ist.
+    var oeHinweis = (meta.oeffnungen_hinweis
+      ? '<div class="nz-tb-hinweis nz-oe-hinweis">🪟 ' +
+        String(meta.oeffnungen_hinweis)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+        '</div>' : '');
     var cont = document.getElementById('nachzeichnen-container');
     cont.querySelector('.nz-dynamic').innerHTML =
-      '<div class="nz-legend">' + legend + '</div>' + tb + tbHinweis + apply +
+      '<div class="nz-legend">' + legend + '</div>' + tb + tbHinweis + oeHinweis + apply +
       '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
