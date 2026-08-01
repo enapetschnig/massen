@@ -454,6 +454,52 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
     # verankert (Bad-Sezierung: Grenze beulte um das Türblatt). In der Tür-Zone keine
     # dunklen Kanten brennen — der Verschluss-Balken dichtet die Wandlinie ohnehin.
     tuer_zonen = []
+    def _tuer_spalt(ci0, cj0, b_m, achse):
+        """Die Zeile/Spalte mit TUER-STRUKTUR: Wand - Luecke - Wand."""
+        b_zell = max(3, int(round((b_m or 0.9) * rst.ptm / rst.cell)))
+        cap = max(4, int(round(1.6 * rst.ptm / rst.cell)))
+        fen2 = max(2, int(round(0.70 * rst.ptm / rst.cell)))
+        sp_min = max(3, int(round(0.45 * rst.ptm / rst.cell)))
+        sp_max = int(round(2.3 * rst.ptm / rst.cell))
+        best = None
+        for off in range(-fen2, fen2 + 1):
+            if achse == "h":
+                jj = cj0 + off
+                if not (0 <= jj < H):
+                    continue
+                li = re2 = None
+                for d in range(cap + 1):
+                    if li is None and 0 <= ci0 - d < W and grid[jj * W + ci0 - d]:
+                        li = ci0 - d
+                    if re2 is None and 0 <= ci0 + d < W and grid[jj * W + ci0 + d]:
+                        re2 = ci0 + d
+                    if li is not None and re2 is not None:
+                        break
+                if li is None or re2 is None:
+                    continue
+                sp, fest, lo, hi = re2 - li - 1, jj, li, re2
+            else:
+                ii = ci0 + off
+                if not (0 <= ii < W):
+                    continue
+                ob = un = None
+                for d in range(cap + 1):
+                    if ob is None and 0 <= cj0 - d < H and grid[(cj0 - d) * W + ii]:
+                        ob = cj0 - d
+                    if un is None and 0 <= cj0 + d < H and grid[(cj0 + d) * W + ii]:
+                        un = cj0 + d
+                    if ob is not None and un is not None:
+                        break
+                if ob is None or un is None:
+                    continue
+                sp, fest, lo, hi = un - ob - 1, ii, ob, un
+            if not (sp_min <= sp <= sp_max):
+                continue
+            sc = (abs(sp - b_zell), abs(off))
+            if best is None or sc < best[0]:
+                best = (sc, fest, lo, hi)
+        return (best[1], best[2], best[3]) if best else None
+
     for o in (oeffnungen or []):
         if o.get("typ") == "tuer":
             r_z = (o.get("breite_m") or 0.9) * 0.9 * rst.ptm
@@ -906,9 +952,19 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                         break
                 if _gb_fb is not None:
                     cy_s = _gb_fb[1]
-            rst.rect(grid, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
-            if ist_tuer and versch_out is not None and not _gb_glas:
-                rst.rect(versch_out, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
+            _sp3 = _tuer_spalt(ci, cj, o.get("breite_m"), "h") if ist_tuer else None
+            if _sp3 is not None:
+                _jj3, _li3, _re3 = _sp3
+                _y3 = rst.by0 + _jj3 * rst.cell
+                _x0 = rst.bx0 + (_li3 - 1) * rst.cell
+                _x1 = rst.bx0 + (_re3 + 1) * rst.cell
+                rst.rect(grid, _x0, _y3 - d2, _x1, _y3 + d2)
+                if versch_out is not None and not _gb_glas:
+                    rst.rect(versch_out, _x0, _y3 - d2, _x1, _y3 + d2)
+            else:
+                rst.rect(grid, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
+                if ist_tuer and versch_out is not None and not _gb_glas:
+                    rst.rect(versch_out, cx - b2, cy_s - d2, cx + b2, cy_s + d2)
         else:                   # Balken entlang y → Wand-Flucht = WANDBAND-MITTE
             gew, summe, best_n = 0, 0.0, 0
             for ii in range(max(0, ci - such), min(W, ci + such + 1)):
@@ -963,9 +1019,19 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                         break
                 if _gb_fb is not None:
                     cx_s = _gb_fb[1]
-            rst.rect(grid, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
-            if ist_tuer and versch_out is not None and not _gb_glas:
-                rst.rect(versch_out, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
+            _sp3 = _tuer_spalt(ci, cj, o.get("breite_m"), "v") if ist_tuer else None
+            if _sp3 is not None:
+                _ii3, _ob3, _un3 = _sp3
+                _x3 = rst.bx0 + _ii3 * rst.cell
+                _y0 = rst.by0 + (_ob3 - 1) * rst.cell
+                _y1 = rst.by0 + (_un3 + 1) * rst.cell
+                rst.rect(grid, _x3 - d2, _y0, _x3 + d2, _y1)
+                if versch_out is not None and not _gb_glas:
+                    rst.rect(versch_out, _x3 - d2, _y0, _x3 + d2, _y1)
+            else:
+                rst.rect(grid, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
+                if ist_tuer and versch_out is not None and not _gb_glas:
+                    rst.rect(versch_out, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
 
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))
 

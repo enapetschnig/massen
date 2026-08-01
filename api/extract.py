@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-07-11.4"
+APP_REV = "2026-08-01.1"
 
 
 @app.get("/api/extract-health")
@@ -6011,7 +6011,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 60  # + Trockenbau-Hinweis in meta (byte-exakt, LG-39-Vorstufe)
+_NZ_CACHE_V = 61  # + Tuer-Verschluss an der lokalisierten Luecke (Tueren dicht 24 -> 32)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
