@@ -46,6 +46,7 @@ GUARDS = [
     ("Sanierung + Scan (gebaut)", "test_sanierung_und_scan.py", "Sanierungsplan"),
     ("Trockenbau-Hinweis (LG 39)", "test_trockenbau_hinweis.py", "Kennzeichnung erkannt"),
     ("Schichtaufbau Holzbau/WDVS", "test_schicht_aufbau.py", "Gesamtspanne"),
+    ("RBL-Öffnungen (Rohbaulichte)", "test_rbl_oeffnungen.py", "vollständige Öffnungsmaße"),
     ("Stempel-Schreibweisen", "mess_stempel_konventionen.py", "BEKANNTE Schreibweisen"),
     # ── NACHGETRAGEN 2026-07-30 ────────────────────────────────────────
     # Diese 22 Waechter existierten, wurden vom Scoreboard aber NIE

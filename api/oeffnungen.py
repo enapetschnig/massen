@@ -27,6 +27,14 @@ from typing import Optional
 FPH_RX = re.compile(r"^F(?:PH|BH)\s*[:+.]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
 STUK_RX = re.compile(r"^STUK\s*[:+.]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
 RPH_RX = re.compile(r"^RPH\s*[:+.]?\s*([0-9]+[,.][0-9]+|[0-9]+)\b", re.I)
+# ROHBAULICHTE (RBL) — die ZWEITE oesterreichische Oeffnungs-Konvention.
+# Polierplaene (AP.01, Velden) beschriften Oeffnungen NICHT mit FPH/STUK,
+# sondern mit einem RBL-PAAR 11-12 pt auseinander:  "RBL88" / "RBL2,24".
+# Am gerenderten Plan geprueft (Hinweislinie zeigt auf eine 88x224-Tuer):
+# ERSTER Wert = BREITE, ZWEITER = HOEHE. Diese Plaene lieferten bisher NULL
+# Oeffnungen, weil die Extraktion ausschliesslich auf FPH ankert — und ohne
+# Oeffnung gibt es keinen OENORM-Abzug in Putz/Maler/Mauerwerk.
+RBL_RX = re.compile(r"^RBL\s*([0-9]+(?:[,.][0-9]+)?)$", re.I)
 # Allein stehende cm- oder m-Zahl, plausibel als Öffnungs-Breite
 BREITE_CM_RX = re.compile(r"^([0-9]{2,3})$")  # "60", "80", "120"
 BREITE_M_RX = re.compile(r"^([0-9])[,.]([0-9]{1,2})$")  # "0,80", "1,30", "2,40"
@@ -108,6 +116,52 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
         if TUER_CODE_RX.match(t):
             tuer_marker_spans.append({"code": t.upper(), "cx": s["cx"], "cy": s["cy"], "raw": t})
             continue
+
+    # 1b) RBL-PAARE (Rohbaulichte) — eigene Quelle, byte-exakt
+    rbl_spans = []
+    for s in spans:
+        t = (s.get("text") or "").strip()
+        m = RBL_RX.match(t) if t else None
+        if not m:
+            continue
+        v = _parse_num(m.group(1))
+        if v is None:
+            continue
+        vm = v / 100.0 if v > 5 else v
+        if 0.3 <= vm <= 4.0:
+            rbl_spans.append({"value_m": vm, "cx": s["cx"], "cy": s["cy"],
+                              "raw": t})
+    rbl_oeff = []
+    _rbl_used = set()
+    for i, a in enumerate(rbl_spans):
+        if i in _rbl_used:
+            continue
+        best = None
+        for j, b in enumerate(rbl_spans):
+            if j == i or j in _rbl_used:
+                continue
+            d = math.hypot(b["cx"] - a["cx"], b["cy"] - a["cy"])
+            if d < 25.0 and (best is None or d < best[0]):
+                best = (d, j, b)
+        if best is None:
+            continue
+        _rbl_used.add(i)
+        _rbl_used.add(best[1])
+        b = best[2]
+        bw, hh = a["value_m"], b["value_m"]      # Reihenfolge = Breite, Höhe
+        if not (0.3 <= bw <= 4.0 and 0.4 <= hh <= 3.5):
+            continue
+        # Klassifikation aus der Höhe: eine Öffnung ab 1,90 m lichter Höhe
+        # ist eine Tür/Fenstertür, darunter ein Fenster. Am Korpus geprüft:
+        # 88x224 Tür, 120x241 Tür, 220x200 Fenstertür, 164x132 Fenster.
+        ist_t = hh >= 1.90
+        rbl_oeff.append({
+            "typ": "tuer" if ist_t else "fenster",
+            "breite_m": round(bw, 2), "hoehe_m": round(hh, 2),
+            "fph_m": 0.0 if ist_t else None,
+            "cx": (a["cx"] + b["cx"]) / 2.0, "cy": (a["cy"] + b["cy"]) / 2.0,
+            "quelle": "rbl", "code": None, "raum": None, "wand_typ": None,
+        })
 
     # 2) Cluster: pro FPH-Span einen Öffnungs-Kandidaten bilden
     oeffnungen = []
@@ -413,5 +467,16 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
             used[j] = True
         cleaned.append(keep)
         used[i] = True
+
+    # RBL-Oeffnungen ERGAENZEN, nicht ersetzen: nur dort, wo der FPH-Weg an
+    # derselben Stelle nichts gefunden hat (50 pt). Auf Plaenen mit beiden
+    # Konventionen gewinnt der FPH-Weg, weil er Parapet UND Raumzuordnung
+    # traegt; auf reinen RBL-Plaenen (AP.01, Velden) gab es bisher NICHTS.
+    for ro in rbl_oeff:
+        if any(math.hypot((c.get("cx") or 0) - ro["cx"],
+                          (c.get("cy") or 0) - ro["cy"]) < 50.0
+               for c in cleaned):
+            continue
+        cleaned.append(ro)
 
     return cleaned
