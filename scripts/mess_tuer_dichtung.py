@@ -57,14 +57,113 @@ def _lauf_mit_abhoeren(pfad):
     dbg = mit.get("dbg") or {}
     if dbg.get("label") is None or dbg.get("rst") is None:
         return None
-    return dbg["label"], dbg["rst"], (mit.get("oeff") or [])
+    return (dbg["label"], dbg["rst"], (mit.get("oeff") or []),
+            dbg.get("grid"))
 
 
-def _tuer_dicht(label, rst, o):
-    """-> 'dicht' | 'undicht' | 'offen' für eine Tür."""
+def _luecke_finden(grid, rst, cx, cy, b_m):
+    """Die ECHTE Türlücke im Raster: Wand · Lücke · Wand um den Anker.
+
+    Der Tür-Textanker liegt NICHT an der Tür — am Korpus gemessen im Median
+    0,44–0,63 m daneben, im Extremfall 1,13 m. Genau so weit sondierte die
+    alte Messung um den Anker herum: beide Sonden landeten leicht im selben
+    Raum, und eine dichte Tür wurde als Leck gemeldet.
+
+    Darum zuerst die Lücke lokalisieren (Wand links/rechts bzw. oben/unten
+    innerhalb 1,8 m, Spaltbreite 0,45–2,6 m, am nächsten an der Nennbreite),
+    dann QUER ÜBER DIESE LÜCKE sondieren statt um den Anker.
+    -> (achse, fest, lo, hi) in Zellen | None
+    """
+    W, H = rst.W, rst.H
+    b_z = max(3, int(round((b_m or 0.9) * rst.ptm / rst.cell)))
+    cap = max(4, int(round(1.8 * rst.ptm / rst.cell)))
+    fen = max(2, int(round(1.0 * rst.ptm / rst.cell)))
+    sp_min = max(3, int(round(0.45 * rst.ptm / rst.cell)))
+    sp_max = int(round(2.6 * rst.ptm / rst.cell))
+    ci, cj = rst.ij(cx, cy)
+    best = None
+    for achse in ("h", "v"):
+        for off in range(-fen, fen + 1):
+            if achse == "h":
+                jj = cj + off
+                if not (0 <= jj < H):
+                    continue
+                li = re2 = None
+                for d in range(cap + 1):
+                    if li is None and 0 <= ci - d < W and grid[jj * W + ci - d]:
+                        li = ci - d
+                    if re2 is None and 0 <= ci + d < W and grid[jj * W + ci + d]:
+                        re2 = ci + d
+                    if li is not None and re2 is not None:
+                        break
+                if li is None or re2 is None:
+                    continue
+                sp, fest, lo, hi = re2 - li - 1, jj, li, re2
+            else:
+                ii = ci + off
+                if not (0 <= ii < W):
+                    continue
+                ob = un = None
+                for d in range(cap + 1):
+                    if ob is None and 0 <= cj - d < H and grid[(cj - d) * W + ii]:
+                        ob = cj - d
+                    if un is None and 0 <= cj + d < H and grid[(cj + d) * W + ii]:
+                        un = cj + d
+                    if ob is not None and un is not None:
+                        break
+                if ob is None or un is None:
+                    continue
+                sp, fest, lo, hi = un - ob - 1, ii, ob, un
+            if not (sp_min <= sp <= sp_max):
+                continue
+            sc = (abs(sp - b_z), abs(off))
+            if best is None or sc < best[0]:
+                best = (sc, achse, fest, lo, hi)
+    return (best[1], best[2], best[3], best[4]) if best else None
+
+
+def _tuer_dicht(label, rst, o, grid=None):
+    """-> 'dicht' | 'undicht' | 'offen' für eine Tür.
+
+    Mit grid: über der LOKALISIERTEN Lücke sondieren (genau, s.
+    _luecke_finden). Ohne grid: alter Anker-Kreis (nur Rückfallebene).
+    """
     W, H = rst.W, rst.H
     cx, cy = o["cx"], o["cy"]
     b = (o.get("breite_m") or 0.9)
+    if grid is not None:
+        _lk = _luecke_finden(grid, rst, cx, cy, b)
+        if _lk is None:
+            return "offen"          # keine Lücke lokalisierbar → nicht bewertbar
+        achse, fest, lo, hi = _lk
+        mid = (lo + hi) // 2
+        # NACH AUSSEN LAUFEN, BIS EIN RAUM KOMMT: eine feste Sondentiefe
+        # landet bei dicken Wänden IM Mauerwerk (Label <0) — dann galten
+        # 41 von 74 Türen als "nicht bewertbar", die Messung hätte über die
+        # halbe Menge nichts gesagt. Die Sonde läuft darum von der Wandlinie
+        # nach außen, bis sie eine Raum-Zelle trifft (max. 1,2 m).
+        _max_s = max(3, int(round(1.2 * rst.ptm / rst.cell)))
+
+        def _erste_raumzelle(vz):
+            for d in range(1, _max_s + 1):
+                if achse == "h":
+                    jj = fest + vz * d
+                    if not (0 <= jj < H):
+                        return None
+                    idx = jj * W + mid
+                else:
+                    ii = fest + vz * d
+                    if not (0 <= ii < W):
+                        return None
+                    idx = mid * W + ii
+                if label[idx] >= 0:
+                    return label[idx]
+            return None
+
+        l1, l2 = _erste_raumzelle(-1), _erste_raumzelle(+1)
+        if l1 is None or l2 is None:
+            return "offen"
+        return "undicht" if l1 == l2 else "dicht"
     leck = None
     getrennt = False
     for wdeg in range(0, 180, 15):
@@ -105,12 +204,12 @@ def run():
         if not e:
             print(f"{os.path.basename(g[0])[:42]:<44}  (kein Label-Gitter)")
             continue
-        label, rst, oeff = e
+        label, rst, oeff, grid = e
         tueren = [o for o in oeff if o.get("typ") == "tuer"
                   and o.get("cx") is not None]
         z = {"dicht": 0, "undicht": 0, "offen": 0}
         for o in tueren:
-            z[_tuer_dicht(label, rst, o)] += 1
+            z[_tuer_dicht(label, rst, o, grid)] += 1
         ges_d += z["dicht"]; ges_u += z["undicht"]
         print(f"{os.path.basename(g[0])[:42]:<44}{len(tueren):>7}"
               f"{z['dicht']:>7}{z['undicht']:>9}{z['offen']:>8}")
@@ -122,14 +221,21 @@ def run():
     else:
         print("keine Türen bewertbar — Messung trägt nicht")
 
-    # STAND 2026-07-31: 46/73 undicht (63%). Das ist die gemessene Wahrheit
-    # hinter dem Nutzer-Befund "die Räume hören nicht bei den Türen auf" —
-    # KEIN Ziel, sondern die Ausgangslinie. Erster Reparaturversuch (Balken
-    # bis zur Laibung verlängern) gemessen: exakt null Wirkung, wieder
-    # ausgebaut. Diagnose dazu: 4 von 5 Angerer-Türen laufen über den
-    # BOGEN-Skip (kein Balken), der fünfte Balken sitzt neben der Wandflucht.
-    # Der Hebel liegt in der Versiegelungs-LAGE, nicht der Balken-LÄNGE.
-    # Die Schwelle bewacht nur, dass es nicht SCHLECHTER wird.
+    # MESSGRUNDLAGE 2026-08-01: sondiert wird über der LOKALISIERTEN Türlücke
+    # (Wand·Lücke·Wand im Raster), nicht mehr im Kreis um den Text-Anker.
+    # Grund: der Anker liegt im Median 0,44–0,63 m neben der Tür (max 1,13 m)
+    # — genau die Distanz, die die alte Sonde abtastete.
+    #
+    # ERWARTET hatte ich, dass die Quote dadurch FÄLLT (Artefakt-These aus
+    # zwei Label-Crops). Sie fiel NICHT: 59% (Anker) -> 64% (Lücke) bei 66
+    # statt 74 bewertbaren Türen. Ein Zwischenstand mit enger Sonde zeigte
+    # 30%, war aber selbst verzerrt (zählte nur Türen mit dünner Wand, weil
+    # die Sonde sonst im Mauerwerk landete). Die Lecks sind also ECHT — meine
+    # Artefakt-These aus zwei Bildern war zu schnell verallgemeinert.
+    #
+    # Die neue Messung ist trotzdem die bessere: sie prüft dort, wo die Tür
+    # wirklich ist, und macht jede künftige Reparatur sichtbar. Die Schwelle
+    # bewacht, dass es nicht SCHLECHTER wird.
     assert bew >= 40, f"nur {bew} Türen bewertbar — Messung untauglich"
     assert ges_u / bew <= 0.70, (
         f"Tür-Dichtung geregressiert: {ges_u}/{bew} undicht "
