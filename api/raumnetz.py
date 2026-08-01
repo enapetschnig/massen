@@ -1896,8 +1896,109 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
     return n_neu, luecken
 
 
+def an_wand_schnappen(poly, grid, W, H, max_snap=8, min_len=4.0, tol=0.30):
+    """Fast-achsparallele Polygonkanten EXAKT an die Wandkante legen.
+
+    Nutzer-Befund: „die Markierungen gehen teilweise in die Wände rein — er
+    muss ja erkennen, wo ein Raum aufhört und die Wand anfängt."
+
+    Am Plan bei 12-facher Vergrößerung nachgesehen: die Kante sitzt im Kern
+    richtig, ist aber leicht SCHRÄG (Douglas-Peucker verbindet zwei Rand-
+    zellen, die ein bis zwei Zellen versetzt liegen) und wandert dadurch über
+    die Wandlinie — mal im Raum, mal in der Wand. Exakt im Raster gemessen
+    ist der Wand-Anteil zwar nur 0,7 %, aber genau dieser Saum ist das, was
+    man sieht.
+
+    Hier wird jede fast-achsparallele Kante auf die WAND geschnappt: von der
+    Kante aus nach außen sondieren, bis die erste Wandzelle kommt, und die
+    Kante auf die letzte freie Zelle davor legen. Findet die Sonde in
+    max_snap Zellen keine Wand (offene Kante, Durchgang), bleibt die Kante
+    unverändert — es wird nichts erfunden.
+
+    poly: [(x,y)] in ZELLEN. -> neues Polygon in Zellen.
+    """
+    n = len(poly)
+    if n < 4:
+        return poly
+    kanten = []
+    for k in range(n):
+        x1, y1 = poly[k]
+        x2, y2 = poly[(k + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
+        L = (dx * dx + dy * dy) ** 0.5
+        achse = None
+        if L >= min_len:
+            if abs(dx) <= tol * abs(dy):
+                achse = "v"          # senkrechte Kante, x ist konstant
+            elif abs(dy) <= tol * abs(dx):
+                achse = "h"          # waagrechte Kante, y ist konstant
+        kanten.append({"p1": (x1, y1), "p2": (x2, y2), "achse": achse,
+                       "fest": None})
+    # Schwerpunkt: die Aussenrichtung jeder Kante zeigt vom Raum weg
+    cx = sum(p[0] for p in poly) / n
+    cy = sum(p[1] for p in poly) / n
+    for e in kanten:
+        if not e["achse"]:
+            continue
+        (x1, y1), (x2, y2) = e["p1"], e["p2"]
+        if e["achse"] == "v":
+            fest0 = (x1 + x2) / 2.0
+            vz = 1 if fest0 > cx else -1
+            proben = [y1 + (y2 - y1) * t for t in (0.25, 0.5, 0.75)]
+            treffer = []
+            for yy in proben:
+                j = int(round(yy))
+                if not (0 <= j < H):
+                    continue
+                for d in range(0, max_snap + 1):
+                    i = int(round(fest0)) + vz * d
+                    if not (0 <= i < W):
+                        break
+                    if grid[j * W + i]:
+                        treffer.append(i - vz)      # letzte freie Zelle
+                        break
+            if len(treffer) >= 2:
+                treffer.sort()
+                e["fest"] = treffer[len(treffer) // 2] + (0.5 if vz > 0 else 0.5)
+        else:
+            fest0 = (y1 + y2) / 2.0
+            vz = 1 if fest0 > cy else -1
+            proben = [x1 + (x2 - x1) * t for t in (0.25, 0.5, 0.75)]
+            treffer = []
+            for xx in proben:
+                i = int(round(xx))
+                if not (0 <= i < W):
+                    continue
+                for d in range(0, max_snap + 1):
+                    j = int(round(fest0)) + vz * d
+                    if not (0 <= j < H):
+                        break
+                    if grid[j * W + i]:
+                        treffer.append(j - vz)
+                        break
+            if len(treffer) >= 2:
+                treffer.sort()
+                e["fest"] = treffer[len(treffer) // 2] + 0.5
+    # Kanten mit Schnapp-Ziel begradigen, Ecken als Schnittpunkte neu setzen
+    neu_poly = []
+    for k in range(n):
+        e = kanten[k]
+        v = kanten[(k - 1) % n]
+        x, y = poly[k]
+        if v["achse"] == "v" and v["fest"] is not None:
+            x = v["fest"]
+        if v["achse"] == "h" and v["fest"] is not None:
+            y = v["fest"]
+        if e["achse"] == "v" and e["fest"] is not None:
+            x = e["fest"]
+        if e["achse"] == "h" and e["fest"] is not None:
+            y = e["fest"]
+        neu_poly.append((x, y))
+    return neu_poly
+
+
 def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
-                  stempel_f=None):
+                  stempel_f=None, grid=None):
     """Pro Raum den REKONSTRUIERTEN Region-Umriss als Polygon in pt
     (Nachvollziehbarkeit: der Prüfer sieht die geometrische Lesart der App
     ÜBER dem Plan — verifizierte Räume decken sich, Prüf-Räume zeigen exakt,
@@ -2082,8 +2183,14 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                             for p in vereinfacht],
             }
         if angenommen:
+            _fin = vereinfacht
+            if grid is not None:
+                try:
+                    _fin = an_wand_schnappen(vereinfacht, grid, W, H)
+                except Exception:
+                    _fin = vereinfacht
             out[ridx] = [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
-                         for p in vereinfacht]
+                         for p in _fin]
     return out
 
 

@@ -3254,10 +3254,35 @@
   function _nzWireZoom(cont) {
     _nzWrap = cont.querySelector('.nz-wrap'); if (!_nzWrap) return;
     _nzApplyZoom();
+    // MAUSRAD SCROLLT, STRG+RAD ZOOMT. Vorher lag das Rad komplett auf Zoom
+    // (preventDefault + _nzZoomAt) — damit war Scrollen im Plan schlicht
+    // nicht moeglich, egal wie gross der Plan war. Nutzer-Befund: "beim
+    // unteren Teil des Plans kann ich nicht runterscrollen".
+    // Konvention wie in jedem Karten-/Planbetrachter: Rad = verschieben,
+    // Strg/Cmd + Rad = zoomen. Ist der Plan kleiner als sein Fenster, gibt
+    // das Rad die Seite frei (kein preventDefault) — sonst klebt man fest.
     _nzWrap.addEventListener('wheel', function (e) {
-      e.preventDefault();
       var rect = _nzWrap.getBoundingClientRect();
-      _nzZoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        _nzZoomAt(e.clientX - rect.left, e.clientY - rect.top,
+                  e.deltaY < 0 ? 1.15 : 1 / 1.15);
+        return;
+      }
+      var zoom = _nzWrap.querySelector('.nz-zoom');
+      if (!zoom) return;
+      var ch = zoom.offsetHeight * _nzZoom.s, cw = zoom.offsetWidth * _nzZoom.s;
+      var maxY = Math.min(0, _nzWrap.clientHeight - ch);
+      var maxX = Math.min(0, _nzWrap.clientWidth - cw);
+      if (maxY >= 0 && maxX >= 0) return;      // passt hinein → Seite scrollen
+      var vorY = _nzZoom.y, vorX = _nzZoom.x;
+      _nzZoom.y = Math.min(0, Math.max(maxY, _nzZoom.y - e.deltaY));
+      _nzZoom.x = Math.min(0, Math.max(maxX, _nzZoom.x - (e.deltaX || 0)));
+      if (_nzZoom.y !== vorY || _nzZoom.x !== vorX) {
+        e.preventDefault();                    // wir haben es verbraucht
+        _nzApplyZoom();
+      }
+      // am Anschlag NICHT preventDefault → die Seite scrollt weiter
     }, { passive: false });
     // KLICK-EREIGNIS als zweiter, unabhaengiger Weg. Der Weg ueber
     // mousedown/mouseup + _nzPan traegt nicht ueberall: bei Stift- und
