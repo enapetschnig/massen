@@ -2671,20 +2671,37 @@
       // ÖNORM-ABZUG AM PLAN (Traceability): jede Öffnung zeigt direkt, ob sie
       // abgezogen (>4 m² → „−X m²") oder übermessen wird (≤4 m²). Dieselbe
       // Regel wie in den Gewerke-Positionen (B 2204 §5.5.1.3, Default 4,0).
-      var abz = '';
-      if (o.breite_m && o.hoehe_m) {
+      var abz = '', abzCol = '#63666c';
+      // ÖFFNUNG OHNE MASS: bisher stand hier NICHTS — dadurch sah eine
+      // ungemessene Öffnung genauso aus wie eine geprüfte, und der Hinweis
+      // oben ("22 von 46 ohne Maß") war am Plan nicht auffindbar. Fehlt ein
+      // Maß, ist die Abzugsfläche rechnerisch 0; die Menge steht da, nur eben
+      // brutto. Das muss AM Bauteil stehen, nicht nur in einem Kasten.
+      var unvoll = !(o.breite_m && o.hoehe_m);
+      if (unvoll) {
+        // Was bekannt ist, wird gezeigt — meist die Höhe. Daraus sieht der
+        // Kalkulant sofort, ab welcher Breite die 4-m²-Schwelle überhaupt
+        // fällt, und ob Nachmessen sich lohnt.
+        abz = o.hoehe_m ? ('H ' + fmtNum(o.hoehe_m) + ' m · Breite fehlt')
+          : (o.breite_m ? ('B ' + fmtNum(o.breite_m) + ' m · Höhe fehlt') : 'Maß fehlt');
+        abzCol = '#2563eb';   // derselbe Ton wie der Hinweiskasten oben
+      } else {
         var om2 = Math.round(o.breite_m * o.hoehe_m * 100) / 100;
         abz = om2 > 4.0 ? ('Abzug −' + fmtNum(om2) + ' m²') : ('übermessen (' + fmtNum(om2) + ' m² ≤ 4)');
+        abzCol = om2 > 4.0 ? '#b42318' : '#63666c';
       }
       marker += '<g data-oid="' + o.id + '" cursor="pointer" opacity="' + (rm ? 0.28 : 0.95) + '">' +
-        '<circle cx="' + o.px[0] + '" cy="' + o.px[1] + '" r="' + rad + '" fill="' + mcol + '" stroke="#fff" stroke-width="2"/>' +
+        '<circle cx="' + o.px[0] + '" cy="' + o.px[1] + '" r="' + rad + '" fill="' + mcol + '" stroke="' +
+        (unvoll ? '#2563eb' : '#fff') + '" stroke-width="' + (unvoll ? 3 : 2) + '"' +
+        (unvoll ? ' stroke-dasharray="' + Math.round(rad * 0.5) + ' ' + Math.round(rad * 0.34) + '"' : '') + '/>' +
         '<text x="' + o.px[0] + '" y="' + o.px[1] + '" font-size="' + Math.round(rad * 1.1) + '" text-anchor="middle" dy="' +
         Math.round(rad * 0.38) + '" fill="#fff" style="font-weight:700;pointer-events:none">' + (istF ? 'F' : 'T') + '</text>' +
         (abz && !rm ? '<text x="' + (o.px[0] + rad * 1.35) + '" y="' + o.px[1] + '" font-size="' + Math.round(rad * 0.82) + '" dy="' +
-          Math.round(rad * 0.3) + '" fill="' + (abz.indexOf('Abzug') === 0 ? '#b42318' : '#63666c') + '"' +
+          Math.round(rad * 0.3) + '" fill="' + abzCol + '"' +
           ' stroke="#fff" stroke-width="0.8" paint-order="stroke" style="pointer-events:none">' + abz + '</text>' : '') +
-        '<title>' + (istF ? 'Fenster' : 'Tür') + (o.breite_m ? ' ' + fmtNum(o.breite_m) + '×' + fmtNum(o.hoehe_m) + 'm' : '') +
-        (abz ? ' · ' + abz + ' (ÖNORM B 2204)' : '') +
+        '<title>' + (istF ? 'Fenster' : 'Tür') +
+        (!unvoll ? ' ' + fmtNum(o.breite_m) + '×' + fmtNum(o.hoehe_m) + 'm · ' + abz + ' (ÖNORM B 2204)'
+          : ' · ' + abz + ' — ohne vollständiges Maß ist kein ÖNORM-Abzug möglich; Putz, Maler und Mauerwerk rechnen hier mit der vollen Wandfläche') +
         (o.quelle === 'vision' ? ' · KI-Bildlesung (Position ungefähr)' : '') +
         ' — klicken = keine Öffnung</title></g>';
     });
@@ -2975,6 +2992,10 @@
       ? '<div class="nz-tb-hinweis nz-oe-hinweis">🪟 ' +
         String(meta.oeffnungen_hinweis)
           .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+        // Wegweiser zum Plan: der Kasten nennt eine Anzahl, die Marker zeigen,
+        // WELCHE. Ohne diesen Satz sucht der Kalkulant 46 Öffnungen ab.
+        ' <strong>Am Plan gestrichelt umrandet</strong> — dort steht die ' +
+        'bekannte Höhe, damit Sie die Breite gezielt nachtragen können.' +
         '</div>' : '');
     var cont = document.getElementById('nachzeichnen-container');
     cont.querySelector('.nz-dynamic').innerHTML =
