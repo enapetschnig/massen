@@ -2984,7 +2984,7 @@
       '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem" id="nz-mess-out">' +
       (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>'
         : (_nzMeasMode ? '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>'
-          : 'Mausrad = zoomen · ziehen = verschieben')) + '</span></div>' +
+          : 'Mausrad = scrollen · Strg+Rad = zoomen · ziehen = verschieben')) + '</span></div>' +
       (_nzRaumEditMode ? '<div class="nz-raum-editbar" id="nz-raum-out">' +
         (_nzRaumSel >= 0 ? '' : '<strong style="color:#0369a1">Klicke einen Raum</strong>, um seine Eckpunkte zu ziehen — Fläche &amp; Umfang rechnen live neu.') +
         '</div>' : '') +
