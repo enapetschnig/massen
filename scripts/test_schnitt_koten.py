@@ -43,6 +43,44 @@ PLAENE = [
 ]
 
 
+# KREUZPROBE Schnitt ↔ Grundriss. Der Schnitt liefert die Geschosshöhe
+# (Rohbau), die Raumstempel die LICHTE Höhe (RH) — die Differenz ist
+# zwangsläufig der Deckenaufbau. Passt sie ins Bauwerk, haben sich zwei
+# unabhängige byte-exakte Quellen bestätigt, und der Deckenaufbau fällt
+# nebenbei heraus (heute: 20 cm ANGENOMMEN).
+# Gemessen am Korpus: 3 der 4 Grundrisse tragen RH-Werte (WM 60, Velden 11,
+# AP.01 10); der Angerer trägt keine und rechnet mit der Annahme 2,70 m.
+KREUZ = [
+    ("Velden echt: Schnitt 3,05/3,30 · Grundriss RH 2,75",
+     [3.30, 3.05], [2.75] * 11, True, 0.30),
+    ("Haus A 2,67 gegen lichte 2,42",
+     [3.42, 2.67, 2.67], [2.42] * 5, True, 0.25),
+    ("kein Schnitt → keine Bestätigung", [], [2.75], False, None),
+    ("keine Raumhöhe → keine Bestätigung", [3.05], [], False, None),
+    # Die wichtigere Hälfte: unstimmige Quellen dürfen sich NICHT bestätigen.
+    ("unstimmig: 4,40 m Geschoss gegen 2,75 m licht", [4.40], [2.75], False, None),
+    # Ein einzelnes niedriges Bad darf die Paarung nicht bestimmen.
+    ("Ausreißer-Bad bestimmt nicht", [3.05], [2.75, 2.75, 2.75, 2.20], True, 0.30),
+]
+
+
+def _kreuzprobe(fehler):
+    import schnitt as SCH
+    print("\nKREUZPROBE Schnitt ↔ Grundriss (Deckenaufbau als Beweis)")
+    print("-" * 96)
+    for name, gh, rh, soll, aufbau in KREUZ:
+        r = SCH.pruefe_gegen_raumhoehen({"geschosshoehen_m": gh}, rh)
+        ok = bool(r.get("bestaetigt")) == soll
+        if not ok:
+            fehler.append(f"Kreuzprobe '{name}': bestätigt="
+                          f"{r.get('bestaetigt')}, erwartet {soll}")
+        if soll and aufbau is not None and r.get("deckenaufbau_m") != aufbau:
+            fehler.append(f"Kreuzprobe '{name}': Deckenaufbau "
+                          f"{r.get('deckenaufbau_m')} statt {aufbau} m")
+            ok = False
+        print(f"   {'✓' if ok else 'FALSCH':<7} {name:<48} {r['grund'][:44]}")
+
+
 def run():
     import fitz
     import schnitt as SCH
@@ -99,6 +137,7 @@ def run():
         else:
             print(f"{lbl:<26}{'—':>7}{'—':>8}{'—':>10}{'—':>9}{'—':>4}   "
                   f"{'✓ (kein Schnitt)' if ok else 'FALSCH'}")
+    _kreuzprobe(fehler)
     print("-" * 96)
     if gepr < 4:
         fehler.append(f"nur {gepr} Pläne geprüft — Aussage nicht belastbar")

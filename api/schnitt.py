@@ -178,6 +178,67 @@ def lies_schnitt(page):
     }
 
 
+# Deckenaufbau = Geschosshöhe − lichte Raumhöhe: Rohdecke + Estrich + Dämmung.
+# Unter 15 cm ist keine Geschossdecke, über 80 cm ist es kein Aufbau mehr,
+# sondern eine falsch gepaarte Ebene (Zwischenpodest, anderes Geschoss).
+AUFBAU_MIN_M = 0.15
+AUFBAU_MAX_M = 0.80
+
+
+def pruefe_gegen_raumhoehen(erg, raumhoehen_m):
+    """Kreuzprobe Schnitt ↔ Grundriss — zwei unabhängige byte-exakte Quellen.
+
+    Der Schnitt liefert die GESCHOSSHÖHE (Rohbau, Oberkante zu Oberkante),
+    die Raumstempel des Grundrisses die LICHTE Raumhöhe (RH). Die Differenz
+    ist zwangsläufig der Deckenaufbau. Liegt sie im Bauwerks-Bereich, haben
+    sich beide Quellen gegenseitig bestätigt — und nebenbei fällt der
+    Deckenaufbau heraus, der heute mit 20 cm ANGENOMMEN wird.
+
+    Am Korpus: Velden-Grundriss RH 2,75 m, Velden-Schnitt 3,05 / 3,30 m →
+    30 bzw. 55 cm Aufbau. Beides plausibel, die Quellen stützen sich.
+
+    Warum diese Kreuzprobe und nicht die Zahl allein: eine Geschosshöhe aus
+    EINER Quelle in Putz, Maler und Mauerwerk zu schieben wäre derselbe
+    Fehler wie eine geratene Fensterbreite (dort ergab die Einzelquelle
+    2,70 m Abweichung). Erst zwei unabhängige Messungen, die zusammenpassen,
+    sind belastbar.
+
+    raumhoehen_m: Liste lichter Raumhöhen aus den Stempeln (m).
+    -> {"bestaetigt": bool, "geschosshoehe_m", "lichte_hoehe_m",
+        "deckenaufbau_m", "grund"}
+    """
+    leer = {"bestaetigt": False, "geschosshoehe_m": None,
+            "lichte_hoehe_m": None, "deckenaufbau_m": None, "grund": ""}
+    gh = (erg or {}).get("geschosshoehen_m") or []
+    rh = [float(x) for x in (raumhoehen_m or []) if x and 2.0 <= float(x) <= 5.0]
+    if not gh:
+        return dict(leer, grund="kein Schnitt mit Geschosshöhe")
+    if not rh:
+        return dict(leer, grund="keine lichte Raumhöhe im Grundriss")
+    # Häufigste lichte Höhe = die des Regelgeschosses (einzelne Bäder oder
+    # abgehängte Decken dürfen die Paarung nicht bestimmen).
+    zaehl = {}
+    for v in rh:
+        k = round(v, 2)
+        zaehl[k] = zaehl.get(k, 0) + 1
+    licht = max(sorted(zaehl), key=lambda k: (zaehl[k], -k))
+    # Diejenige Geschosshöhe wählen, die einen PLAUSIBLEN Aufbau ergibt;
+    # bei mehreren die mit dem kleinsten (also engsten) Aufbau.
+    treffer = sorted((round(x - licht, 2), x) for x in gh
+                     if AUFBAU_MIN_M <= round(x - licht, 2) <= AUFBAU_MAX_M)
+    if not treffer:
+        return dict(leer, lichte_hoehe_m=licht,
+                    grund=(f"keine Geschosshöhe passt zu {licht:.2f} m lichter "
+                           f"Höhe (Aufbau müsste {AUFBAU_MIN_M:.2f}–"
+                           f"{AUFBAU_MAX_M:.2f} m sein, ist "
+                           f"{[round(x - licht, 2) for x in gh]})"))
+    aufbau, gew = treffer[0]
+    return {"bestaetigt": True, "geschosshoehe_m": gew, "lichte_hoehe_m": licht,
+            "deckenaufbau_m": aufbau,
+            "grund": (f"Schnitt {gew:.2f} m − Grundriss {licht:.2f} m = "
+                      f"{aufbau:.2f} m Deckenaufbau (plausibel)")}
+
+
 def hinweis(erg):
     """Ein Satz für die Planansicht — was wurde gelesen, wie belegt ist es."""
     if not erg:
