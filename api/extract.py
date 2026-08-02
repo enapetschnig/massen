@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-02.3"
+APP_REV = "2026-08-02.4"
 
 
 @app.get("/api/extract-health")
@@ -5401,7 +5401,25 @@ async def projekt_massen(body: ProjektMassenRequest):
                 gh_s = float(gh_s)
             except (TypeError, ValueError):
                 gh_s = None
-        if gh_s and 2.2 <= gh_s <= 4.5:
+        # PHYSIK-SPERRE (dieselbe, die 40 Zeilen tiefer fuer Opus steht — sie
+        # fehlte hier): 'raumhoehen-max' ist die byte-exakt aus dem Text-Layer
+        # gelesene LICHTE Raumhoehe. Die ROHBAU-Hoehe kann nie darunter
+        # liegen — dazwischen sitzt zwingend die Decke. Eine Schnitt-Lesung
+        # (KI-Bildlesung des Blattes), die TIEFER liest als die bekannte
+        # lichte Hoehe, ist damit nachweislich falsch und darf die exakte Zahl
+        # nicht ueberschreiben. Ohne diese Sperre gewinnt die Schaetzung gegen
+        # die Messung, und ALLE wandhoehen-getriebenen Mengen (Aussen-/
+        # Innenwand, HLZ, Putz LG 10, Maler LG 46) fallen zu niedrig aus.
+        # Nach OBEN korrigieren bleibt erlaubt: Rohbau = lichte + Decke.
+        _q_vor = (best_baudaten.get("_quellen") or {}).get("geschosshoehe_m")
+        _h_vor = best_baudaten.get("geschosshoehe_m") or 0
+        _s_blockt = (_q_vor == "raumhoehen-max" and gh_s
+                     and gh_s < _h_vor - 0.05)
+        if _s_blockt:
+            print(f"[schnitt] Geschosshoehe {gh_s} m VERWORFEN — liegt unter "
+                  f"der byte-exakten lichten Raumhoehe {_h_vor} m "
+                  f"(Rohbau kann nicht niedriger sein als lichte Hoehe)")
+        if gh_s and 2.2 <= gh_s <= 4.5 and not _s_blockt:
             best_baudaten["geschosshoehe_m"] = round(gh_s, 2)
             best_baudaten.setdefault("_quellen", {})["geschosshoehe_m"] = "schnitt"
         # Flachdach aus Schnitt → Attika (falls Legende es nicht schon tat)
