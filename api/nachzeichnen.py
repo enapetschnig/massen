@@ -885,6 +885,17 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     except Exception as e:  # pragma: no cover
         print(f"[nachzeichnen] Öffnungs-Hinweis fehlgeschlagen: {e}")
 
+    # SCHNITT-LESUNG (Begründung in api/schnitt.py): Blätter mit Schnitt oder
+    # Ansicht lieferten bisher NICHTS. Maßstab und Höhen-Niveaus kommen
+    # byte-exakt aus den Höhenkoten; der abgeleitete Maßstab prüft sich
+    # selbst. Best-effort, bricht nie — ein Grundriss liefert hier "".
+    schnitt_hinweis = ""
+    try:
+        import schnitt as _schn
+        schnitt_hinweis = _schn.hinweis(_schn.lies_schnitt(page))
+    except Exception as e:  # pragma: no cover
+        print(f"[nachzeichnen] Schnitt-Lesung fehlgeschlagen: {e}")
+
     # RAUM-VERIFIKATION (Stufe 4): der Plan validiert sich selbst — rekonstruierte
     # Raum-Gebiete gegen die byte-exakten F/U-Stempel prüfen → grüne (bewiesene) vs
     # gelbe (prüfen!) Räume in der Planansicht. Best-effort, gröberes Raster (3cm)
@@ -1384,6 +1395,12 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # Öffnungen ohne vollständiges Maß → stiller Nulldurchgang beim
             # ÖNORM-Abzug. Siehe Begründung bei der Berechnung oben.
             "oeffnungen_hinweis": oeffnungen_hinweis,
+            # SCHNITT-LESUNG: Blätter mit Schnitt/Ansicht lieferten bisher
+            # gar nichts (4 von 12 Korpus-Plänen). Maßstab und Höhen-Niveaus
+            # kommen byte-exakt aus den Höhenkoten; der abgeleitete Maßstab
+            # ist die Selbstprüfung. Reine Anzeige — die Mengen bleiben
+            # unberührt, solange die Geschosshöhe nur auf EINER Quelle beruht.
+            "schnitt_hinweis": schnitt_hinweis,
         },
     }
 

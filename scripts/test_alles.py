@@ -48,6 +48,7 @@ GUARDS = [
     ("Schichtaufbau Holzbau/WDVS", "test_schicht_aufbau.py", "Gesamtspanne"),
     ("RBL-Öffnungen (Rohbaulichte)", "test_rbl_oeffnungen.py", "vollständige Öffnungsmaße"),
     ("Öffnungen ohne Maß", "test_oeffnungen_hinweis.py", "kein stiller Nulldurchgang"),
+    ("Schnitt-Koten (Maßstab/Höhen)", "test_schnitt_koten.py", "kein Blatt behauptet Höhen"),
     ("Stempel-Schreibweisen", "mess_stempel_konventionen.py", "BEKANNTE Schreibweisen"),
     # ── NACHGETRAGEN 2026-07-30 ────────────────────────────────────────
     # Diese 22 Waechter existierten, wurden vom Scoreboard aber NIE

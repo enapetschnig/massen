@@ -3373,3 +3373,10 @@ g[data-raum].nz-hi circle {
    verschwimmen und der Kalkulant sieht, dass es zwei Sachen sind. */
 .nz-oe-hinweis { background: #eff6ff; border-color: #bfdbfe;
   border-left-color: #2563eb; color: #1e3a5f; }
+/* Schnitt-Lesung: BELEGTE Zahlen (der Maßstab beweist sich selbst) — darum
+   grün-sachlich statt Warnfarbe. Blau ist schon vergeben für "hier fehlt
+   etwas", Bernstein für "Gewerk prüfen"; drei Hinweise müssen sich auf einen
+   Blick unterscheiden lassen. */
+.nz-sch-hinweis { background: #f0fdf4; border-color: #bbf7d0;
+  border-left-color: #16a34a; color: #14532d; }
+

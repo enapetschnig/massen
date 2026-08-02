@@ -2997,9 +2997,18 @@
         ' <strong>Am Plan gestrichelt umrandet</strong> — dort steht die ' +
         'bekannte Höhe, damit Sie die Breite gezielt nachtragen können.' +
         '</div>' : '');
+    // SCHNITT-LESUNG: Blätter mit Schnitt/Ansicht lieferten bisher gar nichts.
+    // Maßstab und Höhen-Niveaus stehen byte-exakt in den Höhenkoten — und der
+    // abgeleitete Maßstab beweist sich selbst. Reine Anzeige, kein Mengen-Eingriff.
+    var schHinweis = (meta.schnitt_hinweis
+      ? '<div class="nz-tb-hinweis nz-sch-hinweis">📐 ' +
+        String(meta.schnitt_hinweis)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+        '</div>' : '');
     var cont = document.getElementById('nachzeichnen-container');
     cont.querySelector('.nz-dynamic').innerHTML =
-      '<div class="nz-legend">' + legend + '</div>' + tb + tbHinweis + oeHinweis + apply +
+      '<div class="nz-legend">' + legend + '</div>' + tb + tbHinweis + oeHinweis +
+      schHinweis + apply +
       '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
       '<button type="button" class="nz-btn" data-z="out">－</button>' +
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +

@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-02.1"
+APP_REV = "2026-08-02.2"
 
 
 @app.get("/api/extract-health")
@@ -6011,7 +6011,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 65  # + Tuer-Zweitdurchgang am fertigen Gitter (undicht 39->29)
+_NZ_CACHE_V = 66  # + meta.schnitt_hinweis (Koten byte-exakt, Massstab-Selbstpruefung)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
