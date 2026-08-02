@@ -66,19 +66,55 @@ def run():
             elif bool(ist) != soll:
                 fehler.append(f"{name}: hinweis={ist}, erwartet {soll}")
 
-    g = sorted(glob.glob(os.path.expanduser(
-        "~/Downloads/*AU_WM_01 Erdgeschoss*INDEX E.pdf")))
-    if g:
+        # PRÄZISIONS-GATE: eine PLATTE ist keine WAND.
+        # Gemessen 2026-08-02: das alte Muster "gipskarton" traf auch
+        # "Gipskartonplatte" — ein Material-Eintrag der Schichtaufbau-Legende.
+        # Auf AP.01 und Angerer war das der EINZIGE Treffer, und der Hinweis
+        # riet dort, 74 bzw. 63 m Wandlänge von LG 08 nach LG 39 umzubuchen.
+        # Zwei von drei Auslösungen waren also Fehlalarm.
+        for txt, soll, warum in (
+            ("Gips (Gipskartonplatte) 12,5mm", False,
+             "Platte in der Material-Legende — keine Wand-Deklaration"),
+            ("IW10a Vorsatzschale, 5cm", True, "Vorsatzschale = Bauteil"),
+            ("Gipskartonwand einlagig beplankt", True, "…wand = Bauteil"),
+            ("Metallständerwand CW 75", True, "Ständerwand = Bauteil"),
+        ):
+            doc = fitz.open(p)
+            doc[0].insert_text((700, 80), txt, fontsize=8)
+            pf = os.path.join(tmp, f"gate_{abs(hash(txt)) % 9999}.pdf")
+            doc.save(pf)
+            doc.close()
+            doc = fitz.open(pf)
+            r = nachzeichnen.analysiere_doc(doc, max_px=1400)
+            doc.close()
+            ist = bool((r.get("meta") or {}).get("trockenbau_hinweis"))
+            ok = ist == soll
+            print(f"   {txt[:34]:<36} hinweis={str(ist):<5} soll={soll}  "
+                  f"{'✓' if ok else 'FALSCH'}  — {warum}")
+            if not ok:
+                fehler.append(f"Präzisions-Gate '{txt[:30]}': hinweis={ist}, "
+                              f"erwartet {soll} ({warum})")
+
+    # Realprobe: WM deklariert wörtlich, AP.01 und Angerer nennen NUR die
+    # Platte — auf denen darf nichts stehen.
+    for muster, soll, lbl in (
+        ("AU_WM_01 Erdgeschoss*INDEX E.pdf", True, "WM (deklariert wörtlich)"),
+        ("AP.01 Layout-1 (1).pdf", False, "AP.01 (nur Platte in Legende)"),
+        ("A-5_Einreichplan_Alfred-Angerer*", False, "Angerer (nur Platte)"),
+    ):
+        g = sorted(glob.glob(os.path.expanduser(f"~/Downloads/*{muster}")))
+        if not g:
+            print(f"   ({lbl} nicht in ~/Downloads — übersprungen)")
+            continue
         doc = fitz.open(g[0])
         r = nachzeichnen.analysiere_doc(doc, max_px=1400)
         doc.close()
-        ist = (r.get("meta") or {}).get("trockenbau_hinweis")
-        print(f"   {'echter WM-Plan':<28} hinweis={ist}  (soll True — der "
-              f"Plan trägt den Text wörtlich)")
-        if ist is not True:
-            fehler.append("echter WM-Plan: Trockenbau-Text nicht erkannt")
-    else:
-        print("   (WM-Plan nicht in ~/Downloads — Realprobe übersprungen)")
+        ist = bool((r.get("meta") or {}).get("trockenbau_hinweis"))
+        ok = ist == soll
+        print(f"   {lbl:<36} hinweis={str(ist):<5} soll={soll}  "
+              f"{'✓' if ok else 'FALSCH'}")
+        if not ok:
+            fehler.append(f"{lbl}: hinweis={ist}, erwartet {soll}")
 
     print("-" * 76)
     if fehler:

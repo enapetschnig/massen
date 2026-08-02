@@ -1388,9 +1388,25 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # Aufmaß braucht die Material-Trennung je Wand (sonst
             # Doppelzählung mit LG 08); bis dahin sagt die App ehrlich, DASS
             # der Plan Trockenbau kennzeichnet.
+            # PRÄZISIONS-GATE (2026-08-02 gemessen): das Muster "gipskarton"
+            # traf auch "Gipskartonplatte" — und das ist ein MATERIAL-Eintrag
+            # in der Schichtaufbau-Legende, keine Wand-Deklaration. Auf zwei
+            # der drei auslösenden Pläne (AP.01, Angerer) war der einzige
+            # Treffer wörtlich "Gips (Gipskartonplatte)". Der Hinweis riet
+            # dort, 74 bzw. 63 m Wandlänge ins falsche Gewerk zu buchen —
+            # LG 39 statt LG 08 sind andere Preise. Der WM-Plan dagegen sagt
+            # es wörtlich: "Alle Trockenbauwände und Vorsatz-",
+            # "Gipskartonwand", "IW10a Vorsatzschale".
+            # Es zählt also nur, was eine WAND benennt, nicht was eine PLATTE
+            # benennt. Gleiche Logik wie das Boilerplate-Gate der Farb-Legende.
             "trockenbau_hinweis": any(
-                ("trockenbauw" in w[4].lower() or "gipskarton" in w[4].lower()
-                 or "vorsatzschale" in w[4].lower())
+                ("trockenbauw" in w[4].lower()
+                 or "gipskartonwand" in w[4].lower()
+                 or "gipskartonwände" in w[4].lower()
+                 or "vorsatzschale" in w[4].lower()
+                 or "ständerwand" in w[4].lower()
+                 or "staenderwand" in w[4].lower()
+                 or "metallständer" in w[4].lower())
                 for w in (worte or [])),
             # Öffnungen ohne vollständiges Maß → stiller Nulldurchgang beim
             # ÖNORM-Abzug. Siehe Begründung bei der Berechnung oben.

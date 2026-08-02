@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-02.4"
+APP_REV = "2026-08-02.5"
 
 
 @app.get("/api/extract-health")
@@ -5464,8 +5464,22 @@ async def projekt_massen(body: ProjektMassenRequest):
         # überschreiben (sonst wären ALLE wandhöhen-getriebenen Massen ~15% zu
         # niedrig — Außen-/Innenwand, HLZ, Putz, Maler). Nach OBEN korrigieren
         # (Opus rohbau > lichte Raumhöhe, +Deckenstärke) bleibt erlaubt.
+        # `and o_roh` MUSS vor dem Vergleich stehen: `hoehe_rohbau()` liefert
+        # None, sobald Opus die Hoehe mit Konfidenz <0,6 meldet, sie weglaesst
+        # oder ausserhalb 2,2-4,5 m liest — `opus_usable()` faengt das NICHT
+        # ab, es prueft nur das unsicherheit_flag. `_blockt` wird vollstaendig
+        # ausgewertet, BEVOR das schuetzende `if o_roh and ...` greift; ohne
+        # diesen Guard rechnet Python `None < 2,60` und wirft TypeError. Kein
+        # try umschliesst die Stelle → HTTP 500, und das Projekt bekommt GAR
+        # KEINE Mengen: kein LG 08, kein LG 10, kein LG 46, keine Materialliste.
+        # Ausgeloest vom harmlosesten Fall: ein Blatt OHNE Schnitt (Opus laeuft
+        # per Design auch auf reinen Grundrissen) — dort meldet Opus die
+        # Rohbauhoehe korrekterweise als null. Lokal reproduziert:
+        # opus_usable=True, hoehe_rohbau=None, TypeError.
+        # Die Schwester-Sperre fuer den Schnitt macht es 50 Zeilen hoeher
+        # richtig (`_q_vor == "raumhoehen-max" and gh_s and gh_s < ...`).
         _blockt = _q in ("schnitt", "legende") or (
-            _q == "raumhoehen-max" and o_roh < _cur - 0.05)
+            _q == "raumhoehen-max" and o_roh and o_roh < _cur - 0.05)
         if o_roh and not _blockt:
             best_baudaten["geschosshoehe_m"] = o_roh
             best_baudaten.setdefault("_quellen", {})["geschosshoehe_m"] = "opus"
@@ -6029,7 +6043,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 66  # + meta.schnitt_hinweis (Koten byte-exakt, Massstab-Selbstpruefung)
+_NZ_CACHE_V = 67  # + Trockenbau-Praezisionsgate (Platte ist keine Wand)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

@@ -69,6 +69,45 @@ FAELLE = [
 ]
 
 
+def _opus_sperre(o_roh, quelle_vor, hoehe_vor):
+    """Der OPUS-Zweig, exakt wie in extract.py — inklusive None-Schutz.
+
+    Diese Nachbildung existiert, weil die erste Fassung dieses Wächters die
+    Sperre nur per REGEX prüfte (`_q == "raumhoehen-max" and o_roh <`) — und
+    damit ausgerechnet die KAPUTTE Form zementierte: `hoehe_rohbau()` liefert
+    None, sobald Opus die Höhe mit Konfidenz <0,6 meldet, sie weglässt oder
+    außerhalb 2,2–4,5 m liest, und `opus_usable()` fängt das nicht ab (es
+    prüft nur das unsicherheit_flag). `_blockt` wird vollständig ausgewertet,
+    bevor das schützende `if o_roh and ...` greift → `None < 2,60` → TypeError
+    → HTTP 500 → für das Projekt gibt es GAR KEINE Mengen.
+    Ein Textmuster kann so etwas nicht sehen. Ein ausgeführter Fall schon.
+    """
+    blockt = quelle_vor in ("schnitt", "legende") or (
+        quelle_vor == "raumhoehen-max" and o_roh and o_roh < hoehe_vor - 0.05)
+    if o_roh and not blockt:
+        return o_roh, "opus"
+    return hoehe_vor, quelle_vor
+
+
+# (Name, Opus-Rohbauhöhe, bisherige Quelle, bisherige Höhe, erwartete Höhe/Quelle)
+OPUS_FAELLE = [
+    # DER ABSTURZ-FALL: Blatt ohne Schnitt, Opus meldet die Höhe ehrlich als
+    # null. Muss geräuschlos durchlaufen, nicht crashen.
+    ("Opus ohne Höhe (kein Schnitt am Blatt) → nichts ändern",
+     None, "raumhoehen-max", 2.65, 2.65, "raumhoehen-max"),
+    ("Opus ohne Höhe, Quelle Schnitt → nichts ändern",
+     None, "schnitt", 3.05, 3.05, "schnitt"),
+    ("Opus ohne Höhe, gar kein Vorwissen → nichts ändern",
+     None, None, 2.70, 2.70, None),
+    ("Opus liest 2,40 unter byte-exakten 2,95 → verwerfen",
+     2.40, "raumhoehen-max", 2.95, 2.95, "raumhoehen-max"),
+    ("Opus liest 3,10 über byte-exakten 2,75 → übernehmen",
+     3.10, "raumhoehen-max", 2.75, 3.10, "opus"),
+    ("Quelle Schnitt schlägt Opus immer",
+     3.40, "schnitt", 3.05, 3.05, "schnitt"),
+]
+
+
 def _code_hat_sperre(fehler):
     """Der Nachbau oben nützt nichts, wenn die Sperre im Code fehlt."""
     src = open(QUELLE, encoding="utf-8").read()
@@ -76,12 +115,17 @@ def _code_hat_sperre(fehler):
         fehler.append("api/extract.py enthält keine Schnitt-Physik-Sperre "
                       "(_s_blockt) — der Wächter prüft dann nur sich selbst")
         return
-    # Die Opus-Sperre muss ebenfalls stehen bleiben (keine Regression).
-    if not re.search(r'_q\s*==\s*"raumhoehen-max"\s+and\s+o_roh\s*<', src):
-        fehler.append("die Opus-Physik-Sperre ist verschwunden — "
-                      "dieselbe Lücke, nur an der anderen Quelle")
+    # Die Opus-Sperre muss stehen — UND None-sicher sein. Die erste Fassung
+    # dieses Wächters verlangte das Muster OHNE `and o_roh` und hat damit
+    # einen Absturz festgeschrieben.
+    if not re.search(r'_q\s*==\s*"raumhoehen-max"\s+and\s+o_roh\s+and\s+'
+                     r'o_roh\s*<', src):
+        fehler.append("die Opus-Physik-Sperre fehlt oder ist NICHT None-sicher "
+                      "— ohne `and o_roh` vor dem Vergleich wirft ein Opus-"
+                      "Urteil ohne Höhe TypeError und der ganze Massenlauf "
+                      "endet mit HTTP 500")
         return
-    print("   Code enthält BEIDE Physik-Sperren (Schnitt + Opus) ✓")
+    print("   Code enthält BEIDE Physik-Sperren, Opus-Zweig None-sicher ✓")
 
 
 def run():
@@ -94,6 +138,22 @@ def run():
     print("-" * 96)
     for name, gh_s, q_vor, h_vor, h_soll, q_soll in FAELLE:
         h, q = _sperre(gh_s, q_vor, h_vor)
+        ok = (abs(h - h_soll) < 0.001) and (q == q_soll)
+        if not ok:
+            fehler.append(f"{name}: {h} m aus '{q}', erwartet {h_soll} m "
+                          f"aus '{q_soll}'")
+        print(f"{name:<52}{h:>8.2f}m{str(q):>18}   {'✓' if ok else 'FALSCH'}")
+
+    print("\nOPUS-ZWEIG (derselbe Vorrang, eigene None-Falle)")
+    print("-" * 96)
+    for name, o_roh, q_vor, h_vor, h_soll, q_soll in OPUS_FAELLE:
+        try:
+            h, q = _opus_sperre(o_roh, q_vor, h_vor)
+        except TypeError as e:
+            fehler.append(f"{name}: ABSTURZ statt Entscheidung — {e}. "
+                          f"Genau dieser Fall killt den ganzen Massenlauf.")
+            print(f"{name:<52}{'ABSTURZ':>27}   FALSCH")
+            continue
         ok = (abs(h - h_soll) < 0.001) and (q == q_soll)
         if not ok:
             fehler.append(f"{name}: {h} m aus '{q}', erwartet {h_soll} m "
