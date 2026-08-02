@@ -50,6 +50,7 @@ GUARDS = [
     ("Öffnungen ohne Maß", "test_oeffnungen_hinweis.py", "kein stiller Nulldurchgang"),
     ("Schnitt-Koten (Maßstab/Höhen)", "test_schnitt_koten.py", "kein Blatt behauptet Höhen"),
     ("Höhen-Vorrang (Messung vor Schätzung)", "test_hoehen_vorrang.py", "Physik-Sperren"),
+    ("Messung vor Schätzung (3 Audit-Fixes)", "test_messung_vor_schaetzung.py", "festgenagelt"),
     ("Stempel-Schreibweisen", "mess_stempel_konventionen.py", "BEKANNTE Schreibweisen"),
     # ── NACHGETRAGEN 2026-07-30 ────────────────────────────────────────
     # Diese 22 Waechter existierten, wurden vom Scoreboard aber NIE

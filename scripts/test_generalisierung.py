@@ -150,7 +150,17 @@ check("Zimmer 1 + Zimmer 2 bleiben getrennt (Ziffern-Gate)", len(zimmer1) == 2, 
 baeder = [r for r in res["raeume"] if (r.get("name") or "").lower().endswith("bad")]
 check("Großes/Kleines Bad bleiben getrennt (kein Teilmengen-Match)", len(baeder) == 2, f"got {[r.get('name') for r in baeder]}")
 
-print("\nSZENARIO 9: geometrisch unmöglicher Umfang (U < 4·√F, Stempel-Cross-Talk) → U verworfen")
+print("\nSZENARIO 9: geometrisch unmöglicher Umfang (U < 4·√F, Stempel-Cross-Talk) → U ERSETZT")
+# ZUSAGE GEÄNDERT 2026-08-02 (Audit-Befund, adversarial bestätigt):
+# Früher verlangte dieser Test `umfang_m` = None. Genau das war ein stiller
+# Mengen-Verlust: der Raum fiel damit aus LG 10 Innenputz Wände, LG 46
+# Anstrich Wände, LG 11 Randdämmstreifen und LG 08 Wand-Abwicklung — stand
+# aber weiter in Innenputz DECKEN, Estrich und Decke. Die Liste sah
+# vollständig aus. Der Rohwert wurde in `_umfang_implausibel` vermerkt, das
+# im ganzen Repo nirgends gelesen wird.
+# Die richtige Zusage ist nicht „U ist weg", sondern: der FALSCHE Wert darf
+# nicht überleben, und an seine Stelle tritt ein ehrlich als geschätzt
+# markierter isoperimetrischer Ersatz.
 rooms = [("E", {"name": "Flur", "flaeche_m2": 15.84, "umfang_m": 11.90, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"}),
          ("E", {"name": "Wohnen", "flaeche_m2": 30.0, "umfang_m": 24.0, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"}),
          ("E", {"name": "Bad", "flaeche_m2": 8.0, "umfang_m": 11.0, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"}),
@@ -158,8 +168,17 @@ rooms = [("E", {"name": "Flur", "flaeche_m2": 15.84, "umfang_m": 11.90, "hoehe_m
          ("E", {"name": "Speis", "flaeche_m2": 4.0, "umfang_m": 8.0, "hoehe_m": 2.7, "wohnung": "Haus", "_source": "text"})]
 res = _run(rooms, {"E": EG_LOG})
 flur = [r for r in res["raeume"] if r.get("name") == "Flur"]
-check("Flur mit unmöglichem U (11,9 < 15,9) → U verworfen", flur and not flur[0].get("umfang_m"),
-      f"got umfang_m={flur[0].get('umfang_m') if flur else None}")
+_fu = flur[0].get("umfang_m") if flur else None
+_fq = flur[0].get("umfang_quelle") if flur else None
+check("Flur: falscher U (11,9) überlebt NICHT",
+      bool(flur) and (_fu is None or abs(float(_fu) - 11.90) > 0.05),
+      f"got umfang_m={_fu}")
+check("Flur: Ersatz ist geometrisch möglich (≥ 4·√F = 15,92) …",
+      _fu is None or float(_fu) >= 4.0 * (15.84 ** 0.5) * 0.98,
+      f"got umfang_m={_fu}")
+check("… und ehrlich als geschätzt markiert",
+      _fu is None or _fq == "geschaetzt",
+      f"got umfang_quelle={_fq}")
 wohnen = [r for r in res["raeume"] if r.get("name") == "Wohnen"]
 check("Wohnen mit plausiblem U (24 ≥ 21,9) → U behalten", wohnen and wohnen[0].get("umfang_m") == 24.0,
       f"got {wohnen[0].get('umfang_m') if wohnen else None}")

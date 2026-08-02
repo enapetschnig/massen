@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-02.5"
+APP_REV = "2026-08-02.6"
 
 
 @app.get("/api/extract-health")
@@ -3461,11 +3461,46 @@ Wenn KEIN Grundriss auf dem Blatt (nur Schnitte/Deckblatt): {"kein_grundriss": t
         # einseitig sicher: Überzählung (Ansichten-Doppel) ist der Fehler-Modus.
         # Persistenz wird SYNCHRON gehalten (fenster-elemente neu geschrieben).
         try:
+            # KONFIDENZ-TOR — fehlte hier, waehrend das Gegenstueck auf
+            # PROJEKT-Ebene (`_symbol_max`) es hat, samt gemessener Begruendung:
+            # "eine Symbol-Zaehlung mit Konfidenz GENAU 0,4 durfte kappen und
+            # loeschte damit Tueren, die byte-exakt aus dem Text-Layer
+            # (STUK/FPH) gelesen waren. Ein Abzug weniger ist bares Geld in
+            # Putz, Maler und Mauerwerk." Genau dieselbe Zaehlung kappte hier
+            # ungebremst — und diese Kappe ist DESTRUKTIV: sie schreibt die
+            # gekuerzte Liste per delete+insert in die Datenbank zurueck, die
+            # geloeschten byte-exakten Fenster sind fuer alle spaeteren
+            # projekt-massen-Laeufe weg. Verschaerfend ist der Symbol-Prompt
+            # bewusst nach UNTEN verzerrt ("KONSERVATIV zaehlen, im Zweifel
+            # NICHT zaehlen").
             _sym_f = None
-            if isinstance(oeffnungs_symbole, dict):
+            if isinstance(oeffnungs_symbole, dict) \
+                    and not oeffnungs_symbole.get("kein_grundriss"):
+                _sk = oeffnungs_symbole.get("konfidenz")
+                try:
+                    _sk_ok = _sk is None or float(_sk) > 0.4
+                except (TypeError, ValueError):
+                    _sk_ok = False
                 _sf = oeffnungs_symbole.get("fenster_gesamt")
-                if _sf is not None:
+                if _sf is not None and _sk_ok:
                     _sym_f = max(0, min(60, int(_sf)))
+                elif _sf is not None:
+                    print(f"[fenster-klammer] Symbol-Zaehlung {_sf} VERWORFEN "
+                          f"(Konfidenz {_sk} <= 0,4) — byte-exakte Fenster "
+                          f"bleiben unangetastet")
+            # ZWEITE SICHERUNG: niemals unter die Zahl der BYTE-EXAKTEN
+            # Fenster kappen. Die Sortierung haelt Text-Fenster zwar vorne,
+            # schuetzt sie aber nicht, sobald die Symbol-Zahl kleiner ist als
+            # ihre Anzahl — dann loescht die Kappe eine Messung wegen einer
+            # Schaetzung.
+            _n_text = sum(1 for _f in alle_fenster
+                          if "stuk" in (_f.get("quelle") or "").lower()
+                          or (_f.get("quelle") or "").lower() == "rbl"
+                          or _f.get("code"))
+            if _sym_f is not None and _n_text > _sym_f:
+                print(f"[fenster-klammer] Kappe {_sym_f} < {_n_text} "
+                      f"byte-exakte Fenster → auf {_n_text} angehoben")
+                _sym_f = _n_text
             if _sym_f and len(alle_fenster) > _sym_f:
                 def _f_rang(f_):
                     ist_text = "stuk" in (f_.get("quelle") or "").lower() or bool(f_.get("code"))
@@ -4380,21 +4415,45 @@ async def projekt_massen(body: ProjektMassenRequest):
     # geometrisch keinen Umfang < 4·√F haben (Quadrat-Minimum). Ein kleinerer
     # U ist ein falsch zugeordneter Nachbar-Wert (Stempel-Cross-Talk, z.B. der
     # Flur erbt Bads Umfang) → verwerfen statt die Wandmengen zu verfälschen.
-    # Der Wert wird zur Transparenz vermerkt; U bleibt leer (ehrlich „–").
+    # WAS MIT DEM VERWORFENEN U PASSIERT — hier lag ein stiller Mengen-Verlust:
+    # frueher wurde `umfang_m = None` gesetzt und der Rohwert nur in
+    # `_umfang_implausibel` vermerkt. Dieses Feld wird aber im GANZEN Repo
+    # nirgends gelesen (grep ueber api/, public/, scripts/ fand nur die beiden
+    # Schreibstellen) — weder Prueflise noch Konsistenz-Check noch Export
+    # kennen es. Downstream greift ueberall `if not u: continue`
+    # (massen_logic gewerk_putz/maler/fliesen/estrich/rohbau), der Raum fiel
+    # also lautlos aus ALLEN umfangsgetriebenen Positionen: LG 10 Innenputz
+    # Waende, LG 46 Anstrich Waende, LG 11 Randdaemmstreifen, LG 08
+    # Wand-Abwicklung. Gleichzeitig stand er weiter in Innenputz DECKEN, im
+    # Estrich und in der Decke — die Liste sah vollstaendig aus.
+    # Der isoperimetrische Ersatz (Block 4a2) laeuft VORHER und greift danach
+    # nicht mehr nach. Also hier selbst ersetzen, mit ehrlicher Quelle
+    # "geschaetzt" — dieselbe Behandlung wie ein von Anfang an fehlendes U.
+    def _u_verwerfen(_r, _u):
+        _r["_umfang_implausibel"] = round(float(_u), 2)
+        _iso = None
+        try:
+            _iso = _nachzeichnen.isoperimetrischer_umfang(_r.get("flaeche_m2"))
+        except Exception:
+            _iso = None
+        if _iso:
+            _r["umfang_m"] = _iso
+            _r["umfang_quelle"] = "geschaetzt"
+        else:
+            _r["umfang_m"] = None
+
     for r in merged_rooms:
         if r.get("_flaeche_editiert"):
             continue   # vom Nutzer am Plan gezogen → als wahr akzeptieren
         f, u = r.get("flaeche_m2"), r.get("umfang_m")
         if f and u and u < 4.0 * (float(f) ** 0.5) * 0.98:
-            r["_umfang_implausibel"] = round(float(u), 2)
-            r["umfang_m"] = None
+            _u_verwerfen(r, u)
         elif f and u and float(u) > 5.0 * float(f) + 2.0:
             # OBERE Schranke: selbst ein extrem schmaler Raum (0,4m Gänge) hat
             # U ≈ 5·F. Ein U weit darüber ist eine als Umfang fehlgelesene
             # Maßketten-/cm-Zahl (Vision auf stempel-losen Plänen: "U=848" bei
             # 9m² Flur) → verwerfen, sonst explodieren die Wandflächen.
-            r["_umfang_implausibel"] = round(float(u), 2)
-            r["umfang_m"] = None
+            _u_verwerfen(r, u)
 
     # 4b2) GESCHOSS/EINHEIT-TRENNUNG für die Rohbau-Mengen:
     # Die Bodenplatte/Decke/Mauerwerk ist EIN EG-Grundriss. Wenn der Plan
@@ -5338,6 +5397,12 @@ async def projekt_massen(body: ProjektMassenRequest):
     # 6c) LEGENDE schlägt Vision + Defaults (byte-exakt aus dem Plan gelesen,
     # wie ein Bautechniker). Wandstärken, Decke, Bodenplatte, Sauberkeit.
     wand_verteilung = None
+    # BYTE-EXAKTES STEILDACH aus der Legende (dachziegel/sparren/first/
+    # dachstuhl/steildach). Es sperrt weiter unten die Attika gegen die
+    # KI-Bildlesungen von Schnitt und Opus: eine gedruckte Legende schlaegt
+    # ein gelesenes Bild. Muss VOR den Vision-Bloecken stehen.
+    _leg_steil = bool(best_legende
+                      and str(best_legende.get("dach_typ") or "").lower() == "steil")
     if _LEGENDE_OK and best_legende:
         leg_bd = _baudaten_aus_legende(best_legende)
         best_baudaten.setdefault("_quellen", {})
@@ -5422,11 +5487,22 @@ async def projekt_massen(body: ProjektMassenRequest):
         if gh_s and 2.2 <= gh_s <= 4.5 and not _s_blockt:
             best_baudaten["geschosshoehe_m"] = round(gh_s, 2)
             best_baudaten.setdefault("_quellen", {})["geschosshoehe_m"] = "schnitt"
-        # Flachdach aus Schnitt → Attika (falls Legende es nicht schon tat)
-        if best_schnitt.get("dachtyp") == "flach":
+        # Flachdach aus Schnitt → Attika (falls Legende es nicht schon tat).
+        # GEGENSPERRE: sagt die BYTE-EXAKTE Legende "steil", darf eine
+        # KI-Bildlesung die Attika nicht einschalten. Der Legende-Zweig oben
+        # aktiviert nur bei "flach" und setzte bislang KEINE Sperre bei
+        # "steil" — die Bildlesung gewann also gegen die gedruckte Legende.
+        # Kosten des Fehlers: drei frei erfundene Positionen (XPS = Umfang ×
+        # 0,50 m², Beton C25/30 = diese Flaeche × 0,15 m³, Steckeisen =
+        # Umfang × 3 Stk) fuer ein Bauteil, das es laut Plan nicht gibt —
+        # bei 44 m Aussenumfang rund 22 m² XPS, 3,3 m³ Beton, 132 Steckeisen.
+        if best_schnitt.get("dachtyp") == "flach" and not _leg_steil:
             ov = body.materialliste_override or {}
             if "attika_aktiv" not in ov:
                 body.materialliste_override = dict(ov, attika_aktiv=1)
+        elif best_schnitt.get("dachtyp") == "flach" and _leg_steil:
+            print("[attika] Schnitt liest 'flach', byte-exakte Legende sagt "
+                  "'steil' → Attika NICHT eingeschaltet (Messung schlaegt Bild)")
         # Dach-Parameter für die GIEBEL-Position spiegeln (ÖNORM-Audit P1:
         # Giebelflächen fehlten komplett — LB-HB LG08 'schräger Abschluss').
         if best_schnitt.get("dachtyp"):
@@ -5483,10 +5559,15 @@ async def projekt_massen(body: ProjektMassenRequest):
         if o_roh and not _blockt:
             best_baudaten["geschosshoehe_m"] = o_roh
             best_baudaten.setdefault("_quellen", {})["geschosshoehe_m"] = "opus"
-        if _ok.dach_typ(best_opus) == "flach":
+        # Gleiche Gegensperre wie beim Schnitt: die byte-exakte Legende
+        # schlaegt das KI-Bild.
+        if _ok.dach_typ(best_opus) == "flach" and not _leg_steil:
             ov = body.materialliste_override or {}
             if "attika_aktiv" not in ov:
                 body.materialliste_override = dict(ov, attika_aktiv=1)
+        elif _ok.dach_typ(best_opus) == "flach" and _leg_steil:
+            print("[attika] Opus liest 'flach', byte-exakte Legende sagt "
+                  "'steil' → Attika NICHT eingeschaltet")
         o_sa = _ok.saeulen(best_opus)   # Säulen nur, falls Schnitt keine lieferte
         sa_opus = o_sa or 0
         if o_sa > 0 and not saeulen_erkannt:
