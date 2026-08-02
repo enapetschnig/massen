@@ -1033,6 +1033,76 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                 if ist_tuer and versch_out is not None and not _gb_glas:
                     rst.rect(versch_out, cx_s - d2, cy - b2, cx_s + d2, cy + b2)
 
+    # ============================================================
+    # ZWEITER DURCHGANG: Türen schließen, wenn die Wandmaske FERTIG ist.
+    #
+    # Gemessen (2026-08-01, 39 undichte Türen im Korpus): die Schleife oben
+    # sucht die Türlücke mit `_tuer_spalt` gegen ein Gitter, das noch im BAU
+    # ist — Schraffur und dunkle Kanten sind da, aber alle Öffnungs-Balken
+    # der übrigen Türen und Fenster fehlen noch. Findet die Suche dort nichts,
+    # fällt der Code auf einen Balken am Textanker zurück, und der sitzt bis
+    # 0,63 m neben der Tür. Am Bild belegt: bei einer echten 0,82-m-Tür
+    # zwischen zwei Räumen lag KEIN Balken an der Lücke, die Raumfarbe lief
+    # rundherum durch.
+    #
+    # Drei naheliegendere Erklärungen wurden vorher mit Zahlen widerlegt:
+    #   · „der Tür-Bogen unterdrückt den Balken"   → 0 von 39 haben einen
+    #     Bogen in 2 m Umkreis
+    #   · „die Suche greift zu kurz"               → 37 von 39 finden schon
+    #     mit den heutigen Parametern einen Spalt
+    #   · „die Achse wird falsch gewählt"          → nur 4 von 39 liegen
+    #     ausschließlich auf der anderen Achse
+    #
+    # Darum hier, am FERTIGEN Gitter: jede Tür, die noch eine Wand·Lücke·Wand-
+    # Struktur zeigt, wird von Wand zu Wand geschlossen. Beide Achsen, weil
+    # die Achsenwahl oben auf demselben unfertigen Gitter beruhte. `_closing`
+    # danach fügt nur hinzu — was hier gebrannt wird, bleibt bestehen.
+    for _o2 in (oeffnungen or []):
+        if _o2.get("typ") != "tuer":
+            continue
+        _cx2, _cy2 = _o2.get("cx"), _o2.get("cy")
+        if _cx2 is None or _cy2 is None:
+            continue
+        _ci2, _cj2 = rst.ij(_cx2, _cy2)
+        if not (0 <= _ci2 < W and 0 <= _cj2 < H):
+            continue
+        _d22 = 0.10 * rst.ptm          # gleiche Tiefe wie oben: ein tieferer
+        _b2 = _o2.get("breite_m")      # Balken frisst Raumfläche
+        for _ach in ("h", "v"):
+            _sp2 = _tuer_spalt(_ci2, _cj2, _b2, _ach)
+            if _sp2 is None:
+                continue
+            _fest2, _lo2, _hi2 = _sp2
+            # PLAUSIBILITÄTS-TOR: nur schließen, was auch wirklich eine Tür
+            # sein kann. Ohne dieses Tor mauerte der Durchgang Lücken bis
+            # 2,56 m zu — das sind Raumdurchgänge, keine Türblätter, und sie
+            # gehören zum Raum. Gemessen ohne Tor: Türen 39→24 (gut), aber
+            # räumlicher Beweis 5→4 und Rohbau-Raumcheck 8→7 (zwei Räume
+            # zerschnitten). Mit Tor bleibt der Türgewinn, ohne die Räume zu
+            # zerteilen.
+            _spw = (_hi2 - _lo2 - 1) * rst.cell / rst.ptm
+            if _b2:
+                if abs(_spw - _b2) > 0.60:
+                    continue           # passt nicht zur beschrifteten Breite
+            elif _spw > 1.80:
+                continue               # ohne Nennmaß: breiter als jede Tür
+            if _ach == "h":
+                _y2 = rst.by0 + _fest2 * rst.cell
+                rst.rect(grid, rst.bx0 + (_lo2 - 1) * rst.cell, _y2 - _d22,
+                         rst.bx0 + (_hi2 + 1) * rst.cell, _y2 + _d22)
+                if versch_out is not None:
+                    rst.rect(versch_out, rst.bx0 + (_lo2 - 1) * rst.cell,
+                             _y2 - _d22, rst.bx0 + (_hi2 + 1) * rst.cell,
+                             _y2 + _d22)
+            else:
+                _x2 = rst.bx0 + _fest2 * rst.cell
+                rst.rect(grid, _x2 - _d22, rst.by0 + (_lo2 - 1) * rst.cell,
+                         _x2 + _d22, rst.by0 + (_hi2 + 1) * rst.cell)
+                if versch_out is not None:
+                    rst.rect(versch_out, _x2 - _d22,
+                             rst.by0 + (_lo2 - 1) * rst.cell, _x2 + _d22,
+                             rst.by0 + (_hi2 + 1) * rst.cell)
+
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))
 
 
