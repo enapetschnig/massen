@@ -455,7 +455,17 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
     # dunklen Kanten brennen — der Verschluss-Balken dichtet die Wandlinie ohnehin.
     tuer_zonen = []
     def _tuer_spalt(ci0, cj0, b_m, achse):
-        """Die Zeile/Spalte mit TUER-STRUKTUR: Wand - Luecke - Wand."""
+        """Die Zeile/Spalte mit TUER-STRUKTUR: Wand - Luecke - Wand.
+
+        SUCHFENSTER 0,70 m — gemessen und so belassen. Naheliegend waere
+        1,0 m: der Textanker streut bis 1,13 m neben die Tuer, und 23 der
+        verbliebenen 29 undichten Tueren BEKAMEN einen Balken, der in einer
+        anderen Zeile sass als das Leck. Genau dieser Schluss wurde geprueft
+        (nur im Zweitdurchgang auf 1,0 m geweitet) und ist WIDERLEGT:
+        undicht 29 -> 35. Ein weiteres Fenster findet Phantom-Spalte —
+        Wand-Luecke-Wand-Strukturen, die keine Tuer sind — und mauert sie zu,
+        was neue Lecks erzeugt. Nicht erneut weiten.
+        """
         b_zell = max(3, int(round((b_m or 0.9) * rst.ptm / rst.cell)))
         cap = max(4, int(round(1.6 * rst.ptm / rst.cell)))
         fen2 = max(2, int(round(0.70 * rst.ptm / rst.cell)))
