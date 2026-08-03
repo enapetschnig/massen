@@ -958,10 +958,22 @@ def gewerk_fenster(rooms, windows, baudaten, geschoss="EG", tueren=None):
             m2 = round(bw * hw, 2)
             masz = f"{bw:.2f}×{hw:.2f} m" if (bw and hw) else "ohne Maß"
             codes = ", ".join(sorted(g["codes"]))
+            # PLAN-ANKER auch für die Öffnungs-Zeilen. Gemessen 2026-08-03:
+            # 31 von 33 Aufmaß-Zeilen waren am Plan zeigbar — die beiden
+            # Ausnahmen waren genau diese Fenster-/Türzeilen. Die Detail-
+            # Tabelle der Öffnungen ist längst klickbar
+            # (`nzHighlightOeffnung`), die AUFMASS-Zeile derselben Öffnung war
+            # es nicht: wer den Rechenweg prüft, konnte zu jedem Raum
+            # springen, aber zu keinem Fenster. Der Anker trägt Typ und Maß,
+            # damit dasselbe Ziel angesprungen wird wie aus der Detailtabelle.
+            _art = "tuer" if "tür" in titel.lower() else "fenster"
             pos.add_zeile(f"{masz}{(' [' + codes + ']') if codes else ''}",
                           anzahl=g["n"], summe=g["n"],
                           quelle=(f"{g['n']}× à {m2} m² = {round(g['n'] * m2, 2)} m² Ansichtsfläche"
-                                  if m2 else f"{g['n']} Stk (Maß am Plan prüfen)"))
+                                  if m2 else f"{g['n']} Stk (Maß am Plan prüfen)"),
+                          anker=({"oeffnung": {"typ": _art, "breite_m": bw,
+                                              "hoehe_m": hw}}
+                                 if (bw and hw) else None))
         pos.konfidenz = konf
         positionen.append(pos)
 

@@ -882,14 +882,24 @@
             // Gebäude-Hülle (blaue Kontur) pulst (Bodenplatte/Decke/WDVS/Gerüst).
             var ank = z.anker && z.anker.raum;
             var ankK = !ank && z.anker && z.anker.ebene === 'konturen';
-            html += '<div class="auf-z' + ((ank || ankK) ? ' auf-z-anker' : '') + '"' +
+            // anker.oeffnung → der Fenster-/Tür-Marker am Plan pulst. Diese
+            // Zeilen waren die EINZIGEN im ganzen Aufmaß ohne Sprung zum Plan
+            // (gemessen 31 von 33 zeigbar): die Öffnungs-Detailtabelle war
+            // längst klickbar, der Rechenweg derselben Öffnung nicht.
+            var ankO = !ank && !ankK && z.anker && z.anker.oeffnung;
+            html += '<div class="auf-z' + ((ank || ankK || ankO) ? ' auf-z-anker' : '') + '"' +
               (ank ? ' onclick="nzHighlightRaum(\'' + _jsStr(z.anker.raum) + '\', \''
                 + _jsStr((z.text || '') + (z.quelle ? ' · ' + z.quelle : '')
                   + (z.wert != null ? ' = ' + fmtNum(z.wert) : '')) + '\')"' +
                 ' title="Am Plan zeigen: ' + esc(z.anker.raum) + '"' : '') +
               (ankK ? ' onclick="nzHighlightKontur()"' +
                 ' title="Am Plan zeigen: Gebäude-Hülle (blaue Kontur)"' : '') +
-              '><span class="az-t">' + ((ank || ankK) ? '📍 ' : '') + esc(z.text || '') + '</span>' +
+              (ankO ? ' onclick="nzHighlightOeffnung(\'' + _jsStr(ankO.typ || 'fenster')
+                + '\',\'\',' + (Number(ankO.breite_m) || 0) + ','
+                + (Number(ankO.hoehe_m) || 0) + ')"' +
+                ' title="Am Plan zeigen: ' + esc(ankO.typ === 'tuer' ? 'Tür' : 'Fenster')
+                + ' ' + fmtNum(ankO.breite_m) + '×' + fmtNum(ankO.hoehe_m) + ' m"' : '') +
+              '><span class="az-t">' + ((ank || ankK || ankO) ? '📍 ' : '') + esc(z.text || '') + '</span>' +
               '<span class="az-q">' + esc(z.quelle || '') + '</span>' +
               '<span class="az-w">' + fmtNum(z.wert) + '</span></div>';
           });
