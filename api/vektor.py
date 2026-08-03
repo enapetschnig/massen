@@ -462,6 +462,12 @@ def wand_poche(page, box=None, min_anteil=0.08, min_absolut=100, pfade=None,
     # (Terrain-Punktmuster grau 0.75 = 132k, Pflaster grau 0.58 = 31k) als Wand —
     # 57,7% der Box wurde Maske, verifiziere_seite lief >40min und 0/52. NUR die
     # DUNKELSTE Grau-Klasse zeichnet die Wände (schwarz 0.0 = 31k, visuell exakt).
+    # 0,3 IST GEMESSEN. Die Grauwert-Verteilung der WM-Diagonalen (403.907)
+    # zeigt vier Gruppen: 0,0 = 64.475 (die echte Wandschraffur), 0,749 =
+    # 228.287 (Gelaende-Punktmuster), 0,58 = 83.954 (Pflaster) und 0,325 =
+    # 1.138. Die naechste Gruppe nach oben mitzunehmen (Schwelle 0,35) wurde
+    # getestet und ist SCHLECHTER: WM 73 -> 72 % Umriss-Wandanteil, Raeume
+    # ueber 90 % von 23 auf 22. Die 0,325-Segmente sind also keine Waende.
     dunkel = [s for s in alle if s[5] is not None and s[5] <= 0.3]
     # LÄNGEN-GATE (TG-Sezierung): echte Poché-Schraffur ist KURZ (WM gemessen:
     # Median 5cm, 99% ≤1m) — lange dunkle Linien im Monochrom-Pfad sind
