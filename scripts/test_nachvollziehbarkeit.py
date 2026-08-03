@@ -47,7 +47,14 @@ RAEUME = [
 FENSTER = [{"breite_m": 1.2, "hoehe_m": 1.4, "typ": "fenster",
             "raum": "Wohnraum Küche", "wand_typ": "AW", "code": "F1"},
            {"breite_m": 2.4, "hoehe_m": 2.2, "typ": "fenster",
-            "raum": "Wohnraum Küche", "wand_typ": "AW", "code": "F2"}]
+            "raum": "Wohnraum Küche", "wand_typ": "AW", "code": "F2"},
+           # OHNE MASS — am echten Korpus waren genau solche Zeilen die
+           # einzigen ohne Plan-Anker (6 von 587). Ausgerechnet sie: dort ist
+           # kein ÖNORM-Abzug möglich, und der Kalkulant will sie am
+           # dringendsten am Plan sehen. Ohne diesen Fall im Testkorpus bleibt
+           # die Lücke unsichtbar — genau wie zuvor bei den Leibungszeilen.
+           {"breite_m": None, "hoehe_m": 1.6, "typ": "fenster",
+            "raum": "Bad", "wand_typ": "AW", "code": "F3"}]
 TUEREN = [{"breite_m": 0.9, "hoehe_m": 2.0, "typ": "tuer",
            "raum": "Bad", "wand_typ": "IW", "code": "T1"}]
 BAUDATEN = {"geschosshoehe_m": 2.7, "aussenwand_cm": 38,
@@ -55,7 +62,7 @@ BAUDATEN = {"geschosshoehe_m": 2.7, "aussenwand_cm": 38,
             "grundflaeche_m2": 120.0}
 # Zeilentypen, die im Korpus VORKOMMEN MÜSSEN — sonst prüft der Wächter nur
 # die einfachen Fälle.
-PFLICHT_ZEILEN = ("Leibung", "Abzug")
+PFLICHT_ZEILEN = ("Leibung", "Abzug", "ohne Maß")
 
 
 def _ui_verdrahtet(fehler):

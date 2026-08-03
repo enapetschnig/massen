@@ -896,9 +896,11 @@
                 ' title="Am Plan zeigen: Gebäude-Hülle (blaue Kontur)"' : '') +
               (ankO ? ' onclick="nzHighlightOeffnung(\'' + _jsStr(ankO.typ || 'fenster')
                 + '\',\'\',' + (Number(ankO.breite_m) || 0) + ','
-                + (Number(ankO.hoehe_m) || 0) + ')"' +
+                + (Number(ankO.hoehe_m) || 0) + ','
+                + (ankO.ohne_mass ? 'true' : 'false') + ')"' +
                 ' title="Am Plan zeigen: ' + esc(ankO.typ === 'tuer' ? 'Tür' : 'Fenster')
-                + ' ' + fmtNum(ankO.breite_m) + '×' + fmtNum(ankO.hoehe_m) + ' m"' : '') +
+                + (ankO.ohne_mass ? ' ohne vollständiges Maß"'
+                   : ' ' + fmtNum(ankO.breite_m) + '×' + fmtNum(ankO.hoehe_m) + ' m"') : '') +
               '><span class="az-t">' + ((ank || ankK || ankO) ? '📍 ' : '') + esc(z.text || '') + '</span>' +
               '<span class="az-q">' + esc(z.quelle || '') + '</span>' +
               '<span class="az-w">' + fmtNum(z.wert) + '</span></div>';
@@ -3972,11 +3974,37 @@
   // Kopplung Öffnungs-DATEN → Plan: eine Fenster-/Tür-Zeile anklicken →
   // der zugehörige Marker am Plan pulst (Traceability, beide Richtungen).
   // Match über Typ + nächstliegende Breite/Höhe (+ Raum, falls am Marker da).
-  window.nzHighlightOeffnung = function (typ, raum, b, h) {
+  window.nzHighlightOeffnung = function (typ, raum, b, h, ohneMass) {
     var sec = _wfZuPlan();
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     var cont = document.getElementById('nachzeichnen-container');
     if (!cont || !_nzData || !_nzData.oeffnungen) return;
+    // ÖFFNUNGEN OHNE MASS lassen sich nicht über Breite×Höhe ansteuern —
+    // sie haben ja keine. Sie sind aber genau die, bei denen kein
+    // ÖNORM-Abzug möglich ist und die am Plan gestrichelt markiert sind.
+    // Darum: ALLE masslosen Marker desselben Typs pulsen lassen.
+    if (ohneMass) {
+      if (_nzWrap) { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
+      var n = 0;
+      (_nzData.oeffnungen || []).forEach(function (o) {
+        if (o.typ !== typ) return;
+        if (o.breite_m && o.hoehe_m) return;          // hat ein Maß
+        var gg = cont.querySelector('g[data-oid="' + o.id + '"]');
+        if (!gg) return;
+        n++;
+        gg.classList.add('nz-hi-oeff');
+        setTimeout(function () { gg.classList.remove('nz-hi-oeff'); }, 3400);
+      });
+      var o1 = document.getElementById('nz-mess-out');
+      if (o1) {
+        o1.innerHTML = n
+          ? ('<strong>' + n + '</strong> ' + (typ === 'tuer' ? 'Türen' : 'Fenster')
+             + ' ohne vollständiges Maß am Plan markiert — dort ist kein '
+             + 'ÖNORM-Abzug möglich.')
+          : '<strong style="color:#b45309">Keine masslose Öffnung auf diesem Blatt.</strong>';
+      }
+      return;
+    }
     var key = _nrmRaum(raum || '');
     var best = null, bestd = 1e9;
     (_nzData.oeffnungen || []).forEach(function (o) {

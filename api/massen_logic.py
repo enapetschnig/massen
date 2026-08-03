@@ -982,9 +982,18 @@ def gewerk_fenster(rooms, windows, baudaten, geschoss="EG", tueren=None):
                           anzahl=g["n"], summe=g["n"],
                           quelle=(f"{g['n']}× à {m2} m² = {round(g['n'] * m2, 2)} m² Ansichtsfläche"
                                   if m2 else f"{g['n']} Stk (Maß am Plan prüfen)"),
-                          anker=({"oeffnung": {"typ": _art, "breite_m": bw,
-                                              "hoehe_m": hw}}
-                                 if (bw and hw) else None))
+                          # AUCH DIE MASSLOSEN ANKERN. Am echten Korpus waren
+                          # 6 von 587 Aufmaß-Zeilen nicht am Plan zeigbar —
+                          # ausnahmslos „ohne Maß"-Zeilen, weil der Anker über
+                          # Breite×Höhe identifiziert. Das trifft ausgerechnet
+                          # die Öffnungen, bei denen KEIN ÖNORM-Abzug möglich
+                          # ist: die will der Kalkulant am dringendsten am Plan
+                          # sehen (sie sind dort gestrichelt markiert). Ohne
+                          # Maß identifiziert der Anker über den Typ.
+                          anker={"oeffnung": (
+                              {"typ": _art, "breite_m": bw, "hoehe_m": hw}
+                              if (bw and hw) else
+                              {"typ": _art, "ohne_mass": True})})
         pos.konfidenz = konf
         positionen.append(pos)
 
