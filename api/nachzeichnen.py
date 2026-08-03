@@ -837,6 +837,86 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         if sn:
             summe[sn] = round(summe.get(sn, 0) + laenge_m, 2)
 
+    # GEWERK JE WAND — die Trennung gehört in die GEOMETRIE, nicht in eine
+    # Nachrechnung auf Summen.
+    #
+    # Der Plan sagt selbst, aus welchem Material eine Wand ist: er beschriftet
+    # sie mit einem Code (AW01, IW03, „C/D/E - IW10a") und definiert diesen
+    # Code in der Legende bzw. der Aufbautentabelle. Daraus fällt das GEWERK:
+    # Mauerwerk (LG 08), Beton (LG 07), Trockenbau (LG 39), Holz (LG 36).
+    #
+    # Warum nicht über die Dicke: sie ist am Korpus nachweislich kein
+    # Material-Signal. Angerer 12 cm = Hochlochziegel; WM IW01a ist 36 cm
+    # dick und trotzdem BETON (200 mm Stahlbeton mit GK-Beplankung davor),
+    # IW10a mit 10 cm ist Trockenbau. Eine Dicken-Regel hätte beide falsch
+    # einsortiert.
+    #
+    # Read-only: das Feld beschreibt nur, was der Plan sagt. Eine Mengen-
+    # Trennung darauf aufzusetzen ist der nächste Schritt — dann aber
+    # konstruktiv doppelzählungsfrei, weil jede Wand genau EIN Gewerk trägt.
+    try:
+        import legende as _leg_m
+        # SPANS, nicht Wörter. „C/D/E - IW01a Wohnungstrennwand," ist EIN Span;
+        # als Wortliste zerfällt es in vier Teile, und dann findet weder der
+        # Anker-Test (Code MIT Zusatztext) noch die Aufbautentabelle etwas —
+        # gemessen: 0 Codes mit Materialklasse trotz 46 Code-Markern.
+        _sp_leg = []
+        for _b in page.get_text("dict").get("blocks", []):
+            if _b.get("type") != 0:
+                continue
+            for _l in _b.get("lines", []):
+                for _s in _l.get("spans", []):
+                    _t = (_s.get("text") or "").strip()
+                    if not _t:
+                        continue
+                    _bb = _s.get("bbox") or (0, 0, 0, 0)
+                    _sp_leg.append({"text": _t, "bbox": _bb,
+                                    "size": _s.get("size", 0),
+                                    "cx": (_bb[0] + _bb[2]) / 2.0,
+                                    "cy": (_bb[1] + _bb[3]) / 2.0})
+        _klasse_von = {}
+        for _c, _d in (_leg_m.parse_legende(_sp_leg).get("wand_typen") or {}).items():
+            if _d.get("materialklasse"):
+                _klasse_von[_c] = _d["materialklasse"]
+        # Die Aufbautentabelle ist die stärkere Quelle (voller Schichtaufbau)
+        # und darf die Kurz-Legende überschreiben.
+        for _c, _d in (_leg_m.aufbau_tabelle(_sp_leg) or {}).items():
+            if _d.get("materialklasse"):
+                _klasse_von[_c] = _d["materialklasse"]
+        # Code-MARKER am Grundriss (nicht die Legende) mit Position.
+        _marker = []
+        for _s in _sp_leg:
+            _m = _leg_m.WAND_CODE_RX.search(_s["text"])
+            if not _m:
+                continue
+            _code = f"{_m.group(1).upper()}{_m.group(2)}"
+            if _code in _klasse_von:
+                _marker.append((_s["cx"], _s["cy"], _klasse_von[_code], _code))
+        if _marker:
+            _rad = 1.6 * ptm      # ein Marker beschriftet die Wand daneben
+            _n_gw = 0
+            for _wd in waende:
+                _pxs = _wd.get("px") or []
+                if len(_pxs) < 4:
+                    continue
+                # Wand-Mitte zurück in PDF-Punkte (px sind skaliert)
+                _mx = ((_pxs[0] + _pxs[2]) / 2.0) / scale + bx0
+                _my = ((_pxs[1] + _pxs[3]) / 2.0) / scale + by0
+                _best = None
+                for _cx, _cy, _kl, _code in _marker:
+                    _dd = ((_cx - _mx) ** 2 + (_cy - _my) ** 2) ** 0.5
+                    if _dd <= _rad and (_best is None or _dd < _best[0]):
+                        _best = (_dd, _kl, _code)
+                if _best:
+                    _wd["gewerk"] = _best[1]
+                    _wd["gewerk_code"] = _best[2]
+                    _n_gw += 1
+            if _n_gw:
+                print(f"[gewerk] {_n_gw} von {len(waende)} Wänden einem Gewerk "
+                      f"zugeordnet ({len(_klasse_von)} Codes mit Materialklasse)")
+    except Exception as _ge:      # pragma: no cover
+        print(f"[gewerk] Zuordnung fehlgeschlagen: {_ge!r}")
+
     # FALLBACK-SUMME für Grundriss-Pläne OHNE Mauerwerks-Legende (Breiten-Test Holzbau
     # 'EG-Wand-Grundriss' 1:50, Holzerleben): dessen Wände messen ~9cm (Ständer/Innen)
     # und ~34cm (gedämmte Außenwand) — keine davon schnappt auf LEG=[50,38,25,20,12],

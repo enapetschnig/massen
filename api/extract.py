@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-03.7"
+APP_REV = "2026-08-03.8"
 
 
 @app.get("/api/extract-health")
@@ -6124,7 +6124,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 69  # + Holzstaenderwand nicht mehr als Trockenbau
+_NZ_CACHE_V = 70  # + Gewerk je Wand aus dem Plan-Code
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
