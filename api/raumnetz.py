@@ -1134,6 +1134,15 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
     # Plaene, die heute tragen, liegen bei 5-12 % und werden nicht angefasst —
     # die Aenderung ist damit monoton und kann bestehende Ergebnisse nicht
     # verschlechtern.
+    #
+    # 3 % IST GEMESSEN, NICHT GERATEN. Der WM-Plan liegt mit 5,3 % zwischen
+    # Velden (1,3 %) und dem Normalband (8-12 %) — es lag nahe, das Tor auf
+    # 6 % zu heben und ihn mitzunehmen. Getestet und VERWORFEN: WM ginge dann
+    # von 73 % auf 69 % Umriss-Wandanteil zurueck, Raeume ueber 90 % von 23
+    # auf 16. Grund steht in der Staerken-Verteilung: von 1247 Wandpaaren auf
+    # WM tragen 324 die Dicke 10 cm und 84 die Dicke 11 cm — das sind Moebel
+    # und Einbauten, keine Waende. Wo die schraffur-verankerte Maske noch
+    # etwas findet, ist sie die bessere Quelle.
     _anteil = sum(grid) / float(max(1, W * H))
     if _anteil < 0.03:
         try:
