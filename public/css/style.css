@@ -3318,6 +3318,20 @@ g[data-raum].nz-hi circle {
 #nachzeichnen-container svg { max-height: none; }
 .nz-plan-gross #nachzeichnen-container .nz-wrap { height: min(76vh, 900px); }
 
+/* TRANSFORM-URSPRUNG LINKS OBEN — der Grund, warum der untere Plan-Teil
+   unerreichbar war.
+   `.nz-zoom` trug gar keinen transform-origin, es galt also der Browser-
+   Standard „50% 50%" (Mitte). Die gesamte Verschiebe-Rechnung in
+   _nzApplyZoom rechnet aber von der LINKEN OBEREN ECKE aus:
+       _nzZoom.y = min(0, max(min(0, Hv - ch), _nzZoom.y))
+   Bei Ursprung Mitte liegt die sichtbare Oberkante des Inhalts nicht bei 0,
+   sondern bei (offsetHeight − ch)/2 — der untere Anschlag greift also zu
+   früh, und der Rest des Plans bleibt unerreichbar. Genau der Nutzer-Befund
+   „ich sehe den unteren Teil des Plans nicht".
+   Mit 0 0 stimmen Skalierung, Verschiebung, Anschlag und der
+   Scrollbalken-Ersatz wieder überein. */
+#nachzeichnen-container .nz-zoom { transform-origin: 0 0; }
+
 /* RAUMLEISTE über dem Plan — jeder Raum ein Knopf. Der Klick im Plan ist der
    schönere Weg, aber nicht der einzige, der tragen muss: auf einer A0-Tafel
    mit 70 Räumen sucht man sonst lange, und mit Stift oder am Touchgerät

@@ -38,11 +38,24 @@ RAEUME = [
      "belag": "Fliesen"},
     {"name": "Zimmer 1", "flaeche_m2": 10.53, "umfang_m": 13.2, "hoehe_m": 2.7},
 ]
-FENSTER = [{"breite_m": 1.2, "hoehe_m": 1.4, "typ": "fenster"},
-           {"breite_m": 2.4, "hoehe_m": 2.2, "typ": "fenster"}]
-TUEREN = [{"breite_m": 0.9, "hoehe_m": 2.0, "typ": "tuer"}]
+# Die Öffnungen tragen ausdrücklich einen RAUM und einen WAND-TYP: nur dann
+# entstehen Abzugs- UND LEIBUNGS-Zeilen. Ohne sie meldete dieser Wächter
+# 34/34, während die Produktion am echten Plan eine ungeankerte Zeile zeigte
+# ("Flur" unter Leibungsputz) — der Testkorpus erzeugte diesen Zeilentyp gar
+# nicht. Ein Wächter, der einen Zeilentyp nicht erzeugt, kann ihn auch nicht
+# prüfen.
+FENSTER = [{"breite_m": 1.2, "hoehe_m": 1.4, "typ": "fenster",
+            "raum": "Wohnraum Küche", "wand_typ": "AW", "code": "F1"},
+           {"breite_m": 2.4, "hoehe_m": 2.2, "typ": "fenster",
+            "raum": "Wohnraum Küche", "wand_typ": "AW", "code": "F2"}]
+TUEREN = [{"breite_m": 0.9, "hoehe_m": 2.0, "typ": "tuer",
+           "raum": "Bad", "wand_typ": "IW", "code": "T1"}]
 BAUDATEN = {"geschosshoehe_m": 2.7, "aussenwand_cm": 38,
-            "aussenumfang_m": 44.0, "grundflaeche_m2": 120.0}
+            "innenwand_tragend_cm": 25, "aussenumfang_m": 44.0,
+            "grundflaeche_m2": 120.0}
+# Zeilentypen, die im Korpus VORKOMMEN MÜSSEN — sonst prüft der Wächter nur
+# die einfachen Fälle.
+PFLICHT_ZEILEN = ("Leibung", "Abzug")
 
 
 def _ui_verdrahtet(fehler):
@@ -110,6 +123,29 @@ def run():
         if art not in arten:
             fehler.append(f"Ankerart '{art}' kommt gar nicht vor — der Fall "
                           f"wird nicht geprüft")
+    # DIE ZEILENTYPEN müssen ebenfalls vorkommen. Genau hier lag der blinde
+    # Fleck: ohne Leibungs-Zeilen im Korpus meldete der Wächter 100 %,
+    # während die Produktion eine ungeankerte Leibungszeile zeigte.
+    # Positions-BESCHREIBUNG und Zeilen-Text gemeinsam durchsuchen: "Leibung"
+    # steht im Positionsnamen ("Leibungsputz bis 0,25 m Tiefe"), "Abzug" im
+    # Zeilentext. Nur eines von beidem zu prüfen hätte den blinden Fleck
+    # bloß verschoben.
+    _alle_texte = " | ".join(
+        [str(pp.get("beschreibung") or "")
+         for gg in (erg.get("gewerke") or {}).values()
+         for pp in (gg.get("positionen") or [])]
+        + [str(x.get("text") or "")
+           for gg in (erg.get("gewerke") or {}).values()
+           for pp in (gg.get("positionen") or [])
+           for x in (pp.get("zeilen") or [])])
+    for _typ in PFLICHT_ZEILEN:
+        if _typ.lower() not in _alle_texte.lower():
+            fehler.append(f"Zeilentyp '{_typ}' kommt im Testkorpus gar nicht "
+                          f"vor — dieser Zeilentyp wird also NICHT auf seinen "
+                          f"Plan-Anker geprüft (genau so entstand der blinde "
+                          f"Fleck bei den Leibungszeilen)")
+        else:
+            print(f"   Zeilentyp '{_typ}' im Korpus vorhanden ✓")
     print("-" * 92)
     if fehler:
         print("FEHLER:")

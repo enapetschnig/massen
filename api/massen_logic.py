@@ -283,19 +283,30 @@ def laibungs_abwicklung(breite_m, hoehe_m, mit_sohlbank=False):
     return 2 * hoehe_m + breite_m + (breite_m if mit_sohlbank else 0)
 
 
-def leibung_zeile(pos_lfm, pos_m2, label, breite_m, hoehe_m, netto):
+def leibung_zeile(pos_lfm, pos_m2, label, breite_m, hoehe_m, netto, anker=None):
     """Leibung NORMRICHTIG verbuchen (B 2204, #1-Rest): Tiefe ≤ 0,25 m →
     Laufmeter-Zeile in pos_lfm (Menge = Abwicklung), tiefer → abgewickelte
-    m²-Zeile in pos_m2. Aufrufer hängt nur nicht-leere Positionen an."""
+    m²-Zeile in pos_m2. Aufrufer hängt nur nicht-leere Positionen an.
+
+    `anker` reicht den Plan-Bezug durch (Traceability). Er fehlte hier als
+    einziger im ganzen Aufmaß: die Abzugs-Zeile derselben Öffnung trug einen
+    Anker, die LEIBUNGS-Zeile nicht — im Rechenweg war die Zeile 'Flur' unter
+    'Leibungsputz bis 0,25 m Tiefe' die einzige ohne Sprung zum Plan.
+    Aufgefallen ist das im Browser am echten Plan, nicht im Wächter: die
+    synthetischen Testräume erzeugen gar keine Leibungszeilen (dafür braucht
+    es Öffnungen mit Tiefe). Der Wächter meldete darum 34/34, während die
+    Produktion eine ungeankerte Zeile zeigte."""
     abw = laibungs_abwicklung(breite_m, hoehe_m, netto["sohlbank"])
     if netto["tiefe"] <= LEIBUNG_LFM_MAX_TIEFE_M:
         pos_lfm.add_zeile(label, laenge=round(abw, 2), summe=abw,
                           quelle=(f"Abwicklung 2H+B{'+B (Sohlbank)' if netto['sohlbank'] else ''}"
-                                  f" · Tiefe {netto['tiefe']*100:.0f} cm ≤ 25 cm → lfm (B 2204)"))
+                                  f" · Tiefe {netto['tiefe']*100:.0f} cm ≤ 25 cm → lfm (B 2204)"),
+                          anker=anker)
     else:
         pos_m2.add_zeile(label, summe=netto["laibung"],
                          quelle=(f"Tiefe {netto['tiefe']:.2f} m > 0,25 → m² · Abwicklung"
-                                 + (" +Sohlbank" if netto["sohlbank"] else "")))
+                                 + (" +Sohlbank" if netto["sohlbank"] else "")),
+                         anker=anker)
 
 
 def _wand_cm_of(w, baudaten):
@@ -566,7 +577,7 @@ def gewerk_putz(rooms, windows, baudaten, geschoss="EG", tueren=None):
             # verrechnet); ≤0,25 m Tiefe als lfm (1.1a), darüber m² (1.1b).
             leibung_zeile(pos_laib, pos_laib_m2,
                           f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
-                          bw, hw, netto)
+                          bw, hw, netto, anker=_anker(r))
     pos.konfidenz = 0.9
     positionen.append(pos)
     if pos_hoch.zeilen:
@@ -804,7 +815,7 @@ def gewerk_maler(rooms, windows, baudaten, geschoss="EG", tueren=None):
                             anker=_anker(r))
             leibung_zeile(pos_laib, pos_laib_m2,
                           f"{_room_name(r)} — {w.get('code','')}".rstrip(" —"),
-                          bw, hw, netto)
+                          bw, hw, netto, anker=_anker(r))
     pos.konfidenz = 0.88
     positionen.append(pos)
     if pos_hoch.zeilen:
@@ -1025,7 +1036,9 @@ def gewerk_daemmung(rooms, windows, baudaten, geschoss="EG", tueren=None):
                              else {"ebene": "konturen"}))
         leibung_zeile(pos_laib, pos_laib_m2,
                       f"{_art} {w.get('code','')}".rstrip(" —"),
-                      w.get("breite_m", 0), w.get("hoehe_m", 0), netto)
+                      w.get("breite_m", 0), w.get("hoehe_m", 0), netto,
+                      anker=({"raum": w.get("raum")} if w.get("raum")
+                             else {"ebene": "konturen"}))
     pos.konfidenz = 0.7
     positionen.append(pos)
     if pos_laib.zeilen:
