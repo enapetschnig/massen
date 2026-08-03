@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-03.8"
+APP_REV = "2026-08-03.9"
 
 
 @app.get("/api/extract-health")

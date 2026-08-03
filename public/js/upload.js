@@ -2012,7 +2012,9 @@
       var netto = Math.round((brutto - abzug) * 100) / 100;
       rows.push({ id: w.id, cm: cm, l: w.laenge_m, exakt: !!w.mass_exakt,
         manuell: !!w.manuell, achse: w.achse, brutto: brutto,
-        nOeff: oe.length, abzug: abzug, netto: netto });
+        nOeff: oe.length, abzug: abzug, netto: netto,
+        // GEWERK aus dem Wand-Code des Plans (nicht aus der Dicke).
+        gewerk: w.gewerk || null, gewerkCode: w.gewerk_code || null });
       sums[cm] = sums[cm] || { n: 0, l: 0, m2: 0 };
       sums[cm].n++; sums[cm].l += w.laenge_m; sums[cm].m2 += netto;
     });
@@ -2024,11 +2026,21 @@
         return _nzTLabel(t) + ': ' + sums[t].n + ' Wände · Σ ' + fmtNum(Math.round(sums[t].l * 100) / 100) +
           ' m · <strong>' + fmtNum(Math.round(sums[t].m2 * 100) / 100) + ' m²</strong> netto';
       }).join(' &nbsp;|&nbsp; ') + '</div>' +
-      '<div class="tbl-scroll"><table class="oa-tab"><thead><tr><th>Wand</th><th>Stärke</th><th>Länge</th><th>Höhe</th>' +
+      '<div class="tbl-scroll"><table class="oa-tab"><thead><tr><th>Wand</th><th>Stärke</th><th>Gewerk</th><th>Länge</th><th>Höhe</th>' +
       '<th>brutto</th><th>Öffnungen</th><th>Abzug >4m²</th><th>netto</th><th>Quelle</th></tr></thead><tbody>';
     rows.forEach(function (r) {
       html += '<tr><td>W' + r.id + ' (' + (r.achse === 'v' ? 'vert.' : 'horiz.') + ')</td>' +
         '<td>' + _nzTLabel(r.cm) + '</td>' +
+        // Das Gewerk steht am Bauteil, nicht in einer Fussnote: wer die
+        // Mengen prueft, sieht sofort, ob eine Wand LG 08 (Mauerwerk),
+        // LG 07 (Beton), LG 39 (Trockenbau) oder LG 36 (Holzbau) ist.
+        '<td>' + (r.gewerk
+          ? '<span title="aus Wand-Code ' + esc(r.gewerkCode || '') +
+            ' laut Plan-Legende">' +
+            ({mauerwerk: 'Mauerwerk', beton: 'Beton',
+              trockenbau: 'Trockenbau', holz: 'Holzbau'}[r.gewerk] || r.gewerk) +
+            '</span>'
+          : '<span style="color:#9aa0a6" title="Plan definiert für diese Wand keinen Aufbau">–</span>') + '</td>' +
         '<td>' + fmtNum(r.l) + ' m' + (r.exakt ? ' <span title="Länge = byte-exakte Plan-Maßzahl">✓</span>' : '') + '</td>' +
         '<td>' + fmtNum(h) + ' m</td>' +
         '<td>' + fmtNum(r.brutto) + ' m²</td>' +
@@ -2665,7 +2677,15 @@
       // Sichtbares Längen-/Stärke-Label auf der Wand (1:1 zum Plan vergleichbar)
       if (!rm && cm && w.laenge_m >= 1.2) {
         var mx = (p[0] + p[2]) / 2, my = (p[1] + p[3]) / 2;
-        var txt = _nzTLabel(cm) + ' · ' + fmtNum(w.laenge_m) + 'm';
+        // GEWERK am Bauteil, wenn der Plan es hergibt. Es kommt aus dem
+        // Wand-CODE (AW01/IW03/…) und dessen Aufbau in der Legende — nicht
+        // aus der Dicke, die am Korpus kein Material-Signal ist (Angerer
+        // 12 cm = Hochlochziegel, WM IW01a 36 cm = Stahlbeton). Wer die
+        // Mengen prüft, sieht damit am Plan, welches Gewerk eine Wand trägt.
+        var _gwTxt = {mauerwerk: 'Mauerwerk', beton: 'Beton',
+                      trockenbau: 'Trockenbau', holz: 'Holzbau'}[w.gewerk] || '';
+        var txt = _nzTLabel(cm) + ' · ' + fmtNum(w.laenge_m) + 'm'
+          + (_gwTxt ? ' · ' + _gwTxt : '');
         labels += '<text x="' + mx + '" y="' + my + '" font-size="' + fs + '" text-anchor="middle" dy="' +
           (w.achse === 'h' ? -fs * 0.5 : fs * 0.35) + '" paint-order="stroke" stroke="#fff" stroke-width="' +
           Math.round(fs / 3.5) + '" fill="' + col + '" style="font-weight:600;pointer-events:none">' + txt + '</text>';
