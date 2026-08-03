@@ -73,6 +73,7 @@ GUARDS = [
     ("Vorwand-Abzug", "test_vorwand.py", "Vorwand"),
     ("Fundamentkante", "test_fundamentkante.py", "korrekt geroutet"),
     ("Legende-Verteilung", "test_legende_verteilung.py", "unveraendert"),
+    ("Materialklasse (Gewerk aus Aufbau)", "test_materialklasse.py", "korrekt zugeordnet"),
     ("Inventar-Crosscheck", "test_inventar_check.py", "Crosscheck"),
     ("Ensemble/Reconciliation", "test_ensemble.py", "deterministisch"),
     ("Opus-Konsum", "test_opus_konsum.py", "additiv"),

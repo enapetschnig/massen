@@ -25,17 +25,70 @@ import re
 
 # Tragende/strukturelle Wand-Materialien (deren Dicke = Rohbau-Wandstärke).
 # Breit gefasst für verschiedene Architekten/Hersteller (AT-Markt).
+# TROCKENBAU GEHÖRT DAZU — sonst bleibt eine Ständerwand materiallos und
+# fällt aus der Legende. Genau daran scheiterte der WM-Plan: seine
+# Wandaufbauten heißen „Vorsatzschale", „Gipskartonwand", „Ständerwand" und
+# waren in diesem Muster nicht vorgesehen, also blieb `wand_typen` leer.
+# Die Materialklasse (Mauerwerk / Beton / Trockenbau / Holz) ist der
+# tragfähige Weg zur Gewerke-Trennung — die WANDDICKE ist es nachweislich
+# nicht (Angerer: 12 cm = Hochlochziegel; WM: 12,5 cm = Ständerwand).
 STRUKTUR_MATERIAL = re.compile(
     r"(hochlochziegel|hlz|ziegel|porotherm|poroton|planziegel|porenbeton|"
     r"stahlbeton|stb\b|beton|ytong|kalksandstein|\bks\b|vollziegel|"
-    r"leichtbeton|liapor|liapor|mauerwerk)", re.I)
+    r"leichtbeton|liapor|liapor|mauerwerk|"
+    r"gipskarton|gkb\b|gkf\b|vorsatzschale|ständerwand|staenderwand|"
+    r"metallständer|mineralwolle|trockenbau)", re.I)
+
+# Materialklasse je Wandaufbau → Gewerk. Reihenfolge = Vorrang: ein Aufbau
+# „Stahlbeton mit GK-Beplankung" ist BETON (LG 07), keine Trockenbauwand;
+# „Holzständerwand" ist Zimmerer (LG 36), nicht LG 39.
+_MATKLASSE = (
+    ("holz", re.compile(r"holzständer|holzstaender|holzriegel|brettsperrholz|blockbau", re.I)),
+    ("beton", re.compile(r"stahlbeton|stb\b|mantelbeton|betonfertigteil", re.I)),
+    ("mauerwerk", re.compile(r"hochlochziegel|hlz|ziegel|porotherm|poroton|planziegel|"
+                             r"porenbeton|ytong|kalksandstein|\bks\b|vollziegel|"
+                             r"leichtbeton|liapor|mauerwerk", re.I)),
+    ("trockenbau", re.compile(r"gipskarton|gkb\b|gkf\b|vorsatzschale|ständerwand|"
+                              r"staenderwand|metallständer|trockenbau", re.I)),
+)
+
+
+def materialklasse(text):
+    """-> 'mauerwerk' | 'beton' | 'trockenbau' | 'holz' | None.
+
+    Ordnet einen gelesenen Wandaufbau seinem GEWERK zu. Nur aus dem Text —
+    keine Ableitung aus der Dicke, die ist am Korpus nachweislich kein
+    Material-Signal.
+    """
+    t = (text or "")
+    if not t:
+        return None
+    for klasse, rx in _MATKLASSE:
+        if rx.search(t):
+            return klasse
+    return None
 # Eine Schicht-Zeile: "<Material> ... <Wert> cm" (auch mm-Toleranz)
 SCHICHT_RX = re.compile(r"([A-Za-zÄÖÜäöüß\-]+).*?(\d+(?:[,.]\d+)?)\s*cm", re.I)
 # Reine Dicken-Angabe ohne Material ("38,0 cm" / "38 cm") — getrennte Layouts
 THICK_RX = re.compile(r"(\d+(?:[,.]\d+)?)\s*cm\b", re.I)
 # Bauteil-Codes — ÖNORM-Standard (Außen/Innen/Trenn/Brand-Wand), toleranter
 # Separator (AW1 / AW 1 / AW-1). Bare "W" bewusst NICHT (zu viele Fehltreffer).
-WAND_CODE_RX = re.compile(r"^(AW|IW|TW|BW)\s*[-_.]?\s*(\d+)\b", re.I)
+#
+# ZWEI ERWEITERUNGEN, beide am WM-Plan gemessen (der vorher KONFIDENZ 0,0 und
+# NULL Wandtypen lieferte, obwohl er eine vollständige Aufbauten-Legende hat):
+#
+# 1. BUCHSTABEN-SUFFIX. `(\d+)\b` scheitert an „IW01a"/„IW10a": zwischen der
+#    Ziffer und dem Buchstaben steht keine Wortgrenze. WM benennt seine
+#    Wandaufbauten aber genau so (IW01a, IW10a neben IW02/IW03/IW09).
+# 2. CODE MITTEN IM TEXT. Die Verankerung am Zeilenanfang findet den Code
+#    nicht, wenn der Plan ihn beschriftet als „C/D/E - IW03" — genau die
+#    Schreibweise am WM-Grundriss. Ein Trenner davor (Anfang, Leerzeichen,
+#    Schrägstrich, Bindestrich, Klammer) reicht als Anker.
+#
+# Die alte Schreibweise (AW1, IW 2) bleibt unverändert getroffen; der
+# Angerer liest weiterhin AW1/AW2/IW1/IW2.
+WAND_CODE_RX = re.compile(
+    r"(?:^|[\s/\-–(\[])(AW|IW|TW|BW)\s*[-_.]?\s*(\d+[a-z]?)(?![0-9])", re.I)
 DECKE_CODE_RX = re.compile(r"^D\s*[-_.]?\s*(\d+)\b", re.I)
 BODEN_CODE_RX = re.compile(r"^B\s*[-_.]?\s*(\d+)\b", re.I)
 WAND_REF_RX = re.compile(r"^(AW|IW|TW|BW)\s*[-_.]?\s*(\d+)\b", re.I)
@@ -132,14 +185,24 @@ def parse_legende(spans: list) -> dict:
     # 1) Wand-Codes in der LEGENDE auflösen (Code-Anchor → Struktur-Dicke daneben)
     for s in spans:
         t = s["text"].strip()
-        m = WAND_CODE_RX.match(t)
+        # SUCHEN statt am Zeilenanfang verankern: der WM-Plan beschriftet
+        # seine Wandaufbauten als „C/D/E - IW03". Ein `.match()` findet den
+        # Code dort nicht, und die ganze Legende blieb leer (Konfidenz 0,0).
+        m = WAND_CODE_RX.search(t)
         if not m:
             continue
         # Nur Legende-Anchors: entweder reiner Code ("AW1"/"AW 1") oder mit
         # Zusatz "tragend/nicht tragend" (typisch Legende). An den Wänden im
         # Grundriss steht meist nur "AW 1" allein — die zählen wir separat.
         rest = t[m.end():].strip().lower()
-        ist_legende_anchor = (rest == "" or "tragend" in rest)
+        # WM schreibt den Aufbau DIREKT HINTER den Code, in denselben Span:
+        # „C/D/E - IW10 Vorsatzschale,". Ein Anker-Test, der nur "" oder
+        # „tragend" durchlässt, verwirft genau diese Zeilen — und damit die
+        # gesamte Legende des Plans (Konfidenz 0,0, null Wandtypen), obwohl
+        # sie vollständig dasteht. Ein Material-Wort hinter dem Code ist
+        # ebenso ein Legende-Anker wie „tragend".
+        ist_legende_anchor = (rest == "" or "tragend" in rest
+                              or bool(STRUKTUR_MATERIAL.search(rest)))
         if not ist_legende_anchor:
             continue
         code = _norm_code(m.group(1), m.group(2))
@@ -147,10 +210,18 @@ def parse_legende(spans: list) -> dict:
             continue
         # Struktur-Dicke (>=5cm schließt Putz/Dämmung aus), kombiniert ODER getrennt
         best_dicke, best_mat = _struktur_dicke_near(spans, s, STRUKTUR_MATERIAL, 5, 60)
+        # Steht das Material im Anker-Text selbst (WM: „… IW10 Vorsatzschale"),
+        # zählt das ebenso — sonst geht es verloren, obwohl es dasteht.
+        if not best_mat and STRUKTUR_MATERIAL.search(rest):
+            best_mat = STRUKTUR_MATERIAL.search(rest).group(0)
         if best_dicke:
             art = "aussen" if m.group(1).upper().startswith("AW") else "innen"
             result["wand_typen"][code] = {
                 "dicke_cm": best_dicke, "material": best_mat, "art": art,
+                # GEWERK je Wandaufbau — die Grundlage für eine spätere
+                # LG-39/LG-07-Trennung, die NICHT auf der Dicke beruht.
+                "materialklasse": materialklasse(
+                    f"{best_mat or ''} {rest}"),
             }
 
     STB_RX = re.compile(r"stahlbeton|stb\b", re.I)
