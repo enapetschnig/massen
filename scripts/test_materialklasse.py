@@ -117,6 +117,77 @@ def run():
                 fehler.append(f"Angerer {code}: Klasse {k!r} statt "
                               f"'mauerwerk' (Aufbau ist Hochlochziegel)")
 
+    # AUFBAUTENTABELLE: manche Polierpläne führen die Wandaufbauten als eigene
+    # Tabelle, weit weg von den Code-Markern, mit dem Wert VOR dem Material und
+    # in MILLIMETERN. Der WM-Plan tut das; die Wandstärke ist dort die SUMME
+    # der Schichten. Genau daran las die App auf WM null Wandtypen.
+    print("\nAufbautentabelle:")
+    ERWARTET = {
+        # code: (dicke_cm, materialklasse, warum)
+        "IW01a": (36.0, "beton",
+                  "200 mm Stahlbeton-Kern → LG 07, trotz GK-Beplankung"),
+        "IW02": (27.5, "beton", "200 mm Stahlbeton-Kern → LG 07"),
+        "IW10a": (10.0, "trockenbau", "Vorsatzschale ohne tragende Schicht"),
+    }
+    g2 = sorted(glob.glob(os.path.expanduser(
+        "~/Downloads/*AU_WM_01 Erdgeschoss*INDEX E.pdf")))
+    if not g2:
+        print("   (WM nicht in ~/Downloads — Tabellen-Probe übersprungen)")
+    else:
+        doc = fitz.open(g2[0])
+        sp2 = []
+        for b in doc[0].get_text("dict").get("blocks", []):
+            if b.get("type") != 0:
+                continue
+            for l in b.get("lines", []):
+                for s in l.get("spans", []):
+                    t = (s.get("text") or "").strip()
+                    if not t:
+                        continue
+                    bb = s["bbox"]
+                    sp2.append({"text": t, "bbox": bb, "size": s.get("size", 0),
+                                "cx": (bb[0] + bb[2]) / 2,
+                                "cy": (bb[1] + bb[3]) / 2})
+        doc.close()
+        tab = LEG.aufbau_tabelle(sp2)
+        for code, (d_soll, k_soll, warum) in ERWARTET.items():
+            d = tab.get(code) or {}
+            d_ist, k_ist = d.get("dicke_cm"), d.get("materialklasse")
+            ok = (d_ist == d_soll and k_ist == k_soll)
+            if not ok:
+                fehler.append(f"WM {code}: {d_ist} cm / {k_ist!r}, erwartet "
+                              f"{d_soll} cm / {k_soll!r} — {warum}")
+            print(f"   {'✓' if ok else 'FALSCH':<7}{code:<8}{str(d_ist):>7} cm  "
+                  f"{str(k_ist):<12}{warum}")
+        # KEIN FEHLALARM: Pläne ohne solche Tabelle dürfen nichts liefern.
+        for muster, lbl in (("A-5_Einreichplan_Alfred-Angerer", "Angerer"),
+                            ("AP.01 Layout-1 (1).pdf", "AP.01")):
+            gg = sorted(glob.glob(os.path.expanduser(f"~/Downloads/*{muster}*")))
+            if not gg:
+                continue
+            doc = fitz.open(gg[0])
+            sp3 = []
+            for b in doc[0].get_text("dict").get("blocks", []):
+                if b.get("type") != 0:
+                    continue
+                for l in b.get("lines", []):
+                    for s in l.get("spans", []):
+                        t = (s.get("text") or "").strip()
+                        if not t:
+                            continue
+                        bb = s["bbox"]
+                        sp3.append({"text": t, "bbox": bb,
+                                    "size": s.get("size", 0),
+                                    "cx": (bb[0] + bb[2]) / 2,
+                                    "cy": (bb[1] + bb[3]) / 2})
+            doc.close()
+            n = len(LEG.aufbau_tabelle(sp3))
+            print(f"   {'✓' if n == 0 else 'FALSCH':<7}{lbl:<8}{n:>7} Aufbauten "
+                  f"(hat keine Tabelle — muss 0 sein)")
+            if n:
+                fehler.append(f"{lbl} hat keine Aufbautentabelle, liefert aber "
+                              f"{n} — Fehlalarm")
+
     print("-" * 92)
     if fehler:
         print("FEHLER:")

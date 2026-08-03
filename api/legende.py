@@ -382,3 +382,105 @@ def wand_verteilung_aus_counts(leg: dict) -> dict:
     if unbekannt:
         result["unbekannte_codes"] = unbekannt
     return result
+
+
+# ── Aufbautentabelle (Schicht-Liste je Wand-Code) ────────────────────────────
+# Manche Polierpläne führen die Wandaufbauten als eigene TABELLE, nicht als
+# Kurz-Legende. Der WM-Plan tut das rechts oben („Wandaufbauten Haus C/D"),
+# weit weg von den Code-Markern am Grundriss, und in einer Form, die der
+# Kurz-Parser nicht sieht:
+#
+#     C/D/E - IW01a Wohnungstrennwand, zu Küche / Nassraum
+#         15mm  Gipskartonbauplatte
+#         50mm  Mineralwolle
+#         10mm  Luftspalt
+#        200mm  Stahlbeton lt. Statik
+#         10mm  Luftspalt
+#         75mm  Mineralwolle
+#
+# Drei Unterschiede zur Kurz-Legende: der Wert steht VOR dem Material, die
+# Einheit ist MILLIMETER, und die Wandstärke ist die SUMME der Schichten
+# (hier 360 mm = 36,0 cm). Genau daran las die App auf WM null Wandtypen.
+#
+# Der Gewinn ist die GEWERKE-ZUORDNUNG: IW01a und IW02 tragen je 200 mm
+# Stahlbeton — das ist LG 07 Beton, nicht Mauerwerk und nicht Trockenbau.
+# Ohne die Tabelle wäre beides an der Dicke nicht zu unterscheiden.
+_MM_RX = re.compile(r"^(\d{1,4})\s*mm$", re.I)
+
+
+def aufbau_tabelle(spans, max_hoehe_pt=300.0, spalte_pt=330.0):
+    """Wandaufbauten aus einer SCHICHT-TABELLE lesen.
+
+    -> {code: {"dicke_cm", "schichten": [(mm, material)], "materialklasse",
+               "tragend_mm", "tragend_material"}}
+
+    Leer, wenn der Plan keine solche Tabelle hat — die Kurz-Legende
+    (`parse_legende`) bleibt davon unberührt.
+    """
+    pts = []
+    for s in spans:
+        t = (s.get("text") or "").strip()
+        if not t:
+            continue
+        bb = s.get("bbox") or (0, 0, 0, 0)
+        pts.append({"t": t, "x": (bb[0] + bb[2]) / 2.0,
+                    "y": (bb[1] + bb[3]) / 2.0, "x0": bb[0]})
+    # Anker = Code MIT Zusatztext (die Tabellen-Überschrift je Aufbau).
+    anker = []
+    for s in pts:
+        m = WAND_CODE_RX.search(s["t"])
+        if m and len(s["t"]) > len(m.group(0)) + 3:
+            anker.append((s, f"{m.group(1).upper()}{m.group(2)}",
+                          s["t"][m.end():]))
+    out = {}
+    for s, code, rest in anker:
+        if code in out:
+            continue
+        # Bis zum NÄCHSTEN Anker derselben Spalte — sonst schluckt der Block
+        # die Schichten des Nachbar-Aufbaus (gemessen: IW01a 63,5 statt
+        # 36,0 cm).
+        grenze = s["y"] + max_hoehe_pt
+        for s2, _c2, _r2 in anker:
+            if s2 is s:
+                continue
+            if abs(s2["x"] - s["x"]) < spalte_pt and s2["y"] > s["y"] + 2:
+                grenze = min(grenze, s2["y"])
+        schichten = []
+        for q in sorted((q for q in pts
+                         if abs(q["x"] - s["x"]) < spalte_pt
+                         and s["y"] < q["y"] < grenze),
+                        key=lambda q: q["y"]):
+            mm = _MM_RX.match(q["t"])
+            if not mm:
+                continue
+            rechts = [r["t"] for r in pts
+                      if abs(r["y"] - q["y"]) < 4 and r["x0"] > q["x"]
+                      and r["x0"] - q["x"] < 260]
+            schichten.append((int(mm.group(1)), rechts[0] if rechts else ""))
+        if len(schichten) < 2:
+            continue
+        # TRAGENDE SCHICHT = dickste mit Struktur-Material. Sie bestimmt das
+        # Gewerk: eine 200-mm-Stahlbetonwand bleibt LG 07, auch wenn
+        # Gipskarton davorsitzt.
+        tragend = None
+        for v, mat in sorted(schichten, key=lambda x: -x[0]):
+            k = materialklasse(mat)
+            if k in ("beton", "mauerwerk", "holz"):
+                tragend = (v, mat, k)
+                break
+        klasse = tragend[2] if tragend else None
+        if not klasse:
+            # Keine tragende Schicht → Trockenbau, wenn es die Schichten oder
+            # die Überschrift sagen („… IW10a Vorsatzschale").
+            if any(materialklasse(mat) == "trockenbau" for _v, mat in schichten):
+                klasse = "trockenbau"
+            else:
+                klasse = materialklasse(rest)
+        out[code] = {
+            "dicke_cm": round(sum(v for v, _m in schichten) / 10.0, 1),
+            "schichten": schichten,
+            "materialklasse": klasse,
+            "tragend_mm": tragend[0] if tragend else None,
+            "tragend_material": tragend[1] if tragend else None,
+        }
+    return out
