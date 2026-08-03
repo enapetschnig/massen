@@ -78,6 +78,11 @@ def run():
             ("IW10a Vorsatzschale, 5cm", True, "Vorsatzschale = Bauteil"),
             ("Gipskartonwand einlagig beplankt", True, "…wand = Bauteil"),
             ("Metallständerwand CW 75", True, "Ständerwand = Bauteil"),
+            # HOLZständerwand ist ZIMMERER (LG 36), nicht Trockenbau (LG 39).
+            # `"ständerwand" in wort` trifft sie als Teilzeichenkette mit —
+            # ein Holzriegelbau würde ins falsche Gewerk gebucht.
+            ("Holzständerwand 12/16", False, "Holzbau = LG 36 Zimmerer"),
+            ("Holzriegelwand mit Zellulose", False, "Holzbau = LG 36"),
         ):
             doc = fitz.open(p)
             doc[0].insert_text((700, 80), txt, fontsize=8)

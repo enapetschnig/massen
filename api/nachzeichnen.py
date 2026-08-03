@@ -152,6 +152,29 @@ def geometrie_umfang(reg_pt, f_m2, ptm):
             "u_bbox_m": round(u_bbox, 2), "a_poly_m2": round(a_m2, 2)}
 
 
+def _tb_wort(wort):
+    """Benennt dieses Wort eine TROCKENBAU-WAND (LG 39)?
+
+    Zwei Verwechslungen sind hier belegt und werden ausgeschlossen:
+
+    1. Eine PLATTE ist keine WAND. Das frühere Muster „gipskarton" traf auch
+       „Gipskartonplatte" — ein Material-Eintrag der Schichtaufbau-Legende.
+       Auf AP.01 und am Angerer war das der EINZIGE Treffer, und der Hinweis
+       riet dort, 74 bzw. 63 m Wandlänge von LG 08 nach LG 39 zu buchen.
+    2. HOLZständerwand ist Zimmerer (LG 36), nicht Trockenbau. Die
+       Teilzeichenketten-Prüfung „ständerwand" trifft sie mit.
+    """
+    w = (wort or "").lower()
+    if not w:
+        return False
+    if "holzständer" in w or "holzstaender" in w or "holzriegel" in w:
+        return False
+    return ("trockenbauw" in w or "gipskartonwand" in w
+            or "gipskartonwände" in w or "vorsatzschale" in w
+            or "ständerwand" in w or "staenderwand" in w
+            or "metallständer" in w)
+
+
 def isoperimetrischer_umfang(f_m2, aspekt=1.35):
     """FALLBACK-Umfang für Räume OHNE Polygon UND ohne U-Stempel: aus der byte-
     exakten Fläche + angenommenem Seitenverhältnis (Default 1,35 ≈ typischer
@@ -1399,15 +1422,15 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # "Gipskartonwand", "IW10a Vorsatzschale".
             # Es zählt also nur, was eine WAND benennt, nicht was eine PLATTE
             # benennt. Gleiche Logik wie das Boilerplate-Gate der Farb-Legende.
+            # HOLZSTÄNDERWAND IST ZIMMERER (LG 36), NICHT TROCKENBAU (LG 39).
+            # `"ständerwand" in wort` trifft als Teilzeichenkette auch
+            # „Holzständerwand" — ein Holzriegelbau würde damit als Trockenbau
+            # gemeldet und der Kalkulant ins falsche Gewerk geschickt. Auf dem
+            # eigenen Korpus nicht auslösbar (die Holzbau-PDFs sind Verträge,
+            # keine Pläne), die Verwechslung ist aber real und die Absicherung
+            # kostet nichts.
             "trockenbau_hinweis": any(
-                ("trockenbauw" in w[4].lower()
-                 or "gipskartonwand" in w[4].lower()
-                 or "gipskartonwände" in w[4].lower()
-                 or "vorsatzschale" in w[4].lower()
-                 or "ständerwand" in w[4].lower()
-                 or "staenderwand" in w[4].lower()
-                 or "metallständer" in w[4].lower())
-                for w in (worte or [])),
+                _tb_wort(w[4]) for w in (worte or [])),
             # Öffnungen ohne vollständiges Maß → stiller Nulldurchgang beim
             # ÖNORM-Abzug. Siehe Begründung bei der Berechnung oben.
             "oeffnungen_hinweis": oeffnungen_hinweis,
