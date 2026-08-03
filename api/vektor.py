@@ -24,6 +24,32 @@ def _drawings(page, pfade=None):
         n_pfade += 1
         w = p.get("width") or 0.0
         col = p.get("color")            # stroke-Farbe (r,g,b) 0..1 oder None
+        # DUNKELHEIT EINER LINIE — nicht der RGB-Mittelwert.
+        #
+        # Bisher stand hier `sum(col)/3`. Das ist keine Helligkeit, sondern ein
+        # Mittelwert, und er verwirft gesättigte Farben: Magenta (1,0,1) ergibt
+        # 0,667 und fällt damit durch die Schwelle 0,45 in nachzeichnen.py.
+        # Am Velden-Ausführungsplan sind die WÄNDE magenta gezeichnet —
+        # 28.718 Pfade mit 202.115 pt Länge, die komplett weggeworfen wurden.
+        # Am gerenderten Bild belegt: die Wandmaske lag dort als Sprenkel auf
+        # Beschriftung und Symbolen, die Wandlinien selbst trugen nichts.
+        # Folge: 1,3 % Wandfläche statt der üblichen 8–12 %, und nur 22 % des
+        # Raum-Umrisses lag auf einer Wand (Angerer zum Vergleich: 90 %).
+        #
+        # Perzeptive Luminanz (0,299R+0,587G+0,114B) wurde gemessen und ist
+        # NICHT die Lösung: sie bricht AP.01 (62.949 → 5.659 Pfade) und
+        # Angerer (36.685 → 9.839) zusammen, weil deren Schraffur-Gelbgrün
+        # hell rechnet. Was trägt, ist der DUNKELSTE KANAL: eine bewusst
+        # gezeichnete Linie hat mindestens einen kräftigen Farbanteil, ein
+        # blasses Hilfslinien-Grau hat keinen. Hellgrau (0,79/0,79/0,79)
+        # bleibt damit draußen, Magenta kommt herein.
+        # GEMESSEN UND VERWORFEN: `min(sum(col)/3, min(col))` sollte gesättigte
+        # Farben (Magenta-Wände am Velden-Plan) einbeziehen. Es brachte dort
+        # aber fast nichts (Wandmaske 1,3 → 1,5 %), weil diese Maske
+        # SCHRAFFUR-verankert ist — ohne Poché nützt eine dunklere Linie nichts.
+        # Auf WM dagegen kostete es: Türen 16 → 23 undicht, dicht 14 → 11.
+        # Der tragfähige Weg für schraffurlose Pläne ist der Wandpaar-Rückfall
+        # in raumnetz.wand_maske, nicht ein weicheres Farbkriterium.
         grau = round(sum(col) / 3.0, 3) if col else None   # None = „kein Strich"/füllt
         typ = p.get("type")             # 's' stroke, 'f' fill, 'fs' beides
         for it in p.get("items", []):

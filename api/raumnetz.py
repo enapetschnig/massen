@@ -1113,6 +1113,52 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                              rst.by0 + (_lo2 - 1) * rst.cell, _x2 + _d22,
                              rst.by0 + (_hi2 + 1) * rst.cell)
 
+    # ============================================================
+    # WAND-PAAR-RUECKFALL: Plaene, die Waende OHNE Poche zeichnen.
+    #
+    # Diese Maske ist schraffur-verankert — dunkle Kanten zaehlen nur, wenn
+    # Schraffur in der Naehe liegt. Das traegt, solange der Plan seine Waende
+    # ausschraffiert. Der Velden-Ausfuehrungsplan (Tiefgarage) zeichnet sie
+    # dagegen als reine Umrisslinien in Magenta, ohne Fuellung. Ergebnis,
+    # gemessen: 1,3 % Wandflaeche statt der ueblichen 8-12 %, und nur 22 % des
+    # Raum-Umrisses lag auf einer Wand (Angerer zum Vergleich: 90 %). Am
+    # gerenderten Bild belegt: die Maske lag als Sprenkel auf Beschriftung,
+    # die Wandlinien selbst trugen nichts.
+    #
+    # `vektor.wand_paare` findet genau diese Waende ueber PARALLELE
+    # LINIENPAARE in Wandstaerke — auf Velden 213 Paare, 702 m, mit
+    # plausiblen Staerken (12/11/25/50 cm). Diese Quelle braucht keine
+    # Schraffur.
+    #
+    # GATE: nur wenn die Maske duenn geblieben ist (<3 % der Rasterflaeche).
+    # Plaene, die heute tragen, liegen bei 5-12 % und werden nicht angefasst —
+    # die Aenderung ist damit monoton und kann bestehende Ergebnisse nicht
+    # verschlechtern.
+    _anteil = sum(grid) / float(max(1, W * H))
+    if _anteil < 0.03:
+        try:
+            import vektor as _vek
+            _pa = _vek.wand_paare(dark_segs, rst.ptm, hatch=None,
+                                  mit_geometrie=True)
+            _n_add = 0
+            for _w in (_pa or []):
+                _d2 = max(rst.cell, (_w.get("dist_pt") or 0) / 2.0)
+                _x0, _y0 = _w.get("x0"), _w.get("y0")
+                _x1, _y1 = _w.get("x1"), _w.get("y1")
+                if None in (_x0, _y0, _x1, _y1):
+                    continue
+                if _w.get("achse") == "v":
+                    rst.rect(grid, _x0 - _d2, _y0, _x1 + _d2, _y1)
+                else:
+                    rst.rect(grid, _x0, _y0 - _d2, _x1, _y1 + _d2)
+                _n_add += 1
+            if _n_add:
+                print(f"[wand-maske] duenn ({_anteil*100:.1f}%) → "
+                      f"{_n_add} Wandpaare ergaenzt "
+                      f"({sum(grid)/float(W*H)*100:.1f}%)")
+        except Exception as _pe:      # pragma: no cover
+            print(f"[wand-maske] Wandpaar-Rueckfall fehlgeschlagen: {_pe!r}")
+
     return _closing(grid, W, H, max(1, int(closing_m / rst.zm)))
 
 

@@ -191,6 +191,19 @@ def run():
     print(f"{'Plan':<44}{'Türen':>7}{'dicht':>7}{'UNDICHT':>9}{'n.bew.':>8}")
     print("-" * 84)
     ges_d = ges_u = 0
+    # PRO PLAN pinnen, nicht nur die Summe.
+    # Am 2026-08-03 riss die Summen-Ratsche (29 → 32), obwohl KEIN Plan
+    # schlechter geworden war: der Wandpaar-Rückfall machte den Velden-Plan
+    # erstmals überhaupt messbar (0 → 6 bewertbare Türen, davon 3 undicht).
+    # Eine Summen-Schranke kann „neue Abdeckung" nicht von „Regression"
+    # unterscheiden — der A/B-Test musste es zeigen. Pro Plan kann sie das.
+    MAX_UNDICHT = {
+        "A-5_Einreichplan_Alfred-Angerer": 0,
+        "AP.01 Layout-1 (1).pdf": 6,
+        "AU_WM_01 Erdgeschoss_INDEX E.pdf": 23,
+        "WA_Velden_Franzosen Allee_Ausführung_TG": 3,
+    }
+    pro_plan = {}
     for m in PLAENE:
         g = sorted(glob.glob(os.path.expanduser(f"~/Downloads/*{m}*")))
         if not g:
@@ -211,6 +224,7 @@ def run():
         for o in tueren:
             z[_tuer_dicht(label, rst, o, grid)] += 1
         ges_d += z["dicht"]; ges_u += z["undicht"]
+        pro_plan[m] = z["undicht"]
         print(f"{os.path.basename(g[0])[:42]:<44}{len(tueren):>7}"
               f"{z['dicht']:>7}{z['undicht']:>9}{z['offen']:>8}")
     print("-" * 84)
@@ -246,9 +260,17 @@ def run():
     # Darum: die ANZAHL undichter Türen ist die Ratsche, und ein niedriger
     # Boden stellt nur sicher, dass überhaupt gemessen wurde.
     assert bew >= 25, f"nur {bew} Türen bewertbar — Messung untauglich"
-    assert ges_u <= 30, (
-        f"Tür-Dichtung geregressiert: {ges_u} undichte Türen "
-        f"(Stand nach Zweitdurchgang 29, Ausgangslinie 39 von 68)")
+    # PRO PLAN prüfen: nur ein Plan, der SCHLECHTER wird, ist eine Regression.
+    _reg = [f"{m.split('_')[0][:16]}: {n} statt max {MAX_UNDICHT[m]}"
+            for m, n in pro_plan.items()
+            if m in MAX_UNDICHT and n > MAX_UNDICHT[m]]
+    assert not _reg, ("Tür-Dichtung geregressiert — "
+                      + " · ".join(_reg)
+                      + f" (Korpus {ges_u} undicht von {bew}; "
+                        f"Ausgangslinie 39 von 68)")
+    print(f"   pro Plan gepinnt: "
+          + " · ".join(f"{m.split('_')[0][:14]}≤{MAX_UNDICHT[m]}"
+                       for m in MAX_UNDICHT))
 
 
 if __name__ == "__main__":
