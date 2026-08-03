@@ -2797,9 +2797,30 @@
       }
     });
     (_nzData.raeume || []).forEach(function (r) {
-      // 3 Stufen: voll verifiziert (F+U) · Fläche bestätigt (F exakt, U prüfen) · prüfen
-      var ok = r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen;
-      var fOk = !ok && r.status === 'u_daneben';
+      // 4 Stufen — die dritte war das Problem.
+      //
+      // "voll bestätigt" hiess bisher `status === 'verifiziert'`. Dieser
+      // Status wird aber auch vergeben, wenn der Plan GAR KEINEN Umfang
+      // stempelt: dann ist nur die FLÄCHE geprüft, die FORM überhaupt nicht.
+      // Am AP.01-Polierplan tragen alle 9 Räume u_m = null, trotzdem standen
+      // 8 als grün "voll bestätigt" da — während der Umriss des Carports
+      // sichtbar über den Sickerschacht lief (Nutzer-Befund, am Bild belegt).
+      // Die App weiss es sogar selbst: dieselben Räume tragen
+      // region_geschaetzt = true und iou_max_form 0,79 (unter der
+      // Beweisschwelle 0,85). Ein grüner Haken auf einer geschätzten Lage ist
+      // eine Behauptung, keine Messung.
+      //
+      // Neu: grün nur, wenn die FORM tatsächlich gegen den Plan geprüft wurde
+      // — durch IoU-Beweis, Rohbau-Fluchtrechteck oder einen gestempelten
+      // Umfang, der zur Geometrie passt.
+      var _uSoll = r.u_m, _uIst = (r.u_geometrie_poly != null ? r.u_geometrie_poly
+        : (r.u_geometrie != null ? r.u_geometrie : r.u_ist));
+      var formGeprueft = !!(r.iou_bewiesen || r.rohbau_ok ||
+        (_uSoll && _uIst != null && Math.abs(_uIst / _uSoll - 1) <= 0.15));
+      var geschaetzt = !!r.region_geschaetzt;
+      var ok = (r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen) &&
+        formGeprueft && !geschaetzt;
+      var fOk = !ok && (r.status === 'u_daneben' || r.status === 'verifiziert');
       if (ok) nRaumOk++; else if (fOk) nRaumF++;
       var col = ok ? '#16a34a' : (fOk ? '#0d9488' : '#d97706');
       var tip = (r.name || '?') + ' — F ' + fmtNum(r.f_m2) + ' m² lt. Plan' +
@@ -2843,7 +2864,8 @@
       // Fläche + Abweichung, damit die zu prüfenden Stellen ohne Hover auffallen.
       if (!ok && r.f_ist != null && r.f_m2) {
         var dpct = Math.round((r.f_ist - r.f_m2) / r.f_m2 * 100);
-        var note = fOk ? 'Umfang prüfen' : ('erkannt ' + fmtNum(r.f_ist) + ' (' + (dpct >= 0 ? '+' : '') + dpct + '%)');
+        var note = fOk ? (geschaetzt ? 'Umriss geschätzt' : 'Form ungeprüft')
+          : ('erkannt ' + fmtNum(r.f_ist) + ' (' + (dpct >= 0 ? '+' : '') + dpct + '%)');
         raumBadges += '<text x="' + (r.px[0] + fs * 0.9) + '" y="' + (r.px[1] - fs * 1.6) + '"' +
           ' font-size="' + Math.round(fs * 0.62) + '" dy="' + Math.round(fs * 0.22) + '" fill="' + col +
           '" stroke="#fff" stroke-width="0.7" paint-order="stroke" style="pointer-events:none">' +
@@ -2853,10 +2875,17 @@
     var s = _nzSplit(), ges = s.ges;
     var legend = '';
     if (_nzData.raeume && _nzData.raeume.length) {
+      // Die mittlere Stufe heisst jetzt, was sie ist: die FLÄCHE stimmt, die
+      // FORM ist ungeprüft. Auf Plänen ohne gestempelten Umfang ist das der
+      // Normalfall — und der Kalkulant muss es wissen, bevor er den Umriss
+      // für bare Münze nimmt.
+      var _nUngeprueft = _nzData.raeume.length - nRaumOk - nRaumF;
       legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:#16a34a;border-radius:50%"></span>' +
-        '<strong>' + nRaumOk + '</strong>&nbsp;voll bestätigt</span>' +
+        '<strong>' + nRaumOk + '</strong>&nbsp;Form am Plan bewiesen</span>' +
         '<span class="nz-leg-item"><span class="nz-sw" style="background:#0d9488;border-radius:50%"></span>' +
-        '<strong>' + nRaumF + '</strong>&nbsp;Fläche exakt (Umfang prüfen)</span>' +
+        '<strong>' + nRaumF + '</strong>&nbsp;Fläche stimmt · Form ungeprüft</span>' +
+        (_nUngeprueft > 0 ? '<span class="nz-leg-item"><span class="nz-sw" style="background:#d97706;border-radius:50%"></span>' +
+          '<strong>' + _nUngeprueft + '</strong>&nbsp;prüfen</span>' : '') +
         '<span class="nz-leg-item">von <strong>' + _nzData.raeume.length + '</strong> Räumen</span>';
     }
     Object.keys(ges).map(Number).sort(function (a, b) { return b - a; }).forEach(function (t) {
