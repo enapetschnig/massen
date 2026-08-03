@@ -2739,7 +2739,7 @@
     });
     // RAUM-VERIFIKATION: grün = Geometrie gegen die Plan-Stempel (F+U) BEWIESEN,
     // gelb = prüfen. Der Plan validiert sich selbst.
-    var nRaumOk = 0, nRaumF = 0, raumBadges = '';
+    var nRaumOk = 0, nRaumF = 0, nRaumWl = 0, raumBadges = '';
     // REKONSTRUIERTE RAUM-REGIONEN als Umriss ÜBER dem Plan (nachvollziehbar:
     // die geometrische Lesart der App — grün deckt sich mit dem Raum, Prüf-Farbe
     // zeigt, wo die Rekonstruktion abweicht). Nur verlässliche, achsparallele
@@ -2843,8 +2843,16 @@
       var ok = (r.status === 'verifiziert' || r.rohbau_ok || r.iou_bewiesen) &&
         formGeprueft && !geschaetzt;
       var fOk = !ok && (r.status === 'u_daneben' || r.status === 'verifiziert');
-      if (ok) nRaumOk++; else if (fOk) nRaumF++;
-      var col = ok ? '#16a34a' : (fOk ? '#0d9488' : '#d97706');
+      // WIDERLEGT getrennt zaehlen: der Plan stempelt einen Umfang UND er
+      // widerspricht dem Umriss. Das ist keine offene Frage, sondern ein
+      // Befund — und er gehoert in die Legende, nicht nur in den Tooltip.
+      var _wl = fOk && _uSoll && _uIst != null &&
+        Math.abs(_uIst / _uSoll - 1) > 0.15;
+      if (ok) nRaumOk++; else if (_wl) { nRaumF++; nRaumWl++; }
+      else if (fOk) nRaumF++;
+      // Ein Haken auf einer vom Plan widerlegten Form ist die Art
+      // Zusage, die der Nutzer am Bildschirm als Fehler erlebt.
+      var col = ok ? '#16a34a' : (_wl ? '#dc2626' : (fOk ? '#0d9488' : '#d97706'));
       var tip = (r.name || '?') + ' — F ' + fmtNum(r.f_m2) + ' m² lt. Plan' +
         (r.f_ist != null ? ' (rekonstruiert ' + fmtNum(r.f_ist) + ')' : '');
       if (r.u_m) {
@@ -2877,17 +2885,45 @@
         hybrid: 'Hybrid (Fläche aus Rohbau, Umfang aus Fertig-Pass)'
       };
       if (ok && r.ebene && EBENE[r.ebene]) tip += '  ·  Beweis: ' + EBENE[r.ebene];
+      // UMRISS AUF WAND — Angabe, kein Urteil. Als Beweisregel ist sie am
+      // Korpus widerlegt (80% Präzision: richtige Fläche, falsche Proportion
+      // schmiegt sich an Wände sogar besonders gut an). Als Auskunft für den
+      // Prüfer ist sie wertvoll: ein Zimmer bei 33% ist verdächtig, ein
+      // Parkplatz bei 46% völlig normal — Freiflächen haben keine Wände.
+      if (r.umriss_wand != null) {
+        tip += '  ·  Umriss folgt zu ' + Math.round(r.umriss_wand * 100) +
+          '% gezeichneten Wänden';
+      }
       raumBadges += '<g data-raum="' + esc(_nrmRaum(r.name)) + '"><circle cx="' + r.px[0] + '" cy="' + (r.px[1] - fs * 1.6) + '" r="' + (fs * 0.62) + '"' +
         ' fill="' + col + '" stroke="#fff" stroke-width="2"/>' +
         '<text x="' + r.px[0] + '" y="' + (r.px[1] - fs * 1.6) + '" font-size="' + Math.round(fs * 0.75) + '"' +
         ' text-anchor="middle" dy="' + Math.round(fs * 0.26) + '" fill="#fff" style="font-weight:700;pointer-events:none">' +
-        (ok || fOk ? '✓' : '?') + '</text><title>' + tip + '</title></g>';
+        (_wl ? '!' : (ok || fOk ? '✓' : '?')) + '</text><title>' + tip + '</title></g>';
       // PRÜF-RÄUME sichtbar am Plan beschriften (nicht nur im Tooltip): erkannte
       // Fläche + Abweichung, damit die zu prüfenden Stellen ohne Hover auffallen.
       if (!ok && r.f_ist != null && r.f_m2) {
         var dpct = Math.round((r.f_ist - r.f_m2) / r.f_m2 * 100);
-        var note = fOk ? (geschaetzt ? 'Umriss geschätzt' : 'Form ungeprüft')
+        // „Form ungeprüft" war zu freundlich, wo der Plan die Form
+        // TATSÄCHLICH GEPRÜFT UND VERWORFEN hat: liegt ein U-Stempel vor und
+        // widerspricht er dem Umriss, ist die Form nicht offen, sondern
+        // widerlegt. Am Korpus betraf das 13 von 46 Umrissen mit U-Stempel
+        // (28 %) — sie standen alle unter „ungeprüft". Der Prüfer muss den
+        // Unterschied sehen: ungeprüft heißt nachsehen, widerlegt heißt
+        // nicht verwenden.
+        var uAb = (_uSoll && _uIst != null) ? (_uIst / _uSoll - 1) : null;
+        var note = fOk
+          ? ((uAb != null && Math.abs(uAb) > 0.15)
+              ? ('Form widerlegt: U ' + fmtNum(Math.round(_uIst * 100) / 100)
+                 + ' statt ' + fmtNum(_uSoll) + ' m')
+              : (geschaetzt ? 'Umriss geschätzt' : 'Form ungeprüft'))
           : ('erkannt ' + fmtNum(r.f_ist) + ' (' + (dpct >= 0 ? '+' : '') + dpct + '%)');
+        // Der Prüfer sieht sofort, WORAN er den Umriss messen kann: liegt er
+        // auf gezeichneten Wänden, ist die Lage belegt (die Proportion nicht
+        // — dafür ist die Kennzahl widerlegt). Liegt er im Freien, ist er
+        // entweder eine Freifläche oder falsch.
+        if (r.umriss_wand != null) {
+          note += ' · ' + Math.round(r.umriss_wand * 100) + '% auf Wand';
+        }
         raumBadges += '<text x="' + (r.px[0] + fs * 0.9) + '" y="' + (r.px[1] - fs * 1.6) + '"' +
           ' font-size="' + Math.round(fs * 0.62) + '" dy="' + Math.round(fs * 0.22) + '" fill="' + col +
           '" stroke="#fff" stroke-width="0.7" paint-order="stroke" style="pointer-events:none">' +
@@ -2905,7 +2941,12 @@
       legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:#16a34a;border-radius:50%"></span>' +
         '<strong>' + nRaumOk + '</strong>&nbsp;Form am Plan bewiesen</span>' +
         '<span class="nz-leg-item"><span class="nz-sw" style="background:#0d9488;border-radius:50%"></span>' +
-        '<strong>' + nRaumF + '</strong>&nbsp;Fläche stimmt · Form ungeprüft</span>' +
+        '<strong>' + (nRaumF - nRaumWl) + '</strong>&nbsp;Fläche stimmt · Form ungeprüft</span>' +
+        (nRaumWl > 0 ? '<span class="nz-leg-item" title="Der Plan stempelt einen Umfang, '
+          + 'und er widerspricht dem gezeichneten Umriss um mehr als 15 %. Die Fläche ist '
+          + 'byte-exakt richtig, die FORM nachweislich nicht — diesen Umriss nicht als Beweis verwenden.">'
+          + '<span class="nz-sw" style="background:#dc2626;border-radius:50%"></span>'
+          + '<strong>' + nRaumWl + '</strong>&nbsp;Form vom Plan widerlegt</span>' : '') +
         (_nUngeprueft > 0 ? '<span class="nz-leg-item"><span class="nz-sw" style="background:#d97706;border-radius:50%"></span>' +
           '<strong>' + _nUngeprueft + '</strong>&nbsp;prüfen</span>' : '') +
         '<span class="nz-leg-item">von <strong>' + _nzData.raeume.length + '</strong> Räumen</span>';

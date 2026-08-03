@@ -2031,6 +2031,83 @@ def _fassaden_schluss(grid, W, H, zm, tol_m=0.20, max_gap_m=2.5, min_run_m=0.50)
     return n_neu, luecken
 
 
+def umriss_auf_wand(poly_pt, grid, rst, r_cells=3):
+    """Wie viel des Raum-Umrisses liegt WIRKLICH auf einer Wand? (0..1)
+
+    Die zweite, unabhängige Beweisstufe. Bisher galt eine Raumform nur dann
+    als bewiesen, wenn der Plan einen UMFANG stempelt (dann prüft U_ist gegen
+    U_soll) oder der IoU-/Rohbau-Beweis griff. Auf Polierplänen ohne
+    U-Stempel blieb die Form damit dauerhaft „ungeprüft" — obwohl der Plan
+    die Wahrheit sichtbar enthält: eine richtige Raumgrenze verläuft ENTLANG
+    der gezeichneten Wände.
+
+    Genau das wird hier gemessen. Der Umriss wird in Zellenschritten
+    abgelaufen; ein Abtastpunkt zählt, wenn innerhalb von r_cells eine
+    Wandzelle liegt. Das Ergebnis ist ein Anteil und braucht KEINE fremde
+    Wahrheit — nur den Plan selbst.
+
+    Die Toleranz r_cells ist nötig, weil das Polygon auf der RAUMseite der
+    Wand liegt (Douglas-Peucker über Randzellen) und die Wandzelle damit
+    ein bis zwei Zellen weiter außen sitzt. Bei zelle_m = 0,02 sind 3 Zellen
+    = 6 cm — schmaler als jede Wand, also kein Freibrief.
+
+    Türöffnungen zählen mit: der Tür-Durchgang wird in der Maske ohnehin
+    zugebrannt, ein Fenster liegt in der Außenwand. Ein Umriss, der quer
+    durch einen Raum läuft oder im Freien liegt, fällt dagegen sofort durch.
+
+    ALS BEWEIS WIDERLEGT — nicht erneut als grünen Haken bauen.
+    Gemessen 2026-08-04 an 72 Umrissen auf 4 echten Plänen
+    (scripts/mess_umriss_auf_wand.py). Die naheliegende Regel
+        Flächen-Treue ≤ 5 %  UND  auf Wand ≥ 85 %  →  Form bewiesen
+    erreicht auf der einzigen Teilmenge mit harter Wahrheit (46 Räume mit
+    byte-exakt gestempeltem Umfang) nur 80 % Präzision: 8 richtig, 2 falsch.
+    Der Fehlermodus ist grundsätzlich, nicht justierbar — WM-Loggia,
+    Stempel 3,60 × 2,62 m, rekonstruiert 6,11 × 1,55 m: RICHTIGE FLÄCHE,
+    falsche Proportion. Ein langer schmaler Streifen schmiegt sich an
+    Wände sogar besonders gut an (89,7 %). Fläche und Wandnähe können die
+    Proportion prinzipiell nicht prüfen; dafür braucht es die Maßketten
+    (raum_iou_beweis) oder den gestempelten Umfang.
+    Auch ein dritter Test half nicht: die Zackigkeit (Polygon-Umfang gegen
+    Bounding-Box-Umfang) liegt bei beiden Fehltreffern bei 0,98 bzw. 1,16 —
+    die Umrisse sind sauber, nur falsch proportioniert.
+
+    Die Kennzahl bleibt trotzdem im Produkt: als ANGABE für den Prüfer
+    („der Umriss folgt zu 46 % gezeichneten Wänden"), nicht als Urteil.
+    Sie ist dort am aussagekräftigsten, wo sie tief liegt — Freiflächen
+    (Parkplatz 46 %, Halbverband 22 %, Kinderspielfläche 49 %) haben
+    naturgemäß keine Wände, ein Zimmer bei 33 % dagegen schon.
+
+    poly_pt: [(x,y)] in pt (Plan-Koordinaten, wie raum_regionen liefert).
+    -> float 0..1, oder None wenn nicht messbar.
+    """
+    if not poly_pt or len(poly_pt) < 3 or grid is None:
+        return None
+    W, H = rst.W, rst.H
+    versatz = sorted(((di, dj)
+                      for di in range(-r_cells, r_cells + 1)
+                      for dj in range(-r_cells, r_cells + 1)),
+                     key=lambda d: d[0] * d[0] + d[1] * d[1])
+    treffer = gesamt = 0
+    n = len(poly_pt)
+    for k in range(n):
+        x1, y1 = poly_pt[k]
+        x2, y2 = poly_pt[(k + 1) % n]
+        schritte = max(1, int(math.hypot(x2 - x1, y2 - y1) / rst.cell))
+        for s in range(schritte):
+            t = s / float(schritte)
+            i, j = rst.ij(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t)
+            gesamt += 1
+            # Nachbarschaft von INNEN nach AUSSEN absuchen: der weitaus
+            # häufigste Fall ist ein Treffer direkt an der Abtaststelle.
+            # Ein Scan von (-r,-r) an kostete dort ~24 Leerläufe je Punkt.
+            for di, dj in versatz:
+                ni, nj = i + di, j + dj
+                if 0 <= ni < W and 0 <= nj < H and grid[nj * W + ni]:
+                    treffer += 1
+                    break
+    return (treffer / float(gesamt)) if gesamt else None
+
+
 def an_wand_schnappen(poly, grid, W, H, max_snap=8, min_len=4.0, tol=0.30):
     """Fast-achsparallele Polygonkanten EXAKT an die Wandkante legen.
 

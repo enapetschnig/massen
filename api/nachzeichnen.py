@@ -1051,6 +1051,16 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # DETERMINISTISCHER Umfang aus dem Polygon (F-kalibriert) — der Hebel
             # für Räume ohne U-Stempel. Nur wenn ein sauberes Polygon da ist.
             u_geo = geometrie_umfang(reg, r.get("f_m2"), ptm) if reg else None
+            # ZWEITER FORM-BEWEIS, unabhängig vom U-Stempel: liegt der Umriss
+            # auf den gezeichneten Wänden? Auf Polierplänen ohne Umfangs-
+            # angabe ist das der EINZIGE Weg, die Form ehrlich zu bestätigen.
+            _uw = None
+            if reg and dbg_r.get("grid") is not None:
+                try:
+                    _uw = raumnetz.umriss_auf_wand(reg, dbg_r["grid"],
+                                                   dbg_r["rst"])
+                except Exception:
+                    _uw = None
             _g = region_gates.get(i) or {}
             raeume.append({
                 # EHRLICHKEIT statt Blackbox: hat der Raum KEINEN Umriss, steht
@@ -1076,6 +1086,8 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "px": to_px(r["cx"], r["cy"]),
                 "region_px": ([to_px(x, y) for (x, y) in
                                rechtwinklig_ziehen(reg)] if reg else None),
+                # Anteil des Umrisses, der auf einer Wand liegt (0..1).
+                "umriss_wand": (round(_uw, 3) if _uw is not None else None),
                 "u_geometrie": (u_geo or {}).get("u_m"),
                 "u_geometrie_poly": (u_geo or {}).get("u_poly_m"),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
