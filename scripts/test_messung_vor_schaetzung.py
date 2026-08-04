@@ -161,13 +161,81 @@ def _attika_sperre(fehler):
         print("   beide Zweige gesperrt ✓")
 
 
+def _umfang_herkunft(fehler):
+    """4) SCHÄTZUNG SAH AUS WIE MESSUNG (extract.py + massen_logic._u_lbl)
+
+    `extract.py` setzte an zwei Stellen `umfang_quelle="geschaetzt"`, aber
+    NICHT `umfang_geschaetzt=True`. `massen_logic._u_lbl` und die UI lasen
+    ausschliesslich das Flag — jede isoperimetrische Schätzung erschien im
+    Aufmaß darum als „U=…", also als Messung. Genau die Fehlerklasse, die
+    dieser Wächter bewacht, nur eine Ebene tiefer.
+
+    Dazu fehlte die MITTLERE Stufe ganz: ein aus dem Polygon abgeleiteter
+    Umfang ist keine Messung am Stempel, aber auch keine reine Schätzung.
+    Am Korpus betrifft er 27 Räume mit rund 2865 m² Wandabwicklung.
+    """
+    import massen_logic as ml
+    print("\n4) Umfangs-Herkunft im Aufmaß — Stempel / Umriss / Schätzung")
+    faelle = [
+        ({}, "U=", "ohne Angabe gilt der Stempel"),
+        ({"umfang_quelle": "geometrie"}, "aus Umriss", "aus dem Polygon"),
+        ({"umfang_quelle": "geschaetzt"}, "geschätzt", "isoperimetrisch"),
+        ({"umfang_geschaetzt": True}, "geschätzt", "altes Flag"),
+        ({"daten": {"umfang_geschaetzt": True}}, "geschätzt", "verschachtelt"),
+    ]
+    for raum, erwartet, was in faelle:
+        lbl = ml._u_lbl(raum, 12.5)
+        ok = erwartet in lbl
+        print(f"   {was:<26}{lbl:<26}{'✓' if ok else '✗'}")
+        if not ok:
+            fehler.append(f"_u_lbl({raum}) = {lbl!r} — erwartet {erwartet!r}. "
+                          f"Eine Schätzung, die wie eine Messung aussieht, ist "
+                          f"schlimmer als eine fehlende Zahl.")
+    # QUELLTEXT-SPERRE: wer künftig `umfang_quelle="geschaetzt"` setzt, muss
+    # `umfang_geschaetzt` mitsetzen — sonst faellt die Ehrlichkeit still weg.
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "..", "api", "extract.py"), encoding="utf-8").read()
+    # Eine reine ZÄHLUNG reicht nicht: eine dritte, unbeteiligte Stelle
+    # setzt das Flag ebenfalls, damit ginge ein fehlendes Paar durch.
+    # Am eigenen Wächter gemessen — er liess genau diesen Rueckfall passieren.
+    # Darum PAARWEISE pruefen: jede Stelle mit quelle='geschaetzt' muss das
+    # Flag in unmittelbarer Nachbarschaft setzen.
+    zeilen = src.split("\n")
+    offen = []
+    for i, z in enumerate(zeilen):
+        if re.search(r'umfang_quelle"\]\s*=\s*"geschaetzt"', z):
+            nachbar = "\n".join(zeilen[max(0, i - 3):i + 8])
+            if not re.search(r'umfang_geschaetzt"\]\s*=\s*True', nachbar):
+                offen.append(i + 1)
+    n_q = sum(1 for z in zeilen
+              if re.search(r'umfang_quelle"\]\s*=\s*"geschaetzt"', z))
+    print(f"   extract.py: {n_q} Stellen mit quelle='geschaetzt', "
+          f"{n_q - len(offen)} davon mit Flag daneben")
+    if offen:
+        fehler.append(f"extract.py Zeile(n) {offen}: umfang_quelle="
+                      f"'geschaetzt' ohne umfang_geschaetzt=True in "
+                      f"Reichweite — diese Schätzung erscheint im Aufmaß "
+                      f"als Messung.")
+
+    # 5) NAMENS-KURZSCHLUSS: der EINZIGE Kandidat wurde ohne Flächenprüfung
+    #    genommen — genau die Regel, die der Docstring darüber verspricht.
+    if re.search(r"if len\(_k\) == 1:\s*\n\s*return _k\[0\]\[1\]", src):
+        fehler.append("_geo_u_fuer nimmt den einzigen Namens-Kandidaten wieder "
+                      "ohne Flächenprüfung. Am Velden-Plan bekam 'Waschraum' "
+                      "(9,31 m²) so den Umfang seines 7,32-m²-Namensvetters — "
+                      "als umfang_quelle='geometrie', sah also gemessen aus.")
+    else:
+        print("   _geo_u_fuer prüft die Fläche auch beim Einzeltreffer     ✓")
+
+
 def run():
-    print("MESSUNG VOR SCHÄTZUNG — drei Audit-Befunde festgenagelt")
+    print("MESSUNG VOR SCHÄTZUNG — fünf Audit-Befunde festgenagelt")
     print("=" * 88)
     fehler = []
     _umfang_ersatz(fehler)
     _fenster_kappe(fehler)
     _attika_sperre(fehler)
+    _umfang_herkunft(fehler)
     print("-" * 88)
     if fehler:
         print("FEHLER:")
@@ -176,8 +244,10 @@ def run():
     else:
         print("WÄCHTER ok: verworfener Umfang behält einen ehrlichen Ersatz, "
               "die Fenster-Kappe\n           respektiert Konfidenz und "
-              "byte-exakte Fenster, und die gedruckte Legende\n"
-              "           schlägt die Bildlesung beim Dachtyp")
+              "byte-exakte Fenster, die gedruckte Legende\n"
+              "           schlägt die Bildlesung beim Dachtyp, und jede "
+              "Umfangs-Zahl trägt\n           ihre Herkunft (Stempel / "
+              "Umriss / Schätzung)")
     assert not fehler, f"{len(fehler)} Fehler"
 
 

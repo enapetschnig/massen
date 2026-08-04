@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-04.2"
+APP_REV = "2026-08-04.3"
 
 
 @app.get("/api/extract-health")
@@ -4350,8 +4350,15 @@ async def projekt_massen(body: ProjektMassenRequest):
             _k = _geo_map.get(_nk(_name or ""))
             if not _k:
                 return None
-            if len(_k) == 1:
-                return _k[0][1]
+            # Auch der EINZIGE Kandidat muss zur Flaeche passen. Hier stand
+            # `if len(_k) == 1: return _k[0][1]` — ein Kurzschluss, der genau
+            # die Regel aushebelte, die der Docstring darueber verspricht.
+            # Ein Name kann in EINEM Nachzeichnen-Ergebnis einmal vorkommen
+            # und trotzdem einen ANDEREN Raum meinen als den, der hier
+            # gefragt ist (mehrere Plaene, mehrere Geschosse). Am Velden-Plan
+            # bekam "Waschraum" mit F 9,31 m2 den Umfang 12,86 m des
+            # 7,32-m2-Namensvetters — mit umfang_quelle="geometrie", sah also
+            # aus wie gemessen.
             _tol = max(0.05, 0.01 * _f)
             _tr = [u for (fc, u) in _k
                    if fc is not None and abs(float(fc) - _f) <= _tol]
@@ -4374,6 +4381,11 @@ async def projekt_massen(body: ProjektMassenRequest):
                 if _iso:
                     r["umfang_m"] = _iso
                     r["umfang_quelle"] = "geschaetzt"
+                    # `umfang_quelle` allein reichte NICHT: massen_logic._u_lbl
+                    # und die UI lesen ausschliesslich `umfang_geschaetzt`.
+                    # Ohne dieses Flag erschien jede isoperimetrische Schaetzung
+                    # im Aufmass als "U=…", also als Messung.
+                    r["umfang_geschaetzt"] = True
                     _n_iso += 1
         if _n_geo or _n_iso:
             print(f"[geometrie-umfang] {_n_geo} Räume aus Polygon, {_n_iso} isoperimetrisch "
@@ -4439,6 +4451,7 @@ async def projekt_massen(body: ProjektMassenRequest):
         if _iso:
             _r["umfang_m"] = _iso
             _r["umfang_quelle"] = "geschaetzt"
+            _r["umfang_geschaetzt"] = True
         else:
             _r["umfang_m"] = None
 

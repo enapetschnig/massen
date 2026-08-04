@@ -2845,8 +2845,19 @@
       // ÜBERschätzt — er verweigerte damit reihenweise berechtigte Haken
       // und meldete Formen als widerlegt, die stimmen. u_geometrie mittelt
       // ihn mit der BBOX-Isoperimetrie und ist am Stempel validiert.
+      // NUR ein Wert, der den GEZEICHNETEN Umriss beschreibt, darf ihn
+      // anklagen. `u_ist` beschreibt die Watershed-Region — bei einem
+      // ERSATZ-Umriss (aus Wandfluchten oder aus F+U konstruiert) ist das
+      // eine ganz andere Form. Am Korpus gemessen beruhten 7 von 12 roten
+      // Anklagen auf u_ist, und alle 7 standen auf Ersatz-Umrissen. Der
+      // Gipfel: Velden „Tiefgarage" wird AUS F UND U konstruiert, sein
+      // Umriss gibt den Stempel per Konstruktion wieder — und wurde
+      // beschuldigt, ihm um +26 % zu widersprechen. Eine beweisbar falsche
+      // Anklage ist schlimmer als gar keine.
+      // Fehlt u_geometrie, ist die Form NICHT PRÜFBAR — dann wird nichts
+      // behauptet, in keine Richtung.
       var _uSoll = r.u_m, _uIst = (r.u_geometrie != null ? r.u_geometrie
-        : (r.u_geometrie_poly != null ? r.u_geometrie_poly : r.u_ist));
+        : (r.u_geometrie_poly != null ? r.u_geometrie_poly : null));
       var formGeprueft = !!(r.iou_bewiesen || r.rohbau_ok ||
         (_uSoll && _uIst != null && Math.abs(_uIst / _uSoll - 1) <= 0.15));
       var geschaetzt = !!r.region_geschaetzt;
@@ -2925,7 +2936,8 @@
           ? ((uAb != null && Math.abs(uAb) > 0.15)
               ? ('Form widerlegt: U ' + fmtNum(Math.round(_uIst * 100) / 100)
                  + ' statt ' + fmtNum(_uSoll) + ' m')
-              : (geschaetzt ? 'Umriss geschätzt' : 'Form ungeprüft'))
+              : (geschaetzt ? 'Umriss geschätzt'
+                 : (_uIst == null ? 'Form nicht prüfbar' : 'Form ungeprüft')))
           : ('erkannt ' + fmtNum(r.f_ist) + ' (' + (dpct >= 0 ? '+' : '') + dpct + '%)');
         // Der Prüfer sieht sofort, WORAN er den Umriss messen kann: liegt er
         // auf gezeichneten Wänden, ist die Lage belegt (die Proportion nicht

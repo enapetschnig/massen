@@ -522,10 +522,29 @@ def _anker(r):
 
 
 def _u_lbl(r, u):
-    """Aufmaß-Herleitung ehrlich halten: byte-exakter U-Stempel → 'U=…',
-    Proportions-Schätzung (Scan ohne U-Stempel) → 'U≈… (geschätzt)'."""
-    if r.get("umfang_geschaetzt") or (r.get("daten") or {}).get("umfang_geschaetzt"):
+    """Aufmaß-Herleitung ehrlich halten — DREI Herkunftsstufen, nicht zwei:
+
+        U=…                 byte-exakt aus dem Raum-Stempel des Plans
+        U≈… (aus Umriss)    aus dem rekonstruierten Polygon abgeleitet
+        U≈… (geschätzt)     isoperimetrisch aus der Fläche geschätzt
+
+    Der mittlere Fall fehlte und war deshalb als Messung ausgewiesen. Am
+    Korpus betrifft er 27 Räume mit rund 2865 m² Wandabwicklung, die in
+    Putz (LG 10), Maler (LG 46) und Sockel eingehen — und die Geometrie
+    liegt dort, wo sie prüfbar ist, in 10 % der Fälle um mehr als 15 %
+    daneben. Wer das Aufmaß prüft, muss die Stufe sehen können.
+
+    `umfang_quelle` wird mitgelesen, weil `umfang_geschaetzt` an zwei
+    Stellen in extract.py nicht gesetzt wurde — die Quelle ist die
+    verlässlichere Angabe, das Flag bleibt aus Rückwärtsgründen.
+    """
+    _q = r.get("umfang_quelle") or (r.get("daten") or {}).get("umfang_quelle")
+    if (r.get("umfang_geschaetzt")
+            or (r.get("daten") or {}).get("umfang_geschaetzt")
+            or _q == "geschaetzt"):
         return f"U≈{u} (geschätzt)"
+    if _q == "geometrie":
+        return f"U≈{u} (aus Umriss)"
     return f"U={u}"
 
 
