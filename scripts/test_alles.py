@@ -90,6 +90,7 @@ LANGSAM = [
     # Belegt die WIDERLEGUNG der Beweisregel am echten Korpus: sobald der
     # Fehltreffer-Anteil hier faellt, waere sie neu zu bewerten.
     ("Umriss auf Wand (Gegenprobe)", "mess_umriss_auf_wand.py", "GEGENPROBE"),
+    ("Geometrie-Umfang Risiko", "mess_geometrie_umfang_risiko.py", "FEHLERQUOTE"),
     ("Tür-Dichtung (Ausgangslinie)", "mess_tuer_dichtung.py", "KORPUS"),
     ("Plan-Korpus BREIT (alle Pläne)", "mess_plankorpus_breit.py", "MIT RÄUMEN"),
     ("Plan-Korpus-Abdeckung", "test_korpus.py", "ABDECKUNG:"),

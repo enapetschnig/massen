@@ -2835,8 +2835,18 @@
       // Neu: grün nur, wenn die FORM tatsächlich gegen den Plan geprüft wurde
       // — durch IoU-Beweis, Rohbau-Fluchtrechteck oder einen gestempelten
       // Umfang, der zur Geometrie passt.
-      var _uSoll = r.u_m, _uIst = (r.u_geometrie_poly != null ? r.u_geometrie_poly
-        : (r.u_geometrie != null ? r.u_geometrie : r.u_ist));
+      // WELCHER SCHÄTZER? Am byte-exakten Stempel gemessen (48 Räume,
+      // 4 echte Pläne, 2026-08-04) — Median des Betragsfehlers:
+      //   u_geometrie        4,4 %   → 10 % weichen um >15 % ab
+      //   u_geometrie_poly   6,4 %   → 27 %
+      //   u_ist             12,8 %   → 46 %
+      // Hier stand u_geometrie_poly zuerst. Das ist ausgerechnet der
+      // Schätzer, der laut geometrie_umfang() verwinkelte Räume bis +32 %
+      // ÜBERschätzt — er verweigerte damit reihenweise berechtigte Haken
+      // und meldete Formen als widerlegt, die stimmen. u_geometrie mittelt
+      // ihn mit der BBOX-Isoperimetrie und ist am Stempel validiert.
+      var _uSoll = r.u_m, _uIst = (r.u_geometrie != null ? r.u_geometrie
+        : (r.u_geometrie_poly != null ? r.u_geometrie_poly : r.u_ist));
       var formGeprueft = !!(r.iou_bewiesen || r.rohbau_ok ||
         (_uSoll && _uIst != null && Math.abs(_uIst / _uSoll - 1) <= 0.15));
       var geschaetzt = !!r.region_geschaetzt;
