@@ -53,21 +53,45 @@ def run():
     hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1))   # farb-gefilterte Wand-Poché
     oeff = oeff_mod.extract_oeffnungen_from_text(_dict_spans(page), [])
 
-    res, stempel = raumnetz.verifiziere_seite(page, ptm, box, dark, hatch, oeff)
+    import time
+    t0 = time.time()
+    dbg = {}
+    res, stempel = raumnetz.verifiziere_seite(page, ptm, box, dark, hatch, oeff,
+                                              debug=dbg)
+    dauer = time.time() - t0
     assert len(stempel) >= 6, f"zu wenige Stempel erkannt ({len(stempel)})"
 
+    # KONTUR-GÜTE: liegt die gezeichnete Kontur (vektor-exakt gesnappt) auf
+    # den Wänden? umriss_auf_wand = Anteil der Kontur ≤3 Zellen an einer
+    # Wandzelle. Das ist die Messlatte für „er zeichnet die Räume nicht
+    # genau nach" — je näher an 1.0, desto exakter die Zeichnung.
+    regionen = {}
+    if dbg.get("label") is not None:
+        regionen = raumnetz.raum_regionen(
+            dbg["label"], dbg["rst"], len(stempel),
+            stempel_f=[r.get("f_m2") for r in res],
+            grid=dbg.get("grid"), dark_segs=dark,
+            stuetzen=dbg.get("stuetzen"))
+
     print(f"Box {(bx1-bx0)/ptm:.0f}×{(by1-by0)/ptm:.0f} m · {len(stempel)} Raum-Stempel · "
-          f"{len(dark)} Kanten · {len(hatch)} Schraffur · ptm={ptm}")
-    print(f"{'Raum':<24}{'F soll':>8}{'F ist':>8}{'U soll':>8}{'U ist':>8}  Status")
+          f"{len(dark)} Kanten · {len(hatch)} Schraffur · ptm={ptm} · {dauer:.1f}s")
+    print(f"{'Raum':<24}{'F soll':>8}{'F ist':>8}{'U soll':>8}{'U ist':>8}  {'aufWand':>7}  Status")
     n_ok = 0
-    for r in sorted(res, key=lambda x: x["name"] or ""):
+    for i, r in enumerate(sorted(res, key=lambda x: x["name"] or "")):
         fmt = lambda v: f"{v:>8.2f}" if v is not None else f"{'–':>8}"
         if r["status"] == "verifiziert":
             n_ok += 1
+        wand = None
+        reg = regionen.get(res.index(r))
+        if reg:
+            wand = raumnetz.umriss_auf_wand(reg, dbg.get("grid"), dbg["rst"])
+        wand_s = f"{wand*100:6.0f}%" if wand is not None else f"{'–':>7}"
+        ebene = r.get("ebene") or ""
         print(f"{(r['name'] or '?')[:22]:<24}{fmt(r['f_m2'])}{fmt(r['f_ist'])}"
-              f"{fmt(r.get('u_m'))}{fmt(r['u_ist'])}"
-              f"  {'✓ VERIFIZIERT' if r['status'] == 'verifiziert' else r['status']}")
-    print("-" * 70)
+              f"{fmt(r.get('u_m'))}{fmt(r['u_ist'])}  {wand_s}"
+              f"  {'✓ VERIFIZIERT' if r['status'] == 'verifiziert' else r['status']}"
+              f"{(' (' + ebene + ')') if ebene and r['status'] == 'verifiziert' else ''}")
+    print("-" * 78)
     print(f"ERGEBNIS: {n_ok}/{len(res)} Räume verifiziert — DIE Kern-Metrik der "
           f"Erkennung (Ziel: alle Innenräume).")
     return 0

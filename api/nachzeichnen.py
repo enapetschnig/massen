@@ -1043,7 +1043,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 regionen = raumnetz.raum_regionen(dbg_r["label"], dbg_r["rst"],
                                                   len(rres), debug=region_gates,
                                                   stempel_f=_sf,
-                                                  grid=dbg_r.get("grid"))
+                                                  grid=dbg_r.get("grid"),
+                                                  dark_segs=dark,
+                                                  stuetzen=dbg_r.get("stuetzen"))
         except Exception as _er:
             regionen = {}
         for i, r in enumerate(rres):

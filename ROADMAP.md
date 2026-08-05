@@ -60,6 +60,7 @@ für mehrere Bereiche der Baubranche (Baubetriebe/Rohbau, Ausbau-Gewerke, Kalkul
 | ✅ | Wände farbcodiert + Längen-Labels (Maßketten-Snap: Plan-Zahl gewinnt) |
 | ✅ | Fenster/Türen als Marker (byte-exakt aus STUK/FPH) |
 | ✅ | Räume grün ✓ / gelb ? (Selbst-Verifikation gegen F/U-Stempel) |
+| ✅ | **Raumkontur vektor-exakt** (`raumnetz.raum_kontur_exakt`): Umrisse snappen auf die gezeichneten Wandlinien (pt-Präzision, Schnittpunkt-Ecken) statt auf Rasterzellen — dieselbe Kontur zeichnet UND misst (F/U ohne Krenellierungs-/Halbzellen-Heuristik) |
 | ✅ | Korrigierbar: Wand entfernen/Stärke/hinzufügen, Öffnung entfernen — persistiert |
 | ✅ | Materialliste ↔ Plan gekoppelt (HLZ-Position → Wände leuchten) |
 | 🔜 | Kopplung ausbauen: JEDE Position (Decke, Bodenplatte, Estrich je Raum, Frostschürze) zeigt ihre Fläche/Kante am Plan |
@@ -89,7 +90,11 @@ Ziel-Workflow (Stepper statt Scroll-Wüste):
 ## Kern-Metriken (werden bei jeder Änderung gemessen)
 
 1. `test_materialliste_angerer` — 13/13 Positionen gegen echte Polier-Liste (rote Linie)
-2. `test_raumverifikation` — n/9 Räume selbst-verifiziert (aktuell 1–2/9, Ziel: alle Innenräume)
+2. `test_raumverifikation` — n/9 Räume selbst-verifiziert (aktuell 7/9: WC +
+   Geräte-Abstellraum bleiben ehrlich gelb — Stempel-F ist FERTIG-Maß, die
+   Rekonstruktion misst ROHBAU, Differenz jenseits jeder Putz-Annahme; Ziel:
+   alle Innenräume). Kontur-Güte (umriss_auf_wand) wird im selben Harness
+   mitgemessen.
 3. Plan-Korpus-Abdeckung — n/6 Pläne mit funktionierender Planansicht (aktuell 4/6)
 4. Alle Einheiten-Tests (Öffnungen, Verschnitt, Farben, Nachzeichnen, Kalibrier-Mechanik)
 

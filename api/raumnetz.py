@@ -2209,81 +2209,311 @@ def an_wand_schnappen(poly, grid, W, H, max_snap=8, min_len=4.0, tol=0.30):
     return neu_poly
 
 
+def _umriss_zellen(label, W, H, ridx, zm2, min_flaeche_m2=1.0, cells=None):
+    """Rand-Trace + Douglas-Peucker EINES Raum-Beckens → DP-Polygon in Zellen.
+
+    Aus raum_regionen herausfaktorisiert, damit Messung (raum_kontur_exakt)
+    und Zeichnung (raum_regionen) denselben Umriss teilen — zwei Umrisse
+    wären zwei Wahrheiten. cells: optional die Zellen des Raums (Perf —
+    sonst voller Grid-Scan je Raum). Liefert (vereinfacht, n_cells);
+    vereinfacht=None bei zu kleinem/zerfranstem Becken."""
+    MN = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
+    rand = bytearray(W * H)
+    n_cells = 0
+    if cells is None:
+        cells = [idx for idx in range(W * H) if label[idx] == ridx]
+    for idx in cells:
+        n_cells += 1
+        i, j = idx % W, idx // W
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ni, nj = i + di, j + dj
+            if not (0 <= ni < W and 0 <= nj < H) or label[nj * W + ni] != ridx:
+                rand[idx] = 1
+                break
+    if n_cells * zm2 < min_flaeche_m2:
+        return None, n_cells
+    # Start = oberste-linkeste Randzelle (cells ist idx-aufsteigend) →
+    # Moore-Trace im Uhrzeigersinn
+    start = next((idx for idx in cells if rand[idx]), None)
+    if start is None:
+        return None, n_cells
+    pfad = []
+    i, j = start % W, start // W
+    cur, richtung = (i, j), 0
+    for _s in range(4 * (W + H)):
+        pfad.append(cur)
+        gefunden = False
+        for k in range(8):
+            d = MN[(richtung + k) % 8]
+            ni, nj = cur[0] + d[0], cur[1] + d[1]
+            if 0 <= ni < W and 0 <= nj < H and rand[nj * W + ni]:
+                cur = (ni, nj)
+                richtung = (richtung + k + 6) % 8
+                gefunden = True
+                break
+        if not gefunden or (cur == (i, j) and len(pfad) > 2):
+            break
+    if len(pfad) < 6:
+        return None, n_cells
+
+    def _dp(pts, eps):
+        if len(pts) < 3:
+            return pts
+        ax, ay = pts[0]
+        bx, by = pts[-1]
+        dx, dy = bx - ax, by - ay
+        L = (dx * dx + dy * dy) ** 0.5 or 1.0
+        dmax, imax = 0.0, 0
+        for k in range(1, len(pts) - 1):
+            px, py = pts[k]
+            d = abs((px - ax) * dy - (py - ay) * dx) / L
+            if d > dmax:
+                dmax, imax = d, k
+        if dmax > eps:
+            return _dp(pts[:imax + 1], eps)[:-1] + _dp(pts[imax:], eps)
+        return [pts[0], pts[-1]]
+
+    # DP auf den OFFENEN Trace-Pfad (Start/Ende sind benachbart) — bei
+    # geschlossenem Polygon würde Start==Ende die Rekursion degenerieren.
+    return _dp(pfad, 2.0), n_cells
+
+
+def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
+                      snap_m=0.35):
+    """VEKTOR-EXAKTE Raumkontur: DP-Kanten (Zellen) an die gezeichneten
+    Wandlinien des Plans snappen — pt-Präzision statt Rasterzelle.
+
+    Nutzer-Befund: „so wie er die Räume in der App einzeichnet, passt es oft
+    nicht ganz — er zeichnet die Räume nicht genau nach." Bisher snappte
+    an_wand_schnappen auf die letzte freie RASTERZELLE vor der Wand —
+    Zell-Auflösung (2-3 cm) plus Closing-Aufdickung, sichtbar als Saum mal
+    im Raum, mal in der Wand. Die Wand-Außenkante liegt aber als VEKTOR-
+    Linie im PDF: trägt eine Kante parallele dunkle Segmente im Fenster
+    snap_m (kollineare Teilstücke geclustert, Deckung ≥50 % des Laufs),
+    wird sie auf deren Stützgerade gelegt. Die Ecke ist dann der exakte
+    Schnittpunkt zweier Wandlinien, nicht zwei gerundete Zellmitten — und
+    F (Shoelace) / U (Kantensumme) auf dieser Kontur sind ohne Raster-
+    Krenellierung und Halbzellen-Bias.
+
+    Kandidaten-Ranking: erst Linien, die in der WAND-MASKE verankert sind
+    (Poché-gestützt — Möbel-/Text-Linien sind das nicht), dann nächste
+    Distanz. Kein Vektor-Treffer → Zell-Sonde wie an_wand_schnappen
+    („raster"). Kein Wandtreffer → Stützen-Linie (offene Carport-Front,
+    „stuetze") oder Kante bleibt unverändert („offen" — nichts erfinden).
+
+    Rückgabe: {poly_pt, f_m2, u_m, snap_quote, vektor_quote, kanten} —
+    snap_quote = Kantenlängen-Anteil mit Befestigung (vektor+raster+stuetze).
+    """
+    n = len(poly_zl or [])
+    if n < 3:
+        return None
+    ptm, cell = rst.ptm, rst.cell
+    pts = [(rst.bx0 + p[0] * cell, rst.by0 + p[1] * cell) for p in poly_zl]
+    # Vektor-Vorfilter auf die Raum-BBox (Perf: dark_segs sind planweit)
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    mrg = snap_m * ptm + 2.0 * cell
+    x0, x1 = min(xs) - mrg, max(xs) + mrg
+    y0, y1 = min(ys) - mrg, max(ys) + mrg
+    segs = []
+    for s in (dark_segs or []):
+        sx0, sy0, sx1, sy1 = s[0], s[1], s[2], s[3]
+        if max(sx0, sx1) < x0 or min(sx0, sx1) > x1 \
+                or max(sy0, sy1) < y0 or min(sy0, sy1) > y1:
+            continue
+        adx, ady = abs(sx1 - sx0), abs(sy1 - sy0)
+        achse = "v" if adx <= 0.6 else ("h" if ady <= 0.6 else None)
+        if achse is None:
+            continue
+        if math.hypot(adx, ady) < 3.0:     # <3 pt: Text/Symbol, keine Wand
+            continue
+        segs.append((achse, sx0, sy0, sx1, sy1))
+
+    def _verankert(achse, c, a, b):
+        """Liegt die Linie (v: x=c / h: y=c) im Lauf [a..b] in der Wand-Maske?
+        5 Sonden längs, Treffer = Wandzelle ≤2 Zellen quer. Poché-Rücken."""
+        tr = 0
+        for t in (0.1, 0.3, 0.5, 0.7, 0.9):
+            p_ = a + (b - a) * t
+            ci = int((c - rst.bx0) / cell) if achse == "v" \
+                else int((p_ - rst.bx0) / cell)
+            cj = int((p_ - rst.by0) / cell) if achse == "v" \
+                else int((c - rst.by0) / cell)
+            for d in (-2, -1, 0, 1, 2):
+                ii, jj = (ci + d, cj) if achse == "v" else (ci, cj + d)
+                if 0 <= ii < W and 0 <= jj < H and grid[jj * W + ii]:
+                    tr += 1
+                    break
+        return tr >= 3
+
+    kanten = []
+    for k in range(n):
+        ax, ay = pts[k]
+        bx, by = pts[(k + 1) % n]
+        dx, dy = bx - ax, by - ay
+        L = math.hypot(dx, dy)
+        e = {"p1": (ax, ay), "p2": (bx, by), "L": L, "achse": None,
+             "fest": None, "quelle": None}
+        if L >= 0.10 * ptm:        # <10 cm: Zitterkante, nicht klassifizieren
+            if abs(dx) <= 0.3 * abs(dy):
+                e["achse"] = "v"
+            elif abs(dy) <= 0.3 * abs(dx):
+                e["achse"] = "h"
+        kanten.append(e)
+
+    snap_pt = snap_m * ptm
+    for e in kanten:
+        if not e["achse"]:
+            continue
+        (ax, ay), (bx, by) = e["p1"], e["p2"]
+        if e["achse"] == "v":
+            c_e, lo, hi = (ax + bx) / 2.0, min(ay, by), max(ay, by)
+        else:
+            c_e, lo, hi = (ay + by) / 2.0, min(ax, bx), max(ax, bx)
+        l_kante = hi - lo
+        # Kandidaten: gleiche Achslage, Abstand ≤ snap_pt → nach Koordinate
+        # clustern (eine Wandlinie ist oft in Teilstücke gezeichnet: Türen,
+        # Kreuzungen). Cluster-Deckung ≥50 % des Kantenlaufs nötig.
+        kand = []
+        for (achse, sx0, sy0, sx1, sy1) in segs:
+            if achse != e["achse"]:
+                continue
+            if achse == "v":
+                c_s, slo, shi = sx0, min(sy0, sy1), max(sy0, sy1)
+            else:
+                c_s, slo, shi = sy0, min(sx0, sx1), max(sx0, sx1)
+            if abs(c_s - c_e) <= snap_pt:
+                kand.append((c_s, slo, shi))
+        kand.sort()
+        cluster = []
+        for (c_s, slo, shi) in kand:
+            if cluster and abs(c_s - cluster[-1][0]) <= 1.5:
+                cluster[-1][1].append((slo, shi))
+                # gewichtete Cluster-Koordinate nachlaufend mitsammeln
+                cluster[-1][0] = (cluster[-1][0] * cluster[-1][2] + c_s) \
+                    / (cluster[-1][2] + 1)
+                cluster[-1][2] += 1
+            else:
+                cluster.append([c_s, [(slo, shi)], 1])
+        beste = None
+        for (c_cl, spans, _nz) in cluster:
+            # Deckung: Vereinigung der Spannen auf den Kantenlauf
+            deck = 0.0
+            ende = lo
+            for (slo, shi) in sorted(spans):
+                if shi <= ende:
+                    continue
+                deck += shi - max(slo, ende)
+                ende = shi
+            if deck < 0.5 * l_kante:
+                continue
+            ver = _verankert(e["achse"], c_cl, lo, hi)
+            key = (0 if ver else 1, abs(c_cl - c_e))
+            if beste is None or key < beste[0]:
+                beste = (key, c_cl)
+        if beste is not None:
+            e["fest"], e["quelle"] = beste[1], "vektor"
+            continue
+        # RASTER-RUECKFALL (an_wand_schnappen-Logik, pt): von der Kante nach
+        # außen sondieren bis zur ersten Wandzelle; Kante auf die letzte
+        # freie Zelle davor. Offene Kante (Durchgang) bleibt unverändert.
+        cxp = sum(p[0] for p in pts) / n
+        cyp = sum(p[1] for p in pts) / n
+        treffer = []
+        for t in (0.25, 0.5, 0.75):
+            p_ = lo + l_kante * t
+            for d in range(0, 9):
+                if e["achse"] == "v":
+                    vz = 1 if c_e > cxp else -1
+                    ii = int((c_e - rst.bx0) / cell) + vz * d
+                    jj = int((p_ - rst.by0) / cell)
+                else:
+                    vz = 1 if c_e > cyp else -1
+                    ii = int((p_ - rst.bx0) / cell)
+                    jj = int((c_e - rst.by0) / cell) + vz * d
+                if not (0 <= ii < W and 0 <= jj < H):
+                    break
+                if grid[jj * W + ii]:
+                    zell = (ii - vz) if e["achse"] == "v" else (jj - vz)
+                    fest_pt = (rst.bx0 if e["achse"] == "v" else rst.by0) \
+                        + (zell + 0.5) * cell
+                    treffer.append(fest_pt)
+                    break
+        if len(treffer) >= 2:
+            treffer.sort()
+            e["fest"], e["quelle"] = treffer[len(treffer) // 2], "raster"
+            continue
+        # STÜTZEN-LINIE (offene Carport-Front): ≥2 Stützen auf einer Flucht
+        # im Fenster ≤1,5 m → die Dachkante läuft durch die Stützen.
+        if stuetzen:
+            nahe = []
+            for (sx, sy) in stuetzen:
+                if e["achse"] == "v":
+                    if abs(sx - c_e) <= 1.5 * ptm and lo - ptm <= sy <= hi + ptm:
+                        nahe.append(sx)
+                else:
+                    if abs(sy - c_e) <= 1.5 * ptm and lo - ptm <= sx <= hi + ptm:
+                        nahe.append(sy)
+            if len(nahe) >= 2:
+                mittel = sum(nahe) / len(nahe)
+                streu = (sum((v - mittel) ** 2 for v in nahe) / len(nahe)) ** 0.5
+                if streu <= 0.30 * ptm:
+                    e["fest"], e["quelle"] = mittel, "stuetze"
+    # Ecken als Schnittpunkte der (evtl. gesnappten) Trägergeraden neu setzen
+    neu = []
+    for k in range(n):
+        e = kanten[k]
+        v = kanten[(k - 1) % n]
+        x, y = pts[k]
+        if v["achse"] == "v" and v["fest"] is not None:
+            x = v["fest"]
+        if v["achse"] == "h" and v["fest"] is not None:
+            y = v["fest"]
+        if e["achse"] == "v" and e["fest"] is not None:
+            x = e["fest"]
+        if e["achse"] == "h" and e["fest"] is not None:
+            y = e["fest"]
+        neu.append((x, y))
+    # Duplikat-Ecken (durch Snap kollabiert) entfernen
+    neu = [p for k, p in enumerate(neu)
+           if math.hypot(p[0] - neu[k - 1][0], p[1] - neu[k - 1][1]) > 1e-6]
+    if len(neu) < 3:
+        return None
+    a2 = 0.0
+    u_pt = 0.0
+    m = len(neu)
+    for k in range(m):
+        x1_, y1_ = neu[k]
+        x2_, y2_ = neu[(k + 1) % m]
+        a2 += x1_ * y2_ - x2_ * y1_
+        u_pt += math.hypot(x2_ - x1_, y2_ - y1_)
+    len_ges = sum(e["L"] for e in kanten) or 1.0
+    len_snap = sum(e["L"] for e in kanten if e["quelle"])
+    len_vek = sum(e["L"] for e in kanten if e["quelle"] == "vektor")
+    return {"poly_pt": neu,
+            "f_m2": abs(a2) / 2.0 / (ptm * ptm),
+            "u_m": u_pt / ptm,
+            "snap_quote": len_snap / len_ges,
+            "vektor_quote": len_vek / len_ges,
+            "kanten": [{"quelle": e["quelle"], "achse": e["achse"],
+                        "fest": e["fest"],
+                        "L_m": round(e["L"] / ptm, 2)} for e in kanten]}
+
+
 def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
-                  stempel_f=None, grid=None):
+                  stempel_f=None, grid=None, dark_segs=None, stuetzen=None):
     """Pro Raum den REKONSTRUIERTEN Region-Umriss als Polygon in pt
     (Nachvollziehbarkeit: der Prüfer sieht die geometrische Lesart der App
     ÜBER dem Plan — verifizierte Räume decken sich, Prüf-Räume zeigen exakt,
     wo die Rekonstruktion abweicht). Moore-Verfolgung je Label; nur die
     GRÖSSTE Komponente je Raum (Fransen/Inseln fallen raus). → {idx: [(x,y)…]}."""
     W, H = rst.W, rst.H
-    MN = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
     zm2 = rst.zm * rst.zm
     out = {}
     for ridx in range(n_stempel):
-        # Randzellen dieses Raums (Raum-Zelle mit Nicht-Raum-Nachbar)
-        rand = bytearray(W * H)
-        n_cells = 0
-        for j in range(H):
-            base = j * W
-            for i in range(W):
-                if label[base + i] != ridx:
-                    continue
-                n_cells += 1
-                for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    ni, nj = i + di, j + dj
-                    if not (0 <= ni < W and 0 <= nj < H) or label[nj * W + ni] != ridx:
-                        rand[base + i] = 1
-                        break
-        if n_cells * zm2 < min_flaeche_m2:
-            continue
-        # Start = oberste-linkeste Randzelle → Moore-Trace im Uhrzeigersinn
-        start = next((idx for idx in range(W * H) if rand[idx]), None)
-        if start is None:
-            continue
-        pfad = []
-        i, j = start % W, start // W
-        cur, richtung = (i, j), 0
-        for _s in range(4 * (W + H)):
-            pfad.append(cur)
-            gefunden = False
-            for k in range(8):
-                d = MN[(richtung + k) % 8]
-                ni, nj = cur[0] + d[0], cur[1] + d[1]
-                if 0 <= ni < W and 0 <= nj < H and rand[nj * W + ni]:
-                    cur = (ni, nj)
-                    richtung = (richtung + k + 6) % 8
-                    gefunden = True
-                    break
-            if not gefunden or (cur == (i, j) and len(pfad) > 2):
-                break
-        if len(pfad) < 6:
-            continue
-        # DOUGLAS-PEUCKER: die Raster-Treppung (1-Zell-Stufen an achsparallelen
-        # Wänden) auf glatte Linien reduzieren, echte L-/Kerben-Ecken behalten.
-        # Toleranz 2 Zellen → Stufen (≤1 Zelle Abweichung) kollabieren, reale
-        # Ecken (große Abweichung) bleiben.
-        def _dp(pts, eps):
-            if len(pts) < 3:
-                return pts
-            ax, ay = pts[0]
-            bx, by = pts[-1]
-            dx, dy = bx - ax, by - ay
-            L = (dx * dx + dy * dy) ** 0.5 or 1.0
-            dmax, imax = 0.0, 0
-            for k in range(1, len(pts) - 1):
-                px, py = pts[k]
-                d = abs((px - ax) * dy - (py - ay) * dx) / L
-                if d > dmax:
-                    dmax, imax = d, k
-            if dmax > eps:
-                return _dp(pts[:imax + 1], eps)[:-1] + _dp(pts[imax:], eps)
-            return [pts[0], pts[-1]]
-
-        # DP auf den OFFENEN Trace-Pfad (Start/Ende sind benachbart) — bei
-        # geschlossenem Polygon würde Start==Ende die Rekursion degenerieren.
-        vereinfacht = _dp(pfad, 2.0)
-        if len(vereinfacht) < 3:
+        vereinfacht, n_cells = _umriss_zellen(label, W, H, ridx, zm2,
+                                              min_flaeche_m2)
+        if vereinfacht is None or len(vereinfacht) < 3:
             continue
         # VERLÄSSLICHKEITS-GATE: die Polygon-Fläche (Shoelace) muss zur echten
         # Region-Fläche (Zellzahl) passen — offene/zerfranste Räume (Carport)
@@ -2395,14 +2625,36 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                             for p in vereinfacht],
             }
         if angenommen:
-            _fin = vereinfacht
-            if grid is not None:
+            # VEKTOR-EXAKTER Snap zuerst (Nutzer-Befund: Kontur muss auf der
+            # Wandlinie liegen, nicht auf einer Rasterzelle davor). Gate:
+            # Snap-Quote ≥70 % und Fläche darf vom DP-Polygon nicht grob
+            # abweichen (Fehlsnap/Selbstschneidung) — sonst bisheriger Weg.
+            _fin_pt = None
+            if dark_segs is not None and grid is not None:
                 try:
-                    _fin = an_wand_schnappen(vereinfacht, grid, W, H)
+                    _kx = raum_kontur_exakt(vereinfacht, grid, W, H, rst,
+                                            dark_segs, stuetzen=stuetzen)
+                    if _kx and _kx["snap_quote"] >= 0.70 and poly_flaeche > 0 \
+                            and abs(_kx["f_m2"] - poly_flaeche) / poly_flaeche <= 0.20:
+                        _fin_pt = _kx["poly_pt"]
+                        if debug is not None:
+                            debug[ridx]["kontur_exakt"] = {
+                                "snap_quote": round(_kx["snap_quote"], 3),
+                                "vektor_quote": round(_kx["vektor_quote"], 3),
+                                "f_m2": round(_kx["f_m2"], 2),
+                                "u_m": round(_kx["u_m"], 2)}
                 except Exception:
-                    _fin = vereinfacht
-            out[ridx] = [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
-                         for p in _fin]
+                    _fin_pt = None
+            if _fin_pt is None:
+                _fin = vereinfacht
+                if grid is not None:
+                    try:
+                        _fin = an_wand_schnappen(vereinfacht, grid, W, H)
+                    except Exception:
+                        _fin = vereinfacht
+                _fin_pt = [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
+                           for p in _fin]
+            out[ridx] = _fin_pt
     return out
 
 
@@ -2685,15 +2937,73 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 u_ok = f_ist > 0 and u_ist <= 1.8 * 4.0 * (f_ist ** 0.5)
             status = "verifiziert" if (f_ok and u_ok) else ("u_daneben" if f_ok else "f_daneben")
             out.append(dict(st, status=status, f_ist=round(f_ist, 2), u_ist=round(u_ist, 2)))
+        # VEKTOR-EXAKTE KONTUR-MESSUNG (Nutzer-Befund: „die Räume werden nicht
+        # genau nachgezeichnet"). Dieselbe Kontur, die raum_regionen zeichnet,
+        # misst hier F/U: Kanten auf den echten WANDLINIEN (pt), Ecken als
+        # Schnittpunkte — ohne Raster-Krenellierung und Halbzellen-Bias, die
+        # die beiden Einseit-Heuristiken oben erst nötig machten. Streng
+        # MONOTON wie die Ebenen-Merges: nur f/u_daneben → verifiziert, nie
+        # ein Verlust. Snap-Quote <85 % (offene/zerfranste Konturen) bleibt
+        # bei der Raster-Messung — ehrlich statt erfunden.
+        if any(r["status"] not in ("verifiziert", "kein_start") for r in out):
+            _cells_r = {}
+            for _i2 in range(W2 * H2):
+                _l2 = label[_i2]
+                if 0 <= _l2 < n_st:
+                    _cells_r.setdefault(_l2, []).append(_i2)
+            for idx2 in range(n_st):
+                if out[idx2]["status"] in ("verifiziert", "kein_start"):
+                    continue
+                cells = _cells_r.get(idx2)
+                if not cells:
+                    continue
+                try:
+                    vereinfacht, _nc = _umriss_zellen(label, W2, H2, idx2,
+                                                      zm2, cells=cells)
+                    if not vereinfacht or len(vereinfacht) < 3:
+                        continue
+                    kx = raum_kontur_exakt(vereinfacht, grid, W2, H2, rst,
+                                           dark_segs, stuetzen=_stuetzen)
+                    if not kx:
+                        continue
+                    st = stempel[idx2]
+                    # KEIN Snap-Quote-Gate hier: der Beweis kommt aus dem
+                    # F+U-Doppel-Gate gegen die byte-exakten Stempel (zwei
+                    # unabhängige Werte) — nicht aus der Wand-Nähe. Ein
+                    # Carport hat legitime OFFENE Kanten (Angerer-Parkplatz:
+                    # 48 % gesnappt, F +1 %, U +3 % → bewiesen), ein
+                    # zerfranster Umriss scheitert am F/U-Gate selbst.
+                    # Tür-Laibungs-Gutschrift wie beim Raster-Pfad (die
+                    # Kontur läuft auf der Wandlinie — der Durchgang zählt
+                    # laut Plan-F zum Raum, s. Balken-Gutschrift oben).
+                    f_p = kx["f_m2"] + gut[idx2] * zm2
+                    u_p = kx["u_m"]
+                    # Plausibilität: die exakte Fläche darf vom Zell-Becken
+                    # nicht grob abweichen (Fehlsnap/Selbstschneidung).
+                    if abs(f_p - masse[idx2][0]) / max(masse[idx2][0], 1e-9) > 0.20:
+                        continue
+                    f_ok2 = abs(f_p - st["f_m2"]) / st["f_m2"] <= tol_f
+                    if st.get("u_m") is not None:
+                        u_ok2 = abs(u_p - st["u_m"]) / st["u_m"] <= tol_u
+                    else:
+                        u_ok2 = f_p > 0 and u_p <= 1.8 * 4.0 * (f_p ** 0.5)
+                    if f_ok2 and u_ok2:
+                        out[idx2].update(status="verifiziert",
+                                         f_ist=round(f_p, 2),
+                                         u_ist=round(u_p, 2),
+                                         ebene="vektor")
+                except Exception:
+                    continue
         return out
 
     grid, label, ok_start, AUSSEN, versch = _pass(False)   # ROHBAU-Ebene
     if debug is not None:
-        debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN})
+        debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN,
+                      "stuetzen": _stuetzen})
     out = _messen_und_status(grid, label, ok_start, versch)
     for r in out:
         if r["status"] == "verifiziert":
-            r["ebene"] = "roh"
+            r["ebene"] = r.get("ebene") or "roh"   # "vektor" nicht überschreiben
     # SCHACHT-GLÄTTUNGS-EBENE (Bad-Roh-F-Sezierung, monoton wie Roh/Fertig):
     # kleine Räume mit Installations-/Schacht-BUCHTEN (0,6-0,8m) tragen bei
     # EXAKTEM F ein raster-krenelliertes U (+33% gemessen) — die 0,25er-
@@ -2711,7 +3021,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
             for r1, rg in zip(out, out_g):
                 if r1["status"] != "verifiziert" and rg["status"] == "verifiziert":
                     r1.update(status="verifiziert", f_ist=rg["f_ist"],
-                              u_ist=rg["u_ist"], ebene="schacht")
+                              u_ist=rg["u_ist"], ebene=rg.get("ebene") or "schacht")
         except Exception:
             pass
     # BODEN-SCHRAFFUR-EBENE (Bad-Roh-F-Sezierung, monotoner ADD-Merge): auf
@@ -2731,7 +3041,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 for r1, rf in zip(out, out_f):
                     if r1["status"] != "verifiziert" and rf["status"] == "verifiziert":
                         r1.update(status="verifiziert", f_ist=rf["f_ist"],
-                                  u_ist=rf["u_ist"], ebene="boden")
+                                  u_ist=rf["u_ist"], ebene=rf.get("ebene") or "boden")
         except Exception:
             pass
     # ZWEI-EBENEN-VERIFIKATION (Bad-Anatomie-Sezierung): Stempel messen FERTIG-
@@ -2746,10 +3056,13 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
             out2 = _messen_und_status(g2, l2, ok2, v2)
             if debug is not None:
                 debug["out_fertig"] = out2   # Sezier-Sicht auf den FERTIG-Pass
+                debug["fertig_grid"] = g2
+                debug["fertig_label"] = l2
             for r1, r2 in zip(out, out2):
                 if r1["status"] != "verifiziert" and r2["status"] == "verifiziert":
                     r1.update(status="verifiziert", f_ist=r2["f_ist"],
-                              u_ist=r2["u_ist"], ebene="fertig")
+                              u_ist=r2["u_ist"],
+                              ebene=r2.get("ebene") or "fertig")
                 elif (r1["status"] == "u_daneben"
                       and r2.get("u_m") is not None
                       and r2.get("u_ist") is not None):
