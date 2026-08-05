@@ -2211,6 +2211,7 @@
   var _nzAddMode = false, _nzDraw = null;   // "Wand hinzufügen"-Modus + laufende Zeichnung
   var _nzMeasMode = false, _nzMeasPts = [];   // MESSEN-Modus (Lineal/Fläche) + geklickte Punkte
   var _nzRaumFill = true;   // Räume kräftig bunt füllen (Raumansicht, Default an)
+  var _nzUmfassung = true;  // Raumgrenze je Bauteil färben (Außen/Innenwand, Tür, offen)
   // Kräftige, gut unterscheidbare Raumfarben (Raumansicht) — je Raum stabil per Index.
   var _NZ_RAUMFARBEN = ['#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#f97316',
     '#14b8a6', '#eab308', '#8b5cf6', '#06b6d4', '#ef4444', '#84cc16', '#f43f5e'];
@@ -2800,6 +2801,26 @@
           ' stroke-dasharray="7 4" cursor="pointer"' +
           ' pointer-events="' + _pe + '"/>';
       }
+      // UMFASSUNGS-LAYER: die Raumgrenze farblich je Bauteil — Außenwand
+      // rotbraun, Innenwand blau, Tür gelb, offen grau gestrichelt, unbekannt
+      // amber gestrichelt. Macht sichtbar, wo der Raum aufhört und WOMIT.
+      if (_nzUmfassung && r.umfassung && r.umfassung.segmente && !_edit) {
+        var _UMFARB = { aussenwand: '#7c2d12', innenwand: '#2563eb', tuer: '#eab308',
+                        offen: '#94a3b8', unbekannt: '#f59e0b' };
+        var _UMNAME = { aussenwand: 'Außenwand', innenwand: 'Innenwand', tuer: 'Tür',
+                        offen: 'offen / Durchgang', unbekannt: 'ungeprüft' };
+        r.umfassung.segmente.forEach(function (s) {
+          var _uc = _UMFARB[s.klasse] || '#f59e0b';
+          var _ud = (s.klasse === 'offen' || s.klasse === 'unbekannt') ? ' stroke-dasharray="6 4"' : '';
+          var _ut = (_UMNAME[s.klasse] || s.klasse) + ' · ' + fmtNum(s.laenge_m) + ' m'
+            + (s.dicke_cm ? ' · ' + Math.round(s.dicke_cm) + ' cm' : '')
+            + (s.nachbar ? ' → ' + s.nachbar : '');
+          lines += '<line x1="' + s.p0[0] + '" y1="' + s.p0[1] + '" x2="' + s.p1[0] +
+            '" y2="' + s.p1[1] + '" stroke="' + _uc + '" stroke-width="4.2" stroke-opacity="0.85"' +
+            ' stroke-linecap="round"' + _ud + ' pointer-events="none"><title>' + esc(_ut) +
+            '</title></line>';
+        });
+      }
       // GRIFFE des bearbeiteten Raums: Eckpunkte (ziehen) + Kanten-Mittelpunkte
       // (klicken = Punkt einfügen). Zuletzt gezeichnet → liegen ganz oben.
       if (_edit) {
@@ -2973,6 +2994,15 @@
           '<strong>' + _nUngeprueft + '</strong>&nbsp;prüfen</span>' : '') +
         '<span class="nz-leg-item">von <strong>' + _nzData.raeume.length + '</strong> Räumen</span>';
     }
+    // Umfassungs-Legende: die Raumgrenze je Bauteil (nur wenn aktiv + Daten da)
+    if (_nzUmfassung && (_nzData.raeume || []).some(function (r) { return r.umfassung; })) {
+      legend += '<span class="nz-leg-item" title="Raumgrenze je Bauteil entlang der exakten Raumkontur — Segment-Tooltip zeigt Länge, Stärke, Nachbarraum">' +
+        '<span class="nz-sw" style="background:#7c2d12"></span>Außenwand' +
+        ' <span class="nz-sw" style="background:#2563eb"></span>Innenwand' +
+        ' <span class="nz-sw" style="background:#eab308"></span>Tür' +
+        ' <span class="nz-sw" style="background:#94a3b8"></span>offen' +
+        ' <span class="nz-sw" style="background:#f59e0b"></span>ungeprüft</span>';
+    }
     Object.keys(ges).map(Number).sort(function (a, b) { return b - a; }).forEach(function (t) {
       if (!ges[t]) return;
       legend += '<span class="nz-leg-item"><span class="nz-sw" style="background:' + _nzFarbe(t) + '"></span>' +
@@ -3138,6 +3168,7 @@
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
       '<button type="button" class="nz-btn' + (_nzFull ? ' nz-btn-on' : '') + '" data-z="full" title="Plan im Vollbild anzeigen (Esc = schließen)">' + (_nzFull ? '✕ Vollbild schließen' : '⛶ Vollbild') + '</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben (Raumansicht) ↔ technische Wand-/Prüfansicht">🎨 Räume</button>' +
+      '<button type="button" class="nz-btn' + (_nzUmfassung ? ' nz-btn-on' : '') + '" data-z="umf" title="Raumgrenzen nach Bauteil färben: Außenwand rotbraun · Innenwand blau · Tür gelb · offen grau">🧱 Umfassung</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumEditMode ? ' nz-btn-on' : '') + '" data-z="raumedit" title="Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu">✏️ Raum bearbeiten</button>' +
       '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
       '<button type="button" class="nz-btn' + (_nzMeasMode && !_nzCalibMode ? ' nz-btn-on' : '') + '" data-z="mess" title="Byte-exakt am Maßstab messen — für unsichere Räume selbst nachmessen">📏 Messen</button>' +
@@ -3490,6 +3521,7 @@
       b.addEventListener('click', function () {
         var z = b.getAttribute('data-z');
         if (z === 'raumfill') { _nzRaumFill = !_nzRaumFill; _nzPaint(); }
+        if (z === 'umf') { _nzUmfassung = !_nzUmfassung; _nzPaint(); }
         else if (z === 'raumedit') {
           _nzRaumEditMode = !_nzRaumEditMode;
           if (_nzRaumEditMode) { _nzRaumFill = true; _nzAddMode = false; _nzMeasMode = false; _nzMeasPts = []; _nzSel = null; }

@@ -36,7 +36,9 @@ für mehrere Bereiche der Baubranche (Baubetriebe/Rohbau, Ausbau-Gewerke, Kalkul
 | ✅ | Wand-Poché farb-gefiltert (Neubau rot/orange; monochromer Fallback) — 85% Rauschen raus |
 | ✅ | Möbel-Aussortierung (Schraffur-Verankerung) |
 | ✅ | **Multi-Geschoss**: alle Pläne des Projekts als Tabs in der Planansicht (lazy je Tab, Korrekturen pro Plan) |
-| 🔜 | Raum-Verifikation Runde 3: Gang-/Zonen-Zuordnung, Tür↔Raum-Topologie → Quote hoch |
+| ✅ | **Tür↔Raum-Topologie** (Leck-geführter Nachverschluss mit Verifikations-Guard, `raumnetz._tuer_lecks`): undichte Türen 32→26 im Korpus, null Verifikations-Regression — ein Balken, der einen verifizierten Raum kostet, fliegt einzeln raus. Wächter: `scripts/mess_tuer_dichtung.py` |
+| ✅ | **Umfassungs-Zerlegung** (`raumnetz.raum_umfassung`, Wächter `scripts/test_raumumfassung.py`): jede Raumgrenze je Bauteil — Außenwand/Innenwand(Nachbar)/Tür/offen — farblich in der Planansicht (Toggle „🧱 Umfassung") |
+| 🔜 | Raum-Verifikation Runde 3: Gang-/Zonen-Zuordnung → Quote hoch |
 | ✅ | **Plan-Korpus + Abdeckungs-Metrik** (`scripts/test_korpus.py`): 6 echte Pläne, je Plan Kalibrierung/Ansicht/Wände/Öffnungen/Räume✓. Stand: **alle 4 Grundriss-Pläne ✓** (die 2 ✗ sind Schnitt-Blätter — ehrlich ausgeschlossen statt falsches Bild). Korpus wächst mit jedem neuen Kunden-Plan. |
 | ⬜ | **Raster-/Scan-Fallback** (Pläne ohne Vektoren): Vision-gestützt, ehrlich als „gescannt — reduzierte Genauigkeit" gekennzeichnet |
 | ⬜ | Mehrseitige Pläne / mehrere Grundrisse pro Blatt sauber getrennt (EG/OG auf einem A0) |
@@ -95,6 +97,11 @@ Ziel-Workflow (Stepper statt Scroll-Wüste):
    Rekonstruktion misst ROHBAU, Differenz jenseits jeder Putz-Annahme; Ziel:
    alle Innenräume). Kontur-Güte (umriss_auf_wand) wird im selben Harness
    mitgemessen.
+2b. `test_raumumfassung` — Umfassungs-Zerlegung je Bauteil: Median-
+   Klassifikation ≥75 % (Stand 76 %), Tür-Anzahl/Position, Hüllen-Befund,
+   Partition, Symmetrie A↔B.
+2c. `mess_tuer_dichtung` — undichte Türen im Korpus, pro Plan gepinnt
+   (Stand 26 von 55, Tendenz nur fallend).
 3. Plan-Korpus-Abdeckung — n/6 Pläne mit funktionierender Planansicht (aktuell 4/6)
 4. Alle Einheiten-Tests (Öffnungen, Verschnitt, Farben, Nachzeichnen, Kalibrier-Mechanik)
 

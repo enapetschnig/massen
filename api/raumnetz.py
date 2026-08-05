@@ -2278,6 +2278,141 @@ def _umriss_zellen(label, W, H, ridx, zm2, min_flaeche_m2=1.0, cells=None):
     return _dp(pfad, 2.0), n_cells
 
 
+def _tuer_lecks(grid, label, rst, oeffnungen):
+    """Undichte Türen lokalisieren: läuft die Raumfarbe durch die Öffnung?
+
+    Spiegelbildlich zum Mess-Harness scripts/mess_tuer_dichtung.py (gleiche
+    Fenster/Spannweiten/Sonden): pro Tür-Anker die Wand-Lücke-Wand-Struktur
+    suchen (Anker streut bis 1,13 m daneben, darum Fenster 1,0 m / Kappe
+    1,8 m, Spalt 0,45-2,6 m am nächsten an der Nennbreite), dann quer über
+    die Lücke bis zur ersten Raum-Zelle je Seite sondieren. Gleiches Label
+    beidseitig = Leck. → [(achse, fest, lo, hi)] der LECKENDEN Lücken."""
+    W, H = rst.W, rst.H
+    lecks = []
+    for o in (oeffnungen or []):
+        if o.get("typ") != "tuer" or o.get("cx") is None:
+            continue
+        cx, cy = o["cx"], o["cy"]
+        b = o.get("breite_m") or 0.9
+        b_z = max(3, int(round(b * rst.ptm / rst.cell)))
+        cap = max(4, int(round(1.8 * rst.ptm / rst.cell)))
+        fen = max(2, int(round(1.0 * rst.ptm / rst.cell)))
+        sp_min = max(3, int(round(0.45 * rst.ptm / rst.cell)))
+        sp_max = int(round(2.6 * rst.ptm / rst.cell))
+        ci, cj = rst.ij(cx, cy)
+        best = None
+        for achse in ("h", "v"):
+            for off in range(-fen, fen + 1):
+                if achse == "h":
+                    jj = cj + off
+                    if not (0 <= jj < H):
+                        continue
+                    li = re2 = None
+                    for d in range(cap + 1):
+                        if li is None and 0 <= ci - d < W and grid[jj * W + ci - d]:
+                            li = ci - d
+                        if re2 is None and 0 <= ci + d < W and grid[jj * W + ci + d]:
+                            re2 = ci + d
+                        if li is not None and re2 is not None:
+                            break
+                    if li is None or re2 is None:
+                        continue
+                    sp, fest, lo, hi = re2 - li - 1, jj, li, re2
+                else:
+                    ii = ci + off
+                    if not (0 <= ii < W):
+                        continue
+                    ob = un = None
+                    for d in range(cap + 1):
+                        if ob is None and 0 <= cj - d < H and grid[(cj - d) * W + ii]:
+                            ob = cj - d
+                        if un is None and 0 <= cj + d < H and grid[(cj + d) * W + ii]:
+                            un = cj + d
+                        if ob is not None and un is not None:
+                            break
+                    if ob is None or un is None:
+                        continue
+                    sp, fest, lo, hi = un - ob - 1, ii, ob, un
+                if not (sp_min <= sp <= sp_max):
+                    continue
+                sc = (abs(sp - b_z), abs(off))
+                if best is None or sc < best[0]:
+                    best = (sc, achse, fest, lo, hi)
+        if best is None:
+            continue
+        achse, fest, lo, hi = best[1], best[2], best[3], best[4]
+        mid = (lo + hi) // 2
+        max_s = max(3, int(round(1.2 * rst.ptm / rst.cell)))
+
+        def _erste_raumzelle(vz):
+            for d in range(1, max_s + 1):
+                if achse == "h":
+                    jj = fest + vz * d
+                    if not (0 <= jj < H):
+                        return None
+                    idx = jj * W + mid
+                else:
+                    ii = fest + vz * d
+                    if not (0 <= ii < W):
+                        return None
+                    idx = mid * W + ii
+                if label[idx] >= 0:
+                    return label[idx]
+            return None
+
+        l1, l2 = _erste_raumzelle(-1), _erste_raumzelle(+1)
+        if l1 is None or l2 is None or l1 != l2:
+            continue
+        # Lücke muss überwiegend FREI sein (sonst liegt der Verschluss
+        # bereits, nur anders bewertet — nicht doppelt brennen).
+        belegt = 0
+        for t in range(lo + 1, hi):
+            if grid[(fest * W + t) if achse == "h" else (t * W + fest)]:
+                belegt += 1
+        if belegt * 3 >= max(1, hi - lo - 1):
+            continue
+        # PFOSTEN-ZUSAMMENHANG: eine echte Tür sitzt in EINEM Wandzug —
+        # beide Pfosten (die Wand-Enden li/re der Lücke) hängen über
+        # Wandzellen LOKAL zusammen. Sind es zwei PARALLELE Wände (Nische,
+        # Korridor-Vorsprung), würde der Balken eine Passage zumauern —
+        # gemessen: WM-Bad −1,1 m² durch Balken quer zur Nische, Velden
+        # E-Technik +0,6 m². Fenster des BFS: 1,6× die Spannweite — der
+        # Wandzug schließt sich lokal um die Öffnung, der Weg ums Gebäude
+        # zählt nicht als Verbindung.
+        j1 = (fest * W + lo) if achse == "h" else (lo * W + fest)
+        j2 = (fest * W + hi) if achse == "h" else (hi * W + fest)
+        if not (grid[j1] and grid[j2]):
+            continue
+        span = hi - lo
+        rad = max(int(span * 1.6), int(1.2 * rst.ptm / rst.cell))
+        ci0, cj0 = j1 % W, j1 // W
+        seen = bytearray(W * H)
+        q = deque([j1])
+        seen[j1] = 1
+        verbunden = False
+        while q and not verbunden:
+            cur = q.popleft()
+            ci_, cj_ = cur % W, cur // W
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ni, nj = ci_ + di, cj_ + dj
+                if not (0 <= ni < W and 0 <= nj < H):
+                    continue
+                if abs(ni - ci0) > rad or abs(nj - cj0) > rad:
+                    continue
+                nidx = nj * W + ni
+                if seen[nidx] or not grid[nidx]:
+                    continue
+                if nidx == j2:
+                    verbunden = True
+                    break
+                seen[nidx] = 1
+                q.append(nidx)
+        if not verbunden:
+            continue
+        lecks.append((achse, fest, lo, hi))
+    return lecks
+
+
 def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
                       snap_m=0.35):
     """VEKTOR-EXAKTE Raumkontur: DP-Kanten (Zellen) an die gezeichneten
@@ -2498,6 +2633,479 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
             "kanten": [{"quelle": e["quelle"], "achse": e["achse"],
                         "fest": e["fest"],
                         "L_m": round(e["L"] / ptm, 2)} for e in kanten]}
+
+
+def _draussen_maske(grid, label, W, H):
+    """Unbeschriftete (−1) Freizellen, die mit dem RASTER-RAND verbunden sind.
+
+    Flut-Phase 2 erreicht schmale Außenstreifen an dicken Fassaden nicht
+    (kein Kern, kein Weg ums Gebäude) — sie bleiben −1, obwohl sie DRAUSSEN
+    sind (Angerer-Südfassade: 12,7 m „unbekannte" Außenwand gemessen). Eine
+    BFS vom Rand über freie Zellen trennt das von INNEREN −1-Taschen
+    (Schächte): draussen[i]=1 ⇔ Außenbereich."""
+    draussen = bytearray(W * H)
+    q = deque()
+    for i in range(W):
+        for j in (0, H - 1):
+            idx = j * W + i
+            if not grid[idx] and label[idx] < 0 and not draussen[idx]:
+                draussen[idx] = 1
+                q.append(idx)
+    for j in range(H):
+        for i in (0, W - 1):
+            idx = j * W + i
+            if not grid[idx] and label[idx] < 0 and not draussen[idx]:
+                draussen[idx] = 1
+                q.append(idx)
+    while q:
+        idx = q.popleft()
+        i, j = idx % W, idx // W
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ni, nj = i + di, j + dj
+            if 0 <= ni < W and 0 <= nj < H:
+                nidx = nj * W + ni
+                if not draussen[nidx] and not grid[nidx] and label[nidx] < 0:
+                    draussen[nidx] = 1
+                    q.append(nidx)
+    return draussen
+
+
+def raum_umfassung(poly_pt, grid, label, rst, ridx, AUSSEN, stempel,
+                   oeffnungen=None, boegen=None, dark_segs=None,
+                   draussen=None):
+    """UMFASSUNGS-ZERLEGUNG eines Raums — wo hört der Raum auf, und WOMIT?
+
+    Nutzer-Befund: „er muss erkennen, wann ein Raum aufhört und anfängt, wo
+    die Innenmauer, wo die Außenmauer ist." Die exakte Kontur (raum_kontur_
+    exakt) sagt WO die Grenze läuft — diese Zerlegung sagt, WAS sie ist:
+    jeder Umfang-Schritt wird quer nach außen sondiert und klassifiziert:
+
+      aussenwand  — Wandband, dahinter AUSSEN
+      innenwand   — Wandband, dahinter ein anderer Raum (Nachbar-Name dabei)
+      tuer        — Öffnung im Band (Bogen byte-exakt bzw. Tür-Text), Raum
+                    endet an der Laibung — die Farbe darf NICHT durchlaufen
+      offen       — kein Wandband (Durchgang/Carport-Front)
+      unbekannt   — Band dahinter unbeschriftet → ehrlich, nicht geraten
+
+    Die Segment-Summen sind die Abwicklungs-Grundlage je Wandart (Innenputz
+    außen ≠ innen). Wandstärke wird am Band selbst gemessen (Zellzahl × zm),
+    nicht aus der Legende geraten.
+
+    Rückgabe: {segmente: [{p0, p1, klasse, laenge_m, dicke_cm, nachbar}],
+               klassen_m: {…}, anteil_klassifiziert, u_m} — segmente in
+    Umlauf-Reihenfolge, Σ laenge_m == u_m (die Kontur ist partitioniert).
+    """
+    n = len(poly_pt or [])
+    if n < 3 or grid is None or label is None:
+        return None
+    W, H = rst.W, rst.H
+    ptm, zm = rst.ptm, rst.zm
+    schritt_m = 0.05
+    # Sondentiefe 1,05 m: die Maske dickt Außenwände auf (Poché-Dilatation +
+    # Closing ≈ +0,2 m) — eine 50er-Hülle wird 0,7 m dick, die alten 0,75 m
+    # starben IM Band (Wohnraum-Südfassade „unbekannt", gemessen). Innen
+    # ändert das nichts: die erste FREIE Zelle hinter dem (dünneren) Band
+    # entscheidet — sie kommt bei jeder Wandstärke vor der Kappe.
+    max_sonde = 1.05
+
+    def _sonde(x, y, nx, ny):
+        """Quer-Sonde ab Konturpunkt (x,y) Richtung (nx,ny) (Einheitsvektor,
+        nach außen). → (klasse, dicke_m, nachbar_label).
+
+        Band-Dicke = das ERSTE zusammenhängende Wandband (1-Zell-Rasterlöcher
+        geduldet, 2 freie Schritte hintereinander = Bandende) — das frühere
+        „4 cm frei"-Fenster sprang über Laibungs-Lücken in das NÄCHSTE Band
+        und maß 47-75 cm-Monster (gemessen am Angerer-Korpus). Nachbar-Label =
+        Mehrheits-Label der ersten 3 freien Zellen hinter dem Band (das
+        Ein-Zell-Votum kippte an Wand-Knoten zwischen Räumen)."""
+        wand_an = None
+        dicke = 0.0
+        stille = 0
+        d = 0.5 * zm
+        freie = []                       # Labels hinter dem Band (für Mehrheit)
+        raus = False                     # Sonde lief aus dem Raster
+        while d <= max_sonde:
+            i, j = rst.ij(x + nx * d * ptm, y + ny * d * ptm)
+            if not (0 <= i < W and 0 <= j < H):
+                raus = True
+                break
+            if grid[j * W + i]:
+                if wand_an is not None and stille > 0:
+                    # Loch IM Band: weiter zählen, Stille zurück
+                    dicke = d - wand_an + zm
+                    stille = 0
+                elif wand_an is None:
+                    wand_an = d
+                    dicke = zm
+                else:
+                    dicke = d - wand_an + zm
+            elif wand_an is not None:
+                stille += 1
+                freie.append((label[j * W + i], j * W + i))
+                if stille >= 2:
+                    break
+            d += 0.5 * zm
+        if wand_an is None:
+            return ("offen", 0.0, None)
+        # Raster-ENDE hinter einem Wandband = Gebäudekante: draußen liegt
+        # jenseits der Plan-Box das Freie — das ist die Außenwand (sonst
+        # blieben Fassaden an der Box-Kante „unbekannt", gemessen am
+        # Angerer-Wohnraum: 12,7 m unbekannt, davon 8 m Südfassade).
+        if raus:
+            return ("aussenwand", min(dicke, 0.60), None)
+        if not freie:
+            # Sonde STIRBT IM BAND: Maske ist aufgedickt (Poché-Dilatation +
+            # Closing ≈ +0,2 m über die reale Wand) — eine 50er-Außenwand
+            # wird 0,7 m dick, die 0,75-m-Sonde kommt nicht durch. Nahe der
+            # Raster-Kante ist ein ≥0,25-m-Band die Hülle (innen ist keine
+            # Wand so dick UND so randnah) → Außenwand.
+            if dicke >= 0.25 and min(x - rst.bx0, rst.bx1 - x,
+                                     y - rst.by0, rst.by1 - y) <= 1.2 * ptm:
+                return ("aussenwand", min(dicke, 0.60), None)
+            return ("unbekannt", min(dicke, 0.60), None)   # Band aus dem Raster
+        # Mehrheits-Label der ersten freien Zellen
+        votes = {}
+        for lf, _ix in freie[:3]:
+            votes[lf] = votes.get(lf, 0) + 1
+        lab = max(votes.items(), key=lambda kv: kv[1])[0]
+        if lab == AUSSEN:
+            return ("aussenwand", min(dicke, 0.60), None)
+        if 0 <= lab < AUSSEN:
+            return ("innenwand", min(dicke, 0.60), lab)
+        # Label −1 hinter dem Band: Flut-Phase 2 erreicht schmale Außen-
+        # streifen an dicken Fassaden nicht (kein Kern, kein Weg ums Gebäude
+        # — Angerer-Südfassade 12,7 m „unbekannte" Außenwand gemessen).
+        # Mit Rand verbundene −1-Zellen = draussen → Außenwand; innen
+        # liegende −1-Taschen (Schächte) bleiben ehrlich unbekannt.
+        if draussen is not None:
+            for _lf2, _ix2 in freie:
+                if draussen[_ix2]:
+                    return ("aussenwand", min(dicke, 0.60), None)
+        elif min(x - rst.bx0, rst.bx1 - x, y - rst.by0, rst.by1 - y) <= 1.2 * ptm:
+            return ("aussenwand", min(dicke, 0.60), None)
+        return ("unbekannt", min(dicke, 0.60), None)
+
+    # Tür-Spannen entlang der Kontur: Bogen (byte-exakt: Angel + geschlossenes
+    # Ende = Öffnungslinie in der Wandflucht) als Linien-Geometrie. FLÜGEL-
+    # ABLAGE: hinge→a und hinge→b sind Öffnungslinie UND BLATT-Richtung —
+    # das Blatt liegt im Freiraum (Tür-Zonen-Veto der Wand-Maske), die
+    # Öffnungslinie im Band (Verschluss-Balken). Masken-Deckung entscheidet
+    # (≥0,2 Differenz), sonst bleiben beide (unversiegelte Tür = beide frei).
+    bogen_linien = []
+    for bg in (boegen or []):
+        hx, hy = bg["hinge"]
+
+        def _deck(ende):
+            tr = 0
+            for k2 in range(21):
+                t2 = k2 / 20.0
+                i2, j2 = rst.ij(hx + (ende[0] - hx) * t2,
+                                hy + (ende[1] - hy) * t2)
+                if not (0 <= i2 < W and 0 <= j2 < H):
+                    continue
+                gef = False
+                for di2 in (-1, 0, 1):
+                    for dj2 in (-1, 0, 1):
+                        ii3, jj3 = i2 + di2, j2 + dj2
+                        if 0 <= ii3 < W and 0 <= jj3 < H and grid[jj3 * W + ii3]:
+                            gef = True
+                            break
+                    if gef:
+                        break
+                tr += 1 if gef else 0
+            return tr / 21.0
+
+        ca, cb = _deck(bg["a"]), _deck(bg["b"])
+        if ca >= cb + 0.2 and ca >= 0.5:
+            bogen_linien.append((hx, hy, bg["a"][0], bg["a"][1]))
+        elif cb >= ca + 0.2 and cb >= 0.5:
+            bogen_linien.append((hx, hy, bg["b"][0], bg["b"][1]))
+        else:
+            # unklar/unversiegelt (beide <0,5) → beide (Fallback: sonst
+            # verliert die Tür ihre Markierung — Waschen 2→1 gemessen)
+            for ende in (bg["a"], bg["b"]):
+                bogen_linien.append((hx, hy, ende[0], ende[1]))
+    # Tür-TEXTE: der Anker sitzt NEBEN der Wand und trägt keine Richtung —
+    # die Spanne wird auf die nächste Kontur-Kante projiziert (senkrechter
+    # Abstand ≤0,45 m) und dort mittig mit Nennbreite markiert. (Früher lag
+    # die Spanne waagrecht durch den Anker: an einer senkrechten Wand
+    # markierte sie 1,85 m statt 0,86 m — gemessen am Angerer-WC.)
+    text_tueren = [(o["cx"], o["cy"], (o.get("breite_m") or 0.9))
+                   for o in (oeffnungen or [])
+                   if o.get("typ") == "tuer" and o.get("cx") is not None]
+
+    schritte = []        # [x, y, klasse, dicke_m, nachbar, kante, lauf_pt]
+    for k in range(n):
+        x1, y1 = poly_pt[k]
+        x2, y2 = poly_pt[(k + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
+        L = math.hypot(dx, dy)
+        if L < 1e-6:
+            continue
+        # Normale: beide Seiten testen — die Seite mit dem eigenen Label ist
+        # innen (robust auch für konkave Ecken, Schwerpunkt-Tricks versagen)
+        nx0, ny0 = -dy / L, dx / L
+        i_p, j_p = rst.ij(x1 + dx * 0.5 + nx0 * 2 * rst.cell,
+                          y1 + dy * 0.5 + ny0 * 2 * rst.cell)
+        innen_plus = (0 <= i_p < W and 0 <= j_p < H
+                      and label[j_p * W + i_p] == ridx)
+        nx, ny = (nx0, ny0) if not innen_plus else (-nx0, -ny0)
+        n_s = max(1, int(L / (schritt_m * ptm)))
+        for s in range(n_s):
+            t = (s + 0.5) / n_s
+            x, y = x1 + dx * t, y1 + dy * t
+            klasse, dicke, nachbar = _sonde(x, y, nx, ny)
+            # Dünnes Band (<5,5 cm) = Glasfront-/Leichtwand-Linie: die Klasse
+            # (innen/außen) stimmt, die DICKE ist unzuverlässig → nicht in
+            # die Median-Dicke einrechnen.
+            if 0 < dicke < 0.055:
+                dicke = 0.0
+            schritte.append([x, y, klasse, dicke, nachbar, k, t * L])
+
+    # TÜR-OVERLAY a) Bögen: Querschatten der Öffnungslinie (senkrecht ≤0,30 m,
+    # Projektion innerhalb der Spanne, byte-exakt Angel→Ende). RICHTUNGS-
+    # FILTER: die Tür-Linie liegt IN der Wand — Schritte der SENKRECHT
+    # dazu anschließenden Wand projizieren sonst auf den Angelpunkt und
+    # blähen die „Tür" um ~0,3 m über die Laibung hinaus (gemessen: 1,29 m
+    # statt 0,86 m am Angerer-Korpus). Tür-ID mitführen: zwei Türen zur
+    # selben Nachbar-Richtung bleiben ZWEI Segmente (kein 2-m-Verbund).
+    for st in schritte:
+        x, y = st[0], st[1]
+        kx1, ky1 = poly_pt[st[5]]
+        kx2, ky2 = poly_pt[(st[5] + 1) % n]
+        kL = math.hypot(kx2 - kx1, ky2 - ky1) or 1.0
+        kux, kuy = (kx2 - kx1) / kL, (ky2 - ky1) / kL
+        trifft = None
+        for _bi, (ax_, ay_, bx_, by_) in enumerate(bogen_linien):
+            dx_, dy_ = bx_ - ax_, by_ - ay_
+            L2 = dx_ * dx_ + dy_ * dy_
+            if L2 < 1e-6:
+                continue
+            L_ = math.sqrt(L2)
+            if abs((dx_ * kux + dy_ * kuy) / L_) < 0.7:
+                continue    # Linie nicht parallel zur Kante des Schritts
+            t = ((x - ax_) * dx_ + (y - ay_) * dy_) / L2
+            if not (0.0 <= t <= 1.0):
+                continue
+            qx, qy = ax_ + t * dx_, ay_ + t * dy_
+            if math.hypot(x - qx, y - qy) / ptm <= 0.30:
+                trifft = _bi
+                break
+        if trifft is not None and st[2] in ("innenwand", "aussenwand", "unbekannt"):
+            st[2] = "tuer"
+            st.append(("bogen", trifft))
+    # TÜR-OVERLAY b) Texte: auf die nächste Kante projiziert, Nennbreite mittig.
+    # BREITE DURCHGANGS-REGEL: >1,4 m ohne Bogen ist auf Wohnungsplänen der
+    # OFFENE DURCHGANG (kein Türblatt, kein Bogen — Flur↔Wohnküche 2,2 m am
+    # Angerer-Plan, bisher fälschlich „tuer"). Ausnahme: Glas-/Schiebefronten
+    # (WM-Loggia 2,5-3,1 m) haben KEINEN Bogen, aber gezogene Front-Linien —
+    # ≥1 Linie parallel zur Kante, ≥50 % der Nennbreite, ≤0,35 m Abstand.
+    for _ti, (tx, ty, tb_m) in enumerate(text_tueren):
+        beste = None
+        for k in range(n):
+            x1, y1 = poly_pt[k]
+            x2, y2 = poly_pt[(k + 1) % n]
+            dx, dy = x2 - x1, y2 - y1
+            L = math.hypot(dx, dy)
+            if L < 1e-6:
+                continue
+            ux, uy = dx / L, dy / L
+            s = (tx - x1) * ux + (ty - y1) * uy
+            q = abs(-(tx - x1) * uy + (ty - y1) * ux)
+            if -0.2 * L <= s <= 1.2 * L and (beste is None or q < beste[0]):
+                beste = (q, k, s, ux, uy)
+        if beste is None or beste[0] > 0.45 * ptm:
+            continue
+        _q, k_z, s_z, ux_z, uy_z = beste
+        halbe = (tb_m / 2.0) * ptm
+        klasse_t = "tuer"
+        if tb_m > 1.4:
+            bogen_da = False
+            for (ax_, ay_, bx_, by_) in bogen_linien:
+                mx_, my_ = (ax_ + bx_) / 2.0, (ay_ + by_) / 2.0
+                if abs((mx_ - tx) * ux_z + (my_ - ty) * uy_z) <= halbe + 0.5 * ptm:
+                    bogen_da = True
+                    break
+            glas_da = False
+            if not bogen_da and dark_segs:
+                for _s3 in dark_segs:
+                    _dx3, _dy3 = _s3[2] - _s3[0], _s3[3] - _s3[1]
+                    _L3 = math.hypot(_dx3, _dy3)
+                    if _L3 < halbe or _L3 < 1e-6:
+                        continue    # kürzer als 50 % der Nennbreite
+                    if abs((_dx3 * ux_z + _dy3 * uy_z) / _L3) < 0.87:
+                        continue    # nicht parallel zur Kante
+                    _mx3, _my3 = (_s3[0] + _s3[2]) / 2.0, (_s3[1] + _s3[3]) / 2.0
+                    _s3p = (_mx3 - tx) * ux_z + (_my3 - ty) * uy_z
+                    _q3 = abs(-(_mx3 - tx) * uy_z + (_my3 - ty) * ux_z)
+                    if abs(_s3p - s_z) <= halbe and _q3 <= 0.35 * ptm:
+                        glas_da = True
+                        break
+            if not bogen_da and not glas_da:
+                klasse_t = "offen"
+        for st in schritte:
+            if st[5] == k_z and abs(st[6] - s_z) <= halbe:
+                if klasse_t == "offen" and st[2] in ("innenwand", "aussenwand",
+                                                     "unbekannt"):
+                    st[2] = "offen"
+                    st[4] = None
+                elif klasse_t == "tuer" and st[2] in ("innenwand", "aussenwand",
+                                                      "unbekannt"):
+                    st[2] = "tuer"
+                    st.append(("text", _ti))
+
+    # RAUHEIT GLÄTTEN: Einzelsonden kippen an Wand-Knoten/Rasterlücken
+    # (gemessen: 5-cm-Fragmente „innenwand→eigener Raum"). Regeln:
+    # (1) Nachbar = EIGENER Raum → unbekannt (die Sonde rutschte um eine
+    #     Nische herum — keine Wand zwischen dem Raum und sich selbst);
+    # (2) Mehrheits-Filter ±2 Schritte über der Klassenfolge — „tuer" ist
+    #     klebrig (eine echte Tür soll kein Zitter-Split zerhacken).
+    for st in schritte:
+        if st[2] == "innenwand" and st[4] == ridx:
+            st[2], st[4] = "unbekannt", None
+    n_s = len(schritte)
+    if n_s:
+        gegl = []
+        for i in range(n_s):
+            if schritte[i][2] == "tuer":
+                gegl.append(schritte[i])
+                continue
+            votes = {}
+            for k in range(max(0, i - 2), min(n_s, i + 3)):
+                kk = (schritte[k][2], schritte[k][4])
+                votes[kk] = votes.get(kk, 0) + (3 if kk[0] == "tuer" else 1)
+            best = max(votes.items(), key=lambda kv: kv[1])[0]
+            gegl.append([schritte[i][0], schritte[i][1], best[0],
+                         schritte[i][3], best[1], schritte[i][5],
+                         schritte[i][6]])
+        schritte = gegl
+
+    # Laufbildung: gleiche Klasse+Nachbar(+Tür-ID) zusammenfassen; Mini-Läufe
+    # (<12 cm) dem Nachbarlauf zuschlagen (Raster-Zitter), Tür-Läufe nie
+    # verschmelzen. Die Tür-ID hält zwei Türen zur selben Nachbar-Richtung
+    # als ZWEI Segmente auseinander (kein 2-m-Verbund über die Laibungen).
+    lauefe = []
+    for st in schritte:
+        key = (st[2], st[4], (st[7] if st[2] == "tuer" and len(st) > 7 else None))
+        if lauefe and lauefe[-1]["key"] == key:
+            lauefe[-1]["pkt"].append(st)
+        else:
+            lauefe.append({"key": key, "pkt": [st]})
+    if len(lauefe) > 1 and lauefe[0]["key"] == lauefe[-1]["key"]:
+        lauefe[0]["pkt"] = lauefe[-1]["pkt"] + lauefe[0]["pkt"]
+        lauefe.pop()
+    min_l = max(1, int(0.12 / schritt_m))   # <12 cm = Raster-Zitter, kein Bauteil
+    for _ in range(3):
+        if len(lauefe) <= 1:
+            break
+        i_min = None
+        for i, lf in enumerate(lauefe):
+            if lf["key"][0] == "tuer":
+                continue
+            if len(lf["pkt"]) < min_l and (i_min is None
+                                           or len(lf["pkt"]) < len(lauefe[i_min]["pkt"])):
+                i_min = i
+        if i_min is None:
+            break
+        vor = lauefe[(i_min - 1) % len(lauefe)]
+        nach = lauefe[(i_min + 1) % len(lauefe)]
+        ziel = vor if (vor["key"][0] != "tuer"
+                       and len(vor["pkt"]) >= len(nach["pkt"])) else nach
+        if ziel is vor:
+            vor["pkt"] += lauefe[i_min]["pkt"]
+            lauefe.pop(i_min)
+            if i_min == len(lauefe):       # letzter Lauf → mit erstem fusioniert
+                lauefe[0]["pkt"] = vor["pkt"] + lauefe[0]["pkt"] \
+                    if vor is not lauefe[0] else vor["pkt"]
+        else:
+            nach["pkt"] = lauefe[i_min]["pkt"] + nach["pkt"]
+            lauefe.pop(i_min)
+    # INTERPOLATION: kurze „unbekannt"-Lücke (<0,35 m) zwischen ZWEI Läufen
+    # derselben Klasse+Nachbar = Sonden-Aussetzer an einem Wand-Knoten —
+    # die Flanken tragen die Klasse über die Lücke (statt Pixel-Restzweifel).
+    for _ in range(2):
+        fusion = False
+        for i, lf in enumerate(lauefe):
+            if lf["key"][0] != "unbekannt":
+                continue
+            l_m = len(lf["pkt"]) * schritt_m
+            if l_m >= 0.35 or len(lauefe) < 3:
+                continue
+            vor = lauefe[(i - 1) % len(lauefe)]
+            nach = lauefe[(i + 1) % len(lauefe)]
+            if vor["key"] == nach["key"] and vor["key"][0] != "tuer":
+                vor["pkt"] += lf["pkt"] + nach["pkt"]
+                lauefe.pop((i + 1) % len(lauefe))
+                lauefe.pop(i if i < len(lauefe) else 0)
+                fusion = True
+                break
+        if not fusion:
+            break
+
+    # LÜCKEN-SCHLUCK zwischen Tür-Runs: Overlay-Aussetzer (1-2 Wand-Schritte
+    # zwischen Bogen- und Text-Markierung derselben Tür) zerhackten eine
+    # Tür in bis zu 13 Fragmente (gemessen am Angerer-Korpus). <0,20 m
+    # „Wand" zwischen zwei Tür-Runs ist Türstock-Zitter, kein Pfosten.
+    for _ in range(2):
+        gefunden = False
+        for i, lf in enumerate(lauefe):
+            if lf["key"][0] == "tuer" or len(lauefe) < 3:
+                continue
+            if len(lf["pkt"]) * schritt_m >= 0.20:
+                continue
+            vor = lauefe[(i - 1) % len(lauefe)]
+            nach = lauefe[(i + 1) % len(lauefe)]
+            if vor["key"][0] == "tuer" and nach["key"][0] == "tuer":
+                lf["key"] = ("tuer", None, ("luecke", i))
+                gefunden = True
+        if not gefunden:
+            break
+    # TÜR-RUNS WIEDER VEREINEN: Bogen-Flügel + Text-Spanne + Lücken-Schluck
+    # derselben Tür erzeugen benachbarte Runs — aufeinanderfolgende Tür-Runs
+    # sind EINE Tür. (Zwei echte Türen trägt einen Wand-Lauf ≥0,20 m
+    # dazwischen → die bleiben getrennt; gemessen: WC 4 Fragmente statt 1.)
+    vereinigt = []
+    for lf in lauefe:
+        if (vereinigt and lf["key"][0] == "tuer"
+                and vereinigt[-1]["key"][0] == "tuer"):
+            vereinigt[-1]["pkt"] += lf["pkt"]
+        else:
+            vereinigt.append(lf)
+    lauefe = vereinigt
+
+    namen = {i: (s.get("name") or f"Raum {i}") for i, s in enumerate(stempel or [])}
+    segmente = []
+    klassen_m = {}
+    for lf in lauefe:
+        klasse, nachbar = lf["key"][0], lf["key"][1]
+        pkt = lf["pkt"]
+        if klasse == "tuer":
+            # Nachbar der (evtl. zusammengeführten) Tür = Mehrheits-Raum
+            # hinter dem Band — „die Tür führt nach X"
+            _nb = {}
+            for p in pkt:
+                if p[4] is not None:
+                    _nb[p[4]] = _nb.get(p[4], 0) + 1
+            nachbar = max(_nb.items(), key=lambda kv: kv[1])[0] if _nb else None
+        x0, y0 = pkt[0][0], pkt[0][1]
+        x1, y1 = pkt[-1][0], pkt[-1][1]
+        laenge_m = sum(math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+                       for p1, p2 in zip(pkt, pkt[1:])) / ptm
+        dicken = sorted(p[3] for p in pkt if p[3] > 0)
+        dicke_cm = round(dicken[len(dicken) // 2] * 100) if dicken else None
+        segmente.append({
+            "p0": (round(x0, 1), round(y0, 1)),
+            "p1": (round(x1, 1), round(y1, 1)),
+            "klasse": klasse,
+            "laenge_m": round(laenge_m, 2),
+            "dicke_cm": dicke_cm,
+            "nachbar": (namen.get(nachbar) if nachbar is not None else None),
+        })
+        klassen_m[klasse] = round(klassen_m.get(klasse, 0.0) + laenge_m, 2)
+    u_m = round(sum(s["laenge_m"] for s in segmente), 2)
+    bek = sum(v for k, v in klassen_m.items() if k != "unbekannt")
+    return {"segmente": segmente, "klassen_m": klassen_m, "u_m": u_m,
+            "anteil_klassifiziert": (round(bek / u_m, 3) if u_m else None)}
 
 
 def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
@@ -2825,12 +3433,91 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     continue    # Mitte schon Wand → nichts zu überbrücken
                 rst.line(grid, s[0], s[1], s[2], s[3])
         label, ok_start, AUSSEN = _watershed(grid, rst, stempel)
-        label = _taschen_adoption(grid, label, rst, stempel, AUSSEN,
-                                  huelle_burn=huelle_burn)
-        label = _streifen_ausgleich(grid, label, rst, stempel, AUSSEN)
-        label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)
-        label = _glaetten(grid, label, rst, len(stempel), AUSSEN)
-        label = _f_ausgleich(grid, label, rst, stempel, AUSSEN)
+
+        def _kette(grid_, lab):
+            """Die Ausgleichs-Kette eines Passes (Taschen → Streifen → F →
+            Glätten → F) — für den Varianten-Vergleich ausgelagert."""
+            lab = _taschen_adoption(grid_, lab, rst, stempel, AUSSEN,
+                                    huelle_burn=huelle_burn)
+            lab = _streifen_ausgleich(grid_, lab, rst, stempel, AUSSEN)
+            lab = _f_ausgleich(grid_, lab, rst, stempel, AUSSEN)
+            lab = _glaetten(grid_, lab, rst, len(stempel), AUSSEN)
+            lab = _f_ausgleich(grid_, lab, rst, stempel, AUSSEN)
+            return lab
+
+        label = _kette(grid, label)
+        # LECK-GEFÜHRTER NACHVERSCHLUSS, mit VERIFIKATIONS-GUARD (Tür-
+        # Dichtungs-Messung 2026-08-04: 32/56 undicht; WM-Bad −1,1 m² und
+        # Velden E-Technik +0,6 m² durch Fehl-Balken ohne Guard). Bogen-/
+        # Text-Verschlüsse verfehlen die Lücke (Schiebefronten ohne Bogen,
+        # Text-Anker streut bis 1,13 m; der 1,0-m-Zweitdurchgang brannte
+        # Balken in FREMDE Zeilen — 29→35, verworfen). Stattdessen: Leck
+        # MESSEN (dieselbe Lokalisation wie der Harness), die Lücke mauern,
+        # neu fluten — aber nur behalten, was KEINE Verifikation kostet:
+        # kostet ein Balken einen verifizierten Raum, fliegt genau ER raus
+        # (bis zu 3 Runden), nicht das ganze Paket. Nur ROH/BODEN-Ebene:
+        # auf FERTIG kollidiert der Burn mit dem Wand-Paar-Fallback
+        # ([49] U 24,96→33,44 gemessen — dort bleibt es byte-identisch).
+        if not paar_fallback:
+            _lecks = _tuer_lecks(grid, label, rst, oe)
+            if _lecks:
+                def _bauen(lk):
+                    g_s = bytearray(grid)
+                    v_s = bytearray(versch)
+                    for (_ax, _fest, _lo, _hi) in lk:
+                        for _t in range(_lo + 1, _hi):
+                            _ix = ((_fest * rst.W + _t) if _ax == "h"
+                                   else (_t * rst.W + _fest))
+                            g_s[_ix] = 1
+                            v_s[_ix] = 1    # Tür-Durchgang zählt zum Raum-F
+                    return g_s, v_s
+
+                out_u = _messen_und_status(grid, label, ok_start, versch)
+                ver_u = {i2 for i2, r2 in enumerate(out_u)
+                         if r2["status"] == "verifiziert"}
+                g_s, v_s = _bauen(_lecks)
+                lab_s, ok_s, _au_s = _watershed(g_s, rst, stempel)
+                lab_s = _kette(g_s, lab_s)
+                for _runde in range(4):
+                    out_s = _messen_und_status(g_s, lab_s, ok_s, v_s)
+                    ver_s = {i2 for i2, r2 in enumerate(out_s)
+                             if r2["status"] == "verifiziert"}
+                    reg = ver_u - ver_s
+                    if not reg or _runde == 3:
+                        break
+                    # Balken neben den verlorenen Räumen entfernen:
+                    # Zelle des Balkens ≤3 Zellen an einer Zelle des
+                    # verlorenen Raum-Beckens (in der UNGESETZTEN Variante)
+                    fallen = set()
+                    for li2, (_ax, _fest, _lo, _hi) in enumerate(_lecks):
+                        if li2 in fallen:
+                            continue
+                        stoss = False
+                        for _t in range(max(0, _lo - 2), _hi + 3):
+                            for _dj in range(-3, 4):
+                                _ii = (_fest + _dj) if _ax == "h" else (_t + _dj)
+                                _jj = _t if _ax == "h" else (_fest + _dj)
+                                if not (0 <= _ii < rst.W and 0 <= _jj < rst.H):
+                                    continue
+                                if label[_jj * rst.W + _ii] in reg:
+                                    stoss = True
+                                    break
+                            if stoss:
+                                break
+                        if stoss:
+                            fallen.add(li2)
+                    if not fallen:
+                        break
+                    _lecks = [lk for li2, lk in enumerate(_lecks)
+                              if li2 not in fallen]
+                    if not _lecks:
+                        break
+                    g_s, v_s = _bauen(_lecks)
+                    lab_s, ok_s, _au_s = _watershed(g_s, rst, stempel)
+                    lab_s = _kette(g_s, lab_s)
+                if _lecks and not (ver_u - ver_s):
+                    # überlebende Balken: keine Verifikation verloren
+                    return g_s, lab_s, ok_s, _au_s, v_s
         return grid, label, ok_start, AUSSEN, versch
 
     # BALKEN-F-GUTSCHRIFT: Türdurchgangs-Zellen zählen laut Plan-F zum Raum (WC-Bild +
@@ -2999,7 +3686,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     grid, label, ok_start, AUSSEN, versch = _pass(False)   # ROHBAU-Ebene
     if debug is not None:
         debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN,
-                      "stuetzen": _stuetzen})
+                      "stuetzen": _stuetzen, "boegen": boegen,
+                      "draussen": _draussen_maske(grid, label, rst.W, rst.H)})
     out = _messen_und_status(grid, label, ok_start, versch)
     for r in out:
         if r["status"] == "verifiziert":

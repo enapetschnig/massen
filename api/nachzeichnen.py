@@ -1064,6 +1064,25 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 except Exception:
                     _uw = None
             _g = region_gates.get(i) or {}
+            # UMFASSUNGS-ZERLEGUNG: wo hört der Raum auf und WOMIT (Außen-/
+            # Innenwand mit Nachbar, Tür, offen) — auf derselben exakten
+            # Kontur, die gezeichnet wird. Farb-Layer in der Planansicht.
+            _um = None
+            if reg and dbg_r.get("grid") is not None \
+                    and dbg_r.get("label") is not None:
+                try:
+                    _um = raumnetz.raum_umfassung(
+                        reg, dbg_r["grid"], dbg_r["label"], dbg_r["rst"], i,
+                        dbg_r["AUSSEN"], _st, oeffnungen=oeff_pt,
+                        boegen=dbg_r.get("boegen"), dark_segs=dark,
+                        draussen=dbg_r.get("draussen"))
+                except Exception:
+                    _um = None
+            _um_seg = None
+            if _um:
+                _um_seg = [{**s, "p0": list(to_px(*s["p0"])),
+                            "p1": list(to_px(*s["p1"]))}
+                           for s in _um["segmente"]]
             raeume.append({
                 # EHRLICHKEIT statt Blackbox: hat der Raum KEINEN Umriss, steht
                 # hier warum (flaechen_treue / ecken / achs_parallel). Das
@@ -1090,6 +1109,10 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                                rechtwinklig_ziehen(reg)] if reg else None),
                 # Anteil des Umrisses, der auf einer Wand liegt (0..1).
                 "umriss_wand": (round(_uw, 3) if _uw is not None else None),
+                "umfassung": ({"segmente": _um_seg,
+                               "klassen_m": _um["klassen_m"],
+                               "anteil": _um["anteil_klassifiziert"]}
+                              if _um_seg else None),
                 "u_geometrie": (u_geo or {}).get("u_m"),
                 "u_geometrie_poly": (u_geo or {}).get("u_poly_m"),
                 "cx": r["cx"], "cy": r["cy"],   # für den IoU-Beweis (pt)
