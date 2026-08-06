@@ -769,6 +769,21 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         while off <= d2b:
             rst.line(grid, hx + px * off, hy + py * off, zx + px * off, zy + py * off)
             off += rst.cell
+        # BLATT-VERBREITERUNG — GEMESSEN UND VERWORFEN (2026-08-04): das
+        # Mitversiegeln des Fixglases hinter dem Blatt (≤1,6 m bis zum
+        # Pfosten) erzeugte MEHR Lecks, nicht weniger (Korpus-Türen 26→28
+        # undicht, WM 58→56/77, Velden 15→14): die Verlängerung sprang über
+        # ECHTE Durchgänge und traf dort irgendeine Wand — der simple
+        # „irgendwo Wand in Quernähe"-Jamb-Test reicht nicht. Ein erneuter
+        # Versuch braucht den starken Pfosten-Beweis (beide Enden gehören
+        # zu EINEM Wandzug, BFS wie in _tuer_lecks). Bis dahin bleibt der
+        # Bogen-Verschluss exakt auf der Blattbreite.
+        # FRONT OHNE BOGEN — ebenfalls VERWORFEN (gleiche Messung): der
+        # Front-Linien-Snap ohne Bogen-Anker findet eine längenpassende
+        # Linie am Text-Anker, aber der Anker streut bis 1,13 m — die
+        # gefundene Linie ist dann Möbel/Maß statt Front. Mit Bogen als
+        # zweitem Anker funktioniert derselbe Snap (GLASFRONT-UNSKIP),
+        # ohne ihn ist die Lage zu unbestimmt.
         # HINGE-FORTSETZUNG (Zimmer-Sezierung: die IW03-Leichtwand zwischen
         # T-Stoß und Türangel wird von Tür-Zonen vetoiert → 0,6m-Loch):
         # jenseits des Angelpunkts muss die Wandflucht weitergehen — Muster
