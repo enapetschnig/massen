@@ -1164,6 +1164,82 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
             import vektor as _vek
             _pa = _vek.wand_paare(dark_segs, rst.ptm, hatch=None,
                                   mit_geometrie=True)
+            # TREPPEN-SERIEN-FILTER (Velden-Treppenhaus-Sezierung 2026-08):
+            # Treppenstufen werden als „Wandpaare" gebrannt und zerhacken
+            # Treppenhäuser (Velden: F 18,24 → 6,57 gemessen). Der Plan
+            # zeichnet Stufenkanten FRAGMENTIERT (viele Stücke mit Lücken) —
+            # darum: Stücke je Position (±1 pt) zur Union-Spanne bündeln
+            # (Treppen-Bucket = viele Stücke, echte Wandlinie durchgehend),
+            # Kette: ≥5 Buckets im Abstand 0,15-0,45 m, Overlap ≥40 % →
+            # Treppen-Zone; Paare darin fliegen, Einfassungs-Wände bleiben.
+            # GEMESSEN & VERWORFEN: Text-Anker („Steigung/Auftritt"-Label)
+            # mit ±2,5-m-Zone + Längen-Guard ≤1,6 m — auf diesem Plan sind
+            # auch die WÄNDE fragmentiert (kurze Stücke), der Längen-Guard
+            # warf echte Wandstücke weg (DDB 15→u_daneben, 16→15/25).
+            _tzonen = []
+            for _ax in ("v", "h"):
+                _buck = {}
+                for _s in (dark_segs or []):
+                    _dx, _dy = abs(_s[2] - _s[0]), abs(_s[3] - _s[1])
+                    if _ax == "v" and _dx > 0.6:
+                        continue
+                    if _ax == "h" and _dy > 0.6:
+                        continue
+                    _pos = ((_s[0] + _s[2]) / 2.0 if _ax == "v"
+                            else (_s[1] + _s[3]) / 2.0)
+                    _lo = (min(_s[1], _s[3]) if _ax == "v"
+                           else min(_s[0], _s[2]))
+                    _hi = (max(_s[1], _s[3]) if _ax == "v"
+                           else max(_s[0], _s[2]))
+                    _b = round(_pos / 1.0)
+                    _e2 = _buck.setdefault(_b, [0, 1e30, -1e30])
+                    _e2[0] += 1
+                    _e2[1] = min(_e2[1], _lo)
+                    _e2[2] = max(_e2[2], _hi)
+                _ser = sorted((_b * 1.0, v[1], v[2], v[0])
+                              for _b, v in _buck.items() if v[0] >= 3)
+                _ch = _ser[:1]
+                for _e in _ser[1:]:
+                    _vor = _ch[-1]
+                    _gap = _e[0] - _vor[0]
+                    _ov = min(_e[2], _vor[2]) - max(_e[1], _vor[1])
+                    _ku = max(1e-9, min(_e[2] - _e[1], _vor[2] - _vor[1]))
+                    if 0.15 * rst.ptm <= _gap <= 0.45 * rst.ptm \
+                            and _ov / _ku >= 0.4:
+                        _ch.append(_e)
+                    else:
+                        if len(_ch) >= 5:
+                            _tzonen.append((_ax, _ch))
+                        _ch = [_e]
+                if len(_ch) >= 5:
+                    _tzonen.append((_ax, _ch))
+            if _tzonen:
+                def _in_tzone(_w):
+                    _pos = ((_w["x0"] + _w["x1"]) / 2.0 if _w.get("achse") == "v"
+                            else (_w["y0"] + _w["y1"]) / 2.0)
+                    _lo = (min(_w["y0"], _w["y1"]) if _w.get("achse") == "v"
+                           else min(_w["x0"], _w["x1"]))
+                    _hi = (max(_w["y0"], _w["y1"]) if _w.get("achse") == "v"
+                           else max(_w["x0"], _w["x1"]))
+                    for _ax2, _ch in _tzonen:
+                        if _w.get("achse") != _ax2:
+                            continue
+                        _pmin = min(c[0] for c in _ch) - 0.10 * rst.ptm
+                        _pmax = max(c[0] for c in _ch) + 0.10 * rst.ptm
+                        if not (_pmin <= _pos <= _pmax):
+                            continue
+                        _smin = min(c[1] for c in _ch)
+                        _smax = max(c[2] for c in _ch)
+                        if min(_hi, _smax) - max(_lo, _smin) \
+                                >= 0.5 * max(1e-9, _hi - _lo):
+                            return True
+                    return False
+
+                _vor = len(_pa or [])
+                _pa = [_w for _w in (_pa or []) if not _in_tzone(_w)]
+                if _vor != len(_pa):
+                    print(f"[wand-maske] Treppen-Serie: {_vor - len(_pa)} "
+                          f"Stufen-Paare verworfen ({len(_tzonen)} Zonen)")
             _n_add = 0
             for _w in (_pa or []):
                 _d2 = max(rst.cell, (_w.get("dist_pt") or 0) / 2.0)
