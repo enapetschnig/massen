@@ -1404,13 +1404,20 @@ def _taschen_adoption(grid, label, rst, stempel, AUSSEN, huelle_burn=None):
         kandidaten = sorted(((n, l) for l, n in kontakt.items() if l != AUSSEN), reverse=True)
         if not kandidaten:
             continue
-        _, best = kandidaten[0]
-        soll = stempel[best]["f_m2"] / (rst.zm * rst.zm)
-        alt, neu = fl[best], fl[best] + len(comp)
-        if abs(neu - soll) < abs(alt - soll) and neu <= soll * 1.10:
-            for idx in comp:
-                label[idx] = best
-            fl[best] = neu
+        # KANDIDATEN-FOLGE statt Sieger-oder-nichts (Velden AR TOP 01-Sezierung):
+        # der Kontakt-Sieger (hier: die übervolle Tiefgarage) wurde vom
+        # F-Guard verworfen — und die Tasche blieb UNZUGEORDNET, obwohl der
+        # untervolle Nachbar (AR TOP 01, −41 %) sie gebraucht hätte. Jetzt
+        # bekommt der ERSTE Kandidat die Tasche, dessen F er Richtung Soll
+        # bewegt — der byte-exakte Stempel entscheidet, nicht die Nähe allein.
+        for _n_k, best in kandidaten:
+            soll = stempel[best]["f_m2"] / (rst.zm * rst.zm)
+            alt, neu = fl[best], fl[best] + len(comp)
+            if abs(neu - soll) < abs(alt - soll) and neu <= soll * 1.10:
+                for idx in comp:
+                    label[idx] = best
+                fl[best] = neu
+                break
     return label
 
 
