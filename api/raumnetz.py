@@ -2391,7 +2391,29 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
     suchen (Anker streut bis 1,13 m daneben, darum Fenster 1,0 m / Kappe
     1,8 m, Spalt 0,45-2,6 m am nächsten an der Nennbreite), dann quer über
     die Lücke bis zur ersten Raum-Zelle je Seite sondieren. Gleiches Label
-    beidseitig = Leck. → [(achse, fest, lo, hi)] der LECKENDEN Lücken."""
+    beidseitig = Leck. → [(achse, fest, lo, hi)] der LECKENDEN Lücken.
+
+    ── GEMESSENER TRADE, nicht erneut ohne neue Idee angehen ──────────────
+    Der Guard unten schützt nur die VERIFIKATION. Ein Raum kann verifiziert
+    bleiben, während seine Fläche über die 20-%-Schwelle driftet, an der
+    `raum_regionen` den UMRISS verwirft — dann steht die Menge, aber am Plan
+    ist nichts eingezeichnet. Bisect über 4 Commits (2026-08-06): genau das
+    kostete auf WM 4 echte Umrisse (47 → 43), drei Loggien und zwei
+    Wohnküchen, alle weiter „verifiziert".
+
+    Den Guard um dieses zweite Schutzgut zu erweitern, WURDE GEBAUT UND
+    GEMESSEN. Er wirkt — aber nur um den Preis der Türen:
+      Umrisse schützen (Veto ODER Score):  grün 42 → 46, Umrisse 70 → 75,
+        ABER WM 19 → 25 undichte Türen — mess_tuer_dichtung verweigert.
+      Balken im Score mitzählen (damit sie nicht gratis wegfallen):
+        Türen wieder dicht, aber grün zurück auf 42, Umrisse zurück auf 70.
+        Netto nur −1 Verifikation und +6 % Laufzeit.
+    Der Guard kann Umrisse also NUR gegen Türdichtheit eintauschen; beide
+    Enden sind gemessen. Wer es wieder aufgreift, braucht einen Mechanismus,
+    der den Umriss rettet OHNE den Balken zu entfernen — z. B. das
+    Umriss-Gate für Räume mit Tür-Balken auf die Fläche VOR dem Balken
+    beziehen, statt den Balken zurückzunehmen.
+    """
     W, H = rst.W, rst.H
     lecks = []
     for o in (oeffnungen or []):

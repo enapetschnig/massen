@@ -40,6 +40,9 @@ GUARDS = [
     ("Quellen-Konflikt (Text schlägt Vision)", "test_quellen_konflikt.py", "Konfliktfälle"),
     ("Umriss begradigen", "test_umriss_begradigen.py", "Zickzack wird begradigt"),
     ("Umriss auf Wand (Kennzahl)", "test_umriss_auf_wand.py", "misst Wandnaehe, ist kein Beweis"),
+    # Lag unregistriert im Ordner und lief damit NIE mit — von der
+    # Verwaisten-Pruefung dieser Suite gefunden (2026-08-06).
+    ("Umfassung je Bauteil", "test_raumumfassung.py", "Raeume zerlegt"),
     ("Raumname aus dem Stempel", "test_raumname_buendig.py", "Stempel-Formen"),
     ("Freifläche ist kein Raum", "test_aussenanlage.py", "richtig eingeordnet"),
     ("Plan-Varianten (gebaute Pläne)", "test_planvarianten.py", "Planarten"),
