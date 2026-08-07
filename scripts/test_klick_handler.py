@@ -29,10 +29,44 @@ WURZEL = os.path.join(os.path.dirname(__file__), "..")
 DATEIEN = ["public/js/upload.js"]
 
 
+def _praesentation_ehrlich(fehler):
+    """Der Präsentations-Modus darf BERUHIGEN, nicht BESCHÖNIGEN.
+
+    Er blendet aus, was der Prüfer braucht und der Zuschauer nicht:
+    Wand-Beschriftung, Öffnungs-Marker, Prüf-Notiz am Raum. Was er NIEMALS
+    ausblenden darf, ist der Zustand eines Raums — der rote Punkt „Form vom
+    Plan widerlegt" und die Legenden-Zählung. Sonst sähe eine Vorführung
+    besser aus als das Produkt, und genau das wäre ein Verkaufsversprechen,
+    das die App nicht hält.
+    """
+    src = open(os.path.join(WURZEL, "public", "js", "upload.js"),
+               encoding="utf-8").read()
+    for muster, was in (
+        (r"var _nzPraes = false", "Zustand _nzPraes existiert"),
+        (r"data-z=\"praes\"", "Knopf in der Werkzeugleiste"),
+        (r"z === 'praes'", "Knopf ist verdrahtet"),
+    ):
+        if re.search(muster, src):
+            print(f"   {was} ✓")
+        else:
+            fehler.append(f"Präsentations-Modus: {was} — fehlt")
+    # Die Zustands-Anzeige darf NICHT am Modus hängen.
+    for muster, was in (
+        (r"_nzPraes[^\n]*nRaumWl", "Legenden-Zählung 'Form widerlegt'"),
+        (r"_nzPraes[^\n]*raumBadges \+= '<g", "Raum-Badge (Punkt am Plan)"),
+        (r"_nzPraes[^\n]*nz-leg-item", "Legende insgesamt"),
+    ):
+        if re.search(muster, src):
+            fehler.append(f"Der Präsentations-Modus unterdrückt {was}. Damit "
+                          f"sähe eine Vorführung besser aus als das Produkt.")
+    print("   Raum-Zustand und Legende bleiben im Modus sichtbar ✓")
+
+
 def run():
     print("KLICK-HANDLER — Inline-Attribute auf gültige Anführungszeichen")
     print("=" * 84)
     fehler = []
+    _praesentation_ehrlich(fehler)
     geprueft = 0
     for rel in DATEIEN:
         p = os.path.join(WURZEL, rel)

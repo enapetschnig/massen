@@ -2212,6 +2212,12 @@
   var _nzMeasMode = false, _nzMeasPts = [];   // MESSEN-Modus (Lineal/Fläche) + geklickte Punkte
   var _nzRaumFill = true;   // Räume kräftig bunt füllen (Raumansicht, Default an)
   var _nzUmfassung = true;  // Raumgrenze je Bauteil färben (Außen/Innenwand, Tür, offen)
+  // PRÄSENTATION: alles ausblenden, was der Prüfer braucht und der Zuschauer
+  // nicht — Wand-Beschriftung, Öffnungs-Marker, Prüf-Notizen. Übrig bleibt,
+  // was die Leistung zeigt: der Raum-Umriss auf dem echten Plan, sein Name
+  // und seine Fläche. Am Angerer-Plan liegen sonst über 40 Beschriftungen
+  // gleichzeitig im Bild und überlappen einander.
+  var _nzPraes = false;
   // Kräftige, gut unterscheidbare Raumfarben (Raumansicht) — je Raum stabil per Index.
   var _NZ_RAUMFARBEN = ['#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#f97316',
     '#14b8a6', '#eab308', '#8b5cf6', '#06b6d4', '#ef4444', '#84cc16', '#f43f5e'];
@@ -2678,7 +2684,7 @@
           ' pointer-events="none"><title>Verwendete Plan-Maßzahl für Wand ' + w.laenge_m + ' m</title></circle>';
       }
       // Sichtbares Längen-/Stärke-Label auf der Wand (1:1 zum Plan vergleichbar)
-      if (!rm && cm && w.laenge_m >= 1.2) {
+      if (!rm && cm && w.laenge_m >= 1.2 && !_nzPraes) {
         var mx = (p[0] + p[2]) / 2, my = (p[1] + p[3]) / 2;
         // GEWERK am Bauteil, wenn der Plan es hergibt. Es kommt aus dem
         // Wand-CODE (AW01/IW03/…) und dessen Aufbau in der Legende — nicht
@@ -2700,6 +2706,10 @@
     (_nzData.oeffnungen || []).forEach(function (o) {
       var rm = !!_nzEdit.oeffRemoved[o.id], istF = o.typ === 'fenster';
       if (!rm) { if (istF) nF++; else nT++; }
+      // Gezählt wird weiter (die Legende bleibt ehrlich), nur gezeichnet nicht:
+      // im Präsentations-Modus verdecken die Marker sonst genau die Umrisse,
+      // die gezeigt werden sollen.
+      if (_nzPraes) return;
       var mcol = istF ? '#0284c7' : '#b45309', rad = Math.max(9, fs * 0.72);
       // ÖNORM-ABZUG AM PLAN (Traceability): jede Öffnung zeigt direkt, ob sie
       // abgezogen (>4 m² → „−X m²") oder übermessen wird (≤4 m²). Dieselbe
@@ -2967,7 +2977,8 @@
         if (r.umriss_wand != null) {
           note += ' · ' + Math.round(r.umriss_wand * 100) + '% auf Wand';
         }
-        raumBadges += '<text x="' + (r.px[0] + fs * 0.9) + '" y="' + (r.px[1] - fs * 1.6) + '"' +
+        if (_nzPraes) note = '';
+        if (note) raumBadges += '<text x="' + (r.px[0] + fs * 0.9) + '" y="' + (r.px[1] - fs * 1.6) + '"' +
           ' font-size="' + Math.round(fs * 0.62) + '" dy="' + Math.round(fs * 0.22) + '" fill="' + col +
           '" stroke="#fff" stroke-width="0.7" paint-order="stroke" style="pointer-events:none">' +
           note + '</text>';
@@ -3168,6 +3179,7 @@
       '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
       '<button type="button" class="nz-btn' + (_nzFull ? ' nz-btn-on' : '') + '" data-z="full" title="Plan im Vollbild anzeigen (Esc = schließen)">' + (_nzFull ? '✕ Vollbild schließen' : '⛶ Vollbild') + '</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben (Raumansicht) ↔ technische Wand-/Prüfansicht">🎨 Räume</button>' +
+      '<button type="button" class="nz-btn' + (_nzPraes ? ' nz-btn-on' : '') + '" data-z="praes" title="Ruhige Ansicht zum Vorzeigen: nur Raum-Umrisse, Namen und Flächen — ohne Wand-Beschriftung, Öffnungs-Marker und Prüf-Notizen">🎬 Präsentation</button>' +
       '<button type="button" class="nz-btn' + (_nzUmfassung ? ' nz-btn-on' : '') + '" data-z="umf" title="Raumgrenzen nach Bauteil färben: Außenwand rotbraun · Innenwand blau · Tür gelb · offen grau">🧱 Umfassung</button>' +
       '<button type="button" class="nz-btn' + (_nzRaumEditMode ? ' nz-btn-on' : '') + '" data-z="raumedit" title="Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu">✏️ Raum bearbeiten</button>' +
       '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
@@ -3522,6 +3534,7 @@
         var z = b.getAttribute('data-z');
         if (z === 'raumfill') { _nzRaumFill = !_nzRaumFill; _nzPaint(); }
         if (z === 'umf') { _nzUmfassung = !_nzUmfassung; _nzPaint(); }
+        if (z === 'praes') { _nzPraes = !_nzPraes; _nzPaint(); }
         else if (z === 'raumedit') {
           _nzRaumEditMode = !_nzRaumEditMode;
           if (_nzRaumEditMode) { _nzRaumFill = true; _nzAddMode = false; _nzMeasMode = false; _nzMeasPts = []; _nzSel = null; }
