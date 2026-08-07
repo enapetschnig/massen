@@ -3256,7 +3256,8 @@ def raum_umfassung(poly_pt, grid, label, rst, ridx, AUSSEN, stempel,
 
 
 def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
-                  stempel_f=None, grid=None, dark_segs=None, stuetzen=None):
+                  stempel_f=None, grid=None, dark_segs=None, stuetzen=None,
+                  ist_f=None):
     """Pro Raum den REKONSTRUIERTEN Region-Umriss als Polygon in pt
     (Nachvollziehbarkeit: der Prüfer sieht die geometrische Lesart der App
     ÜBER dem Plan — verifizierte Räume decken sich, Prüf-Räume zeigen exakt,
@@ -3350,7 +3351,34 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
         except (TypeError, ValueError):
             _sf = None
         if _sf and _sf > 0:
-            _sr = abs(poly_flaeche - _sf) / _sf
+            # TUERDURCHGANG MITZAEHLEN. Der Tuer-Balken versiegelt Zellen, die
+            # laut Plan-F zum Raum gehoeren — fuer die MENGE ist das laengst
+            # gutgeschrieben (`_messen_und_status`, Balken-F-Gutschrift), das
+            # UMRISS-GATE hier sah die nackte Polygonflaeche ohne sie. Dadurch
+            # verlor ein Raum seinen Umriss allein deshalb, weil eine Tuer
+            # dicht gemacht wurde: am Korpus 4 Umrisse auf WM (drei Loggien,
+            # zwei Wohnkuechen — alle weiter "verifiziert", nur am Plan nicht
+            # mehr eingezeichnet).
+            # `ist_f` ist die bereits kreditierte Flaeche desselben Raums; die
+            # Differenz zur Regionflaeche IST die Gutschrift. Damit prueft das
+            # Gate dieselbe Flaeche wie die Menge — statt den Balken
+            # zurueckzunehmen und die Tuer wieder lecken zu lassen (dieser
+            # Tausch ist gemessen und im Docstring von `_tuer_lecks` als
+            # Sackgasse festgehalten).
+            _kred = 0.0
+            try:
+                if ist_f and ridx < len(ist_f) and ist_f[ridx]:
+                    _kred = max(0.0, float(ist_f[ridx]) - region_flaeche)
+            except (TypeError, ValueError):
+                _kred = 0.0
+            # NUR AUSGLEICHEN, NIE AUFBLAEHEN. Die Gutschrift ersetzt Flaeche,
+            # die der Balken WEGGENOMMEN hat — mehr als das Defizit zum
+            # Stempel kann sie nie sein. Ohne diese Kappe schob sie Raeume,
+            # deren Polygon ohnehin zu GROSS ist, erst recht aus der Toleranz:
+            # gemessen verloren dadurch 7 Raeume ihren Umriss ganz
+            # (am Plan belegt 116 -> 109), waehrend 5 andere gewannen.
+            _kred = min(_kred, max(0.0, _sf - poly_flaeche))
+            _sr = abs(poly_flaeche + _kred - _sf) / _sf
             angenommen = bool(region_flaeche > 0 and _sr <= 0.20 and ecken_ok)
             _gr = (None if angenommen else
                    ("stempel_flaeche" if _sr > 0.20 else "ecken"))
@@ -3374,6 +3402,7 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                 "region_m2": round(region_flaeche, 2),
                 "poly_m2": round(poly_flaeche, 2),
                 "grund": _gr,
+                "kredit_m2": round(_kred, 2) if (_sf and _sf > 0) else None,
                 "stempel_f": _sf,
                 "stempel_abw": (round(_sr, 3) if _sr is not None else None),
                 "poly_pt": [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)

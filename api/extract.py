@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-06.1"
+APP_REV = "2026-08-08.1"
 
 
 @app.get("/api/extract-health")
@@ -6137,7 +6137,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 72  # Konturen vektor-exakt (raum_kontur_exakt) + umfassung je Raum
+_NZ_CACHE_V = 73  # Umriss-Gate rechnet die Tuerdurchgangs-Gutschrift mit
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

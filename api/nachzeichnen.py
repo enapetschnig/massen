@@ -1043,6 +1043,10 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 regionen = raumnetz.raum_regionen(dbg_r["label"], dbg_r["rst"],
                                                   len(rres), debug=region_gates,
                                                   stempel_f=_sf,
+                                                  ist_f=[(_r.get("f_ist")
+                                                          if isinstance(_r, dict)
+                                                          else None)
+                                                         for _r in rres],
                                                   grid=dbg_r.get("grid"),
                                                   dark_segs=dark,
                                                   stuetzen=dbg_r.get("stuetzen"))
