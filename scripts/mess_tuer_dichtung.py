@@ -199,8 +199,8 @@ def run():
     # unterscheiden — der A/B-Test musste es zeigen. Pro Plan kann sie das.
     MAX_UNDICHT = {
         "A-5_Einreichplan_Alfred-Angerer": 0,
-        "AP.01 Layout-1 (1).pdf": 5,
-        "AU_WM_01 Erdgeschoss_INDEX E.pdf": 18,
+        "AP.01 Layout-1 (1).pdf": 6,
+        "AU_WM_01 Erdgeschoss_INDEX E.pdf": 19,
         "WA_Velden_Franzosen Allee_Ausführung_TG": 3,
     }
     pro_plan = {}

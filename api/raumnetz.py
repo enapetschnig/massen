@@ -1340,7 +1340,14 @@ def _taschen_adoption(grid, label, rst, stempel, AUSSEN, huelle_burn=None):
     """Unerreichte Frei-Taschen (label −1): F-geführt dem Nachbar-Raum zuschlagen.
     Nachbar = Label mit den meisten Kontakten beim Blick durch dünne Wände (≤16cm).
     Adoptiert NUR, wenn es das F des Nachbarn Richtung Soll bewegt (byte-exakte
-    Soll-Fläche entscheidet) — sonst bleibt die Tasche ehrlich unzugeordnet."""
+    Soll-Fläche entscheidet) — sonst bleibt die Tasche ehrlich unzugeordnet.
+    VERSCH-SPERRE GEMESSEN & VERWORFEN (2026-08-05): versch-Zellen (versiegelte
+    Öffnungen) für die Sonde uncrossable zu machen, senkte die Türen-Lecks
+    nicht (WM 19 → 25!) und kostete die Taschen-Gewinne (WM-Verifikation
+    61 → 58) — die blockierten Taschen verändern die Grenz-Lösung im Ganzen.
+    Der Trade des Kandidaten-Folge-Stands (+3 Verifikationen für +1 Leck)
+    ist der bessere; bleibt beim bewährten Verhalten."""
+    W, H = rst.W, rst.H
     W, H = rst.W, rst.H
     # aktuelle Flächen je Label
     fl = [0] * (len(stempel) + 1)
@@ -2511,6 +2518,26 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
     return lecks
 
 
+# FASSADEN-LECK-VERSCHLUSS — GEMESSEN UND VERWORFEN (2026-08-05).
+# Mechanismus: Raum↔AUSSEN-Übergänge ohne Wandzelle finden (Terrassentür
+# ohne Bogen/FPH), gestuften Balken von Pfosten zu Pfosten entlang der
+# Übergangs-Zeile, nur bei gezogener Grenzlinie (Rahmen/Rigol-Spur ≥60 %).
+# Drei Befunde, alle am Korpus gemessen:
+#  1. Übergang ≠ Leck: der F-Ausgleich balanciert die Becken-Grenze zur
+#     byte-exakten Stempel-Fläche — die gemessene Grenze sitzt dabei ~0,5 m
+#     INNERHALB der wahren Fassadenlinie, die Fläche stimmt trotzdem. Ein
+#     Balken auf der gemessenen Linie schnitt reale Fläche weg (Angerer-
+#     Terrasse F 31,12 → 26,40; der Guard reverted korrekt).
+#  2. Balken auf der gezogenen Fassadenlinie stattdessen: F wächst über die
+#     Stempel-Balance hinaus (F +9 %, aus dem Gate) — die Gutschriften sind
+#     auf die alte Balance eingespielt (FERTIG/ROHBAU-Problem, keine Lösung
+#     an dieser Stelle).
+#  3. WM: AU-Türen 18 → 19 undicht (mess_tuer_dichtung Assertion).
+#  Und strukturell: die Loggia-Glasfronten (der große Rest-Block) sind
+# Raum-zu-Raum-Lecks, nicht Raum→AUSSEN — diese Klasse deckt der Mechanismus
+# ohnehin nicht. Der Tür-Pfad (_tuer_lecks + Guard) bleibt unverändert.
+
+
 def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
                       snap_m=0.35):
     """VEKTOR-EXAKTE Raumkontur: DP-Kanten (Zellen) an die gezeichneten
@@ -3581,6 +3608,9 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     ver_s = {i2 for i2, r2 in enumerate(out_s)
                              if r2["status"] == "verifiziert"}
                     reg = ver_u - ver_s
+                    if os.environ.get("GUARD_DEBUG") and (reg or _runde == 0):
+                        print(f"[guard] runde={_runde} lecks={len(_lecks)} "
+                              f"ver_u={len(ver_u)} ver_s={len(ver_s)} reg={sorted(reg)}")
                     if not reg or _runde == 3:
                         break
                     # Balken neben den verlorenen Räumen entfernen:
