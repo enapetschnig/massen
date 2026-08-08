@@ -2205,6 +2205,10 @@
     flush(grp);
   }
   var _nzSel = null;
+  // MEHRFACHAUSWAHL (Zeichentool): Shift-Klick sammelt Wände, das
+  // Eigenschaften-Panel wirkt dann auf alle. _nzSel bleibt die primäre
+  // Wand (bestehende Einzel-Aktionen unverändert).
+  var _nzSelSet = [];
   var _nzRaumInfo = null;   // angeklickter Raum (Werte-Anzeige, ohne Editor)
   var _nzZoom = { s: 1, x: 0, y: 0 }, _nzMoved = false;   // Zoom/Pan-Zustand + Drag-Erkennung
   var _nzWrap = null, _nzPan = null, _nzZoomWinBound = false;
@@ -2663,7 +2667,8 @@
         '</title></line>';
     });
     (_nzData.waende || []).forEach(function (w) {
-      var cm = _nzCm(w), rm = !!_nzEdit.removed[w.id], sel = (_nzSel === w.id);
+      var cm = _nzCm(w), rm = !!_nzEdit.removed[w.id],
+        sel = (_nzSel === w.id || _nzSelSet.indexOf(w.id) >= 0);
       var col = rm ? '#b8c0cc' : (cm ? _nzFarbe(cm) : '#888');
       var unsicher = !cm || (w.hatch_dichte != null && w.hatch_dichte < 1.5);
       var p = w.px;
@@ -2672,7 +2677,14 @@
         ' stroke-opacity="' + (rm ? 0.3 : 0.82) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
         ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
         (cm ? _nzTLabel(cm) : '~' + w.dicke_cm + ' cm') + ' · ' + w.laenge_m + ' m' +
-        (w.mass_exakt ? ' (= Maßzahl lt. Plan)' : '') + ' — klicken zum Korrigieren</title></line>';
+        (w.mass_exakt ? ' (= Maßzahl lt. Plan)' : '') + ' — klicken zum Korrigieren</title></line>' +
+        // FETTE KLICKZONE (unsichtbar, oben drauf): eine 2-px-Linie ist mit
+        // der Maus kaum zu treffen — Zeichentool-Standard ist eine breite
+        // unsichtbare Trefferfläche über der sichtbaren Linie.
+        '<line data-wid="' + w.id + '" x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
+        '" stroke="rgba(0,0,0,0)" stroke-width="' + Math.max(14, (w.staerke_px || 2) + 8) +
+        '" stroke-linecap="round" cursor="pointer" style="pointer-events:stroke"><title>' +
+        (cm ? _nzTLabel(cm) : '~' + w.dicke_cm + ' cm') + ' · ' + w.laenge_m + ' m — klicken: auswählen · Shift-Klick: mehrere</title></line>';
       // BEWEIS-RING: markiert die PLAN-MASSZAHL, aus der die Wandlänge byte-exakt
       // gelesen wurde ("diese Zahl im Plan wurde verwendet") — Traceability der
       // Lesung selbst. Dezent (dünner Teal-Ring); pulst mit, wenn die Wand
@@ -3096,7 +3108,24 @@
     } catch (e) { /* Abgleich ist Zusatzinfo — nie das Rendern brechen */ }
     // Auswahl-Toolbar
     var tb = '';
-    if (_nzSel != null && _nzWandById(_nzSel)) {
+    var _mehrere = _nzSelSet.filter(function (id) { return _nzWandById(id); });
+    if (_mehrere.length > 1) {
+      // MEHRFACHAUSWAHL: eine Aktion wirkt auf alle gewählten Wände.
+      var _summe = 0;
+      _mehrere.forEach(function (id) { _summe += (_nzWandById(id).laenge_m || 0); });
+      var _alleWeg = _mehrere.every(function (id) { return _nzEdit.removed[id]; });
+      tb = '<div class="nz-toolbar">' +
+        '<span class="nz-tb-info"><strong>' + _mehrere.length + ' Wände gewählt</strong> · Σ ' +
+        fmtNum(Math.round(_summe * 100) / 100) + ' m</span>' +
+        '<label class="nz-dick-row">Stärke <input type="number" id="nz-dick-in" min="5" max="60" step="1" ' +
+        'inputmode="numeric" placeholder="cm"> cm ' +
+        '<button type="button" class="nz-btn" data-act="dick-apply">übernehmen</button></label>' +
+        '<span class="nz-tb-hint">rastet auf die nächste Legenden-Stärke (' + _nzStaerkeOptionen().join('/') + ') — ' +
+        'die Mengen rechnen in diesen Klassen</span>' +
+        '<button type="button" class="nz-btn" data-act="rm">' + (_alleWeg ? '↩ alle wiederherstellen' : '✕ keine Wand (alle)') + '</button>' +
+        '<button type="button" class="nz-btn" data-act="sel-clear">Auswahl aufheben (Esc)</button>' +
+        '</div>';
+    } else if (_nzSel != null && _nzWandById(_nzSel)) {
       var w = _nzWandById(_nzSel), cm = _nzCm(w), rm = !!_nzEdit.removed[w.id];
       var btn = function (lab, act, on) {
         return '<button type="button" class="nz-btn' + (on ? ' nz-btn-on' : '') + '" data-act="' + act + '">' + lab + '</button>';
@@ -3106,6 +3135,9 @@
         btn(rm ? '↩ wiederherstellen' : '✕ keine Wand', 'rm', rm) +
         '<span class="nz-tb-sep">Stärke:</span>' +
         _nzStaerkeOptionen().map(function (t) { return btn(String(t), 'cm' + t, cm === t); }).join('') +
+        '<label class="nz-dick-row"><input type="number" id="nz-dick-in" min="5" max="60" step="1" ' +
+        'inputmode="numeric" value="' + (cm || Math.round(w.dicke_cm)) + '"> cm ' +
+        '<button type="button" class="nz-btn" data-act="dick-apply">übernehmen</button></label>' +
         (cm === 25 ? '<span class="nz-tb-sep"></span>' + btn(_nzIstAussen(w, 25) ? 'außen' : 'innen', 'ai', false) : '') +
         '</div>';
     }
@@ -3231,11 +3263,29 @@
     _nzWireZoom(cont);
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
-      ln.addEventListener('click', function () {
+      ln.addEventListener('click', function (ev) {
         if (_nzMoved) return;   // war ein Pan, kein Klick
-        _nzSel = parseInt(ln.getAttribute('data-wid'), 10); _nzPaint();
+        var id = parseInt(ln.getAttribute('data-wid'), 10);
+        if (ev.shiftKey && _nzSel != null) {
+          if (_nzSelSet.indexOf(_nzSel) < 0) _nzSelSet.push(_nzSel);
+          var ix = _nzSelSet.indexOf(id);
+          if (ix >= 0) _nzSelSet.splice(ix, 1); else _nzSelSet.push(id);
+          _nzSel = _nzSelSet.length ? _nzSelSet[_nzSelSet.length - 1] : null;
+        } else {
+          _nzSelSet = [id]; _nzSel = id;
+        }
+        _nzPaint();
       });
     });
+    // Esc = Auswahl aufheben (Zeichentool-Konvention) — einmal binden.
+    if (!window._nzSelEscBound) {
+      window._nzSelEscBound = true;
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !_nzFull && (_nzSel != null || _nzSelSet.length)) {
+          _nzSel = null; _nzSelSet = []; _nzPaint();
+        }
+      });
+    }
     // RAUM ANKLICKEN = WERTE SEHEN. Direkt am Element gebunden, genau wie die
     // Waende darueber — der Weg ueber ein Fenster-weites mouseup mit
     // Pan-Zustand traegt nicht zuverlaessig (kein sauberes Ereignis-Paar bei
@@ -3277,9 +3327,30 @@
     cont.querySelectorAll('.nz-btn').forEach(function (b) {
       b.addEventListener('click', function () {
         var act = b.getAttribute('data-act'), id = _nzSel;
-        if (act === 'rm') _nzEdit.removed[id] = !_nzEdit.removed[id];
+        if (!act) return;   // Ansicht-/Modus-Knöpfe (data-z) landen auch hier
+        // Aktionen wirken auf die MEHRFACHAUSWAHL, sonst auf die eine Wand.
+        var ziele = _nzSelSet.filter(function (x) { return _nzWandById(x); });
+        if (!ziele.length && id != null) ziele = [id];
+        if (act === 'sel-clear') { _nzSel = null; _nzSelSet = []; }
+        else if (act === 'rm') {
+          var _weg = !ziele.every(function (x) { return _nzEdit.removed[x]; });
+          ziele.forEach(function (x) { _nzEdit.removed[x] = _weg; });
+        }
         else if (act === 'ai') _nzEdit.aussen[id] = !_nzIstAussen(_nzWandById(id), 25);
-        else if (act.indexOf('cm') === 0) _nzEdit.thick[id] = parseInt(act.slice(2), 10);
+        else if (act === 'dick-apply') {
+          var _in = cont.querySelector('#nz-dick-in');
+          var _v = _in ? parseFloat(_in.value) : NaN;
+          if (!isNaN(_v) && _v > 0) {
+            // Auf die nächste Legenden-Stärke einrasten: die Mengen rechnen
+            // in diesen Klassen — ein stiller 17-cm-Eimer würde sonst aus
+            // der Wandlängen-Tabelle fallen.
+            var _opt = _nzStaerkeOptionen();
+            var _best = _opt[0];
+            _opt.forEach(function (t) { if (Math.abs(t - _v) < Math.abs(_best - _v)) _best = t; });
+            ziele.forEach(function (x) { _nzEdit.thick[x] = _best; });
+          }
+        }
+        else if (act.indexOf('cm') === 0) ziele.forEach(function (x) { _nzEdit.thick[x] = parseInt(act.slice(2), 10); });
         _nzPaint();
       });
     });
@@ -3299,7 +3370,7 @@
     if (rs) rs.addEventListener('click', function () {
       // auch manuell hinzugefügte Wände wieder entfernen
       _nzData.waende = (_nzData.waende || []).filter(function (w) { return !w.manuell; });
-      _nzEdit = { removed: {}, thick: {}, aussen: {}, added: [] }; _nzSel = null;
+      _nzEdit = { removed: {}, thick: {}, aussen: {}, added: [] }; _nzSel = null; _nzSelSet = [];
       _filterState.materialliste_override = _nzStripAnteile(_filterState.materialliste_override);
       _nzPaint(); refreshProjektMassen(); _nzSave(null);
     });

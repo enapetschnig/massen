@@ -3433,3 +3433,11 @@ g[data-raum].nz-hi circle {
   .nz-rail-sep { width: 1px; height: auto; align-self: stretch; }
   .nz-side { position: static; max-height: none; }
 }
+/* Zeichentool-Polish: Dicke-Eingabe + Panel-Feinschliff */
+.nz-dick-row { display: flex; align-items: center; gap: .3rem; font-size: .82rem;
+  font-weight: 600; color: #334155; }
+.nz-dick-row input { width: 4.2rem; padding: .28rem .4rem; border: 1px solid #cbd5e1;
+  border-radius: 6px; font: inherit; }
+.nz-tb-hint { font-size: .7rem; color: #64748b; line-height: 1.25; }
+.nz-side .nz-leg-item { display: flex; align-items: center; gap: .3rem; width: 100%; }
+.nz-side .nz-legend { display: flex; flex-direction: column; gap: .22rem; font-size: .82rem; }
