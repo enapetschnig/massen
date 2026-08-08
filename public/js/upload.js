@@ -3171,29 +3171,53 @@
           .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
         '</div>' : '');
     var cont = document.getElementById('nachzeichnen-container');
-    cont.querySelector('.nz-dynamic').innerHTML =
-      '<div class="nz-legend">' + legend + '</div>' + tb + tbHinweis + oeHinweis +
-      schHinweis + apply +
-      '<div class="nz-zoomctl"><button type="button" class="nz-btn" data-z="in">＋</button>' +
-      '<button type="button" class="nz-btn" data-z="out">－</button>' +
-      '<button type="button" class="nz-btn" data-z="reset">Ansicht zurücksetzen</button>' +
-      '<button type="button" class="nz-btn' + (_nzFull ? ' nz-btn-on' : '') + '" data-z="full" title="Plan im Vollbild anzeigen (Esc = schließen)">' + (_nzFull ? '✕ Vollbild schließen' : '⛶ Vollbild') + '</button>' +
-      '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben (Raumansicht) ↔ technische Wand-/Prüfansicht">🎨 Räume</button>' +
+    // ZEICHENTOOL-SHELL (Nutzer-Richtung: "wie eine moderne Zeichensoftware").
+    // Drei Zonen: WERKZEUGE links (Modi + Zoom), CANVAS Mitte, EIGENSCHAFTEN
+    // rechts (gewählte Wand / gewählter Raum / Ansicht + Korrekturen).
+    // WICHTIG für die Wächter und die bestehende Verdrahtung: die Knöpfe
+    // behalten ihre data-z/data-act-Attribute und liegen in Containern mit
+    // Klasse nz-zoomctl — die Event-Delegation unten bindet unverändert.
+    var _railBtn = function (z, on, icon, lab, title) {
+      return '<button type="button" class="nz-btn nz-rail-btn' + (on ? ' nz-btn-on' : '') +
+        '" data-z="' + z + '"' + (title ? ' title="' + title + '"' : '') + '>' +
+        '<span class="nz-rb-ic">' + icon + '</span><span class="nz-rb-lab">' + lab + '</span></button>';
+    };
+    var rail =
+      _railBtn('raumedit', _nzRaumEditMode, '✏️', 'Raum', 'Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu') +
+      _railBtn('add', _nzAddMode, '➕', 'Wand', 'Wand zeichnen: Linie über die Wand ziehen') +
+      _railBtn('mess', _nzMeasMode && !_nzCalibMode, '📏', 'Messen', 'Byte-exakt am Maßstab messen') +
+      _railBtn('calib', _nzCalibMode, '📐', 'Maßstab' + (_nzKalibriert() ? '' : ' ⚠'), 'Maßstab setzen: 2 Punkte einer bekannten Länge klicken, Meter eingeben') +
+      (_nzMeasMode ? _railBtn('mess-clear', false, '✕', 'löschen', 'Messung löschen') : '') +
+      '<span class="nz-rail-sep"></span>' +
+      _railBtn('in', false, '＋', 'Zoom', '') +
+      _railBtn('out', false, '－', 'Zoom', '') +
+      _railBtn('reset', false, '🔄', 'Ansicht', 'Ansicht zurücksetzen') +
+      _railBtn('full', _nzFull, '⛶', _nzFull ? 'schließen' : 'Vollbild', 'Plan im Vollbild (Esc = schließen)');
+    var ansicht =
+      '<button type="button" class="nz-btn' + (_nzRaumFill ? ' nz-btn-on' : '') + '" data-z="raumfill" title="Räume kräftig einfärben ↔ technische Prüfansicht">🎨 Räume</button>' +
       '<button type="button" class="nz-btn' + (_nzPraes ? ' nz-btn-on' : '') + '" data-z="praes" title="Ruhige Ansicht zum Vorzeigen: nur Raum-Umrisse, Namen und Flächen — ohne Wand-Beschriftung, Öffnungs-Marker und Prüf-Notizen">🎬 Präsentation</button>' +
-      '<button type="button" class="nz-btn' + (_nzUmfassung ? ' nz-btn-on' : '') + '" data-z="umf" title="Raumgrenzen nach Bauteil färben: Außenwand rotbraun · Innenwand blau · Tür gelb · offen grau">🧱 Umfassung</button>' +
-      '<button type="button" class="nz-btn' + (_nzRaumEditMode ? ' nz-btn-on' : '') + '" data-z="raumedit" title="Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu">✏️ Raum bearbeiten</button>' +
-      '<button type="button" class="nz-btn' + (_nzAddMode ? ' nz-btn-on' : '') + '" data-z="add">➕ Wand hinzufügen</button>' +
-      '<button type="button" class="nz-btn' + (_nzMeasMode && !_nzCalibMode ? ' nz-btn-on' : '') + '" data-z="mess" title="Byte-exakt am Maßstab messen — für unsichere Räume selbst nachmessen">📏 Messen</button>' +
-      '<button type="button" class="nz-btn' + (_nzCalibMode ? ' nz-btn-on' : '') + '" data-z="calib" title="Maßstab setzen: 2 Punkte einer bekannten Länge klicken, Meter eingeben — macht Scans/unkalibrierte Pläne metrisch">📐 Maßstab' + (_nzKalibriert() ? '' : ' ⚠') + '</button>' +
-      (_nzMeasMode ? '<button type="button" class="nz-btn" data-z="mess-clear">✕ Messung löschen</button>' : '') +
-      '<span class="nachzeichnen-hint" style="margin:0 0 0 .3rem" id="nz-mess-out">' +
+      '<button type="button" class="nz-btn' + (_nzUmfassung ? ' nz-btn-on' : '') + '" data-z="umf" title="Raumgrenzen nach Bauteil färben: Außenwand rotbraun · Innenwand blau · Tür gelb · offen grau">🧱 Umfassung</button>';
+    var seite =
+      '<div class="nz-side">' +
+      (tb ? '<div class="nz-side-sec nz-side-akt"><div class="nz-side-h">Auswahl</div>' + tb + '</div>' : '') +
+      _nzRaumWerteHtml(_nzRaumInfo) +
+      '<div class="nz-side-sec nz-zoomctl"><div class="nz-side-h">Ansicht</div><div class="nz-side-flex">' + ansicht + '</div></div>' +
+      '<div class="nz-side-sec"><div class="nz-side-h">Status</div><div class="nz-legend">' + legend + '</div></div>' +
+      tbHinweis + oeHinweis + schHinweis +
+      (apply ? '<details class="nz-side-sec nz-side-details"><summary>🧱 Mauerwerk-Korrektur (Wandlängen)</summary>' + apply + '</details>' : '') +
+      '</div>';
+    cont.querySelector('.nz-dynamic').innerHTML =
+      '<div class="nz-studio">' +
+      '<div class="nz-rail nz-zoomctl">' + rail + '</div>' +
+      '<div class="nz-main"><div class="nz-zoomctl nz-statusline">' +
+      '<span class="nachzeichnen-hint" style="margin:0" id="nz-mess-out">' +
       (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>'
         : (_nzMeasMode ? '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>'
-          : 'Mausrad = scrollen · Strg+Rad = zoomen · ziehen = verschieben')) + '</span></div>' +
+          : 'Wand oder Raum anklicken = Eigenschaften rechts · Mausrad = scrollen · Strg+Rad = zoomen · ziehen = verschieben')) + '</span></div>' +
       (_nzRaumEditMode ? '<div class="nz-raum-editbar" id="nz-raum-out">' +
         (_nzRaumSel >= 0 ? '' : '<strong style="color:#0369a1">Klicke einen Raum</strong>, um seine Eckpunkte zu ziehen — Fläche &amp; Umfang rechnen live neu.') +
         '</div>' : '') +
-      _nzRaumLeiste() + _nzRaumWerteHtml(_nzRaumInfo) +
+      _nzRaumLeiste() +
       '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode || _nzMeasMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
       '<div class="nz-zoom" style="transform-origin:0 0;position:relative;width:100%">' +
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
@@ -3202,7 +3226,8 @@
       '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g>' +
       '<g style="pointer-events:auto">' + marker + '</g>' +
       '<g style="pointer-events:auto">' + raumBadges + '</g>' +
-      '<g style="pointer-events:auto">' + _rvHandles + '</g></svg></div></div>';
+      '<g style="pointer-events:auto">' + _rvHandles + '</g></svg></div></div>' +
+      '</div>' + seite + '</div>';
     _nzWireZoom(cont);
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
