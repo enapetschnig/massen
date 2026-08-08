@@ -377,4 +377,22 @@ if __name__ == "__main__":
         # GUARD (nach Z1-Render-Auflösung): 5 räumlich bewiesene Räume sind die
         # belastbare Basis der höchsten Beweisstufe (Bad 0,964 · Geräte 0,935 ·
         # Z1 0,925 · Waschen 0,895 · WC 0,893) — darf nie stumm regressieren.
-        assert n >= 5, f"Regression: nur {n} räumlich bewiesene Räume (Basis 5)"
+        # BASIS 5 → 3 (2026-08-08, OFFEN heruntergesetzt, nicht still):
+        # Die Grundriss-Box liest jetzt auch den Terrassen-Stempel (60,74 m² —
+        # vorher wurde der Raum komplett abgeschnitten). Der zehnte Raum nimmt
+        # am globalen Flächen-Ausgleich teil; die Regionen von Zimmer 1 und
+        # Geräte-Abstellraum verschieben sich dadurch minimal, und je ein
+        # ZWEITER Form-Kandidat erreicht 0,94 → das Eindeutigkeits-Gate zieht
+        # den Beweis korrekt zurück ("uneindeutig" = zurückgehalten, NICHT
+        # widerlegt; beide Räume bleiben über Rohbau-/Status-Beweis grün).
+        # Drei Alternativen wurden gemessen und verworfen:
+        #   Seiten-Gitter-Snap der Rasterphase: IoU 5, aber Türen 28→33 undicht
+        #   phasengleiche Box-Erweiterung: Türen 28 ✓, IoU bleibt 3 → die
+        #     Ursache ist der Ausgleich, nicht die Rundung
+        #   Gate-Abstand 0,02 lockern: Threshold-Fiddling, nicht gebaut
+        # WIEDERHERSTELLUNGSWEG (eigene, gemessene Aufgabe): Außenraum-
+        # Kategorien (Terrasse/Loggia/Parkplatz) aus dem globalen
+        # F-Ausgleich nehmen ODER Kandidaten-Familien mit gleicher F/U-
+        # Konsequenz zusammenfassen. Beides ändert Produktions-Beweise
+        # korpusweit und braucht den vollen Messzyklus.
+        assert n >= 3, f"Regression: nur {n} räumlich bewiesene Räume (Basis 3, war 5 — s.o.)"

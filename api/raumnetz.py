@@ -407,6 +407,14 @@ class _Raster:
         self.ptm = ptm
         self.cell = zelle_m * ptm
         self.zm = zelle_m
+        # KEIN Ursprungs-Snap hier — zweimal gemessen, zweimal anders:
+        # Seiten-Gitter-Snap heilte die IoU-Beweise (3->5), wuerfelte aber
+        # ALLE schwellennahen Tuer-Rundungen neu (28->33 undicht). Die
+        # Phasen-Treue stellt stattdessen der AUFRUFER her: die Render-Box
+        # wird in GANZEN Zellen von der Mess-Box aus erweitert
+        # (nachzeichnen, "phasengleiche Erweiterung") — damit ist die
+        # Zellzuordnung im alten Bereich byte-identisch zur Zeit VOR der
+        # Box-Erweiterung, und weder Tueren noch Beweise wuerfeln neu.
         self.W = int((self.bx1 - self.bx0) / self.cell) + 2
         self.H = int((self.by1 - self.by0) / self.cell) + 2
 

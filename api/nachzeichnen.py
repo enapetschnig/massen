@@ -11,13 +11,27 @@ dokumentiert „harten" Blätter), kommt {"ok": False, "grund": ...} zurück —
 Baut auf api/vektor.py (Kalibrierung, Wand-Paarung, Schraffur-Gate). Das visuelle
 Schwester-Skript scripts/nachzeichnen_overlay.py rendert dasselbe lokal mit PIL.
 """
+import math
 import re
 
 import vektor
 
 LEG = [50, 38, 25, 20, 12]
-RAUM_WORTE = ["Wohnraum", "Waschen", "Bad", "WC", "Flur", "Zimmer", "Küche", "Geräte",
-              "Schlafen", "Wohnen", "Diele", "Abstell", "Gang", "Kind", "Eltern", "Büro"]
+# AUCH AUSSENRAUM-WOERTER: die Grundriss-Box endet 4 m unter dem untersten
+# TREFFER dieser Liste. Ohne "Terrasse" endete sie am Angerer-Plan mitten im
+# Gebaeude — die ueberdachte Terrasse und die ganze Suedseite wurden vor dem
+# Rendern abgeschnitten (Nutzer-Befund "der untere Teil ist abgeschnitten";
+# gemessen: 69 % der dunklen Wandlinien lagen unterhalb der Box, das
+# Terrassen-Label bei y=35 % der Seite war unsichtbar fuer die Liste).
+# "Loggia" fehlt hier BEWUSST: am WM-Plan (Haeuser C+D auf einem Blatt)
+# verkettet es die Label-Cluster ueber die Gebaeude hinweg und verdoppelt
+# die Box (31,6 -> 57,7 m Breite, je Wort einzeln gemessen). Die Loggien
+# sind dort ueber ihre F/U-Stempel abgedeckt — die Stempel-Box (Stufe 2)
+# braucht das Wort nicht.
+INNEN_WORTE = ["Wohnraum", "Waschen", "Bad", "WC", "Flur", "Zimmer", "Küche",
+               "Geräte", "Schlafen", "Wohnen", "Diele", "Abstell", "Gang", "Kind",
+               "Eltern", "Büro"]
+RAUM_WORTE = INNEN_WORTE + ["Terrasse", "Balkon", "Vorraum", "Carport"]
 
 
 def _massstab(page):
@@ -25,10 +39,11 @@ def _massstab(page):
     return f"1:{m.group(1)}" if m else None
 
 
-def _eg_box(page, ptm, worte=None):
+def _eg_box(page, ptm, worte=None, liste=None):
     W, H = page.rect.width, page.rect.height
+    _lst = liste if liste is not None else RAUM_WORTE
     pos = [(w[0], w[1]) for w in (worte if worte is not None else page.get_text("words"))
-           if any(r.lower() in w[4].lower() for r in RAUM_WORTE)
+           if any(r.lower() in w[4].lower() for r in _lst)
            and 0.02 * W <= w[0] <= 0.55 * W and 0.04 * H <= w[1] <= 0.6 * H]
     return vektor._view_bbox(pos, ptm, marge_m=4.0, radius_m=13.0)
 
@@ -85,7 +100,7 @@ def _rdp(punkte, eps):
     return [punkte[0], punkte[-1]]
 
 
-def geometrie_umfang(reg_pt, f_m2, ptm):
+def geometrie_umfang(reg_pt, f_m2, ptm, poly_exakt=False):
     """DETERMINISTISCHER Raum-Umfang aus dem rekonstruierten Polygon.
 
     Der Umfang ist der Hebel für Pläne, die Fläche+Höhe, aber KEINEN Umfang
@@ -146,8 +161,29 @@ def geometrie_umfang(reg_pt, f_m2, ptm):
         return None
     asp = max(bw, bh) / min(bw, bh)
     u_bbox = 2.0 * ((flaeche * asp) ** 0.5 + (flaeche / asp) ** 0.5)
-    # geometrisches Mittel der beiden Schätzer
-    u_m = (u_poly * u_bbox) ** 0.5
+    # geometrisches Mittel der beiden Schätzer — ABER NUR, WO DAS
+    # BBOX-MODELL GILT. Es unterstellt einen kompakten (konvex-artigen)
+    # Raum; ein verzweigter Raum (L/T-Form) fuellt seine Bounding-Box nur
+    # teilweise, und dann raet das Modell STRUKTURELL zu kurz.
+    # Am Angerer-Flur nachgerechnet (2026-08-08): Region-U 22,67 m bei
+    # Stempel 22,57 (+0,4 % — die Erkennung stimmt!), Fuellgrad 57 %,
+    # u_bbox 16,0 → Mittel 18,25 = −19 % → Badge "Form widerlegt" auf einem
+    # RICHTIGEN Umriss. Das Mittel stammt aus der Zeit ZACKIGER Polygone
+    # (Docstring oben: "Flur +32 %"), die der Vektor-Snap seither begradigt
+    # hat — die Praemisse "u_poly ueberschaetzt" gilt dort nicht mehr.
+    # Darum: bei Fuellgrad < 0,72 traegt das Polygon allein (F-kalibriert);
+    # kompakte Raeume behalten das bewaehrte Mittel.
+    # ZWEITE BEDINGUNG, am Korpus gelernt (2026-08-08): das Polygon traegt
+    # allein nur, wenn es VEKTOR-EXAKT auf Wandlinien gesnappt wurde
+    # (poly_exakt). Ein zackiges Raster-Polygon UEBERschaetzt den Umfang —
+    # ohne diese Bedingung klagte das Fuellgrad-Tor auf WM 4 und auf Velden
+    # 2 RICHTIGE Umrisse neu als "Form widerlegt" an (2->6 bzw. 1->3),
+    # waehrend es auf Angerer (vektor-gesnappt) den Flur korrekt heilte.
+    fuell = a_m2 / max(1e-9, bw * bh)
+    if fuell < 0.72 and poly_exakt:
+        u_m = u_poly
+    else:
+        u_m = (u_poly * u_bbox) ** 0.5
     return {"u_m": round(u_m, 2), "u_poly_m": round(u_poly, 2),
             "u_bbox_m": round(u_bbox, 2), "a_poly_m2": round(a_m2, 2)}
 
@@ -533,6 +569,20 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                     "grund": "Leere oder inhaltslose Seite — kein Grundriss erkennbar"}
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     box = _eg_box(page, ptm, worte=worte)
+    # ZWEI BOXEN, ein Grund (2026-08-08): die ERWEITERTE Box (mit Aussenraum-
+    # Woertern) zeigt das ganze Gebaeude und liest den Terrassen-Stempel —
+    # aber die MESS-Paesse leiden unter ihr, beide einzeln belegt:
+    #   Wandliste: 50er-Wand 41,5 -> 32,9 m (27 -> 32 Waende), weil Pergola-
+    #     und Suedmassketten-Linien in die Staerken-Zuordnung geraten — exakt
+    #     der beim Stempel-Box-Versuch dokumentierte Fehlerkanal.
+    #   IoU-Beweis: 5 -> 3 Raeume, weil die Suedketten MEHR byte-exakte
+    #     Fluchten liefern und das Eindeutigkeits-Gate bei mehreren
+    #     Kandidaten den Beweis zurueckzieht (Zimmer 1 / Geraete "uneindeutig").
+    # Darum behalten Wandliste und Fluchten die ENGE Innenraum-Box, auf der
+    # ihre Zahlen gemessen und gepinnt sind; Rendern/Stempel/Raster nutzen
+    # die volle. Faellt die Wort-Box spaeter auf Stempel-/Wandbox zurueck,
+    # gilt fuer alles dieselbe (dann gibt es keine verlaessliche Innen-Box).
+    mess_box = _eg_box(page, ptm, worte=worte, liste=INNEN_WORTE) or box
     # STUFE 2 (TG-/Großbau-Pläne, Sektor-Audit: die Wohn-RAUM_WORTE trafen am
     # Velden-TG nur den Stiegenhaus-Kern via Zufallstreffer 'Gang'/'Eingang' —
     # Box deckte 8% des Bauwerks): Box aus den F/U-STEMPEL-Positionen, wenn
@@ -594,6 +644,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # Vertrauensbeweis für die Wortliste.
             if _box_st and _drin(box) <= 0.5 * len(_st):
                 box = _box_st
+                mess_box = _box_st
     except Exception:
         pass
     # SCHNITT-GATE vor _wandbox (Audit): ein kompaktes Schnitt-/Ansichts-Blatt (12×10 m
@@ -609,6 +660,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
         # die Bounding-Box der dunklen Wand-Linien nehmen — aber nur, wenn sie eine
         # PLAUSIBLE Gebäude-Größe hat (4-45 m/Seite). Schließt Schnitte/Lagepläne aus.
         box = _wandbox(page, ptm)
+        mess_box = box
     if not box:
         # SCHNITT-BLATT-MODUS ('für alle Pläne': jedes Blatt liefert, was es
         # trägt): Schnitt-/Ansichts-Blätter haben keinen Grundriss, aber
@@ -644,6 +696,20 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 pass
         return {"ok": False, "grund": "Kein Grundriss-Bereich gefunden (weder Raum-Labels noch plausible Wand-Kontur)"}
     bx0, bx1, by0, by1 = box
+    # PHASENGLEICHE ERWEITERUNG (2026-08-08): ist die Render-Box groesser als
+    # die Mess-Box, wird ihr Ursprung so gelegt, dass er um GANZE Rasterzellen
+    # (2 cm) unter dem Mess-Ursprung liegt. Die Zellzuordnung im gesamten
+    # Mess-Bereich ist damit byte-identisch zur Zeit vor der Box-Erweiterung —
+    # gemessen an beiden Alternativen: ohne Ausrichtung kippten zwei
+    # IoU-Beweise ("uneindeutig", Zweitkandidat 0,94), mit Seiten-Gitter-Snap
+    # kippten stattdessen fuenf Tuer-Dichtungen (28->33 undicht). Beides waren
+    # reine Rundungs-Neuwuerfe an Schwellen, keine echten Aenderungen.
+    if mess_box != box:
+        _cell = 0.02 * ptm
+        _mb0, _mb1, _mb2, _mb3 = mess_box
+        bx0 = _mb0 - math.ceil(max(0.0, _mb0 - bx0) / _cell) * _cell
+        by0 = _mb2 - math.ceil(max(0.0, _mb2 - by0) / _cell) * _cell
+        box = (bx0, bx1, by0, by1)
     breite_pt, hoehe_pt = (bx1 - bx0), (by1 - by0)
     if breite_pt <= 0 or hoehe_pt <= 0:
         return {"ok": False, "grund": "Ungültige Grundriss-Box"}
@@ -671,11 +737,20 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             and vektor._laenge(s) / ptm > 0.5 and inb(s)]
     # farb-gefilterte Wand-Poché (Neubau rot/orange auf farbigen Plänen; Fallback alle)
     hatch = vektor.wand_poche(page, (bx0, bx1, by0, by1), pfade=pfade, ptm=ptm)
+    # MESS-Sicht (enge Innenraum-Box, s.o.): Wandliste + Fluchten arbeiten
+    # auf ihr, damit Pergola-/Massketten-Linien der Box-ERWEITERUNG die
+    # gepinnten Messungen nicht verschieben.
+    mb0, mb1, mb2, mb3 = mess_box
+    inm = lambda s: mb0 <= (s[0] + s[2]) / 2 <= mb1 and mb2 <= (s[1] + s[3]) / 2 <= mb3
+    arch_mess = (arch if mess_box == box else [s for s in arch if inm(s)])
+    hatch_mess = (hatch if mess_box == box else
+                  vektor.wand_poche(page, (mb0, mb1, mb2, mb3),
+                                    pfade=pfade, ptm=ptm))
     # span_chain (Roadmap #8) bleibt AUS: Hypothese "Hatch-Band als Ketten-
     # Diskriminator" am 3-Plan-Korpus falsifiziert (Angerer 50er 41,4→24,8 m,
     # Holzbau-34er weg) — nächster Kandidat: Fill-Rect-Spannen statt Hatch-Dichte.
-    roh = vektor.wand_paare(arch, ptm, min_len_m=min_len_m, legende_dicken=LEG,
-                            hatch=hatch, min_hatch_dichte=min_hatch_dichte, mit_geometrie=True)
+    roh = vektor.wand_paare(arch_mess, ptm, min_len_m=min_len_m, legende_dicken=LEG,
+                            hatch=hatch_mess, min_hatch_dichte=min_hatch_dichte, mit_geometrie=True)
     # FÜLLFLÄCHEN-WÄNDE (Roadmap #8, H3 bestätigt): mehrschichtige Aufbauten
     # (Holzbau/WDVS) als Gesamtspanne aus gestapelten Schicht-Rects.
     # GATE (Präzedenzfall Fallback-Summe unten): nur für Pläne, deren Linien-
@@ -1056,7 +1131,12 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             reg = regionen.get(i)
             # DETERMINISTISCHER Umfang aus dem Polygon (F-kalibriert) — der Hebel
             # für Räume ohne U-Stempel. Nur wenn ein sauberes Polygon da ist.
-            u_geo = geometrie_umfang(reg, r.get("f_m2"), ptm) if reg else None
+            # poly_exakt: wurde die Kontur vektor-exakt auf Wandlinien gesnappt
+            # (raum_kontur_exakt, Snap-Quote ≥70 %)? Nur dann darf der
+            # Umfangs-Schätzer dem Polygon allein glauben.
+            _kx_ok = bool((region_gates.get(i) or {}).get("kontur_exakt"))
+            u_geo = (geometrie_umfang(reg, r.get("f_m2"), ptm,
+                                      poly_exakt=_kx_ok) if reg else None)
             # ZWEITER FORM-BEWEIS, unabhängig vom U-Stempel: liegt der Umriss
             # auf den gezeichneten Wänden? Auf Polierplänen ohne Umfangs-
             # angabe ist das der EINZIGE Weg, die Form ehrlich zu bestätigen.
@@ -1150,14 +1230,18 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     try:
         import raumnetz
         import massketten
+        # Fluchten auf der MESS-Box (s.o.): die Sued-Massketten der
+        # Box-ERWEITERUNG lieferten zusaetzliche Kandidaten und liessen das
+        # Eindeutigkeits-Gate zwei bewiesene Raeume zurueckziehen (IoU 5->3).
         dark_f = [s for s in segs if (s[5] is None or s[5] < 0.45)
-                  and vektor._laenge(s) / ptm > 0.10 and inb(s)]
-        rst_f = raumnetz._Raster((bx0, bx1, by0, by1), ptm, zelle_f)
-        fills_f = vektor.wand_fill_rects(page, (bx0, bx1, by0, by1),
+                  and vektor._laenge(s) / ptm > 0.10 and inm(s)]
+        rst_f = raumnetz._Raster((mb0, mb1, mb2, mb3), ptm, zelle_f)
+        fills_f = vektor.wand_fill_rects(page, (mb0, mb1, mb2, mb3),
                                          min_seite_m=0.3, ptm=ptm, pfade=pfade)
-        grid_f = raumnetz.wand_maske(rst_f, dark_f, hatch, [], fill_rects=fills_f)
+        grid_f = raumnetz.wand_maske(rst_f, dark_f, hatch_mess, [],
+                                     fill_rects=fills_f)
         fluchten_pt = massketten.wand_fluchten(worte,
-                                               (bx0, bx1, by0, by1), ptm,
+                                               (mb0, mb1, mb2, mb3), ptm,
                                                grid_f, rst_f.W, rst_f.H, rst_f.cell)
         for fl in fluchten_pt:
             px = to_px(fl["pos"], by0)[0] if fl["achse"] == "v" \
