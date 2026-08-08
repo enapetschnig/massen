@@ -2569,7 +2569,7 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
 
 
 def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
-                      snap_m=0.35):
+                      snap_m=0.35, paare=None):
     """VEKTOR-EXAKTE Raumkontur: DP-Kanten (Zellen) an die gezeichneten
     Wandlinien des Plans snappen — pt-Präzision statt Rasterzelle.
 
@@ -2652,6 +2652,10 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
         kanten.append(e)
 
     snap_pt = snap_m * ptm
+    # Schwerpunkt fuer die Aussenrichtung der Kanten (gleiche Konvention wie
+    # der Raster-Rueckfall unten verwendet).
+    _cxp = sum(p[0] for p in pts) / n
+    _cyp = sum(p[1] for p in pts) / n
     for e in kanten:
         if not e["achse"]:
             continue
@@ -2661,6 +2665,51 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
         else:
             c_e, lo, hi = (ay + by) / 2.0, min(ax, bx), max(ax, bx)
         l_kante = hi - lo
+        # ── INNENKANTE ZUERST (Nutzer-Ansage 2026-08-08): "ein Raum ist nur
+        # die Innenwand". Eine Wand ist ein LINIEN-PAAR (wand_paare:
+        # Mittellinie + Dicke). Die Raumkante gehoert auf die RAUMSEITIGE
+        # Linie des Paars — Mittellinie minus halbe Dicke Richtung Raum.
+        # Das traegt die Seiten-Semantik, die der Einzellinien-Cluster nicht
+        # hat: dort gewann die NAECHSTE Linie, mal innen, mal aussen
+        # (gemessen +3-7 cm Drift; zwei Seitenwahl-Versuche ohne Paar-
+        # Kontext blieben wirkungslos, s. Historie oben).
+        if paare:
+            _vz = 1 if c_e > (_cxp if e["achse"] == "v" else _cyp) else -1
+            _bp = None
+            for _w in paare:
+                if _w.get("achse") != e["achse"]:
+                    continue
+                if e["achse"] == "v":
+                    _wc, _wlo, _whi = _w["x0"], min(_w["y0"], _w["y1"]), max(_w["y0"], _w["y1"])
+                else:
+                    _wc, _wlo, _whi = _w["y0"], min(_w["x0"], _w["x1"]), max(_w["x0"], _w["x1"])
+                if min(hi, _whi) - max(lo, _wlo) < 0.5 * l_kante:
+                    continue          # Wand deckt den Kantenlauf nicht
+                _d = _w.get("dist_pt") or 0.0
+                if (_wc - c_e) * _vz < -0.25 * _d:
+                    continue          # Wand liegt NICHT auswaerts der Kante
+                _face = _wc - _vz * _d / 2.0
+                if abs(_face - c_e) > snap_pt:
+                    continue
+                # DIE NAECHSTE WAND gewinnt, nicht die naechste FLAECHE:
+                # sortiert wird nach der Auswaerts-Distanz der MITTELLINIE.
+                # Gemessen: Face-Distanz als Kriterium griff am Geraete-
+                # Abstellraum ein Steinmauer-Textur-Paar weiter draussen
+                # (+9,0 -> +18,7 %), waehrend dasselbe 35-cm-Fenster mit
+                # Waschen (9,9 -> 1,8 %) und Flur zeigte, dass die echte
+                # Innenlinie erreichbar ist. Ein zu enges 8-cm-Fenster
+                # erreichte sie nicht (Raster-Kante liegt durch das Closing
+                # ~4-8 cm INNERHALB der gezeichneten Innenlinie).
+                _dist_wand = (_wc - c_e) * _vz
+                if _bp is None or _dist_wand < _bp[0]:
+                    _bp = (_dist_wand, _face)
+            if _bp is not None:
+                e["fest"], e["quelle"] = _bp[1], "paar"
+                if os.environ.get("IK_DEBUG"):
+                    print(f"[ik] {e['achse']} c_e={c_e:7.1f} face={_bp[1]:7.1f} "
+                          f"versatz_auswaerts={( _bp[1]-c_e)*_vz/ptm*100:+5.1f}cm "
+                          f"L={l_kante/ptm:4.1f}m")
+                continue
         # Kandidaten: gleiche Achslage, Abstand ≤ snap_pt → nach Koordinate
         # clustern (eine Wandlinie ist oft in Teilstücke gezeichnet: Türen,
         # Kreuzungen). Cluster-Deckung ≥50 % des Kantenlaufs nötig.
@@ -3272,6 +3321,31 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
     wo die Rekonstruktion abweicht). Moore-Verfolgung je Label; nur die
     GRÖSSTE Komponente je Raum (Fransen/Inseln fallen raus). → {idx: [(x,y)…]}."""
     W, H = rst.W, rst.H
+    # Wand-PAARE einmal je Seite (nicht je Raum): Traeger des Innenkanten-
+    # Snaps in raum_kontur_exakt. hatch=None wie beim Wandpaar-Rueckfall —
+    # die Seiten-Bedingung (Wand auswaerts der Kante, Lauf-Deckung >=50 %)
+    # haelt Bemassungs-/Terrassen-Paare von Innenkanten fern.
+    # INNENKANTEN-SNAP (Nutzer-Richtung: "ein Raum ist nur die Innenwand"):
+    # Mechanik gebaut, KALIBRIERUNG OFFEN — vorerst hinter IK_SNAP=1.
+    # Gemessen am Angerer (proraum, mittlerer |F-Fehler| gegen Stempel):
+    #   Basis 5,5 % · Snap 35-cm-Fenster 6,1 % (Geraete +18,7!) ·
+    #   8-cm-Fenster 6,2 % (Waschen 1,8->10,7 — Fenster zu eng, die echte
+    #   Innenlinie liegt durch das Closing ~4-8 cm AUSSERHALB der Rasterkante)
+    #   naechste-WAND-Wahl (Mittellinien-Distanz) 6,9 % (Geraete 19,2,
+    #   Flur -9,1 — Moebel-/Textur-Paare mit naher Mittellinie gewinnen).
+    # LOKALE Treffer beweisen den Mechanismus (Waschen 9,9->1,8, Bad
+    # 9,2->7,7); die PAAR-AUSWAHL ist das offene Problem. Naechster Schritt
+    # ist ein BILD-OVERLAY der Kandidaten-Paare je Kante (Geraete-West,
+    # Flur-Sued ansehen), NICHT weitere blinde Justierung. Telemetrie:
+    # IK_DEBUG=1 druckt je Snap Kante/Face/Auswaerts-Versatz.
+    _paare_ik = None
+    if dark_segs and os.environ.get("IK_SNAP"):
+        try:
+            import vektor as _vik
+            _paare_ik = _vik.wand_paare(dark_segs, rst.ptm, hatch=None,
+                                        mit_geometrie=True)
+        except Exception:
+            _paare_ik = None
     zm2 = rst.zm * rst.zm
     out = {}
     for ridx in range(n_stempel):
@@ -3425,7 +3499,8 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
             if dark_segs is not None and grid is not None:
                 try:
                     _kx = raum_kontur_exakt(vereinfacht, grid, W, H, rst,
-                                            dark_segs, stuetzen=stuetzen)
+                                            dark_segs, stuetzen=stuetzen,
+                                            paare=_paare_ik)
                     if _kx and _kx["snap_quote"] >= 0.70 and poly_flaeche > 0 \
                             and abs(_kx["f_m2"] - poly_flaeche) / poly_flaeche <= 0.20:
                         _fin_pt = _kx["poly_pt"]
@@ -3549,6 +3624,17 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     except Exception:
         _stuetzen = []
     rst = _Raster(box, ptm, zelle_m)
+    # Wand-Paare fuer den Innenkanten-Snap der Kontur-MESSUNG — dieselbe
+    # Quelle wie beim Zeichnen (raum_regionen), damit gezeichnete und
+    # gemessene Kontur dieselbe raumseitige Wandlinie sehen.
+    _paare_ik_m = None
+    if dark_segs and os.environ.get("IK_SNAP"):
+        try:
+            import vektor as _vikm
+            _paare_ik_m = _vikm.wand_paare(dark_segs, ptm, hatch=None,
+                                           mit_geometrie=True)
+        except Exception:
+            _paare_ik_m = None
     oe = [o for o in (oeffnungen or [])
           if box[0] <= o.get("cx", -1) <= box[1] and box[2] <= o.get("cy", -1) <= box[3]]
     moebel = []
@@ -3837,7 +3923,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     if not vereinfacht or len(vereinfacht) < 3:
                         continue
                     kx = raum_kontur_exakt(vereinfacht, grid, W2, H2, rst,
-                                           dark_segs, stuetzen=_stuetzen)
+                                           dark_segs, stuetzen=_stuetzen,
+                                           paare=_paare_ik_m)
                     if not kx:
                         continue
                     st = stempel[idx2]
