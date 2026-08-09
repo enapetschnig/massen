@@ -2359,6 +2359,38 @@
   }
   // Ein Raum-Polygon wurde geändert → neue Fläche/Umfang merken (noch nicht in
   // die Massen — erst „Fläche übernehmen"). Readout aktualisieren.
+  // ▭ RECHTECK-WERKZEUG (Nutzer-Richtung: "bei den Aussenflaechen wie der
+  // Terrasse ist es meistens rechteckig"). Ersetzt das Polygon des gewaehlten
+  // Raums durch ein achsparalleles Rechteck: Seitenverhaeltnis aus der
+  // Bounding-Box des bisherigen Umrisses, FLAECHE = byte-exakter Stempel
+  // (die Wahrheit bleibt die Wahrheit), Mittelpunkt = Polygon-Schwerpunkt.
+  // Der Mensch bleibt im Spiel: Ecken sind danach normal ziehbar, und
+  // "Original" stellt den erkannten Umriss wieder her.
+  function _nzRaumRechteck(ri) {
+    var r = _nzData.raeume[ri]; if (!r || !(r.region_px || []).length) return;
+    var k = _nzPxProM(); if (!k) return;
+    if (!r._region_orig) r._region_orig = r.region_px.map(function (p) { return [p[0], p[1]]; });
+    var xs = r.region_px.map(function (p) { return p[0]; });
+    var ys = r.region_px.map(function (p) { return p[1]; });
+    var bw = Math.max.apply(null, xs) - Math.min.apply(null, xs);
+    var bh = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+    if (bw <= 0 || bh <= 0) return;
+    var cx = 0, cy = 0;
+    r.region_px.forEach(function (p) { cx += p[0]; cy += p[1]; });
+    cx /= r.region_px.length; cy /= r.region_px.length;
+    var fpx = (r.f_m2 || _nzPolyFlaeche(r.region_px)) * k * k;   // Ziel in px²
+    var w = Math.sqrt(fpx * (bw / bh)), h = fpx / w;
+    r.region_px = [[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2],
+                   [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2]]
+      .map(function (p) { return [Math.round(p[0]), Math.round(p[1])]; });
+    _nzRaumMarkEdited(ri); _nzPaint(); _nzRaumLiveReadout(ri);
+  }
+  function _nzRaumOriginal(ri) {
+    var r = _nzData.raeume[ri]; if (!r || !r._region_orig) return;
+    r.region_px = r._region_orig.map(function (p) { return [p[0], p[1]]; });
+    r._region_orig = null; r._edited = false; r._f_edit = null; r._u_edit = null;
+    _nzPaint(); _nzRaumLiveReadout(ri);
+  }
   function _nzRaumMarkEdited(ri) {
     var r = _nzData.raeume[ri]; if (!r) return;
     r._edited = true;
@@ -3246,8 +3278,14 @@
       (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>'
         : (_nzMeasMode ? '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>'
           : 'Wand oder Raum anklicken = Eigenschaften rechts · Mausrad = scrollen · Strg+Rad = zoomen · ziehen = verschieben')) + '</span></div>' +
-      (_nzRaumEditMode ? '<div class="nz-raum-editbar" id="nz-raum-out">' +
+      (_nzRaumEditMode ? '<div class="nz-raum-editrow">' +
+        '<div class="nz-raum-editbar" id="nz-raum-out">' +
         (_nzRaumSel >= 0 ? '' : '<strong style="color:#0369a1">Klicke einen Raum</strong>, um seine Eckpunkte zu ziehen — Fläche &amp; Umfang rechnen live neu.') +
+        '</div>' +
+        (_nzRaumSel >= 0 ? '<span class="nz-raum-tools">' +
+          '<button type="button" class="nz-btn" data-rtool="rect" title="Umriss durch ein achsparalleles Rechteck ersetzen — Fläche bleibt der byte-exakte Stempel, Seitenverhältnis aus dem bisherigen Umriss. Ecken danach normal ziehbar.">▭ Rechteck</button>' +
+          '<button type="button" class="nz-btn" data-rtool="orig" title="Den erkannten Original-Umriss wiederherstellen">↺ Original</button>' +
+          '</span>' : '') +
         '</div>' : '') +
       _nzRaumLeiste() +
       '<div class="nz-wrap" style="position:relative;max-width:100%;overflow:hidden;border:1px solid #e2e8f0;border-radius:8px;cursor:' + (_nzAddMode || _nzMeasMode ? 'crosshair' : 'grab') + ';touch-action:none">' +
@@ -3313,6 +3351,13 @@
           _nzPaint();
         }
         ev.stopPropagation();
+      });
+    });
+    cont.querySelectorAll('[data-rtool]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (_nzRaumSel < 0) return;
+        if (b.getAttribute('data-rtool') === 'rect') _nzRaumRechteck(_nzRaumSel);
+        else _nzRaumOriginal(_nzRaumSel);
       });
     });
     // Öffnungs-Marker anklicken = keine Öffnung (Fehl-Erkennung entfernen)

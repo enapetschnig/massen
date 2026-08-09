@@ -3441,3 +3441,8 @@ g[data-raum].nz-hi circle {
 .nz-tb-hint { font-size: .7rem; color: #64748b; line-height: 1.25; }
 .nz-side .nz-leg-item { display: flex; align-items: center; gap: .3rem; width: 100%; }
 .nz-side .nz-legend { display: flex; flex-direction: column; gap: .22rem; font-size: .82rem; }
+/* Raum-Bearbeiten: Werkzeugzeile neben dem Live-Readout */
+.nz-raum-editrow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  margin-bottom: .35rem; }
+.nz-raum-editrow .nz-raum-editbar { flex: 1 1 14rem; margin-bottom: 0; }
+.nz-raum-tools { display: flex; gap: .3rem; }
