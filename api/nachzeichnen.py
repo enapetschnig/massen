@@ -12,6 +12,7 @@ Baut auf api/vektor.py (Kalibrierung, Wand-Paarung, Schraffur-Gate). Das visuell
 Schwester-Skript scripts/nachzeichnen_overlay.py rendert dasselbe lokal mit PIL.
 """
 import math
+import os
 import re
 
 import vektor
@@ -1174,6 +1175,12 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 # Frontend kann daraus einen verständlichen Hinweis machen und
                 # gezielt die Ersatz-Markierung anbieten.
                 "umriss_grund": (None if reg else (_g.get("grund") or "keine_region")),
+                # Stufen-Diagnose (nur unter RG_DEBUG): Zellflaeche der Region
+                # vs. DP-Polygonflaeche — lokalisiert, WO Flaeche entsteht.
+                **({"_rg_dbg": {k: _g.get(k) for k in
+                               ("region_m2", "poly_m2", "fr", "stempel_abw",
+                                "ecken", "kredit_m2", "poly_pt")}}
+                   if os.environ.get("RG_DEBUG") else {}),
                 "umriss_fr": _g.get("fr"),
                 "umriss_axis": _g.get("axis_frac"),
                 # abgelehnter Umriss (nur Diagnose, NICHT gezeichnet)

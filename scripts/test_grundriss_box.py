@@ -24,10 +24,12 @@ Zwei Dinge sind zu halten:
      Umriss. Ein falsches Urteil ist schlimmer als eine fehlende Zahl.
 """
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "api"))
+WURZEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 
 class _FakeRect(object):
@@ -114,6 +116,28 @@ def run():
     else:
         fehler.append(f"Kompakter Raum nutzt das Mittel nicht mehr: {rq}")
 
+    # 4) STEMPEL-GERICHTETER SNAP-DECKEL (Stufen-Messung 2026-08-10):
+    #    Die DP-Polygone waren +1..2 % am Stempel, der Cluster-Snap zog sie
+    #    auf +8..9 % (lange Aussenlinien gewinnen die Deckungs-Regel, weil
+    #    Innenlinien von Tueren unterbrochen sind). Der Deckel greift NUR,
+    #    wenn das DP-Polygon schon >= Stempel ist, und deckelt BEIDE
+    #    Richtungen (+3 cm aus / -10 cm ein — nur auswaerts zu sperren
+    #    liess Kanten auf Regal-Linien einwaerts schnappen, Geraete -15,7 %).
+    #    Gemessen: Angerer mittlerer |F-Fehler| 6,3 % -> 2,7 % (besser als
+    #    die 2,8 % vor den Vektor-Kanten, MIT den Vektor-Kanten).
+    rq = open(os.path.join(WURZEL, "api", "raumnetz.py"), encoding="utf-8").read()
+    for muster, was in (
+        (r"max_raus_pt=None\):", "raum_kontur_exakt nimmt max_raus_pt"),
+        (r"_versch > max_raus_pt or _versch < -0\.10 \* rst\.ptm",
+         "Deckel wirkt in BEIDE Richtungen"),
+        (r"poly_flaeche >= 0\.98 \* _sf", "Deckel nur wenn DP >= Stempel"),
+    ):
+        if re.search(muster, rq):
+            print(f"   {was} ✓")
+        else:
+            fehler.append(f"Snap-Deckel: {was} — fehlt/umgebaut. Ohne ihn "
+                          f"bläht der Cluster-Snap Räume um +7..9 % auf "
+                          f"(Angerer, Stufen-Messung 2026-08-10).")
     print("-" * 84)
     if fehler:
         print("FEHLER:")

@@ -2569,7 +2569,7 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
 
 
 def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
-                      snap_m=0.35, paare=None, dbg_tag=None):
+                      snap_m=0.35, paare=None, dbg_tag=None, max_raus_pt=None):
     """VEKTOR-EXAKTE Raumkontur: DP-Kanten (Zellen) an die gezeichneten
     Wandlinien des Plans snappen — pt-Präzision statt Rasterzelle.
 
@@ -2761,7 +2761,25 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
             else:
                 cluster.append([c_s, [(slo, shi)], 1])
         beste = None
+        # STEMPEL-GERICHTETER AUSWAERTS-DECKEL (Stufen-Messung 2026-08-10):
+        # Auf Angerer sind die DP-Polygone +1..2 % am Stempel, der Cluster-
+        # Snap zog sie auf +8..9 % (laengere AUSSEN-Linien gewinnen die
+        # 50-%-Deckung, weil Innenlinien von Tueren unterbrochen sind).
+        # Auf WM sind echte Raeume auf Zellebene ZU KLEIN (-13..-21 %) und
+        # der Auswaerts-Zug hilft. Darum entscheidet der Aufrufer per
+        # max_raus_pt: DP >= Stempel -> Deckel (+3 cm), DP < Stempel ->
+        # unbegrenzt wie bisher. Der Stempel gibt die Richtung vor.
+        _vz_cl = None
+        if max_raus_pt is not None:
+            _vz_cl = 1 if c_e > (_cxp if e["achse"] == "v" else _cyp) else -1
         for (c_cl, spans, _nz) in cluster:
+            if _vz_cl is not None:
+                _versch = (c_cl - c_e) * _vz_cl
+                # BEIDE Richtungen deckeln: nur auswaerts zu sperren liess
+                # die Kante ungebremst EINWAERTS auf Moebel-/Regal-Linien
+                # schnappen (gemessen: Geraete-Abstellraum +9,0 -> -15,7 %).
+                if _versch > max_raus_pt or _versch < -0.10 * rst.ptm:
+                    continue
             # Deckung: Vereinigung der Spannen auf den Kantenlauf
             deck = 0.0
             ende = lo
@@ -3540,9 +3558,13 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
             _fin_pt = None
             if dark_segs is not None and grid is not None:
                 try:
+                    _mr = (0.03 * rst.ptm
+                           if (_sf and _sf > 0 and poly_flaeche >= 0.98 * _sf)
+                           else None)
                     _kx = raum_kontur_exakt(vereinfacht, grid, W, H, rst,
                                             dark_segs, stuetzen=stuetzen,
-                                            paare=_paare_ik, dbg_tag=ridx)
+                                            paare=_paare_ik, dbg_tag=ridx,
+                                            max_raus_pt=_mr)
                     if _kx and _kx["snap_quote"] >= 0.70 and poly_flaeche > 0 \
                             and abs(_kx["f_m2"] - poly_flaeche) / poly_flaeche <= 0.20:
                         _fin_pt = _kx["poly_pt"]
