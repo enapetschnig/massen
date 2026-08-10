@@ -2569,7 +2569,7 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
 
 
 def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
-                      snap_m=0.35, paare=None):
+                      snap_m=0.35, paare=None, dbg_tag=None):
     """VEKTOR-EXAKTE Raumkontur: DP-Kanten (Zellen) an die gezeichneten
     Wandlinien des Plans snappen — pt-Präzision statt Rasterzelle.
 
@@ -2675,6 +2675,10 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
         # Kontext blieben wirkungslos, s. Historie oben).
         if paare:
             _vz = 1 if c_e > (_cxp if e["achse"] == "v" else _cyp) else -1
+            _dbg = (dbg_tag is not None and os.environ.get("IK_DEBUG"))
+            if _dbg:
+                print(f"[ikc] tag={dbg_tag} achse={e['achse']} c_e={c_e:.1f} "
+                      f"lo={lo:.1f} hi={hi:.1f} vz={_vz}")
             _bp = None
             for _w in paare:
                 if _w.get("achse") != e["achse"]:
@@ -2683,13 +2687,32 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
                     _wc, _wlo, _whi = _w["x0"], min(_w["y0"], _w["y1"]), max(_w["y0"], _w["y1"])
                 else:
                     _wc, _wlo, _whi = _w["y0"], min(_w["x0"], _w["x1"]), max(_w["x0"], _w["x1"])
-                if min(hi, _whi) - max(lo, _wlo) < 0.5 * l_kante:
-                    continue          # Wand deckt den Kantenlauf nicht
+                _cov = min(hi, _whi) - max(lo, _wlo)
                 _d = _w.get("dist_pt") or 0.0
+                _face0 = _wc - _vz * _d / 2.0
+                if _dbg and abs(_face0 - c_e) <= 2.0 * snap_pt and _cov > 0:
+                    _grund = ("deck" if _cov < 0.5 * l_kante else
+                              ("seite" if (_wc - c_e) * _vz < -0.25 * _d else
+                               ("fenster" if abs(_face0 - c_e) > snap_pt else "ok")))
+                    print(f"[ikk] tag={dbg_tag} achse={e['achse']} c_e={c_e:.1f} "
+                          f"center={_wc:.1f} d={_d:.1f} face={_face0:.1f} "
+                          f"cov={_cov:.0f}/{l_kante:.0f} dicke={_w.get('dicke_cm')} "
+                          f"hatch={_w.get('hatch_dichte')} grund={_grund}")
+                if _cov < 0.5 * l_kante:
+                    continue          # Wand deckt den Kantenlauf nicht
                 if (_wc - c_e) * _vz < -0.25 * _d:
                     continue          # Wand liegt NICHT auswaerts der Kante
-                _face = _wc - _vz * _d / 2.0
+                _face = _face0
                 if abs(_face - c_e) > snap_pt:
+                    continue
+                # AUSWAERTS-DECKEL, vom Overlay abgeleitet (ik_Zimmer1.png):
+                # die Rasterkante sitzt bereits AUF der gezeichneten
+                # Innenlinie — jeder Kandidat, der die Kante mehr als ~3 cm
+                # nach AUSSEN zieht, ist eine andere Linie (Putz/Aussenface/
+                # Nachbar) und blaeht den Raum. Einwaerts (bis 10 cm) ist
+                # erlaubt: dort korrigiert der Snap echte Raster-Ausfransung.
+                _raus = (_face - c_e) * _vz
+                if _raus > 0.03 * ptm or _raus < -0.10 * ptm:
                     continue
                 # DIE NAECHSTE WAND gewinnt, nicht die naechste FLAECHE:
                 # sortiert wird nach der Auswaerts-Distanz der MITTELLINIE.
@@ -2700,9 +2723,12 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
                 # Innenlinie erreichbar ist. Ein zu enges 8-cm-Fenster
                 # erreichte sie nicht (Raster-Kante liegt durch das Closing
                 # ~4-8 cm INNERHALB der gezeichneten Innenlinie).
-                _dist_wand = (_wc - c_e) * _vz
-                if _bp is None or _dist_wand < _bp[0]:
-                    _bp = (_dist_wand, _face)
+                # Auswahl: naechste FACE. Mit poché-gegateten Kandidaten ist
+                # das die stabile Regel (Face-Distanz war schon mit dreckigen
+                # Kandidaten die beste der drei gemessenen; die Ausreisser
+                # kamen aus Textur-Paaren, die das Gate jetzt entfernt).
+                if _bp is None or abs(_face - c_e) < _bp[0]:
+                    _bp = (abs(_face - c_e), _face)
             if _bp is not None:
                 e["fest"], e["quelle"] = _bp[1], "paar"
                 if os.environ.get("IK_DEBUG"):
@@ -3314,7 +3340,7 @@ def raum_umfassung(poly_pt, grid, label, rst, ridx, AUSSEN, stempel,
 
 def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                   stempel_f=None, grid=None, dark_segs=None, stuetzen=None,
-                  ist_f=None):
+                  ist_f=None, hatch_segs=None):
     """Pro Raum den REKONSTRUIERTEN Region-Umriss als Polygon in pt
     (Nachvollziehbarkeit: der Prüfer sieht die geometrische Lesart der App
     ÜBER dem Plan — verifizierte Räume decken sich, Prüf-Räume zeigen exakt,
@@ -3333,16 +3359,32 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
     #   Innenlinie liegt durch das Closing ~4-8 cm AUSSERHALB der Rasterkante)
     #   naechste-WAND-Wahl (Mittellinien-Distanz) 6,9 % (Geraete 19,2,
     #   Flur -9,1 — Moebel-/Textur-Paare mit naher Mittellinie gewinnen).
-    # LOKALE Treffer beweisen den Mechanismus (Waschen 9,9->1,8, Bad
-    # 9,2->7,7); die PAAR-AUSWAHL ist das offene Problem. Naechster Schritt
-    # ist ein BILD-OVERLAY der Kandidaten-Paare je Kante (Geraete-West,
-    # Flur-Sued ansehen), NICHT weitere blinde Justierung. Telemetrie:
-    # IK_DEBUG=1 druckt je Snap Kante/Face/Auswaerts-Versatz.
+    # OVERLAY-SESSION 2026-08-10 (ik_*.png im Session-Scratchpad) — drei
+    # Befunde, die die Richtung DREHEN:
+    #  1. Ohne Poché-Gate bestanden die Kandidaten aus Steinschlichtung
+    #     (31,4 cm, Geraete +18,7 %), Tuerzargen (8,5 cm) und Pergola —
+    #     alle hatch=None. Gate eingebaut (hatch_segs wird durchgereicht).
+    #  2. Mit Gate + Auswaerts-Deckel (+3 cm) ist der Paar-Snap NEUTRAL
+    #     (6,2 % vs 6,3 % Basis) — sauber, aber wirkungslos.
+    #  3. DAS EIGENTLICHE PROBLEM IST NICHT DIE SEITENWAHL: die Rasterkanten
+    #     sitzen laut Overlay BEREITS auf den gezeichneten Innenlinien,
+    #     trotzdem messen die Polygone +5..11 % gegen die Stempel. Die
+    #     Aufblaehung steckt in der REGIONS-ZUSAMMENSETZUNG (Tuerzonen/
+    #     Glaettung/Ausgleich), nicht im Kanten-Snap. Naechste Session:
+    #     Regions-Sezierung (Flur-Kurzstueck ist derselbe Komplex).
+    # IK_SNAP bleibt AUS; IK_DEBUG=1 liefert Kanten+Kandidaten maschinen-
+    # lesbar ([ikc]/[ikk]), Overlay-Renderer im Session-Scratchpad.
     _paare_ik = None
     if dark_segs and os.environ.get("IK_SNAP"):
         try:
             import vektor as _vik
-            _paare_ik = _vik.wand_paare(dark_segs, rst.ptm, hatch=None,
+            # POCHÉ-GATE — die Auswahlregel, vom Bild abgeleitet (Overlay
+            # 2026-08-10, ik_Geraete/ik_Flur.png im Session-Scratchpad):
+            # OHNE Gate bestand die Kandidatenliste aus Steinschlichtungs-
+            # Paaren (31,4 cm, frass den Geraete-Ostrand +18,7 %), Tuerzargen
+            # (8,5 cm) und Pergola-Linien — alle h=None. Echte Waende sind
+            # poché-schraffiert; dieselbe Regel nutzt die Wandliste laengst.
+            _paare_ik = _vik.wand_paare(dark_segs, rst.ptm, hatch=hatch_segs,
                                         mit_geometrie=True)
         except Exception:
             _paare_ik = None
@@ -3500,7 +3542,7 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                 try:
                     _kx = raum_kontur_exakt(vereinfacht, grid, W, H, rst,
                                             dark_segs, stuetzen=stuetzen,
-                                            paare=_paare_ik)
+                                            paare=_paare_ik, dbg_tag=ridx)
                     if _kx and _kx["snap_quote"] >= 0.70 and poly_flaeche > 0 \
                             and abs(_kx["f_m2"] - poly_flaeche) / poly_flaeche <= 0.20:
                         _fin_pt = _kx["poly_pt"]
@@ -3631,7 +3673,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     if dark_segs and os.environ.get("IK_SNAP"):
         try:
             import vektor as _vikm
-            _paare_ik_m = _vikm.wand_paare(dark_segs, ptm, hatch=None,
+            _paare_ik_m = _vikm.wand_paare(dark_segs, ptm, hatch=hatch_segs,
                                            mit_geometrie=True)
         except Exception:
             _paare_ik_m = None
