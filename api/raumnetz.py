@@ -2398,7 +2398,7 @@ def _umriss_zellen(label, W, H, ridx, zm2, min_flaeche_m2=1.0, cells=None,
     return _dp(pfad, 2.0), n_cells
 
 
-def _tuer_lecks(grid, label, rst, oeffnungen):
+def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
     """Undichte Türen lokalisieren: läuft die Raumfarbe durch die Öffnung?
 
     Spiegelbildlich zum Mess-Harness scripts/mess_tuer_dichtung.py (gleiche
@@ -2431,8 +2431,37 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
     """
     W, H = rst.W, rst.H
     lecks = []
+    # KATEGORIE je Stempel (fuer den Front-Fall): Innenraum vs. ueberdachter
+    # Aussenbereich (Terrasse/Loggia/Carport). Lazy — massen_logic haengt
+    # nicht am Heisspfad.
+    _kat = None
+    if stempel:
+        try:
+            from massen_logic import kategorie_of as _ko
+            _kat = [_ko((st.get("name") or "")) for st in stempel]
+        except Exception:
+            _kat = None
     for o in (oeffnungen or []):
-        if o.get("typ") != "tuer" or o.get("cx") is None:
+        _ist_tuer = o.get("typ") == "tuer"
+        # GLASFRONT-FALL (2026-08-10): ein FENSTER-Anker an der Grenze
+        # Innenraum <-> Aussenkategorie markiert eine Hebe-Schiebe-/
+        # Fixverglasungs-Front ohne Poché — dort laeuft der Watershed in
+        # die Terrasse (WK-Zellen +9,7 %). NUR dieser Fall wird gesiegelt;
+        # die generelle Front-Versiegelung ist als Sackgasse gemessen
+        # (Kimi, Commit 105556f: WM 58->56, Velden 15->14).
+        # HINTER SCHALTER (FRONT_SEAL=1), Stand 2026-08-10: Mechanik
+        # funktioniert nachweislich in beide Richtungen — die falsche Front
+        # (Parkplatz<->Bad, echtes Fenster in echter Wand) entfernt der
+        # Verifikations-Guard korrekt, die richtige (WK<->Terrasse, 1,81 m)
+        # wird gesiegelt. ABER: nur 1 von mehreren Glaselementen der Front
+        # wird gefunden (die uebrigen Fenster-Anker verfehlen die
+        # Spalt-Suche) — ein Segment dichtet nicht, der Watershed flutet
+        # daneben durch (WK-Zellen +9,7 -> +9,4, wirkungslos). Erst die
+        # Segment-Sezierung machen ([front]-Telemetrie unter GUARD_DEBUG),
+        # dann aktivieren. Standard AUS = Verhalten unveraendert.
+        _ist_front = (o.get("typ") == "fenster" and _kat is not None
+                      and bool(os.environ.get("FRONT_SEAL")))
+        if not (_ist_tuer or _ist_front) or o.get("cx") is None:
             continue
         cx, cy = o["cx"], o["cy"]
         b = o.get("breite_m") or 0.9
@@ -2440,7 +2469,8 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
         cap = max(4, int(round(1.8 * rst.ptm / rst.cell)))
         fen = max(2, int(round(1.0 * rst.ptm / rst.cell)))
         sp_min = max(3, int(round(0.45 * rst.ptm / rst.cell)))
-        sp_max = int(round(2.6 * rst.ptm / rst.cell))
+        sp_max = int(round((2.6 if _ist_tuer else max(2.6, b * 1.25))
+                           * rst.ptm / rst.cell))
         ci, cj = rst.ij(cx, cy)
         best = None
         for achse in ("h", "v"):
@@ -2503,8 +2533,19 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
             return None
 
         l1, l2 = _erste_raumzelle(-1), _erste_raumzelle(+1)
-        if l1 is None or l2 is None or l1 != l2:
-            continue
+        if _ist_tuer:
+            if l1 is None or l2 is None or l1 != l2:
+                continue
+        else:
+            # Front: VERSCHIEDENE Raeume, genau eine Seite Aussenkategorie.
+            if l1 is None or l2 is None or l1 == l2:
+                continue
+            if not (0 <= l1 < len(_kat) and 0 <= l2 < len(_kat)):
+                continue
+            _a1 = _kat[l1] == "Loggia"
+            _a2k = _kat[l2] == "Loggia"
+            if _a1 == _a2k:
+                continue          # beide innen oder beide aussen -> kein Fall
         # Lücke muss überwiegend FREI sein (sonst liegt der Verschluss
         # bereits, nur anders bewertet — nicht doppelt brennen).
         belegt = 0
@@ -2525,6 +2566,11 @@ def _tuer_lecks(grid, label, rst, oeffnungen):
         j2 = (fest * W + hi) if achse == "h" else (hi * W + fest)
         if not (grid[j1] and grid[j2]):
             continue
+        if os.environ.get("GUARD_DEBUG") and not _ist_tuer:
+            _n1 = (stempel[l1].get("name") if stempel and 0 <= l1 < len(stempel) else l1)
+            _n2 = (stempel[l2].get("name") if stempel and 0 <= l2 < len(stempel) else l2)
+            print(f"[front] {o.get('typ')} achse={achse} fest={fest} "
+                  f"lo={lo} hi={hi} spann={(hi-lo)*rst.zm:.2f}m  {_n1} <-> {_n2}")
         span = hi - lo
         rad = max(int(span * 1.6), int(1.2 * rst.ptm / rst.cell))
         ci0, cj0 = j1 % W, j1 // W
@@ -3845,7 +3891,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         # auf FERTIG kollidiert der Burn mit dem Wand-Paar-Fallback
         # ([49] U 24,96→33,44 gemessen — dort bleibt es byte-identisch).
         if not paar_fallback:
-            _lecks = _tuer_lecks(grid, label, rst, oe)
+            _lecks = _tuer_lecks(grid, label, rst, oe, stempel=stempel)
             if _lecks:
                 def _bauen(lk):
                     g_s = bytearray(grid)
