@@ -130,7 +130,7 @@ def run():
         (r"max_raus_pt=None\):", "raum_kontur_exakt nimmt max_raus_pt"),
         (r"_versch > max_raus_pt or _versch < -0\.10 \* rst\.ptm",
          "Deckel wirkt in BEIDE Richtungen"),
-        (r"poly_flaeche >= 0\.98 \* _sf", "Deckel nur wenn DP >= Stempel"),
+        (r"poly_flaeche >= 0\.95 \* _sf", "Deckel ab DP >= 95 % Stempel"),
     ):
         if re.search(muster, rq):
             print(f"   {was} ✓")

@@ -1126,6 +1126,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                                                   grid=dbg_r.get("grid"),
                                                   dark_segs=dark,
                                                   hatch_segs=hatch,
+                                                  kredit_cells=dbg_r.get("kredit_cells"),
                                                   stuetzen=dbg_r.get("stuetzen"))
         except Exception as _er:
             regionen = {}

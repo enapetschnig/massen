@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-10.2"
+APP_REV = "2026-08-10.3"
 
 
 @app.get("/api/extract-health")
@@ -6137,7 +6137,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 75  # Stempel-gerichteter Snap-Deckel (Konturen aendern sich)
+_NZ_CACHE_V = 76  # Tuerzonen im gezeichneten Umriss + Deckel-Schwelle 95 %
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

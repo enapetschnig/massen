@@ -2322,7 +2322,8 @@ def an_wand_schnappen(poly, grid, W, H, max_snap=8, min_len=4.0, tol=0.30):
     return neu_poly
 
 
-def _umriss_zellen(label, W, H, ridx, zm2, min_flaeche_m2=1.0, cells=None):
+def _umriss_zellen(label, W, H, ridx, zm2, min_flaeche_m2=1.0, cells=None,
+                   mitglied=None):
     """Rand-Trace + Douglas-Peucker EINES Raum-Beckens → DP-Polygon in Zellen.
 
     Aus raum_regionen herausfaktorisiert, damit Messung (raum_kontur_exakt)
@@ -2333,14 +2334,20 @@ def _umriss_zellen(label, W, H, ridx, zm2, min_flaeche_m2=1.0, cells=None):
     MN = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1))
     rand = bytearray(W * H)
     n_cells = 0
+    # mitglied: optionale Zugehoerigkeits-Maske (Raumzellen + kreditierte
+    # Tuerdurchgangs-Zellen). Ohne sie gilt wie bisher label==ridx.
+    if mitglied is not None:
+        _drin = lambda ix: bool(mitglied[ix])
+    else:
+        _drin = lambda ix: label[ix] == ridx
     if cells is None:
-        cells = [idx for idx in range(W * H) if label[idx] == ridx]
+        cells = [idx for idx in range(W * H) if _drin(idx)]
     for idx in cells:
         n_cells += 1
         i, j = idx % W, idx // W
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             ni, nj = i + di, j + dj
-            if not (0 <= ni < W and 0 <= nj < H) or label[nj * W + ni] != ridx:
+            if not (0 <= ni < W and 0 <= nj < H) or not _drin(nj * W + ni):
                 rand[idx] = 1
                 break
     if n_cells * zm2 < min_flaeche_m2:
@@ -3358,7 +3365,7 @@ def raum_umfassung(poly_pt, grid, label, rst, ridx, AUSSEN, stempel,
 
 def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                   stempel_f=None, grid=None, dark_segs=None, stuetzen=None,
-                  ist_f=None, hatch_segs=None):
+                  ist_f=None, hatch_segs=None, kredit_cells=None):
     """Pro Raum den REKONSTRUIERTEN Region-Umriss als Polygon in pt
     (Nachvollziehbarkeit: der Prüfer sieht die geometrische Lesart der App
     ÜBER dem Plan — verifizierte Räume decken sich, Prüf-Räume zeigen exakt,
@@ -3413,6 +3420,45 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                                               min_flaeche_m2)
         if vereinfacht is None or len(vereinfacht) < 3:
             continue
+        # TUERDURCHGAENGE MITZEICHNEN, stempel-gerichtet (Nutzer-Befund
+        # "beim Flur laesst er das erste kurze Stueck aus"): die MENGE
+        # kreditiert die Tuerbuchten laengst (Balken-F-Gutschrift), nur der
+        # gezeichnete Umriss kerbte an jeder Tuer ein (Flur DP -5,4 % bei
+        # f_ist +0,2 %). Liegt das DP-Polygon UNTER dem Stempel und gibt es
+        # kreditierte Zellen, wird mit Raum+Gutschrift neu getraced. Raeume,
+        # deren Stempel die Buchten NICHT enthaelt (Zimmer 1: 2,70 x 3,90
+        # exakt), bleiben unangetastet — dieselbe Stempel-Richtungs-Logik
+        # wie beim Snap-Deckel.
+        _kz = (kredit_cells or {}).get(ridx)
+        if _kz:
+            _sf0 = None
+            try:
+                if stempel_f and ridx < len(stempel_f) and stempel_f[ridx]:
+                    _sf0 = float(stempel_f[ridx])
+            except (TypeError, ValueError):
+                _sf0 = None
+            _a0 = 0.0
+            for _i in range(len(vereinfacht)):
+                _p1 = vereinfacht[_i - 1]
+                _p2 = vereinfacht[_i]
+                _a0 += _p1[0] * _p2[1] - _p2[0] * _p1[1]
+            _a0 = abs(_a0) / 2.0 * zm2
+            if _sf0 and _a0 < 0.98 * _sf0:
+                _mask = bytearray(W * H)
+                _cells2 = []
+                for _ix in range(W * H):
+                    if label[_ix] == ridx:
+                        _mask[_ix] = 1
+                        _cells2.append(_ix)
+                for _ix in _kz:
+                    if not _mask[_ix]:
+                        _mask[_ix] = 1
+                        _cells2.append(_ix)
+                _v2, _n2 = _umriss_zellen(label, W, H, ridx, zm2,
+                                          min_flaeche_m2, cells=_cells2,
+                                          mitglied=_mask)
+                if _v2 is not None and len(_v2) >= 3:
+                    vereinfacht, n_cells = _v2, _n2
         # VERLÄSSLICHKEITS-GATE: die Polygon-Fläche (Shoelace) muss zur echten
         # Region-Fläche (Zellzahl) passen — offene/zerfranste Räume (Carport)
         # ergeben selbst-schneidende Traces, deren Umriss visuell irreführt.
@@ -3558,8 +3604,14 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
             _fin_pt = None
             if dark_segs is not None and grid is not None:
                 try:
+                    # Schwelle 0,95 statt 0,98 (Tuerzonen-Retrace 2026-08-10):
+                    # nach dem Mitzeichnen der Tuerbuchten liegen kleine
+                    # Raeume knapp UNTER dem Stempel (WC -3,3 %, Flur -3,1) —
+                    # bei freiem Snap zog WC auf +8,4 %. Mit 0,95 deckelt der
+                    # Snap auch sie; die echten Defizit-Raeume (WM -13..-21 %)
+                    # bleiben frei und behalten ihren Auswaerts-Zug.
                     _mr = (0.03 * rst.ptm
-                           if (_sf and _sf > 0 and poly_flaeche >= 0.98 * _sf)
+                           if (_sf and _sf > 0 and poly_flaeche >= 0.95 * _sf)
                            else None)
                     _kx = raum_kontur_exakt(vereinfacht, grid, W, H, rst,
                                             dark_segs, stuetzen=stuetzen,
@@ -3889,7 +3941,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 return True
         return False
 
-    def _messen_und_status(grid, label, ok_start, versch, r_gl_gross=0.25):
+    def _messen_und_status(grid, label, ok_start, versch, r_gl_gross=0.25,
+                           kredit_out=None):
         masse = _loecher_fuellen_und_messen(grid, label, rst, stempel,
                                             r_gl_gross=r_gl_gross)
         # Kredit nur BALKEN-NAH (WM-Sezierung: die 2,29-m-Haustür kreditierte via
@@ -3923,6 +3976,8 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     break
             if best_l is not None:
                 gut[best_l] += 1
+                if kredit_out is not None:
+                    kredit_out.setdefault(best_l, []).append(idx)
         zm2 = rst.zm * rst.zm
         masse = [(f + gut[li] * zm2, u) for li, (f, u) in enumerate(masse)]
         out = []
@@ -4022,11 +4077,19 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         return out
 
     grid, label, ok_start, AUSSEN, versch = _pass(False)   # ROHBAU-Ebene
+    # GUTSCHRIFT-ZELLEN je Raum einsammeln (Tuerdurchgaenge, die laut Plan-F
+    # zum Raum zaehlen): die ZEICHNUNG soll dieselben Zellen zeigen duerfen,
+    # die die MENGE laengst kreditiert — Nutzer-Befund "beim Flur laesst er
+    # das erste kurze Stueck aus" = genau diese Tuerbuchten fehlen im
+    # gezeichneten Umriss (Flur DP -5,4 % bei f_ist +0,2 %).
+    _kredit_cells = {}
     if debug is not None:
         debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN,
                       "stuetzen": _stuetzen, "boegen": boegen,
+                      "kredit_cells": _kredit_cells,
                       "draussen": _draussen_maske(grid, label, rst.W, rst.H)})
-    out = _messen_und_status(grid, label, ok_start, versch)
+    out = _messen_und_status(grid, label, ok_start, versch,
+                             kredit_out=_kredit_cells)
     for r in out:
         if r["status"] == "verifiziert":
             r["ebene"] = r.get("ebene") or "roh"   # "vektor" nicht überschreiben
