@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-10.4"
+APP_REV = "2026-08-11.1"
 
 
 @app.get("/api/extract-health")
@@ -6920,6 +6920,232 @@ async def nachzeichnen_korrektur(body: NachzeichnenKorrekturRequest):
         return {"ok": True}
     except Exception as e:  # pragma: no cover
         return {"ok": False, "grund": str(e)[:200]}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# AUFMASS-WERKZEUG (Umbau E1, docs/UMBAU_DIGIPLAN.md)
+# Messungen und Positionen als echte Objekte. Die GEOMETRIE ist die
+# Wahrheit — Wert und Formel werden serverseitig daraus gerechnet, damit
+# Anzeige, Protokoll und Export dieselbe Zahl zeigen.
+# ═══════════════════════════════════════════════════════════════════════
+class MessungRequest(BaseModel):
+    projekt_id: Optional[str] = None
+    plan_id: Optional[str] = None
+    seite: Optional[int] = 0
+    id: Optional[str] = None
+    typ: Optional[str] = None
+    bezeichnung: Optional[str] = None
+    geometrie: Optional[dict] = None
+    position_id: Optional[str] = None
+    parent_id: Optional[str] = None
+    quelle: Optional[str] = None
+    status: Optional[str] = None
+    raum_ref: Optional[str] = None
+    notiz: Optional[str] = None
+    hoehe_m: Optional[float] = None
+    ptm: Optional[float] = None       # pt pro Meter (Frontend kennt den Maßstab)
+    ids: Optional[list] = None        # für Sammel-Aktionen (bestätigen/löschen)
+
+
+class PositionRequest(BaseModel):
+    projekt_id: Optional[str] = None
+    firma_id: Optional[str] = None
+    id: Optional[str] = None
+    nr: Optional[str] = None
+    bezeichnung: Optional[str] = None
+    langtext: Optional[str] = None
+    einheit: Optional[str] = None
+    lg: Optional[str] = None
+    regel_id: Optional[str] = None
+    verschnitt_pct: Optional[float] = None
+    quelle: Optional[str] = None
+    sort: Optional[int] = None
+    ids: Optional[list] = None
+
+
+def _mess_ptm(body):
+    """pt pro Meter — vom Frontend mitgegeben oder aus dem Plan-Cache."""
+    if body.ptm and body.ptm > 0:
+        return float(body.ptm)
+    try:
+        if body.plan_id:
+            r = sb.table("plaene").select("agent_log").eq(
+                "id", body.plan_id).single().execute()
+            log = (r.data or {}).get("agent_log") or {}
+            c = log.get("nachzeichnen_cache") or {}
+            m = ((c.get("daten") or {}).get("meta") or {})
+            if m.get("ptm"):
+                return float(m["ptm"])
+    except Exception:
+        pass
+    return 0.0
+
+
+@app.get("/api/messungen")
+def messungen_liste(projekt_id: str = "", plan_id: str = "", seite: int = -1):
+    """Alle Messungen eines Projekts (optional auf Plan/Seite gefiltert)."""
+    try:
+        q = sb.table("messungen").select("*")
+        if projekt_id:
+            q = q.eq("projekt_id", projekt_id)
+        if plan_id:
+            q = q.eq("plan_id", plan_id)
+        if seite >= 0:
+            q = q.eq("seite", seite)
+        rows = (q.order("nummer").execute().data) or []
+        return {"ok": True, "messungen": rows, "n": len(rows)}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:200], "messungen": []}
+
+
+@app.post("/api/messung")
+def messung_speichern(body: MessungRequest):
+    """Messung anlegen oder ändern. Wert + Formel kommen IMMER von hier."""
+    try:
+        import messungen as _M
+        if not body.projekt_id:
+            return {"ok": False, "grund": "projekt_id fehlt"}
+        ptm = _mess_ptm(body)
+        daten = {}
+        for k in ("plan_id", "seite", "typ", "bezeichnung", "geometrie",
+                  "position_id", "parent_id", "quelle", "status", "raum_ref",
+                  "notiz"):
+            v = getattr(body, k, None)
+            if v is not None:
+                daten[k] = v
+        if body.geometrie is not None and body.typ:
+            # Abzüge dieser Messung mitrechnen (Kind-Messungen).
+            abz = []
+            if body.id:
+                try:
+                    abz = (sb.table("messungen").select("wert")
+                           .eq("parent_id", body.id).eq("typ", "abzug")
+                           .execute().data) or []
+                except Exception:
+                    abz = []
+            wert, einheit, formel = _M.rechne(body.typ, body.geometrie, ptm,
+                                              abzuege=abz, hoehe_m=body.hoehe_m)
+            daten.update({"wert": wert, "einheit": einheit, "formel": formel})
+        if body.id:
+            sb.table("messungen").update(daten).eq("id", body.id).execute()
+            mid = body.id
+        else:
+            daten["projekt_id"] = body.projekt_id
+            try:
+                nr = sb.rpc("messung_naechste_nummer",
+                            {"p_projekt": body.projekt_id}).execute().data
+                daten["nummer"] = int(nr or 1)
+            except Exception:
+                daten["nummer"] = None
+            res = sb.table("messungen").insert(daten).execute()
+            mid = ((res.data or [{}])[0]).get("id")
+        row = (sb.table("messungen").select("*").eq("id", mid)
+               .single().execute().data)
+        return {"ok": True, "messung": row}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:300]}
+
+
+@app.post("/api/messung-loeschen")
+def messung_loeschen(body: MessungRequest):
+    try:
+        ids = body.ids or ([body.id] if body.id else [])
+        if not ids:
+            return {"ok": False, "grund": "keine id"}
+        for i in ids:
+            sb.table("messungen").delete().eq("id", i).execute()
+        return {"ok": True, "geloescht": len(ids)}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:200]}
+
+
+@app.post("/api/messungen-bestaetigen")
+def messungen_bestaetigen(body: MessungRequest):
+    """KI-Vorschläge annehmen (E3): status -> aktiv, quelle -> ki_bestaetigt."""
+    try:
+        ids = body.ids or ([body.id] if body.id else [])
+        q = sb.table("messungen").update(
+            {"status": "aktiv", "quelle": "ki_bestaetigt"})
+        if ids:
+            for i in ids:
+                sb.table("messungen").update(
+                    {"status": "aktiv", "quelle": "ki_bestaetigt"}
+                ).eq("id", i).execute()
+            return {"ok": True, "bestaetigt": len(ids)}
+        if not body.projekt_id:
+            return {"ok": False, "grund": "projekt_id fehlt"}
+        q.eq("projekt_id", body.projekt_id).eq("status", "vorschlag").execute()
+        return {"ok": True, "bestaetigt": "alle"}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:200]}
+
+
+@app.get("/api/positionen")
+def positionen_liste(projekt_id: str = "", firma_id: str = ""):
+    """Positionen des Projekts — oder die Vorlagen der Firma."""
+    try:
+        q = sb.table("positionen").select("*")
+        if projekt_id:
+            q = q.eq("projekt_id", projekt_id)
+        elif firma_id:
+            q = q.eq("firma_id", firma_id).is_("projekt_id", "null")
+        rows = (q.order("sort").order("nr").execute().data) or []
+        return {"ok": True, "positionen": rows, "n": len(rows)}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:200], "positionen": []}
+
+
+@app.post("/api/position")
+def position_speichern(body: PositionRequest):
+    try:
+        daten = {}
+        for k in ("projekt_id", "firma_id", "nr", "bezeichnung", "langtext",
+                  "einheit", "lg", "regel_id", "verschnitt_pct", "quelle",
+                  "sort"):
+            v = getattr(body, k, None)
+            if v is not None:
+                daten[k] = v
+        if body.id:
+            sb.table("positionen").update(daten).eq("id", body.id).execute()
+            pid = body.id
+        else:
+            if not daten.get("nr") or not daten.get("bezeichnung"):
+                return {"ok": False, "grund": "nr und bezeichnung noetig"}
+            res = sb.table("positionen").insert(daten).execute()
+            pid = ((res.data or [{}])[0]).get("id")
+        row = (sb.table("positionen").select("*").eq("id", pid)
+               .single().execute().data)
+        return {"ok": True, "position": row}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:300]}
+
+
+@app.post("/api/position-loeschen")
+def position_loeschen(body: PositionRequest):
+    try:
+        ids = body.ids or ([body.id] if body.id else [])
+        for i in ids:
+            sb.table("positionen").delete().eq("id", i).execute()
+        return {"ok": True, "geloescht": len(ids)}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:200]}
+
+
+@app.get("/api/aufmass-protokoll")
+def aufmass_protokoll(projekt_id: str = ""):
+    """Aufmaßprotokoll je Position — die Ausgabe, die der Rechnung beiliegt."""
+    try:
+        import messungen as _M
+        if not projekt_id:
+            return {"ok": False, "grund": "projekt_id fehlt"}
+        ms = (sb.table("messungen").select("*")
+              .eq("projekt_id", projekt_id).order("nummer").execute().data) or []
+        ps = (sb.table("positionen").select("*")
+              .eq("projekt_id", projekt_id).order("sort").order("nr")
+              .execute().data) or []
+        return {"ok": True, **_M.protokoll(ms, ps)}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:300]}
 
 
 @app.post("/api/projekt-export")
