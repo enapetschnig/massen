@@ -3446,3 +3446,28 @@ g[data-raum].nz-hi circle {
   margin-bottom: .35rem; }
 .nz-raum-editrow .nz-raum-editbar { flex: 1 1 14rem; margin-bottom: 0; }
 .nz-raum-tools { display: flex; gap: .3rem; }
+
+/* ─── AUFMASS-WERKZEUG (E2) ──────────────────────────────────────────── */
+.nz-rail-titel { font-size: .6rem; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: #94a3b8; padding: .15rem .1rem .05rem; }
+.nz-mw-btn.nz-btn-on { background: var(--verified); border-color: var(--verified);
+  color: #fff; }
+.nz-mw-btn.nz-btn-on .nz-rb-lab { color: #fff; }
+.mw-wert { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700;
+  color: var(--verified); line-height: 1.1; }
+.mw-wert span { font-size: .9rem; color: var(--text-light); }
+.mw-formel { font-family: var(--font-mono); font-size: .82rem; color: var(--text);
+  background: #f1f5f9; border-radius: 6px; padding: .3rem .45rem; margin: .35rem 0; }
+.mw-meta { font-size: .74rem; color: var(--text-light); }
+.nz-side-akt .nz-btn { margin-top: .45rem; width: 100%; }
+.mw-summe { display: flex; gap: .5rem; flex-wrap: wrap; font-family: var(--font-mono);
+  font-weight: 700; color: var(--verified); margin-bottom: .35rem; }
+.mw-liste { display: flex; flex-direction: column; gap: .15rem; max-height: 15rem;
+  overflow-y: auto; }
+.mw-item { display: flex; align-items: center; gap: .35rem; text-align: left;
+  border: 1px solid var(--border); background: #fff; border-radius: 6px;
+  padding: .25rem .4rem; font-size: .78rem; cursor: pointer; font: inherit;
+  font-size: .78rem; }
+.mw-item:hover { border-color: var(--verified); }
+.mw-item.mw-on { border-color: var(--verified); background: var(--verified-soft); }
+.mw-item span { margin-left: auto; font-family: var(--font-mono); font-weight: 700; }

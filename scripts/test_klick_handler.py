@@ -62,11 +62,65 @@ def _praesentation_ehrlich(fehler):
     print("   Raum-Zustand und Legende bleiben im Modus sichtbar ✓")
 
 
+def _werkzeugkasten(fehler):
+    """Der Werkzeugkasten muss VOLLSTAENDIG verdrahtet sein (Umbau E2).
+
+    Ein Werkzeug-Knopf, der nichts speichert, ist schlimmer als keiner: der
+    Nutzer misst, sieht eine Zahl, und beim naechsten Laden ist sie weg. Die
+    Kette Knopf -> Klick -> Server -> Liste -> SVG wird darum als GANZES
+    geprueft, nicht Stueck fuer Stueck.
+    """
+    src = open(os.path.join(WURZEL, "public", "js", "upload.js"),
+               encoding="utf-8").read()
+    for muster, was in (
+        # Die Knoepfe werden dynamisch gebaut (_mwBtn) — das Attribut
+        # steht nie literal im Quelltext. Geprueft wird der AUFRUF.
+        (r"_mwBtn\('flaeche'", "Werkzeug Fläche in der Leiste"),
+        (r"_mwBtn\('rechteck'", "Werkzeug Rechteck"),
+        (r"_mwBtn\('laenge'", "Werkzeug Länge"),
+        (r"_mwBtn\('stueck'", "Werkzeug Stück"),
+        (r"_mwBtn\('abzug'", "Werkzeug Abzug"),
+        (r"querySelectorAll\('\[data-mw\]'\)", "Werkzeug-Knöpfe verdrahtet"),
+        (r"function _mwKlick", "Klick setzt Punkte"),
+        (r"function _mwAbschliessen", "Doppelklick/Enter beendet"),
+        (r"fetch\('/api/messung'", "Messung wird GESPEICHERT"),
+        (r"fetch\('/api/messungen\?", "Messungen werden GELADEN"),
+        (r"function _mwSvg", "Messungen werden gezeichnet"),
+        (r"function _mwSnapPunkt", "Snapping auf Wandlinien"),
+        (r"_mwLaden\(\)", "Laden ist verdrahtet"),
+        (r"id=\"nz-mw\"", "SVG-Ebene im Plan"),
+    ):
+        if re.search(muster, src):
+            print(f"   {was} ✓")
+        else:
+            fehler.append(f"Werkzeugkasten: {was} — fehlt. Eine Messung, die "
+                          f"nicht gespeichert/geladen/gezeichnet wird, ist "
+                          f"eine Zahl, die beim Neuladen verschwindet.")
+
+    # DIE GEOMETRIE WIRD IN PLAN-PUNKTEN GESPEICHERT, nicht in Bild-Pixeln.
+    # Bild-px haengen an der Render-Aufloesung; wird das Vorschaubild einmal
+    # groesser gerendert, laegen alle Messungen falsch.
+    if re.search(r"punkte:\s*ptsPx\.map\(_mwPxZuPt\)", src):
+        print("   Geometrie wird in PLAN-pt gespeichert (nicht Bild-px)  ✓")
+    else:
+        fehler.append("Messungs-Geometrie wird nicht nach Plan-pt gewandelt — "
+                      "bei anderer Render-Auflösung läge jede Messung falsch.")
+
+    # DER WERT KOMMT VOM SERVER. Rechnet der Browser die gespeicherte Zahl,
+    # gibt es zwei Wahrheiten (Anzeige vs. Protokoll/Export).
+    if re.search(r"_mwListe\.push\(d\.messung\)", src):
+        print("   gespeicherter Wert kommt vom Server                    ✓")
+    else:
+        fehler.append("Der gespeicherte Wert stammt nicht aus der Server-"
+                      "Antwort — zwei Rechenwege sind zwei Wahrheiten.")
+
+
 def run():
     print("KLICK-HANDLER — Inline-Attribute auf gültige Anführungszeichen")
     print("=" * 84)
     fehler = []
     _praesentation_ehrlich(fehler)
+    _werkzeugkasten(fehler)
     geprueft = 0
     for rel in DATEIEN:
         p = os.path.join(WURZEL, rel)
