@@ -2233,10 +2233,11 @@
   var _mwSel = null;         // gewaehlte Messung (id)
   var _mwSnap = true;        // auf erkannte Wandlinien/Ecken einrasten
   var _mwBusy = false;
+  var _mwAutoDone = {};   // Plan:Seite -> Auto-Vorschlag schon versucht
   var _MW_FARBE = { flaeche: '#0d9488', rechteck: '#0d9488', laenge: '#1d4ed8',
-                    stueck: '#7c3aed', abzug: '#dc2626', volumen: '#b45309', treppe: '#9333ea',
+                    stueck: '#7c3aed', abzug: '#dc2626', volumen: '#b45309', treppe: '#9333ea', dach: '#0369a1', wandflaeche: '#a16207',
                     bauteil: '#0f766e' };
-  var _MW_NAME = { flaeche: 'Fläche', rechteck: 'Rechteck', laenge: 'Länge', treppe: 'Treppe',
+  var _MW_NAME = { flaeche: 'Fläche', rechteck: 'Rechteck', laenge: 'Länge', treppe: 'Treppe', dach: 'Dach', wandflaeche: 'Wandfläche',
                    stueck: 'Stück', abzug: 'Abzug', volumen: 'Volumen',
                    bauteil: 'Bauteil' };
   // Kräftige, gut unterscheidbare Raumfarben (Raumansicht) — je Raum stabil per Index.
@@ -3277,6 +3278,8 @@
       _mwBtn('abzug', '⊖', 'Abzug', 'Abzugsfläche (wird von der Menge abgezogen)') +
       _mwBtn('volumen', '◫', 'Volumen', 'Volumen: Fläche zeichnen, dann Höhe eingeben (m³)') +
       _mwBtn('treppe', '𝍖', 'Treppe', 'Treppe: Grundriss zeichnen, dann Geschosshöhe — rechnet Stiegenuntersicht + Betonvolumen') +
+      _mwBtn('dach', '⛰', 'Dach', 'Dachfläche: Grundriss zeichnen, dann Neigung in Grad — rechnet die wahre (schräge) Fläche') +
+      _mwBtn('wandflaeche', '▤', 'Wand', 'Wand-/Fassadenfläche: Linie an der Wand entlang, dann Höhe — Länge × Höhe in m²') +
       '<button type="button" class="nz-btn nz-rail-btn' + (_mwSnap ? ' nz-btn-on' : '') +
       '" data-mw="snap" title="Auf erkannte Wandlinien und Ecken einrasten — trifft die Ecke, ohne zu zielen">' +
       '<span class="nz-rb-ic">🧲</span><span class="nz-rb-lab">Fangen</span></button>' +
@@ -3412,7 +3415,7 @@
         var _tg = e.target && e.target.tagName;
         if (_tg !== 'INPUT' && _tg !== 'TEXTAREA' && _tg !== 'SELECT' &&
             !e.metaKey && !e.ctrlKey && !e.altKey) {
-          var _km = { f: 'flaeche', r: 'rechteck', l: 'laenge', s: 'stueck', a: 'abzug', v: 'volumen', t: 'treppe' };
+          var _km = { f: 'flaeche', r: 'rechteck', l: 'laenge', s: 'stueck', a: 'abzug', v: 'volumen', t: 'treppe', d: 'dach', w: 'wandflaeche' };
           var _kt = _km[(e.key || '').toLowerCase()];
           if (_kt && _nzData) {
             _mwTool = (_mwTool === _kt) ? null : _kt; _mwPts = [];
@@ -4042,7 +4045,7 @@
       typ: (typ === 'rechteck' ? 'flaeche' : typ),
       geometrie: {
         form: (typ === 'rechteck' ? 'rechteck'
-               : typ === 'laenge' ? 'polylinie'
+               : (typ === 'laenge' || typ === 'wandflaeche') ? 'polylinie'
                : typ === 'stueck' ? 'punkt' : 'polygon'),
         punkte: ptsPx.map(_mwPxZuPt)
       },
@@ -4083,7 +4086,17 @@
         _mwBusy = false;
         if (d && d.ok) {
           _mwHinweis(d.vorschlaege + ' Vorschläge aus der Erkennung — gestrichelt am Plan, per Klick bestätigen');
-          _mwLaden().then(function () { _nzPaint(); });
+          _mwLaden().then(function () {
+        // KI-VORAUSWAHL (Nutzer-Auftrag): sind noch keine Messungen da,
+        // liegen die erkannten Raeume sofort als Vorschlaege am Plan —
+        // bestaetigen statt zeichnen. Einmal je Plan+Seite.
+        var k = String(_nzAktivPlan) + ':' + _mwSeite();
+        if (!_mwListe.length && (_nzData.raeume || []).length &&
+            !_mwAutoDone[k]) {
+          _mwAutoDone[k] = true;
+          _mwVorschlagen();
+        } else _nzPaint();
+      });
         } else _mwHinweis((d && d.grund) || 'Keine Vorschläge möglich', true);
       }).catch(function () { _mwBusy = false; });
   }
@@ -4142,10 +4155,22 @@
     if (!_mwTool || _mwPts.length < 2) { _mwPts = []; _nzPaint(); return; }
     var typ = _mwTool === 'rechteck' ? 'flaeche' : _mwTool;
     if ((typ === 'flaeche' || typ === 'abzug' || typ === 'volumen' ||
-         typ === 'treppe') && _mwPts.length < 3) {
+         typ === 'treppe' || typ === 'dach') && _mwPts.length < 3) {
       _mwPts = []; _nzPaint(); return;
     }
     var extra = {};
+    if (typ === 'dach') {
+      var ng = parseFloat((window.prompt('Dachneigung in Grad (z.B. 25)', '25') || '')
+        .replace(',', '.'));
+      if (!ng || ng <= 0 || ng >= 80) { _mwPts = []; _nzPaint(); return; }
+      extra.hoehe_m = ng;   // Server liest neigung aus hoehe_m-Fallback
+    }
+    if (typ === 'wandflaeche') {
+      var wh = parseFloat((window.prompt('Wandhöhe in m (z.B. 2,75)', '2,75') || '')
+        .replace(',', '.'));
+      if (!wh || wh <= 0) { _mwPts = []; _nzPaint(); return; }
+      extra.hoehe_m = wh;
+    }
     if (typ === 'volumen' || typ === 'treppe') {
       // Die Hoehe gehoert zur Geometrie — ohne sie gibt es keinen Wert.
       var frage = typ === 'treppe' ? 'Geschosshöhe in m (z.B. 2,75)'
@@ -4223,7 +4248,7 @@
       '<span>' + (_mwListe || []).length + ' Messungen' +
       (nV ? ' · <b>' + nV + ' offen</b>' : '') + '</span>' +
       '<span class="nz-sb-xy" id="nz-sb-xy"></span>' +
-      '<span class="nz-sb-keys">F Fläche · R Rechteck · L Länge · S Stück · A Abzug · Esc</span>' +
+      '<span class="nz-sb-keys">F R L S A · V Volumen · T Treppe · D Dach · W Wand · G Fangen · Esc</span>' +
       '</div>';
   }
 

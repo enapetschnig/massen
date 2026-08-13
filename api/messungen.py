@@ -29,6 +29,8 @@ TYP_EINHEIT = {
     "volumen": "m3",
     "bauteil": "m2",
     "treppe": "m2",
+    "dach": "m2",
+    "wandflaeche": "m2",
 }
 FORMEN = ("polygon", "rechteck", "polylinie", "punkt")
 
@@ -111,6 +113,36 @@ def rechne(typ, geometrie, ptm, abzuege=None, hoehe_m=None):
             teile.append(_f(teil))
         formel = " + ".join(teile) if len(teile) > 1 else (teile[0] if teile else "")
         return (round(m, 3), "m", formel)
+
+    if typ == "wandflaeche":
+        # FASSADEN-/WAND-WERKZEUG (digiplan: Fassade & Geruest): Linienzug
+        # an der Wand entlang, mal Hoehe -> Ansichtsflaeche. Der Maler
+        # rechnet die Wand ab, nicht den Boden.
+        L = polylinie_laenge(punkte, bool(g.get("geschlossen"))) / ptm
+        h = float(hoehe_m or g.get("hoehe_m") or 0)
+        if L <= 0 or h <= 0:
+            return (None, "m2", None)
+        return (round(L * h, 3), "m2", f"{_f(L)} × {_f(h)}")
+
+    if typ == "dach":
+        # DACH-WERKZEUG (digiplan: Dachflaechen): Grundriss-Polygon der
+        # Dachflaeche mal Neigungsfaktor 1/cos(alpha) -> wahre (schraege)
+        # Dachflaeche. Grat/Kehle/Ortgang/Traufe misst das Laengen-Werkzeug;
+        # auch Laengen wachsen am geneigten Dach, darum nimmt das Dach-
+        # Werkzeug fuer Polylinien denselben Faktor.
+        neig = float(g.get("neigung_grad") or hoehe_m or 0)
+        if neig <= 0 or neig >= 80:
+            return (None, "m2", None)
+        fakt = 1.0 / math.cos(math.radians(neig))
+        if g.get("form") == "polylinie":
+            L = polylinie_laenge(punkte) / ptm
+            return (round(L * fakt, 3), "m",
+                    f"{_f(L)} × {_f(fakt)} ({int(neig)}°)")
+        a0 = polygon_flaeche(punkte) / (ptm * ptm)
+        if a0 <= 0:
+            return (None, "m2", None)
+        return (round(a0 * fakt, 3), "m2",
+                f"{_f(a0)} × {_f(fakt)} ({int(neig)}° Neigung)")
 
     if typ == "treppe":
         # digiplan-Paritaet: das Treppen-Werkzeug rechnet aus dem Grundriss-

@@ -132,6 +132,34 @@ def run():
     else:
         print(f"   Treppe ohne Höhe → Default Geschosshöhe ({w2} m²)   ✓")
 
+    # 8c) DACH (E8): wahre Flaeche = Grundriss x 1/cos(Neigung); absurde
+    #     Neigung liefert KEINE Zahl (89 Grad waere Faktor 57 — erfunden).
+    P_d = [[0, 0], [8 * PTM, 0], [8 * PTM, 5 * PTM], [0, 5 * PTM]]
+    w, e, f = M.rechne("dach", {"punkte": P_d, "neigung_grad": 25}, PTM)
+    soll_d = 40.0 / math.cos(math.radians(25))
+    if not (w and abs(w - soll_d) < 0.01 and "25" in (f or "")):
+        fehler.append(f"Dach 25 Grad: {w} ({f}) statt {round(soll_d,3)}")
+    else:
+        print(f"   Dach 40 m2 bei 25 Grad -> {w} m2, Neigung in der Formel   OK")
+    w, e, f = M.rechne("dach", {"punkte": P_d, "neigung_grad": 85}, PTM)
+    if w is not None:
+        fehler.append(f"Dach 85 Grad lieferte {w} — Faktor 11 waere erfunden")
+    else:
+        print("   Dach 85 Grad: keine Zahl (Faktor waere absurd)   OK")
+
+    # 8d) WANDFLAECHE (E8): Laenge x Hoehe; ohne Hoehe keine Zahl.
+    L_w = {"form": "polylinie", "punkte": [[0, 0], [12.4 * PTM, 0]]}
+    w, e, f = M.rechne("wandflaeche", L_w, PTM, hoehe_m=2.75)
+    if not (w and abs(w - 34.1) < 0.01 and e == "m2"):
+        fehler.append(f"Wandflaeche: {w} {e} statt 34,1 m2")
+    else:
+        print(f"   Wandflaeche 12,4 x 2,75 -> {w} m2   OK")
+    w, _, _ = M.rechne("wandflaeche", L_w, PTM)
+    if w is not None:
+        fehler.append(f"Wandflaeche ohne Hoehe lieferte {w} — erfunden")
+    else:
+        print("   Wandflaeche ohne Hoehe: keine Zahl   OK")
+
     # 9) Protokoll: Summe, Abzug, Verschnitt — und nichts fällt unter den Tisch.
     ms = [
         {"id": "a", "position_id": "p1", "nummer": 1, "wert": 31.12,

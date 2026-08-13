@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-13.2"
+APP_REV = "2026-08-13.3"
 
 
 @app.get("/api/extract-health")
@@ -7197,6 +7197,90 @@ def position_loeschen(body: PositionRequest):
         return {"ok": True, "geloescht": len(ids)}
     except Exception as e:
         return {"ok": False, "grund": str(e)[:200]}
+
+
+@app.get("/api/protokoll-xlsx")
+def protokoll_xlsx(projekt_id: str = ""):
+    """Aufmassprotokoll als Excel — die Datei, die der Rechnung beiliegt.
+    Eine Zeile je Messung MIT FORMEL; Summen/Verschnitt je Position.
+    Gleiche Quelle wie /api/aufmass-protokoll (messungen.protokoll) —
+    zwei Ausgaben, EINE Rechnung."""
+    try:
+        import messungen as _M
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment
+        if not projekt_id:
+            return {"ok": False, "grund": "projekt_id fehlt"}
+        ms = (sb.table("messungen").select("*")
+              .eq("projekt_id", projekt_id).order("nummer").execute().data) or []
+        ps = (sb.table("positionen").select("*")
+              .eq("projekt_id", projekt_id).order("sort").order("nr")
+              .execute().data) or []
+        pr = _M.protokoll(ms, ps)
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Aufmassprotokoll"
+        fett = Font(bold=True)
+        ws.append(["Aufmassprotokoll", "", "", "", ""])
+        ws["A1"].font = Font(bold=True, size=14)
+        ws.append(["Jede Zeile ist eine Messung am Plan (M-Nummer im "
+                   "Aufmassplan), mit der Formel ihrer Berechnung.", "", "", "", ""])
+        ws.append([])
+        kopf = ["Pos.", "Messung", "Bezeichnung", "Formel", "Wert", "Einheit"]
+        _einh = {"m2": "m²", "m3": "m³"}
+        for p0 in pr.get("positionen", []):
+            if not p0.get("n_messungen"):
+                continue
+            ws.append([p0.get("nr"), "", p0.get("bezeichnung"), "", "", ""])
+            ws[ws.max_row][0].font = fett
+            ws[ws.max_row][2].font = fett
+            ws.append(kopf)
+            for c in ws[ws.max_row]:
+                c.font = Font(bold=True, size=9)
+            for z in p0.get("zeilen", []):
+                w = z.get("wert")
+                ws.append(["", f"M{z.get('nummer') or '?'}",
+                           z.get("bezeichnung") or "",
+                           (("− " if z.get("typ") == "abzug" else "") +
+                            (z.get("formel") or "")),
+                           (-w if (z.get("typ") == "abzug" and w) else w),
+                           _einh.get(p0.get("einheit"), p0.get("einheit"))])
+            ws.append(["", "", "Summe", "", p0.get("summe"),
+                       _einh.get(p0.get("einheit"), p0.get("einheit"))])
+            ws[ws.max_row][2].font = fett
+            ws[ws.max_row][4].font = fett
+            if p0.get("verschnitt_pct"):
+                ws.append(["", "", f"+ {p0['verschnitt_pct']} % Verschnitt",
+                           "", p0.get("endsumme"),
+                           _einh.get(p0.get("einheit"), p0.get("einheit"))])
+                ws[ws.max_row][4].font = fett
+            ws.append([])
+        if pr.get("n_ohne_position"):
+            ws.append([f"OHNE POSITION ({pr['n_ohne_position']}) — "
+                       "nicht in den Summen", "", "", "", "", ""])
+            ws[ws.max_row][0].font = Font(bold=True, color="B42318")
+            for z in pr.get("ohne_position", []):
+                ws.append(["", f"M{z.get('nummer') or '?'}",
+                           z.get("bezeichnung") or "", "", z.get("wert"),
+                           _einh.get(z.get("einheit"), z.get("einheit"))])
+        for col, w in (("A", 8), ("B", 8), ("C", 38), ("D", 34), ("E", 11),
+                       ("F", 8)):
+            ws.column_dimensions[col].width = w
+        for row in ws.iter_rows():
+            for c in row:
+                if c.column_letter == "D":
+                    c.alignment = Alignment(horizontal="left")
+        import io as _io
+        buf = _io.BytesIO()
+        wb.save(buf)
+        return Response(
+            content=buf.getvalue(),
+            media_type=("application/vnd.openxmlformats-officedocument"
+                        ".spreadsheetml.sheet"),
+            headers={"Content-Disposition":
+                     'attachment; filename="aufmassprotokoll.xlsx"'})
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:300]}
 
 
 @app.get("/api/aufmassplan")
