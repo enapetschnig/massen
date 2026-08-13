@@ -3498,3 +3498,13 @@ g[data-raum].nz-hi circle {
   #prot-print { position: absolute; left: 0; top: 0; width: 100%; }
   #prot-drucken { display: none; }
 }
+.nz-tool-aktiv { cursor: crosshair !important; }
+.nz-statusbar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: .72rem; color: var(--text-light);
+  background: var(--ink); color: #cbd0d6; border-radius: 0 0 var(--radius) var(--radius);
+  padding: .3rem .7rem; }
+.nz-statusbar b { color: #f6b26b; }
+.nz-sb-tool { color: #fff; font-weight: 700; }
+.nz-sb-xy { margin-left: auto; min-width: 8.5rem; text-align: right; color: #8ecbc2; }
+.nz-sb-keys { color: #7c8087; }
+@media (max-width: 900px) { .nz-sb-keys { display: none; } }

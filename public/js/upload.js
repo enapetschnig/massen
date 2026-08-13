@@ -3383,7 +3383,8 @@
       '<g style="pointer-events:auto">' + marker + '</g>' +
       '<g style="pointer-events:auto">' + raumBadges + '</g>' +
       '<g style="pointer-events:auto">' + _rvHandles + '</g>' +
-      '<g style="pointer-events:auto" id="nz-mw">' + _mwSvg() + '</g></svg></div></div>' +
+      '<g style="pointer-events:auto" id="nz-mw">' + _mwSvg() + '</g></svg></div>' +
+      _mwStatusbar() + '</div>' +
       '</div>' + seite + '</div>';
     _nzWireZoom(cont);
     // Events neu binden
@@ -3406,6 +3407,20 @@
     if (!window._nzSelEscBound) {
       window._nzSelEscBound = true;
       window.addEventListener('keydown', function (e) {
+        var _tg = e.target && e.target.tagName;
+        if (_tg !== 'INPUT' && _tg !== 'TEXTAREA' && _tg !== 'SELECT' &&
+            !e.metaKey && !e.ctrlKey && !e.altKey) {
+          var _km = { f: 'flaeche', r: 'rechteck', l: 'laenge', s: 'stueck', a: 'abzug' };
+          var _kt = _km[(e.key || '').toLowerCase()];
+          if (_kt && _nzData) {
+            _mwTool = (_mwTool === _kt) ? null : _kt; _mwPts = [];
+            if (_mwTool) { _nzAddMode = false; _nzMeasMode = false; _nzRaumEditMode = false; _nzCalibMode = false; _nzSel = null; }
+            _nzPaint(); e.preventDefault(); return;
+          }
+          if ((e.key || '').toLowerCase() === 'g' && _nzData) {
+            _mwSnap = !_mwSnap; _nzPaint(); e.preventDefault(); return;
+          }
+        }
         if (_mwTool && (e.key === 'Enter' || e.key === 'Escape')) {
           if (e.key === 'Enter') _mwAbschliessen();
           else { _mwPts = []; _mwTool = null; _nzPaint(); }
@@ -3691,6 +3706,7 @@
 
   function _nzWireZoom(cont) {
     _nzWrap = cont.querySelector('.nz-wrap'); if (!_nzWrap) return;
+    _nzWrap.classList.toggle('nz-tool-aktiv', !!_mwTool);
     _nzApplyZoom();
     // MAUSRAD SCROLLT, STRG+RAD ZOOMT. Vorher lag das Rad komplett auf Zoom
     // (preventDefault + _nzZoomAt) — damit war Scrollen im Plan schlicht
@@ -3836,6 +3852,14 @@
     if (!_nzZoomWinBound) {   // Window-Listener nur EINMAL binden (sonst Leak je Repaint)
       _nzZoomWinBound = true;
       window.addEventListener('mousemove', function (e) {
+        var _xy = document.getElementById('nz-sb-xy');
+        if (_xy && _nzWrap && _nzData) {
+          var k = _nzPxProM();
+          if (k) {
+            var q = _nzScreenToImg(e);
+            _xy.textContent = (q[0] / k).toFixed(2) + ' / ' + (q[1] / k).toFixed(2) + ' m';
+          }
+        }
         if (_nzDraw && _nzWrap) { _nzDraw.p1 = _nzScreenToImg(e); _nzDrawPreview(); return; }
         // Raum-Eckpunkt live ziehen: Position updaten + neu zeichnen (Fläche folgt).
         if (_nzRvDrag && _nzWrap) {
@@ -4171,6 +4195,25 @@
     }
     return out;
   }
+  // Statusleiste wie in einer Zeichensoftware: Werkzeug, Fangen, Massstab,
+  // Cursor-Position in Metern. Der Massstab steht IMMER da — er ist die
+  // Grundlage jeder Zahl, und wer ihn sieht, merkt, wenn er fehlt.
+  function _mwStatusbar() {
+    var m = (_nzData && _nzData.meta) || {};
+    var mst = m.massstab ? '1:' + m.massstab : (m.ptm ? 'kalibriert' : '—');
+    var nV = (_mwListe || []).filter(function (x) { return x.status === 'vorschlag'; }).length;
+    return '<div class="nz-statusbar">' +
+      '<span class="nz-sb-tool">' + (_mwTool ? _MW_NAME[_mwTool] :
+        (_nzRaumEditMode ? 'Raum-Editor' : (_nzAddMode ? 'Wand zeichnen' : 'Auswahl'))) + '</span>' +
+      '<span title="Fangen (Taste G)">🧲 ' + (_mwSnap ? 'an' : 'aus') + '</span>' +
+      '<span title="Maßstab">📐 ' + mst + '</span>' +
+      '<span>' + (_mwListe || []).length + ' Messungen' +
+      (nV ? ' · <b>' + nV + ' offen</b>' : '') + '</span>' +
+      '<span class="nz-sb-xy" id="nz-sb-xy"></span>' +
+      '<span class="nz-sb-keys">F Fläche · R Rechteck · L Länge · S Stück · A Abzug · Esc</span>' +
+      '</div>';
+  }
+
   function _nzEinheit(e) {
     return e === 'm2' ? 'm²' : (e === 'm3' ? 'm³' : (e || ''));
   }
