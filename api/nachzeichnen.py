@@ -1044,6 +1044,11 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             if cx is None or not (bx0 <= cx <= bx1 and by0 <= cy <= by1):
                 continue
             oeff_pt.append(o)
+            if o.get("typ") == "glasfront":
+                # Siegel-Anker fuer raumnetz (oeff_pt), KEIN Bauteil: nicht
+                # ans Frontend exportieren — dort wuerde er als Phantom-Tuer
+                # gezaehlt und gezeichnet.
+                continue
             oeffnungen.append({
                 "id": len(oeffnungen), "typ": o.get("typ"),
                 "breite_m": o.get("breite_m"), "hoehe_m": o.get("hoehe_m"),
@@ -1110,6 +1115,19 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             # (Flächen-Treue ±20%, ≤40 Ecken, ≥75% achsparallel) → nur saubere Räume
             # bekommen einen Umriss, komplexe bleiben ehrlich ohne. Sicherheits-Deckel
             # gegen Extrem-Pläne: >150 Räume überspringen (reine Latenz-Vorsicht).
+            if dbg_r.get("label") is not None and os.environ.get("GRID_DUMP"):
+                try:
+                    import numpy as _np
+                    _rst = dbg_r["rst"]
+                    _np.savez(os.environ["GRID_DUMP"],
+                              grid=_np.frombuffer(bytes(dbg_r["grid"]), dtype=_np.uint8),
+                              label=_np.array(dbg_r["label"], dtype=_np.int32),
+                              W=_rst.W, H=_rst.H, cell=_rst.cell,
+                              namen=_np.array([(st.get("name") or "") for st in _st],
+                                              dtype=object))
+                    print(f"[griddump] {os.environ['GRID_DUMP']} W={_rst.W} H={_rst.H}")
+                except Exception as _ge:
+                    print(f"[griddump] fehlgeschlagen: {_ge}")
             if dbg_r.get("label") is not None and len(rres) <= 150:
                 # byte-exakte Stempel-Flächen als WAHRHEIT ans Gate geben:
                 # gezeichnet wird nur ein Umriss, der die richtige Fläche

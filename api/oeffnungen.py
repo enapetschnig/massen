@@ -182,6 +182,19 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
 
         h_m = stuk["value_m"] - fph["value_m"]
         if h_m <= 0 or h_m > 3.5:
+            # PORTAL-/GLASFRONT-BESCHRIFTUNG (Befund Angerer 2026-08-13):
+            # "FPH 2,75 / STUK +2,20" an den Hebe-Schiebe-Tueren WK->Terrasse
+            # — STUK unter FPH, als Fenster unplausibel (h=-0,55). Aber der
+            # Anker markiert genau die Glasoeffnung, durch die der Watershed
+            # in die Terrasse flutet. Er wird als eigener Typ exportiert:
+            # KEIN Fenster (geht nicht in Mengen/Fensterlisten — alle
+            # Konsumenten filtern auf typ tuer/fenster), nur Siegel-Anker
+            # fuer die Front-Suche in raumnetz._tuer_lecks.
+            if h_m < 0 and fph["value_m"] >= 2.0:
+                oeffnungen.append({"typ": "glasfront", "cx": fph["cx"],
+                            "cy": fph["cy"], "breite_m": None,
+                            "hoehe_m": None, "fph_m": fph["value_m"],
+                            "quelle": "portal_label"})
             continue  # unplausibel
 
         # Breite suchen — Plausibilitäts-Score statt nur nächstgelegen:

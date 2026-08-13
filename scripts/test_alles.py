@@ -46,6 +46,7 @@ GUARDS = [
     ("Umriss-Gutschrift (Tuerdurchgang)", "test_umriss_gutschrift.py", "dieselbe Flaeche"),
     ("Grundriss-Box + Umfangs-Schaetzer", "test_grundriss_box.py", "schneidet sie das Gebaeude"),
     ("Aufmass-Rechenkern (Messungen)", "test_messungen.py", "jede Formel passt zur Zahl"),
+    ("Glasfront-Anker (Portal-Labels)", "test_glasfront_anker.py", "Anker statt Phantom-Bauteil"),
     ("Raumname aus dem Stempel", "test_raumname_buendig.py", "Stempel-Formen"),
     ("Freifläche ist kein Raum", "test_aussenanlage.py", "richtig eingeordnet"),
     ("Plan-Varianten (gebaute Pläne)", "test_planvarianten.py", "Planarten"),

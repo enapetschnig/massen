@@ -2459,7 +2459,8 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         # daneben durch (WK-Zellen +9,7 -> +9,4, wirkungslos). Erst die
         # Segment-Sezierung machen ([front]-Telemetrie unter GUARD_DEBUG),
         # dann aktivieren. Standard AUS = Verhalten unveraendert.
-        _ist_front = (o.get("typ") == "fenster" and _kat is not None
+        _ist_front = (o.get("typ") in ("fenster", "glasfront")
+                      and _kat is not None
                       and bool(os.environ.get("FRONT_SEAL")))
         if not (_ist_tuer or _ist_front) or o.get("cx") is None:
             continue
@@ -2511,6 +2512,10 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
                 if best is None or sc < best[0]:
                     best = (sc, achse, fest, lo, hi)
         if best is None:
+            if _ist_front and os.environ.get("GUARD_DEBUG"):
+                print(f"[front-miss] fenster ({cx:.0f},{cy:.0f}) b={b:.2f}m: "
+                      f"kein Spalt {0.45:.2f}..{(sp_max*rst.cell/rst.ptm):.2f}m "
+                      f"binnen cap={cap*rst.cell/rst.ptm:.1f}m gefunden")
             continue
         achse, fest, lo, hi = best[1], best[2], best[3], best[4]
         mid = (lo + hi) // 2
@@ -2533,6 +2538,11 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
             return None
 
         l1, l2 = _erste_raumzelle(-1), _erste_raumzelle(+1)
+        if _ist_front and os.environ.get("GUARD_DEBUG"):
+            _nm = lambda l: (stempel[l].get("name") if (stempel and l is not None
+                             and 0 <= l < len(stempel)) else l)
+            print(f"[front-kand] fenster ({cx:.0f},{cy:.0f}) b={b:.2f}m achse={achse} "
+                  f"spann={(hi-lo-1)*rst.cell/rst.ptm:.2f}m  {_nm(l1)} <-> {_nm(l2)}")
         if _ist_tuer:
             if l1 is None or l2 is None or l1 != l2:
                 continue
@@ -2540,12 +2550,21 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
             # Front: VERSCHIEDENE Raeume, genau eine Seite Aussenkategorie.
             if l1 is None or l2 is None or l1 == l2:
                 continue
-            if not (0 <= l1 < len(_kat) and 0 <= l2 < len(_kat)):
-                continue
-            _a1 = _kat[l1] == "Loggia"
-            _a2k = _kat[l2] == "Loggia"
+            # AUSSEN heisst: Loggia-Kategorie ODER Region ohne Stempel.
+            # Befund Angerer-Ost (2026-08-13): die Glasfront WK<->Garten
+            # grenzt an ein Becken OHNE Stempel (l2=10 bei 10 Stempeln) —
+            # die reine Kategorie-Pruefung verwarf genau die Front, die
+            # das Leck ist. Eine stempellose Region hinter einem Fenster-
+            # Anker ist ein Aussenbereich-Indiz, kein Gegenbeweis. Die
+            # INNEN-Seite muss weiterhin ein echter Stempel-Raum sein.
+            def _aussen(l):
+                return (not (0 <= l < len(_kat))) or _kat[l] == "Loggia"
+            _a1, _a2k = _aussen(l1), _aussen(l2)
             if _a1 == _a2k:
                 continue          # beide innen oder beide aussen -> kein Fall
+            _li = l2 if _a1 else l1     # die Innen-Seite
+            if not (0 <= _li < len(_kat)):
+                continue
         # Lücke muss überwiegend FREI sein (sonst liegt der Verschluss
         # bereits, nur anders bewertet — nicht doppelt brennen).
         belegt = 0
