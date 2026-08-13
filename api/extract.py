@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-11.2"
+APP_REV = "2026-08-13.1"
 
 
 @app.get("/api/extract-health")
@@ -7078,6 +7078,74 @@ def messungen_bestaetigen(body: MessungRequest):
         return {"ok": True, "bestaetigt": "alle"}
     except Exception as e:
         return {"ok": False, "grund": str(e)[:200]}
+
+
+@app.post("/api/messungen-vorschlagen")
+def messungen_vorschlagen(body: MessungRequest):
+    """E3 — die Bruecke von der Erkennung zum Werkzeug: jeder erkannte Raum
+    wird eine Messung mit quelle='ki' und status='vorschlag' (gestrichelt am
+    Plan). Der Mensch bestaetigt oder zieht zurecht. Damit ist die
+    Erkennungsqualitaet entkoppelt: eine verfehlte Region kostet Handarbeit,
+    nie eine falsche Menge.
+
+    Idempotent: alte UNBESTAETIGTE Vorschlaege dieses Plans werden ersetzt;
+    bestaetigte und menschliche Messungen werden NIE angefasst — was der
+    Nutzer angenommen hat, gehoert ihm.
+    """
+    try:
+        import messungen as _M
+        if not (body.projekt_id and body.plan_id):
+            return {"ok": False, "grund": "projekt_id und plan_id noetig"}
+        seite = int(body.seite or 0)
+        r = sb.table("plaene").select("agent_log").eq(
+            "id", body.plan_id).single().execute()
+        log = (r.data or {}).get("agent_log") or {}
+        key = "nachzeichnen_cache" if seite == 0 else f"nachzeichnen_cache_s{seite}"
+        daten = ((log.get(key) or {}).get("daten")) or {}
+        raeume = daten.get("raeume") or []
+        meta = daten.get("meta") or {}
+        scale = float(meta.get("scale") or 0)
+        ptm = float(meta.get("ptm") or 0)
+        if not raeume or scale <= 0 or ptm <= 0:
+            return {"ok": False, "grund": "keine analysierten Raeume auf dieser Seite",
+                    "vorschlaege": 0}
+
+        alt = (sb.table("messungen").select("id,raum_ref,quelle,status")
+               .eq("projekt_id", body.projekt_id).eq("plan_id", body.plan_id)
+               .eq("seite", seite).execute().data) or []
+        behalten = {m.get("raum_ref") for m in alt
+                    if m.get("quelle") != "ki" or m.get("status") != "vorschlag"}
+        for m in alt:   # nur offene Vorschlaege ersetzen
+            if m.get("quelle") == "ki" and m.get("status") == "vorschlag":
+                sb.table("messungen").delete().eq("id", m["id"]).execute()
+
+        neu = 0
+        for raum in raeume:
+            if raum.get("name") in behalten:
+                continue
+            reg = raum.get("region_px") or []
+            if len(reg) < 3:
+                continue
+            v = _M.aus_raum({"name": raum.get("name"),
+                             "f_m2": raum.get("f_m2"),
+                             "region_pt": [[p[0] / scale, p[1] / scale]
+                                           for p in reg]}, ptm)
+            if not v or not v.get("wert"):
+                continue
+            v.update({"projekt_id": body.projekt_id, "plan_id": body.plan_id,
+                      "seite": seite})
+            try:
+                nr = sb.rpc("messung_naechste_nummer",
+                            {"p_projekt": body.projekt_id}).execute().data
+                v["nummer"] = int(nr or 1)
+            except Exception:
+                v["nummer"] = None
+            sb.table("messungen").insert(v).execute()
+            neu += 1
+        return {"ok": True, "vorschlaege": neu,
+                "uebersprungen": len(behalten & {r0.get("name") for r0 in raeume})}
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:300]}
 
 
 @app.get("/api/positionen")

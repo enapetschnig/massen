@@ -3310,6 +3310,9 @@
          (_mSel.quelle === 'ki_bestaetigt' ? ' · KI, bestätigt' : ' · selbst gemessen')) +
         '</div>' +
         (_mSel.bezeichnung ? '<div class="mw-meta">' + esc(_mSel.bezeichnung) + '</div>' : '') +
+        (_mSel.status === 'vorschlag'
+          ? '<button type="button" class="nz-btn nz-btn-ok" data-mok="' + _mSel.id + '">✓ Vorschlag bestätigen</button>'
+          : '') +
         '<button type="button" class="nz-btn" data-mdel="' + _mSel.id + '">✕ Messung löschen</button>' +
         '</div>';
     }
@@ -3321,8 +3324,12 @@
         var e = _nzEinheit(m.einheit) || 'm²';
         sum[e] = (sum[e] || 0) + (m.typ === 'abzug' ? -1 : 1) * (+m.wert || 0);
       });
+      var _nVor = _mwListe.filter(function (m) { return m.status === 'vorschlag'; }).length;
       mwListe = '<div class="nz-side-sec"><div class="nz-side-h">Messungen (' +
-        _mwListe.length + ')</div><div class="mw-summe">' +
+        _mwListe.length + ')</div>' +
+        (_nVor ? '<button type="button" class="nz-btn nz-btn-ok" data-mokall="1">✓ Alle ' +
+                 _nVor + ' Vorschläge bestätigen</button>' : '') +
+        '<div class="mw-summe">' +
         Object.keys(sum).map(function (e) {
           return '<span>' + fmtNum(Math.round(sum[e] * 100) / 100) + ' ' + e + '</span>';
         }).join('') + '</div>' +
@@ -3333,6 +3340,12 @@
             (m.wert != null ? fmtNum(m.wert) + ' ' + _nzEinheit(m.einheit) : '') +
             '</span></button>';
         }).join('') + '</div></div>';
+    }
+    if (!mwListe && (_nzData.raeume || []).length) {
+      mwListe = '<div class="nz-side-sec"><div class="nz-side-h">Messungen</div>' +
+        '<p class="mw-meta">Noch keine Messungen. Die Erkennung hat ' +
+        (_nzData.raeume || []).length + ' Räume gefunden — als Vorschläge übernehmen und nur noch prüfen:</p>' +
+        '<button type="button" class="nz-btn nz-btn-ok" data-mvor="1">⚡ Räume als Mess-Vorschläge übernehmen</button></div>';
     }
     var seite =
       '<div class="nz-side">' + mwPanel + mwListe +
@@ -3772,6 +3785,18 @@
       });
     });
     // Gespeicherte Messung anklicken = auswählen (Eigenschaften rechts).
+    cont.querySelectorAll('[data-mvor]').forEach(function (b) {
+      b.addEventListener('click', function () { _mwVorschlagen(); });
+    });
+    cont.querySelectorAll('[data-mok]').forEach(function (b) {
+      b.addEventListener('click', function () { _mwBestaetigen([b.getAttribute('data-mok')]); });
+    });
+    cont.querySelectorAll('[data-mokall]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        _mwBestaetigen(_mwListe.filter(function (m) { return m.status === 'vorschlag'; })
+          .map(function (m) { return m.id; }));
+      });
+    });
     cont.querySelectorAll('[data-mdel]').forEach(function (b) {
       b.addEventListener('click', function () { _mwLoeschen(b.getAttribute('data-mdel')); });
     });
@@ -4018,6 +4043,30 @@
       if (_mwSel === id) _mwSel = null;
       _nzPaint();
     });
+  }
+
+  function _mwVorschlagen() {
+    if (_mwBusy || !window.projectId || !_nzAktivPlan) return;
+    _mwBusy = true; _mwHinweis('KI-Vorschläge werden erzeugt …');
+    fetch('/api/messungen-vorschlagen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projekt_id: window.projectId, plan_id: _nzAktivPlan,
+                             seite: _mwSeite() })
+    }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        _mwBusy = false;
+        if (d && d.ok) {
+          _mwHinweis(d.vorschlaege + ' Vorschläge aus der Erkennung — gestrichelt am Plan, per Klick bestätigen');
+          _mwLaden().then(function () { _nzPaint(); });
+        } else _mwHinweis((d && d.grund) || 'Keine Vorschläge möglich', true);
+      }).catch(function () { _mwBusy = false; });
+  }
+
+  function _mwBestaetigen(ids) {
+    return fetch('/api/messungen-bestaetigen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ids ? { ids: ids } : { projekt_id: window.projectId })
+    }).then(function () { return _mwLaden(); }).then(function () { _nzPaint(); });
   }
 
   function _mwHinweis(txt, warn) {
@@ -4876,14 +4925,19 @@
     // Plan gross, nicht eine Liste. Die Prüfpunkte bleiben in der Übersicht
     // und in Schritt 3 erreichbar.
     2: ['#nachzeichnen-section'],
-    3: ['#ergebnis-status-banner', '#zielgruppen-presets', '#geo-box', '#pruefliste',
+    3: ['#positionen-section',
+        '#ergebnis-status-banner', '#zielgruppen-presets', '#geo-box', '#pruefliste',
         '#fact-strip', '.ml-board-toolbar',
         '#mengen-board', '#ml-board', '#konf-kopf', '#auswertung-kennzahlen',
         '.advanced-drawer'],
     4: ['#zuordnung-section'],
-    5: ['#projekt-chat']
+    5: ['#protokoll-section', '#projekt-chat']
   };
   function wfShow(step) {
+    // Aufmass-Bereiche (Positionen/Zuordnung/Protokoll) beim Betreten frisch
+    // laden — sie haengen an der DB, nicht am Analyse-Zustand.
+    if (step >= 3 && window.renderAufmassBereiche) window.renderAufmassBereiche();
+
     // step 0 = ÜBERSICHT (Default): ALLES sichtbar — exakt die bisherige Seite.
     // Die Schritte 1-4 sind FOKUS-Ansichten (blenden fremde Gruppen aus) —
     // additiv: wer nichts klickt, verliert nichts.

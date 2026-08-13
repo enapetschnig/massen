@@ -294,7 +294,17 @@
            Welche Position hängt an welchem Raum? Das ist der Schritt, in dem
            ein Prüfer eine Menge bis zum Bauteil zurückverfolgt — deshalb ein
            eigener Schritt und keine Schublade. -->
+      <!-- LV-POSITIONEN (Umbau E4): das Leistungsverzeichnis als eigene,
+           editierbare Entitaet — anlegen, ONLV importieren, aus der
+           KI-Mengenermittlung uebernehmen. -->
+      <div id="positionen-section"></div>
+
+      <!-- AUFMASSPROTOKOLL (E6): jede Messung mit Formel, je Position. -->
+      <div id="protokoll-section"></div>
+
       <div id="zuordnung-section">
+        <!-- ZUORDNUNG DER MESSUNGEN (E5): Messung -> Position -->
+        <div id="messung-zuordnung"></div>
         <h3 class="zuordnung-h">Zuordnung &mdash; welche Position h&auml;ngt an welchem Raum</h3>
         <p class="zuordnung-sub">Jede Menge l&auml;sst sich hier bis zum einzelnen Raum, zur einzelnen Wand
           und zur einzelnen &Ouml;ffnung zur&uuml;ckverfolgen &mdash; mit der Regel, die angewendet wurde.</p>
@@ -506,6 +516,7 @@
   <script src="js/supabase-config.js"></script>
   <script src="js/pdf-extract.js"></script>
   <script src="js/upload.js"></script>
+  <script src="js/aufmass.js"></script>
   <script src="js/tabelle.js"></script>
   <script src="js/planview.js"></script>
 </body>

@@ -106,6 +106,38 @@ def _werkzeugkasten(fehler):
         fehler.append("Messungs-Geometrie wird nicht nach Plan-pt gewandelt — "
                       "bei anderer Render-Auflösung läge jede Messung falsch.")
 
+    # E3–E6: die Kette von der Erkennung bis zum Protokoll. Jedes Glied,
+    # das fehlt, laesst Mengen stumm verschwinden: ohne Vorschlags-Knopf
+    # bleibt die Erkennung folgenlos, ohne Zuordnungs-Select landet jede
+    # Messung unter "ohne Position", ohne Protokoll gibt es nichts, das der
+    # Rechnung beiliegt.
+    auf = open(os.path.join(WURZEL, "public", "js", "aufmass.js"),
+               encoding="utf-8").read()
+    html = open(os.path.join(WURZEL, "public", "projekt.html"),
+                encoding="utf-8").read()
+    for muster, wo, was in (
+        (r"messungen-vorschlagen", src, "KI-Räume -> Vorschläge (Frontend)"),
+        (r"data-mokall", src, "Alle Vorschläge bestätigen"),
+        (r"function renderPositionen", auf, "Positionen-Verwaltung"),
+        (r"/api/lv-import", auf, "ONLV-Import angeschlossen"),
+        (r"uebernehmenAusMassen", auf, "KI-LV -> echte Positionen"),
+        (r"function renderMessungZuordnung", auf, "Zuordnung Messung->Position"),
+        (r"function renderProtokoll", auf, "Aufmaßprotokoll"),
+        (r"ohne Position", auf, "Unzugeordnetes wird ausgewiesen"),
+        (r"js/aufmass\.js", html, "Modul ist eingebunden"),
+        (r"renderAufmassBereiche", src, "Schritt-Wechsel lädt die Bereiche"),
+    ):
+        if re.search(muster, wo):
+            print(f"   {was} ✓")
+        else:
+            fehler.append(f"Aufmaß-Kette: {was} — fehlt")
+    api_src = open(os.path.join(WURZEL, "api", "extract.py"),
+                   encoding="utf-8").read()
+    if "/api/messungen-vorschlagen" not in api_src:
+        fehler.append("Endpunkt /api/messungen-vorschlagen fehlt im Backend")
+    else:
+        print("   Endpunkt messungen-vorschlagen im Backend ✓")
+
     # DER WERT KOMMT VOM SERVER. Rechnet der Browser die gespeicherte Zahl,
     # gibt es zwei Wahrheiten (Anzeige vs. Protokoll/Export).
     if re.search(r"_mwListe\.push\(d\.messung\)", src):

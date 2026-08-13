@@ -3471,3 +3471,30 @@ g[data-raum].nz-hi circle {
 .mw-item:hover { border-color: var(--verified); }
 .mw-item.mw-on { border-color: var(--verified); background: var(--verified-soft); }
 .mw-item span { margin-left: auto; font-family: var(--font-mono); font-weight: 700; }
+.nz-btn-ok { background: var(--verified); border-color: var(--verified); color: #fff;
+  font-weight: 700; width: 100%; margin-bottom: .35rem; }
+.nz-btn-ok:hover { filter: brightness(1.1); }
+/* Positionen / Zuordnung / Protokoll (E4–E6) */
+.pos-toolbar { display: flex; gap: .5rem; margin-bottom: .6rem; flex-wrap: wrap; }
+.pos-neu { display: flex; gap: .4rem; margin-top: .6rem; flex-wrap: wrap; }
+.pos-neu input, .pos-neu select { border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: .35rem .5rem; font: inherit; font-size: .85rem; }
+#pn-bez { flex: 1; min-width: 14rem; }
+.pos-nr { font-family: var(--font-mono); font-weight: 700; white-space: nowrap; }
+.mz-formel { font-family: var(--font-mono); font-size: .78rem; color: var(--text-light); }
+.mz-vorschlag td { opacity: .65; }
+.mz-sel { border: 1px solid var(--border-strong); border-radius: 6px;
+  padding: .25rem .4rem; font: inherit; font-size: .8rem; max-width: 18rem; }
+.badge-ok { background: var(--verified-soft); color: var(--verified); }
+.prot-pos { margin-bottom: 1rem; }
+.prot-kopf { display: flex; align-items: baseline; gap: .5rem; font-weight: 700;
+  padding: .35rem 0; border-bottom: 2px solid var(--ink); }
+.prot-summe { margin-left: auto; font-family: var(--font-mono); }
+.prot-sum-z td { border-top: 2px solid var(--border-strong); font-weight: 700; }
+.prot-warn .prot-kopf { color: var(--red); border-bottom-color: var(--red); }
+@media print {
+  body * { visibility: hidden; }
+  #prot-print, #prot-print * { visibility: visible; }
+  #prot-print { position: absolute; left: 0; top: 0; width: 100%; }
+  #prot-drucken { display: none; }
+}
