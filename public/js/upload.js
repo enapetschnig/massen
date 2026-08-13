@@ -2234,6 +2234,7 @@
   var _mwSnap = true;        // auf erkannte Wandlinien/Ecken einrasten
   var _mwBusy = false;
   var _mwAutoDone = {};   // Plan:Seite -> Auto-Vorschlag schon versucht
+  var _mwPending = null;  // fertige Hoehen-Zeichnung, wartet auf Eingabe im Panel
   var _MW_FARBE = { flaeche: '#0d9488', rechteck: '#0d9488', laenge: '#1d4ed8',
                     stueck: '#7c3aed', abzug: '#dc2626', volumen: '#b45309', treppe: '#9333ea', dach: '#0369a1', wandflaeche: '#a16207',
                     bauteil: '#0f766e' };
@@ -3303,6 +3304,18 @@
     // der Grund, warum ein Polier der Zahl glaubt — sie steht deshalb hier
     // und im Protokoll, nicht nur in der Datenbank.
     var mwPanel = '';
+    if (_mwPending) {
+      var _pdef = { dach: ['Dachneigung in Grad', '25'],
+                    wandflaeche: ['Wandhöhe in m', '2,75'],
+                    treppe: ['Geschosshöhe in m', '2,75'],
+                    volumen: ['Höhe/Stärke in m', '0,20'] }[_mwPending.typ];
+      mwPanel += '<div class="nz-side-sec nz-side-akt"><div class="nz-side-h">' +
+        _MW_NAME[_mwPending.typ] + ' — noch eine Angabe</div>' +
+        '<label class="mw-meta" for="mw-hoehe-in">' + _pdef[0] + '</label>' +
+        '<div class="mw-hoehe-row"><input id="mw-hoehe-in" inputmode="decimal" value="' + _pdef[1] + '">' +
+        '<button type="button" class="nz-btn nz-btn-ok" id="mw-hoehe-ok">✓ Übernehmen</button></div>' +
+        '<button type="button" class="nz-btn" id="mw-hoehe-abbr">Abbrechen</button></div>';
+    }
     var _mSel = (_mwListe || []).filter(function (x) { return x.id === _mwSel; })[0];
     if (_mSel) {
       mwPanel = '<div class="nz-side-sec nz-side-akt"><div class="nz-side-h">Messung M' +
@@ -3806,6 +3819,23 @@
       });
     });
     // Gespeicherte Messung anklicken = auswählen (Eigenschaften rechts).
+    var _hOk = cont.querySelector('#mw-hoehe-ok'),
+        _hIn = cont.querySelector('#mw-hoehe-in'),
+        _hAb = cont.querySelector('#mw-hoehe-abbr');
+    function _hSubmit() {
+      if (!_mwPending) return;
+      var v = parseFloat((_hIn && _hIn.value || '').replace(',', '.'));
+      var t = _mwPending.typ;
+      if (!v || v <= 0 || (t === 'dach' && v >= 80)) { if (_hIn) _hIn.focus(); return; }
+      _mwSpeichern(t, _mwPending.pts, { hoehe_m: v });
+      _mwPending = null;
+    }
+    if (_hOk) _hOk.addEventListener('click', _hSubmit);
+    if (_hIn) _hIn.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { _hSubmit(); e.preventDefault(); }
+      if (e.key === 'Escape') { _mwPending = null; _nzPaint(); }
+    });
+    if (_hAb) _hAb.addEventListener('click', function () { _mwPending = null; _nzPaint(); });
     cont.querySelectorAll('[data-mvor]').forEach(function (b) {
       b.addEventListener('click', function () { _mwVorschlagen(); });
     });
@@ -4158,29 +4188,19 @@
          typ === 'treppe' || typ === 'dach') && _mwPts.length < 3) {
       _mwPts = []; _nzPaint(); return;
     }
-    var extra = {};
-    if (typ === 'dach') {
-      var ng = parseFloat((window.prompt('Dachneigung in Grad (z.B. 25)', '25') || '')
-        .replace(',', '.'));
-      if (!ng || ng <= 0 || ng >= 80) { _mwPts = []; _nzPaint(); return; }
-      extra.hoehe_m = ng;   // Server liest neigung aus hoehe_m-Fallback
+    // HOEHEN-WERKZEUGE: die Zeichnung wird "wartend" — das Eigenschaften-
+    // Panel fragt Hoehe/Neigung ab (kein window.prompt: der Dialog riss
+    // aus dem Zeichenfluss und war nicht abbrechbar-transparent).
+    if (typ === 'dach' || typ === 'wandflaeche' || typ === 'volumen' ||
+        typ === 'treppe') {
+      _mwPending = { typ: typ, pts: _mwPts.slice() };
+      _mwPts = [];
+      _nzPaint();
+      var inp = document.getElementById('mw-hoehe-in');
+      if (inp) { inp.focus(); inp.select(); }
+      return;
     }
-    if (typ === 'wandflaeche') {
-      var wh = parseFloat((window.prompt('Wandhöhe in m (z.B. 2,75)', '2,75') || '')
-        .replace(',', '.'));
-      if (!wh || wh <= 0) { _mwPts = []; _nzPaint(); return; }
-      extra.hoehe_m = wh;
-    }
-    if (typ === 'volumen' || typ === 'treppe') {
-      // Die Hoehe gehoert zur Geometrie — ohne sie gibt es keinen Wert.
-      var frage = typ === 'treppe' ? 'Geschosshöhe in m (z.B. 2,75)'
-                                   : 'Höhe/Stärke in m (z.B. 0,20)';
-      var hv = parseFloat((window.prompt(frage,
-        typ === 'treppe' ? '2,75' : '0,20') || '').replace(',', '.'));
-      if (!hv || hv <= 0) { _mwPts = []; _nzPaint(); return; }
-      extra.hoehe_m = hv;
-    }
-    _mwSpeichern(typ, _mwPts.slice(), extra);
+    _mwSpeichern(typ, _mwPts.slice(), {});
     _mwPts = [];
   }
 
@@ -4221,6 +4241,11 @@
         Math.round(fs / 3) + '" fill="' + col +
         '" style="font-weight:700;pointer-events:none">' + esc(lab) + '</text>';
     });
+    if (_mwPending && _mwPending.pts.length) {
+      var cp = _MW_FARBE[_mwPending.typ] || '#0d9488';
+      out += '<polygon points="' + _mwPending.pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ') +
+        '" fill="' + cp + '22" stroke="' + cp + '" stroke-width="3" stroke-dasharray="8 5"/>';
+    }
     // laufende Zeichnung
     if (_mwTool && _mwPts.length) {
       var c2 = _MW_FARBE[_mwTool] || '#0d9488';
@@ -5018,6 +5043,11 @@
     // Aufmass-Bereiche (Positionen/Zuordnung/Protokoll) beim Betreten frisch
     // laden — sie haengen an der DB, nicht am Analyse-Zustand.
     if (step >= 3 && window.renderAufmassBereiche) window.renderAufmassBereiche();
+    // SCREEN-MODUS: jeder Schritt ist eine eigene Ansicht. Die Body-Klasse
+    // steuert, was der Schritt NICHT zeigt (CSS .wf-s1 … .wf-s5) — z. B.
+    // verdraengt der Ergebnis-Kopf in Schritt 1/2 sonst Upload bzw. Plan.
+    for (var _ws = 0; _ws <= 5; _ws++) document.body.classList.remove('wf-s' + _ws);
+    document.body.classList.add('wf-s' + step);
 
     // step 0 = ÜBERSICHT (Default): ALLES sichtbar — exakt die bisherige Seite.
     // Die Schritte 1-4 sind FOKUS-Ansichten (blenden fremde Gruppen aus) —

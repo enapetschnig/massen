@@ -3508,3 +3508,19 @@ g[data-raum].nz-hi circle {
 .nz-sb-xy { margin-left: auto; min-width: 8.5rem; text-align: right; color: #8ecbc2; }
 .nz-sb-keys { color: #7c8087; }
 @media (max-width: 900px) { .nz-sb-keys { display: none; } }
+.mw-hoehe-row { display: flex; gap: .4rem; margin: .3rem 0; }
+#mw-hoehe-in { flex: 1; min-width: 5rem; border: 1px solid var(--border-strong);
+  border-radius: 6px; padding: .4rem .5rem; font-family: var(--font-mono);
+  font-size: 1.05rem; font-weight: 700; text-align: right; }
+.mw-hoehe-row .nz-btn-ok { width: auto; margin-bottom: 0; }
+
+/* ─── SCREEN-MODUS: jeder Workflow-Schritt eine eigene Ansicht ─────── */
+/* Schritt 1 (Pläne): Fokus auf Upload + Planliste. */
+.wf-s1 .result-hero, .wf-s1 #results-section, .wf-s1 #ergebnis-section > .section-title { display: none !important; }
+/* Schritt 2 (Plan & Messen): der Plan bekommt den Viewport — Ergebnis-
+   Kopf und Alt-Tabellen wuerden ihn nach unten druecken. */
+.wf-s2 .result-hero, .wf-s2 #results-section, .wf-s2 #upload-section,
+.wf-s2 #plans-section { display: none !important; }
+.wf-s2 #nachzeichnen-container .nz-wrap { min-height: calc(100vh - 240px); }
+/* Schritt 4 (Zuordnung) + 5 (Export): Alt-Detailtabellen raus. */
+.wf-s4 #results-section, .wf-s5 #results-section { display: none !important; }
