@@ -225,3 +225,39 @@ rechts). Unsere Unterscheidungsmerkmale in der Oberfläche:
 | Zahlen im Protokoll | jede Zahl **klickbar zurück aufs Bauteil im Plan** |
 | Werkzeuge modular gekauft | alle Werkzeuge inklusive, Gewerke-Auswahl statt Lizenz |
 | Desktop-Installation | Browser, nichts zu installieren |
+
+---
+
+## 7. Vollzug (Stand 2026-08-13, rev 2026-08-13.3)
+
+Alle Etappen E1–E8 sind live. Paritäts-Checkliste gegen die
+digiplan-Werkzeugliste:
+
+| digiplan | wir | Taste |
+|---|---|---|
+| Fläche (m²) | ✅ Polygon | F |
+| Rechteck | ✅ | R |
+| unregelmäßige Formen | ✅ (Polygon, beliebig) | F |
+| Länge (lfm) | ✅ Linienzug | L |
+| Stück | ✅ | S |
+| Abzüge | ✅ (negativ, im Protokoll ausgewiesen) | A |
+| Beton/Fundament-Volumen | ✅ Fläche × Höhe | V |
+| Treppe (Untersicht + Volumen) | ✅ | T |
+| Dach (Neigungsfaktor; Grat/Kehle über Länge) | ✅ | D |
+| Fassade/Gerüst (Wandfläche) | ✅ Länge × Höhe | W |
+| Geschossfläche | ✅ (= Fläche) | F |
+| Aufmaßprotokoll mit Formeln | ✅ HTML-Druck + **Excel** | — |
+| visueller Aufmaßplan | ✅ **Vektor-PDF** auf dem Original | — |
+| ÖNORM-Schnittstelle | ✅ .onlv Export **und** Import | — |
+| GAEB (DE) | ❌ bewusst offen (AT-Fokus) | — |
+
+Darüber hinaus (unser Vorsprung, digiplan hat das nicht):
+- **KI-Vorauswahl automatisch**: erkannte Räume liegen beim Plan-Laden als
+  Vorschlags-Messungen am Plan (gestrichelt) — bestätigen statt zeichnen.
+- **Snapping** auf erkannte Wandlinien/Ecken (Taste G).
+- Maßstab byte-exakt gelesen, Statusleiste mit Cursor-Metern.
+- Browser statt Desktop-Installation; Firmen-Accounts; Kalibrierungs-Moat.
+
+Erkennungs-Stand: Angerer 10/10 Räume, mittlerer Flächenfehler 3,0 %;
+WK-Glasfront-Befund abschließend seziert (kein Leck — Becken umschlossen;
+Rest = Band bis zur äußeren Glaslinie, Fix-Pfad: Innere-Linie-Snap).
