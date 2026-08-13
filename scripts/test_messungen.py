@@ -114,6 +114,24 @@ def run():
     else:
         print(f"   KI-Raum ohne Stempel → {r2['wert']} m² aus der Geometrie   ✓")
 
+    # 8b) TREPPE (E8): Untersicht = Grundfläche × Schrägfaktor; das Volumen
+    #     steht in der Formel. Ein Treppen-Werkzeug, das nur die Grundfläche
+    #     liefert, wäre kein Werkzeug — die Untersicht ist die Fläche, die
+    #     der Maler/Trockenbauer wirklich abrechnet.
+    P_tr = [[0, 0], [3.0 * PTM, 0], [3.0 * PTM, 1.2 * PTM], [0, 1.2 * PTM]]
+    w, e, f = M.rechne("treppe", {"punkte": P_tr}, PTM, hoehe_m=2.75)
+    soll_u = 3.6 * math.sqrt(1 + (2.75 / 3.0) ** 2)
+    ok = w and abs(w - soll_u) < 0.01 and e == "m2" and "V≈" in (f or "")
+    print(f"   Treppe 3,0x1,2 H2,75 -> {w} m2 Untersicht   {'OK' if ok else 'FEHLER'}")
+    if not ok:
+        fehler.append(f"Treppe: {w} {e} ({f}) statt {round(soll_u,3)} m2 mit V in der Formel")
+    # Treppe ohne Höhe: Default 2,75 (Geschosshöhe), nie None-Crash.
+    w2, _, _ = M.rechne("treppe", {"punkte": P_tr}, PTM)
+    if not w2 or w2 <= 3.6:
+        fehler.append(f"Treppe ohne Höhe: {w2} — Untersicht muss > Grundfläche sein")
+    else:
+        print(f"   Treppe ohne Höhe → Default Geschosshöhe ({w2} m²)   ✓")
+
     # 9) Protokoll: Summe, Abzug, Verschnitt — und nichts fällt unter den Tisch.
     ms = [
         {"id": "a", "position_id": "p1", "nummer": 1, "wert": 31.12,

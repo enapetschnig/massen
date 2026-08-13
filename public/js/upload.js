@@ -2234,9 +2234,9 @@
   var _mwSnap = true;        // auf erkannte Wandlinien/Ecken einrasten
   var _mwBusy = false;
   var _MW_FARBE = { flaeche: '#0d9488', rechteck: '#0d9488', laenge: '#1d4ed8',
-                    stueck: '#7c3aed', abzug: '#dc2626', volumen: '#b45309',
+                    stueck: '#7c3aed', abzug: '#dc2626', volumen: '#b45309', treppe: '#9333ea',
                     bauteil: '#0f766e' };
-  var _MW_NAME = { flaeche: 'Fläche', rechteck: 'Rechteck', laenge: 'Länge',
+  var _MW_NAME = { flaeche: 'Fläche', rechteck: 'Rechteck', laenge: 'Länge', treppe: 'Treppe',
                    stueck: 'Stück', abzug: 'Abzug', volumen: 'Volumen',
                    bauteil: 'Bauteil' };
   // Kräftige, gut unterscheidbare Raumfarben (Raumansicht) — je Raum stabil per Index.
@@ -3275,6 +3275,8 @@
       _mwBtn('laenge', '📏', 'Länge', 'Länge als Linienzug (lfm): Punkte klicken, Doppelklick beendet') +
       _mwBtn('stueck', '•', 'Stück', 'Stück zählen: je Klick ein Stück') +
       _mwBtn('abzug', '⊖', 'Abzug', 'Abzugsfläche (wird von der Menge abgezogen)') +
+      _mwBtn('volumen', '◫', 'Volumen', 'Volumen: Fläche zeichnen, dann Höhe eingeben (m³)') +
+      _mwBtn('treppe', '𝍖', 'Treppe', 'Treppe: Grundriss zeichnen, dann Geschosshöhe — rechnet Stiegenuntersicht + Betonvolumen') +
       '<button type="button" class="nz-btn nz-rail-btn' + (_mwSnap ? ' nz-btn-on' : '') +
       '" data-mw="snap" title="Auf erkannte Wandlinien und Ecken einrasten — trifft die Ecke, ohne zu zielen">' +
       '<span class="nz-rb-ic">🧲</span><span class="nz-rb-lab">Fangen</span></button>' +
@@ -3410,7 +3412,7 @@
         var _tg = e.target && e.target.tagName;
         if (_tg !== 'INPUT' && _tg !== 'TEXTAREA' && _tg !== 'SELECT' &&
             !e.metaKey && !e.ctrlKey && !e.altKey) {
-          var _km = { f: 'flaeche', r: 'rechteck', l: 'laenge', s: 'stueck', a: 'abzug' };
+          var _km = { f: 'flaeche', r: 'rechteck', l: 'laenge', s: 'stueck', a: 'abzug', v: 'volumen', t: 'treppe' };
           var _kt = _km[(e.key || '').toLowerCase()];
           if (_kt && _nzData) {
             _mwTool = (_mwTool === _kt) ? null : _kt; _mwPts = [];
@@ -4139,10 +4141,21 @@
   function _mwAbschliessen() {
     if (!_mwTool || _mwPts.length < 2) { _mwPts = []; _nzPaint(); return; }
     var typ = _mwTool === 'rechteck' ? 'flaeche' : _mwTool;
-    if ((typ === 'flaeche' || typ === 'abzug') && _mwPts.length < 3) {
+    if ((typ === 'flaeche' || typ === 'abzug' || typ === 'volumen' ||
+         typ === 'treppe') && _mwPts.length < 3) {
       _mwPts = []; _nzPaint(); return;
     }
-    _mwSpeichern(typ, _mwPts.slice());
+    var extra = {};
+    if (typ === 'volumen' || typ === 'treppe') {
+      // Die Hoehe gehoert zur Geometrie — ohne sie gibt es keinen Wert.
+      var frage = typ === 'treppe' ? 'Geschosshöhe in m (z.B. 2,75)'
+                                   : 'Höhe/Stärke in m (z.B. 0,20)';
+      var hv = parseFloat((window.prompt(frage,
+        typ === 'treppe' ? '2,75' : '0,20') || '').replace(',', '.'));
+      if (!hv || hv <= 0) { _mwPts = []; _nzPaint(); return; }
+      extra.hoehe_m = hv;
+    }
+    _mwSpeichern(typ, _mwPts.slice(), extra);
     _mwPts = [];
   }
 

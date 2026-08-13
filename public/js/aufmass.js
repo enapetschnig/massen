@@ -232,7 +232,9 @@
       }
       el.innerHTML =
         '<div class="section" id="prot-print"><h3 class="section-title">Aufmaßprotokoll ' +
-        '<button type="button" class="btn btn-sm" id="prot-drucken">🖨 Drucken / PDF</button></h3>' +
+        '<button type="button" class="btn btn-sm" id="prot-drucken">🖨 Drucken / PDF</button> ' +
+        '<a class="btn btn-sm" id="prot-plan" href="/api/aufmassplan?projekt_id=' +
+        encodeURIComponent(pid()) + '" download>🗺 Aufmaßplan (PDF)</a></h3>' +
         '<p class="zuordnung-sub">Jede Zeile ist eine Messung am Plan (M-Nummer), mit der Formel, ' +
         'aus der ihr Wert entstanden ist. Dieses Protokoll liegt der Rechnung bei.</p>' +
         html + '</div>';

@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-13.1"
+APP_REV = "2026-08-13.2"
 
 
 @app.get("/api/extract-health")
@@ -7197,6 +7197,88 @@ def position_loeschen(body: PositionRequest):
         return {"ok": True, "geloescht": len(ids)}
     except Exception as e:
         return {"ok": False, "grund": str(e)[:200]}
+
+
+@app.get("/api/aufmassplan")
+def aufmassplan(projekt_id: str = ""):
+    """E8/E6 — der VISUELLE AUFMASSPLAN (digiplan-Paritaet, dritter Teil der
+    Ausgabe): das Original-PDF mit allen Messungen eingezeichnet — Polygon,
+    M-Nummer, Wert. Der Polier haelt Protokoll UND Plan nebeneinander; die
+    M-Nummer verbindet beide. Vektor-Overlay direkt auf die Original-Seite
+    (kein Raster-Screenshot: bleibt beim Zoomen scharf).
+
+    Messungs-Geometrie liegt in BOX-relativen pt (px/scale beim Speichern);
+    der Versatz zur Seite ist meta.box_pt der Nachzeichnen-Analyse.
+    """
+    try:
+        import fitz as _fitz
+        if not projekt_id:
+            return {"ok": False, "grund": "projekt_id fehlt"}
+        ms = (sb.table("messungen").select("*").eq("projekt_id", projekt_id)
+              .neq("status", "verworfen").order("nummer").execute().data) or []
+        nach_plan = {}
+        for m in ms:
+            if m.get("plan_id"):
+                nach_plan.setdefault((m["plan_id"], m.get("seite") or 0),
+                                     []).append(m)
+        if not nach_plan:
+            return {"ok": False, "grund": "keine Messungen mit Plan-Bezug"}
+        out = _fitz.open()
+        _FARBE = {"flaeche": (0.05, 0.58, 0.53), "abzug": (0.86, 0.15, 0.15),
+                  "laenge": (0.11, 0.31, 0.85), "stueck": (0.49, 0.23, 0.93),
+                  "volumen": (0.71, 0.32, 0.04), "treppe": (0.58, 0.20, 0.92)}
+        for (plan_id, seite), liste in sorted(nach_plan.items()):
+            row = sb.table("plaene").select("storage_path,agent_log").eq(
+                "id", plan_id).single().execute().data or {}
+            log = row.get("agent_log") or {}
+            key = ("nachzeichnen_cache" if seite == 0
+                   else f"nachzeichnen_cache_s{seite}")
+            meta = (((log.get(key) or {}).get("daten")) or {}).get("meta") or {}
+            box = meta.get("box_pt") or [0, 0, 0, 0]
+            bx0, by0 = float(box[0]), float(box[1])
+            pdf = sb.storage.from_("plaene").download(row.get("storage_path"))
+            src = _fitz.open(stream=pdf, filetype="pdf")
+            out.insert_pdf(src, from_page=seite, to_page=seite)
+            pg = out[-1]
+            src.close()
+            for m in liste:
+                g = m.get("geometrie") or {}
+                pts = [(float(q[0]) + bx0, float(q[1]) + by0)
+                       for q in (g.get("punkte") or [])]
+                if not pts:
+                    continue
+                col = _FARBE.get(m.get("typ"), (0.05, 0.58, 0.53))
+                shp = pg.new_shape()
+                if g.get("form") == "punkt":
+                    shp.draw_circle(_fitz.Point(*pts[0]), 4)
+                elif g.get("form") == "polylinie":
+                    for a, b in zip(pts, pts[1:]):
+                        shp.draw_line(_fitz.Point(*a), _fitz.Point(*b))
+                else:
+                    shp.draw_polyline(pts + [pts[0]])
+                shp.finish(color=col, width=1.4,
+                           fill=(col if g.get("form") == "punkt" else None),
+                           fill_opacity=0.15 if g.get("form") not in
+                           ("punkt", "polylinie") else 1)
+                shp.commit()
+                cx = sum(q[0] for q in pts) / len(pts)
+                cy = sum(q[1] for q in pts) / len(pts)
+                lab = f"M{m.get('nummer') or '?'}"
+                w = m.get("wert")
+                if w is not None:
+                    e2 = {"m2": "m²", "m3": "m³"}.get(m.get("einheit"),
+                                                      m.get("einheit") or "")
+                    lab += f"  {str(round(w, 2)).replace('.', ',')} {e2}"
+                pg.insert_text(_fitz.Point(cx - 14, cy), lab, fontsize=7,
+                               color=col, render_mode=0,
+                               fontname="hebo")
+        buf = out.tobytes(deflate=True)
+        out.close()
+        return Response(content=buf, media_type="application/pdf", headers={
+            "Content-Disposition":
+                'attachment; filename="aufmassplan.pdf"'})
+    except Exception as e:
+        return {"ok": False, "grund": str(e)[:300]}
 
 
 @app.get("/api/aufmass-protokoll")

@@ -28,6 +28,7 @@ TYP_EINHEIT = {
     "stueck": "stk",
     "volumen": "m3",
     "bauteil": "m2",
+    "treppe": "m2",
 }
 FORMEN = ("polygon", "rechteck", "polylinie", "punkt")
 
@@ -110,6 +111,25 @@ def rechne(typ, geometrie, ptm, abzuege=None, hoehe_m=None):
             teile.append(_f(teil))
         formel = " + ".join(teile) if len(teile) > 1 else (teile[0] if teile else "")
         return (round(m, 3), "m", formel)
+
+    if typ == "treppe":
+        # digiplan-Paritaet: das Treppen-Werkzeug rechnet aus dem Grundriss-
+        # Polygon + Geschosshoehe die STIEGENUNTERSICHT (schraege Flaeche,
+        # die der Trockenbauer/Maler verputzt) und das BETON-VOLUMEN
+        # (Keilprisma) mit. Wert der Messung = Untersicht in m2; Volumen
+        # steht in der Formel und in meta (fuer eine eigene Position).
+        a0 = polygon_flaeche(punkte) / (ptm * ptm)
+        h = float(hoehe_m or g.get("hoehe_m") or 2.75)
+        xs = [p0[0] for p0 in punkte]; ys = [p0[1] for p0 in punkte]
+        L = max(max(xs) - min(xs), max(ys) - min(ys)) / ptm  # Lauflaenge
+        if L <= 0 or a0 <= 0:
+            return (None, "m2", None)
+        schr = math.sqrt(1.0 + (h / L) ** 2)
+        unters = a0 * schr
+        vol = a0 * h / 2.0
+        formel = (f"{_f(a0)} × {_f(schr)} schräg (H {_f(h)}, "
+                  f"V≈{_f(vol)} m³)")
+        return (round(unters, 3), "m2", formel)
 
     # Flächen-Familie: flaeche | abzug | bauteil | volumen
     a = polygon_flaeche(punkte) / (ptm * ptm)
