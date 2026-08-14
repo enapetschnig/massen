@@ -2235,6 +2235,10 @@
   var _mwBusy = false;
   var _mwAutoDone = {};   // Plan:Seite -> Auto-Vorschlag schon versucht
   var _mwPending = null;  // fertige Hoehen-Zeichnung, wartet auf Eingabe im Panel
+  // EBENEN (Nutzer: "das, was mit KI draufgezeichnet wurde, auch entfernen
+  // koennen"): jede KI-Ebene laesst sich einzeln ausblenden — der Plan
+  // selbst bleibt immer sichtbar.
+  var _nzLay = { waende: true, oeff: true, raeume: true, mess: true };
   var _MW_FARBE = { flaeche: '#0d9488', rechteck: '#0d9488', laenge: '#1d4ed8',
                     stueck: '#7c3aed', abzug: '#dc2626', volumen: '#b45309', treppe: '#9333ea', dach: '#0369a1', wandflaeche: '#a16207',
                     bauteil: '#0f766e' };
@@ -3285,6 +3289,17 @@
       '" data-mw="snap" title="Auf erkannte Wandlinien und Ecken einrasten — trifft die Ecke, ohne zu zielen">' +
       '<span class="nz-rb-ic">🧲</span><span class="nz-rb-lab">Fangen</span></button>' +
       '<span class="nz-rail-sep"></span>' +
+      '<div class="nz-rail-titel">Ebenen</div>' +
+      ['waende:▬:Wände', 'oeff:◧:Öffn.', 'raeume:⬚:Räume', 'mess:M:Maße']
+        .map(function (d) {
+          var t = d.split(':');
+          return '<button type="button" class="nz-btn nz-rail-btn' +
+            (_nzLay[t[0]] ? ' nz-btn-on' : '') + '" data-lay="' + t[0] +
+            '" title="KI-Ebene „' + t[2] + '" ein-/ausblenden">' +
+            '<span class="nz-rb-ic">' + t[1] + '</span>' +
+            '<span class="nz-rb-lab">' + t[2] + '</span></button>';
+        }).join('') +
+      '<span class="nz-rail-sep"></span>' +
       '<div class="nz-rail-titel">Bearbeiten</div>' +
       _railBtn('raumedit', _nzRaumEditMode, '✏️', 'Raum', 'Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu') +
       _railBtn('add', _nzAddMode, '➕', 'Wand', 'Wand zeichnen: Linie über die Wand ziehen') +
@@ -3346,7 +3361,10 @@
       mwListe = '<div class="nz-side-sec"><div class="nz-side-h">Messungen (' +
         _mwListe.length + ')</div>' +
         (_nVor ? '<button type="button" class="nz-btn nz-btn-ok" data-mokall="1">✓ Alle ' +
-                 _nVor + ' Vorschläge bestätigen</button>' : '') +
+                 _nVor + ' Vorschläge bestätigen</button>' +
+                 '<button type="button" class="nz-btn" data-mwegall="1" ' +
+                 'title="Alle unbestätigten KI-Vorschläge vom Plan entfernen — bestätigte und eigene Messungen bleiben">' +
+                 '✕ Alle Vorschläge verwerfen</button>' : '') +
         '<div class="mw-summe">' +
         Object.keys(sum).map(function (e) {
           return '<span>' + fmtNum(Math.round(sum[e] * 100) / 100) + ' ' + e + '</span>';
@@ -3397,11 +3415,12 @@
       '<img src="' + _nzData.basis_png_b64 + '" style="display:block;width:100%;height:auto" alt="Plan" draggable="false">' +
       '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
       'style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">' +
-      '<g style="pointer-events:auto">' + lines + '</g><g>' + labels + '</g>' +
-      '<g style="pointer-events:auto">' + marker + '</g>' +
-      '<g style="pointer-events:auto">' + raumBadges + '</g>' +
-      '<g style="pointer-events:auto">' + _rvHandles + '</g>' +
-      '<g style="pointer-events:auto" id="nz-mw">' + _mwSvg() + '</g></svg></div>' +
+      '<g style="pointer-events:auto" class="lay-waende">' + lines + '</g>' +
+      '<g class="lay-waende">' + labels + '</g>' +
+      '<g style="pointer-events:auto" class="lay-oeff">' + marker + '</g>' +
+      '<g style="pointer-events:auto" class="lay-raeume">' + raumBadges + '</g>' +
+      '<g style="pointer-events:auto" class="lay-raeume">' + _rvHandles + '</g>' +
+      '<g style="pointer-events:auto" id="nz-mw" class="lay-mess">' + _mwSvg() + '</g></svg></div>' +
       _mwStatusbar() + '</div>' +
       '</div>' + seite + '</div>';
     _nzWireZoom(cont);
@@ -3725,6 +3744,9 @@
   function _nzWireZoom(cont) {
     _nzWrap = cont.querySelector('.nz-wrap'); if (!_nzWrap) return;
     _nzWrap.classList.toggle('nz-tool-aktiv', !!_mwTool);
+    ['waende', 'oeff', 'raeume', 'mess'].forEach(function (k) {
+      _nzWrap.classList.toggle('nz-lay-aus-' + k, !_nzLay[k]);
+    });
     _nzApplyZoom();
     // MAUSRAD SCROLLT, STRG+RAD ZOOMT. Vorher lag das Rad komplett auf Zoom
     // (preventDefault + _nzZoomAt) — damit war Scrollen im Plan schlicht
@@ -3733,28 +3755,23 @@
     // Konvention wie in jedem Karten-/Planbetrachter: Rad = verschieben,
     // Strg/Cmd + Rad = zoomen. Ist der Plan kleiner als sein Fenster, gibt
     // das Rad die Seite frei (kein preventDefault) — sonst klebt man fest.
+    // RAD = ZOOM AUF DEN CURSOR (Karten-/CAD-Konvention; Nutzer-Befund
+    // 2026-08-14: "beim Plan kann man immer noch nicht zoomen" — Zoom lag
+    // nur auf Strg+Rad und den Knoepfen, das erwartet niemand). Der alte
+    // Rad=Scroll-Kompromiss stammt aus der Zeit, als der Plan in einer
+    // langen Seite steckte; seit dem Screen-Modus hat Schritt 2 den
+    // Viewport. Trackpad-Pinch sendet ctrlKey+wheel und faellt in
+    // denselben Pfad. Shift+Rad verschiebt horizontal, Drag verschiebt frei.
     _nzWrap.addEventListener('wheel', function (e) {
       var rect = _nzWrap.getBoundingClientRect();
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        _nzZoomAt(e.clientX - rect.left, e.clientY - rect.top,
-                  e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      e.preventDefault();
+      if (e.shiftKey) {
+        _nzZoom.x -= (e.deltaY || e.deltaX);
+        _nzApplyZoom();
         return;
       }
-      var zoom = _nzWrap.querySelector('.nz-zoom');
-      if (!zoom) return;
-      var ch = zoom.offsetHeight * _nzZoom.s, cw = zoom.offsetWidth * _nzZoom.s;
-      var maxY = Math.min(0, _nzWrap.clientHeight - ch);
-      var maxX = Math.min(0, _nzWrap.clientWidth - cw);
-      if (maxY >= 0 && maxX >= 0) return;      // passt hinein → Seite scrollen
-      var vorY = _nzZoom.y, vorX = _nzZoom.x;
-      _nzZoom.y = Math.min(0, Math.max(maxY, _nzZoom.y - e.deltaY));
-      _nzZoom.x = Math.min(0, Math.max(maxX, _nzZoom.x - (e.deltaX || 0)));
-      if (_nzZoom.y !== vorY || _nzZoom.x !== vorX) {
-        e.preventDefault();                    // wir haben es verbraucht
-        _nzApplyZoom();
-      }
-      // am Anschlag NICHT preventDefault → die Seite scrollt weiter
+      _nzZoomAt(e.clientX - rect.left, e.clientY - rect.top,
+                e.deltaY < 0 ? 1.15 : 1 / 1.15);
     }, { passive: false });
     // KLICK-EREIGNIS als zweiter, unabhaengiger Weg. Der Weg ueber
     // mousedown/mouseup + _nzPan traegt nicht ueberall: bei Stift- und
@@ -3771,6 +3788,35 @@
       _nzRaumInfo = (_nzRaumInfo === ri) ? null : ri;
       _nzPaint();
     });
+    var _tch = null;
+    _nzWrap.addEventListener('touchstart', function (e) {
+      if (e.touches.length === 1) {
+        _tch = { x: e.touches[0].clientX, y: e.touches[0].clientY,
+                 ox: _nzZoom.x, oy: _nzZoom.y, d: 0 };
+      } else if (e.touches.length === 2) {
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        _tch = { pinch: Math.hypot(dx, dy), s0: _nzZoom.s };
+      }
+    }, { passive: true });
+    _nzWrap.addEventListener('touchmove', function (e) {
+      if (!_tch) return;
+      if (e.touches.length === 1 && !_tch.pinch) {
+        _nzZoom.x = _tch.ox + (e.touches[0].clientX - _tch.x);
+        _nzZoom.y = _tch.oy + (e.touches[0].clientY - _tch.y);
+        _nzApplyZoom(); e.preventDefault();
+      } else if (e.touches.length === 2 && _tch.pinch) {
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        var rect = _nzWrap.getBoundingClientRect();
+        var cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        var cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+        var f = Math.hypot(dx, dy) / _tch.pinch;
+        _nzZoomAt(cx, cy, (_tch.s0 * f) / _nzZoom.s);
+        e.preventDefault();
+      }
+    }, { passive: false });
+    _nzWrap.addEventListener('touchend', function () { _tch = null; }, { passive: true });
     _nzWrap.addEventListener('dblclick', function (e) {
       if (_mwTool && _mwPts.length) { _mwAbschliessen(); e.preventDefault(); }
     });
@@ -3802,6 +3848,12 @@
       }
       _nzPan = { sx: e.clientX, sy: e.clientY, ox: _nzZoom.x, oy: _nzZoom.y };
       _nzMoved = false; _nzWrap.style.cursor = 'grabbing';
+    });
+    cont.querySelectorAll('[data-lay]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = b.getAttribute('data-lay');
+        _nzLay[k] = !_nzLay[k]; _nzPaint();
+      });
     });
     cont.querySelectorAll('[data-mw]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -3841,6 +3893,17 @@
     });
     cont.querySelectorAll('[data-mok]').forEach(function (b) {
       b.addEventListener('click', function () { _mwBestaetigen([b.getAttribute('data-mok')]); });
+    });
+    cont.querySelectorAll('[data-mwegall]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var ids = _mwListe.filter(function (m) { return m.status === 'vorschlag'; })
+          .map(function (m) { return m.id; });
+        if (!ids.length) return;
+        fetch('/api/messung-loeschen', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids })
+        }).then(function () { return _mwLaden(); }).then(function () { _nzPaint(); });
+      });
     });
     cont.querySelectorAll('[data-mokall]').forEach(function (b) {
       b.addEventListener('click', function () {

@@ -3524,3 +3524,6 @@ g[data-raum].nz-hi circle {
 .wf-s2 #nachzeichnen-container .nz-wrap { min-height: calc(100vh - 240px); }
 /* Schritt 4 (Zuordnung) + 5 (Export): Alt-Detailtabellen raus. */
 .wf-s4 #results-section, .wf-s5 #results-section { display: none !important; }
+/* Ebenen ausblenden (KI-Zeichnung entfernbar je Ebene) */
+.nz-lay-aus-waende .lay-waende, .nz-lay-aus-oeff .lay-oeff,
+.nz-lay-aus-raeume .lay-raeume, .nz-lay-aus-mess .lay-mess { display: none; }
