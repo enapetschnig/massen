@@ -127,9 +127,15 @@ def run():
     #    die 2,8 % vor den Vektor-Kanten, MIT den Vektor-Kanten).
     rq = open(os.path.join(WURZEL, "api", "raumnetz.py"), encoding="utf-8").read()
     for muster, was in (
-        (r"max_raus_pt=None\):", "raum_kontur_exakt nimmt max_raus_pt"),
-        (r"_versch > max_raus_pt or _versch < -0\.10 \* rst\.ptm",
-         "Deckel wirkt in BEIDE Richtungen"),
+        # 2026-08-14: der Einwaerts-Deckel ist BUDGET-GEBUNDEN geworden
+        # (statt hart -10 cm): tiefer einwaerts nur, solange das Polygon
+        # ueber dem byte-exakten Stempel bleibt. Die Zusagen wandern mit.
+        (r"max_raus_pt=None,", "raum_kontur_exakt nimmt max_raus_pt"),
+        (r"_versch > max_raus_pt:", "Auswaerts-Deckel steht"),
+        (r"_versch < -0\.10 \* rst\.ptm", "Einwaerts ab 10 cm nur mit Budget"),
+        (r"_budget_kand > _budget_rest\[0\]", "Budget begrenzt die Tiefe"),
+        (r"poly_flaeche - _sf", "Budget = Ueberschuss ueber dem Stempel"),
+        (r"vz_out", "Aussenrichtung aus der WINDUNG (Erker-Bug 2026-08-14)"),
         (r"poly_flaeche >= 0\.95 \* _sf", "Deckel ab DP >= 95 % Stempel"),
     ):
         if re.search(muster, rq):

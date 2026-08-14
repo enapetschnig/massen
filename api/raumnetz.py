@@ -2697,7 +2697,8 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
 
 
 def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
-                      snap_m=0.35, paare=None, dbg_tag=None, max_raus_pt=None):
+                      snap_m=0.35, paare=None, dbg_tag=None, max_raus_pt=None,
+                      ein_budget_m2=None):
     """VEKTOR-EXAKTE Raumkontur: DP-Kanten (Zellen) an die gezeichneten
     Wandlinien des Plans snappen — pt-Präzision statt Rasterzelle.
 
@@ -2722,6 +2723,8 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
     Rückgabe: {poly_pt, f_m2, u_m, snap_quote, vektor_quote, kanten} —
     snap_quote = Kantenlängen-Anteil mit Befestigung (vektor+raster+stuetze).
     """
+    _budget_rest = [max(0.0, ein_budget_m2 or 0.0)]
+
     n = len(poly_zl or [])
     if n < 3:
         return None
@@ -2764,6 +2767,18 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
                     break
         return tr >= 3
 
+    # AUSSENRICHTUNG AUS DER WINDUNG, nicht aus dem Schwerpunkt (Befund
+    # Angerer-Erker 2026-08-14, KX-Telemetrie): bei NICHT-KONVEXEN Raeumen
+    # zeigt die Schwerpunkt-Heuristik an Nischen-Kanten verkehrt — am
+    # Sued-Erker gewann ein "+6cm"-Cluster, der geometrisch EINWAERTS lag,
+    # und der Stempel-Deckel prüfte die falsche Richtung. Die Moore-
+    # Kontur laeuft konsistent um den Raum; das Vorzeichen der signierten
+    # Flaeche bestimmt fuer jede Kante die echte Aussennormale.
+    _sig = 0.0
+    for k in range(n):
+        _ax, _ay = pts[k]
+        _bx, _by = pts[(k + 1) % n]
+        _sig += _ax * _by - _bx * _ay
     kanten = []
     for k in range(n):
         ax, ay = pts[k]
@@ -2771,12 +2786,16 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
         dx, dy = bx - ax, by - ay
         L = math.hypot(dx, dy)
         e = {"p1": (ax, ay), "p2": (bx, by), "L": L, "achse": None,
-             "fest": None, "quelle": None}
+             "fest": None, "quelle": None, "vz_out": None}
         if L >= 0.10 * ptm:        # <10 cm: Zitterkante, nicht klassifizieren
             if abs(dx) <= 0.3 * abs(dy):
                 e["achse"] = "v"
+                _nx = dy if _sig > 0 else -dy
+                e["vz_out"] = 1 if _nx > 0 else -1
             elif abs(dy) <= 0.3 * abs(dx):
                 e["achse"] = "h"
+                _ny = -dx if _sig > 0 else dx
+                e["vz_out"] = 1 if _ny > 0 else -1
         kanten.append(e)
 
     snap_pt = snap_m * ptm
@@ -2802,7 +2821,7 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
         # (gemessen +3-7 cm Drift; zwei Seitenwahl-Versuche ohne Paar-
         # Kontext blieben wirkungslos, s. Historie oben).
         if paare:
-            _vz = 1 if c_e > (_cxp if e["achse"] == "v" else _cyp) else -1
+            _vz = e.get("vz_out") or (1 if c_e > (_cxp if e["achse"] == "v" else _cyp) else -1)
             _dbg = (dbg_tag is not None and os.environ.get("IK_DEBUG"))
             if _dbg:
                 print(f"[ikc] tag={dbg_tag} achse={e['achse']} c_e={c_e:.1f} "
@@ -2899,15 +2918,41 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
         # unbegrenzt wie bisher. Der Stempel gibt die Richtung vor.
         _vz_cl = None
         if max_raus_pt is not None:
-            _vz_cl = 1 if c_e > (_cxp if e["achse"] == "v" else _cyp) else -1
+            _vz_cl = e.get("vz_out") or (1 if c_e > (_cxp if e["achse"] == "v" else _cyp) else -1)
+        _kxd = os.environ.get("KX_DEBUG")
+        _kxd = (_kxd is not None and str(dbg_tag) == _kxd)
         for (c_cl, spans, _nz) in cluster:
+            if _kxd:
+                _d0 = 0.0; _e0 = lo
+                for (_sl, _sh) in sorted(spans):
+                    if _sh <= _e0: continue
+                    _d0 += _sh - max(_sl, _e0); _e0 = _sh
+                print(f"[kx] kante {e['achse']} c_e={c_e:.0f} "
+                      f"lauf={l_kante/rst.ptm:.2f}m  cluster "
+                      f"d={(c_cl-c_e)/rst.ptm*100:+.0f}cm "
+                      f"deck={_d0/max(1,l_kante)*100:.0f}% n={_nz}")
+            _budget_kand = 0.0
             if _vz_cl is not None:
                 _versch = (c_cl - c_e) * _vz_cl
                 # BEIDE Richtungen deckeln: nur auswaerts zu sperren liess
                 # die Kante ungebremst EINWAERTS auf Moebel-/Regal-Linien
                 # schnappen (gemessen: Geraete-Abstellraum +9,0 -> -15,7 %).
-                if _versch > max_raus_pt or _versch < -0.10 * rst.ptm:
+                if _versch > max_raus_pt:
                     continue
+                if _versch < -0.10 * rst.ptm:
+                    # STEMPEL-BUDGETIERTER TIEFEN-SNAP: einwaerts bis 0,30 m
+                    # erlaubt, aber nur solange das Polygon ueber dem
+                    # byte-exakten Stempel bleibt. VOLLE Verschiebung wird
+                    # gebucht (Kantenlauf x Versatz).
+                    if ein_budget_m2 is None or _versch < -0.301 * rst.ptm:
+                        continue
+                    _budget_kand = l_kante * (-_versch) / (rst.ptm * rst.ptm)
+                    if _budget_kand > _budget_rest[0]:
+                        if _kxd:
+                            print(f"[kx]   -> tief d={_versch/rst.ptm*100:.0f}cm "
+                                  f"braucht {_budget_kand:.2f}m2 > Budget "
+                                  f"{_budget_rest[0]:.2f}")
+                        continue
             # Deckung: Vereinigung der Spannen auf den Kantenlauf
             deck = 0.0
             ende = lo
@@ -2921,9 +2966,15 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
             ver = _verankert(e["achse"], c_cl, lo, hi)
             key = (0 if ver else 1, abs(c_cl - c_e))
             if beste is None or key < beste[0]:
-                beste = (key, c_cl)
+                beste = (key, c_cl, _budget_kand)
         if beste is not None:
             e["fest"], e["quelle"] = beste[1], "vektor"
+            if len(beste) > 2 and beste[2]:
+                _budget_rest[0] -= beste[2]
+            if _kxd:
+                print(f"[kx]   WAHL d={(beste[1]-c_e)/rst.ptm*100:+.0f}cm "
+                      f"kost={beste[2] if len(beste)>2 else 0:.2f} "
+                      f"budget_rest={_budget_rest[0]:.2f}")
             continue
         # RASTER-RUECKFALL (an_wand_schnappen-Logik, pt): von der Kante nach
         # außen sondieren bis zur ersten Wandzelle; Kante auf die letzte
@@ -2935,11 +2986,11 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
             p_ = lo + l_kante * t
             for d in range(0, 9):
                 if e["achse"] == "v":
-                    vz = 1 if c_e > cxp else -1
+                    vz = e.get("vz_out") or (1 if c_e > cxp else -1)
                     ii = int((c_e - rst.bx0) / cell) + vz * d
                     jj = int((p_ - rst.by0) / cell)
                 else:
-                    vz = 1 if c_e > cyp else -1
+                    vz = e.get("vz_out") or (1 if c_e > cyp else -1)
                     ii = int((p_ - rst.bx0) / cell)
                     jj = int((c_e - rst.by0) / cell) + vz * d
                 if not (0 <= ii < W and 0 <= jj < H):
@@ -3734,10 +3785,13 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                     _mr = (0.03 * rst.ptm
                            if (_sf and _sf > 0 and poly_flaeche >= 0.95 * _sf)
                            else None)
+                    _eb = (max(0.0, poly_flaeche - _sf)
+                           if (_sf and _sf > 0 and _mr is not None) else None)
                     _kx = raum_kontur_exakt(vereinfacht, grid, W, H, rst,
                                             dark_segs, stuetzen=stuetzen,
                                             paare=_paare_ik, dbg_tag=ridx,
-                                            max_raus_pt=_mr)
+                                            max_raus_pt=_mr,
+                                            ein_budget_m2=_eb)
                     if _kx and _kx["snap_quote"] >= 0.70 and poly_flaeche > 0 \
                             and abs(_kx["f_m2"] - poly_flaeche) / poly_flaeche <= 0.20:
                         _fin_pt = _kx["poly_pt"]
