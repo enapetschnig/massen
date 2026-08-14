@@ -2471,8 +2471,11 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         # Fall C: EINE Seite ist ein Stempel-Raum, die andere AUSSEN
         # (kein Raumbecken binnen 1,2 m). Hinter FENSTER_SEAL, bis der
         # Korpus gemessen ist.
+        # Standard AN seit 2026-08-14 (Korpus: Sadiku Oe 5,0->4,4 %, Bad WC
+        # aus der Ausreisserliste; Angerer unveraendert; Guard entfernt
+        # schaedliche Balken). FENSTER_SEAL=0 schaltet ab.
         _ist_parapet = (o.get("typ") in ("fenster", "glasfront")
-                        and bool(os.environ.get("FENSTER_SEAL")))
+                        and os.environ.get("FENSTER_SEAL", "1") != "0")
         if not (_ist_tuer or _ist_front or _ist_parapet) or o.get("cx") is None:
             continue
         cx, cy = o["cx"], o["cy"]

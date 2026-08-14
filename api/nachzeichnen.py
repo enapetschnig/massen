@@ -1054,6 +1054,78 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 "breite_m": o.get("breite_m"), "hoehe_m": o.get("hoehe_m"),
                 "px": to_px(cx, cy),
             })
+        # MASSPAAR-ANKER (Sadiku-Klasse, 2026-08-14, hinter Schalter):
+        # Plaene ohne FPH/STUK-Beschriftung stellen ans Fenster nur ein
+        # GESTAPELTES Zahlenpaar (Breite ueber Hoehe/Parapet, z. B. 140
+        # ueber 120; Legende: "RBL / fertige Parapethoehe"). Ein Zahlen-
+        # paar, dessen Mitte AUF einer erkannten Wand liegt, ist ein
+        # Fenster-Anker — Masskettenzahlen liegen auf Massketten-Linien,
+        # nicht auf Waenden, und fallen durch den Abstands-Filter.
+        # Nur Siegel-Anker (oeff_pt), kein Bauteil, kein Export.
+        if os.environ.get("MASSPAAR_ANKER", "1") != "0" and waende:
+            import re as _re
+
+            def _cm(t):
+                t = t.strip()
+                m = _re.match(r"^([0-9]{2,3})$", t)
+                if m:
+                    v = int(m.group(1))
+                    return v if 30 <= v <= 400 else None
+                m = _re.match(r"^([0-9])[,.]([0-9]{1,2})$", t)
+                if m:
+                    v = float(m.group(1)) + float(m.group(2)) / (10 if len(m.group(2)) == 1 else 100)
+                    v *= 100
+                    return v if 30 <= v <= 400 else None
+                return None
+
+            _zs = []
+            for sp in spans:
+                v = _cm(sp.get("text") or "")
+                if v is not None:
+                    _zs.append((sp["cx"], sp["cy"], v))
+
+            def _wanddist(x, y):
+                best = 1e9
+                for w0 in waende:
+                    (px0, py0, px1, py1) = w0["px"]
+                    ax, ay = px0 / scale + bx0, py0 / scale + by0
+                    bx_, by_ = px1 / scale + bx0, py1 / scale + by0
+                    dx, dy = bx_ - ax, by_ - ay
+                    L2 = dx * dx + dy * dy
+                    if L2 < 1:
+                        continue
+                    t0 = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+                    qx, qy = ax + t0 * dx, ay + t0 * dy
+                    d = ((qx - x) ** 2 + (qy - y) ** 2) ** 0.5
+                    if d < best:
+                        best = d
+                return best
+
+            _n_mp = 0
+            for i0 in range(len(_zs)):
+                for j0 in range(i0 + 1, len(_zs)):
+                    a, b = _zs[i0], _zs[j0]
+                    # gestapelt (waagrechtes Label) ODER nebeneinander
+                    # (gedrehtes Label an vertikaler Wand)
+                    _stapel = abs(a[0] - b[0]) <= 12 and 2 < abs(a[1] - b[1]) < 14
+                    _seitl = abs(a[1] - b[1]) <= 12 and 2 < abs(a[0] - b[0]) < 14
+                    if not (_stapel or _seitl):
+                        continue
+                    mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+                    if not (bx0 <= mx <= bx1 and by0 <= my <= by1):
+                        continue
+                    if _wanddist(mx, my) > 0.22 * ptm:
+                        continue
+                    if _stapel:
+                        ober = a if a[1] < b[1] else b   # obere Zahl = Breite
+                    else:
+                        ober = a if a[0] < b[0] else b   # links(gedreht oben)=Breite
+                    oeff_pt.append({"typ": "fenster", "cx": mx, "cy": my,
+                                    "breite_m": round(ober[2] / 100.0, 2),
+                                    "hoehe_m": None, "quelle": "masspaar"})
+                    _n_mp += 1
+            if _n_mp and os.environ.get("GUARD_DEBUG"):
+                print(f"[masspaar] {_n_mp} Fenster-Anker aus Zahlenpaaren")
     except Exception as e:  # pragma: no cover
         oeff_pt = []
         print(f"[nachzeichnen] Öffnungen fehlgeschlagen: {e}")

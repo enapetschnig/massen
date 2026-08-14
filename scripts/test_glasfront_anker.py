@@ -82,10 +82,25 @@ def run():
         fehler.append("raumnetz: glasfront ist kein Front-Anker mehr")
     else:
         print("   raumnetz nimmt glasfront als Front-Anker              ✓")
-    if 'os.environ.get("FENSTER_SEAL")' not in rn:
-        fehler.append("FENSTER_SEAL-Schalter (Parapet-Nischen) entfernt")
+    # Seit 2026-08-14 STANDARD AN (Korpus: Sadiku 5,0->4,4, Bad WC
+    # geheilt, Angerer unveraendert) — abschaltbar muss es bleiben.
+    if 'os.environ.get("FENSTER_SEAL", "1") != "0"' not in rn:
+        fehler.append("FENSTER_SEAL nicht Standard-an-mit-Ausschalter — "
+                      "entweder wieder stumm-gated (Sadiku verliert 0,6 pp) "
+                      "oder Notausstieg weg")
     else:
-        print("   FENSTER_SEAL (Parapet-Nischen) hinter Schalter        ✓")
+        print("   FENSTER_SEAL Standard an, FENSTER_SEAL=0 schaltet ab   ✓")
+    nz2 = open(os.path.join(WURZEL, "api", "nachzeichnen.py"),
+               encoding="utf-8").read()
+    if 'os.environ.get("MASSPAAR_ANKER", "1") != "0"' not in nz2:
+        fehler.append("MASSPAAR_ANKER nicht Standard-an-mit-Ausschalter")
+    else:
+        print("   MASSPAAR_ANKER Standard an, =0 schaltet ab            ✓")
+    if "_wanddist" not in nz2:
+        fehler.append("Masspaar-Anker ohne Wand-Abstandsfilter — dann wird "
+                      "jede Masskettenzahl ein Fenster")
+    else:
+        print("   Masspaar nur AUF der Wand (Massketten fallen durch)   ✓")
     if "_vzr * _tief" not in rn:
         fehler.append("Flucht-Schub fehlt — der Balken saesse wieder an der "
                       "Anker-Zeile AUSSEN an der Nische (gemessen wirkungslos: "
