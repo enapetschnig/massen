@@ -82,6 +82,16 @@ def run():
         fehler.append("raumnetz: glasfront ist kein Front-Anker mehr")
     else:
         print("   raumnetz nimmt glasfront als Front-Anker              ✓")
+    if 'os.environ.get("FENSTER_SEAL")' not in rn:
+        fehler.append("FENSTER_SEAL-Schalter (Parapet-Nischen) entfernt")
+    else:
+        print("   FENSTER_SEAL (Parapet-Nischen) hinter Schalter        ✓")
+    if "_vzr * _tief" not in rn:
+        fehler.append("Flucht-Schub fehlt — der Balken saesse wieder an der "
+                      "Anker-Zeile AUSSEN an der Nische (gemessen wirkungslos: "
+                      "der Raum flutet die Nische bis zum Balken)")
+    else:
+        print("   Balken wird an die innere Wandflucht geschoben        ✓")
     if 'os.environ.get("FRONT_SEAL")' not in rn:
         fehler.append("FRONT_SEAL-Schalter entfernt — Front-Siegel wäre "
                       "ungeprüft aktiv (Korpus-Messung steht aus)")

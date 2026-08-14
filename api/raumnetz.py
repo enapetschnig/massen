@@ -2462,7 +2462,18 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         _ist_front = (o.get("typ") in ("fenster", "glasfront")
                       and _kat is not None
                       and bool(os.environ.get("FRONT_SEAL")))
-        if not (_ist_tuer or _ist_front) or o.get("cx") is None:
+        # PARAPET-FALL (Wurzel-Befund Sadiku Bad WC / Angerer WK,
+        # 2026-08-14): die Wand UNTER einem Fenster (Parapet 0,9-1,6 m)
+        # liegt unter der Schnittebene — keine Poché, der Watershed sieht
+        # keine Wand, der Raum flutet die Fensternische bis zur
+        # Aussenkante (Bad WC +16,7 % Zellen, WK-Glasfront-Band). Der
+        # Balken sitzt wie bei Tueren zwischen den Laibungs-Wandenden.
+        # Fall C: EINE Seite ist ein Stempel-Raum, die andere AUSSEN
+        # (kein Raumbecken binnen 1,2 m). Hinter FENSTER_SEAL, bis der
+        # Korpus gemessen ist.
+        _ist_parapet = (o.get("typ") in ("fenster", "glasfront")
+                        and bool(os.environ.get("FENSTER_SEAL")))
+        if not (_ist_tuer or _ist_front or _ist_parapet) or o.get("cx") is None:
             continue
         cx, cy = o["cx"], o["cy"]
         b = o.get("breite_m") or 0.9
@@ -2538,15 +2549,60 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
             return None
 
         l1, l2 = _erste_raumzelle(-1), _erste_raumzelle(+1)
+        _parapet_trifft = False
+        if _ist_parapet:
+            # "Innen" = echter Stempel-Raum, der KEINE Aussenkategorie ist.
+            # Alles andere (AUSSEN=None, stempellose Region, Loggia) ist
+            # Nicht-Raum-Seite. Genau EINE Innen-Seite -> Nischen-Fall.
+            def _raumseite(l):
+                if l is None or not stempel or not (0 <= l < len(stempel)):
+                    return False
+                if _kat and 0 <= l < len(_kat) and _kat[l] == "Loggia":
+                    return False
+                return True
+            _i1, _i2 = _raumseite(l1), _raumseite(l2)
+            if _i1 != _i2:
+                _parapet_trifft = True
+                l1 = l1 if _i1 else None    # Flucht-Schub Richtung Innen-Seite
+                l2 = l2 if _i2 else None
+                if os.environ.get("GUARD_DEBUG"):
+                    _nm2 = stempel[(l1 if _i1 else l2)].get("name")
+                    print(f"[parapet] {o.get('typ')} ({cx:.0f},{cy:.0f}) "
+                          f"achse={achse} spann={(hi-lo)*rst.zm:.2f}m  "
+                          f"{_nm2} <-> Nicht-Raum")
         if _ist_front and os.environ.get("GUARD_DEBUG"):
             _nm = lambda l: (stempel[l].get("name") if (stempel and l is not None
                              and 0 <= l < len(stempel)) else l)
             print(f"[front-kand] fenster ({cx:.0f},{cy:.0f}) b={b:.2f}m achse={achse} "
                   f"spann={(hi-lo-1)*rst.cell/rst.ptm:.2f}m  {_nm(l1)} <-> {_nm(l2)}")
-        if _ist_tuer:
+        if _parapet_trifft:
+            # DEN BALKEN AN DIE INNERE WANDFLUCHT SCHIEBEN (Befund WK:
+            # neun Siegel, Wirkung null — der Balken lag an der Anker-
+            # Zeile AUSSEN an der Nische, der Raum flutete die Nische bis
+            # zum Balken und behielt sie). Die Laibungen (Pfosten lo/hi)
+            # laufen einwaerts; ihr letztes gemeinsames Wand-Paar ist die
+            # Raumgrenze. Bis 0,6 m einwaerts suchen.
+            _vzr = -1 if l1 is not None else +1
+            _tief = 0
+            for _dd in range(1, int(0.6 * rst.ptm / rst.cell) + 1):
+                _rr = fest + _vzr * _dd
+                if not (0 <= _rr < (H if achse == "h" else W)):
+                    break
+                _j1 = (_rr * W + lo) if achse == "h" else (lo * W + _rr)
+                _j2 = (_rr * W + hi) if achse == "h" else (hi * W + _rr)
+                if grid[_j1] and grid[_j2]:
+                    _tief = _dd
+                else:
+                    break
+            fest = fest + _vzr * _tief
+            if os.environ.get("GUARD_DEBUG") and _tief:
+                print(f"[parapet]   -> Flucht {_tief} Zellen einwaerts")
+        elif _ist_tuer:
             if l1 is None or l2 is None or l1 != l2:
                 continue
         else:
+            if not _ist_front:
+                continue      # Fenster ohne FRONT_SEAL/Parapet-Treffer
             # Front: VERSCHIEDENE Raeume, genau eine Seite Aussenkategorie.
             if l1 is None or l2 is None or l1 == l2:
                 continue
