@@ -74,6 +74,29 @@ def run():
     else:
         print("   FPH 0,90/STUK +2,20 bleibt ein normales Fenster       ✓")
 
+    # 3b) RPH-FENSTER (Befund 2026-08-14): "RPH 85 / STUK +2,14" — die
+    #     rohe Parapethoehe. rph_spans wurden seit jeher gesammelt und NIE
+    #     verwendet; das Speis-Fenster blieb unverschlossen (+15,5 %).
+    res4 = O.extract_oeffnungen_from_text(
+        _spans([("RPH 85", 100, 100), ("STUK +2,14", 100, 106),
+                ("1,40", 100, 112)]), [])
+    fen4 = [o for o in res4 if o.get("typ") == "fenster"]
+    if len(fen4) != 1:
+        fehler.append(f"RPH 85/STUK 2,14: {len(fen4)} Fenster statt 1 — "
+                      f"RPH-beschriftete Fenster fallen wieder unter den Tisch")
+    else:
+        print("   RPH 85/STUK +2,14 wird ein Fenster                    ✓")
+    # FPH und RPH am SELBEN Fenster: nur EIN Fenster (Dubletten-Schutz).
+    res5 = O.extract_oeffnungen_from_text(
+        _spans([("FPH 0,90", 100, 100), ("RPH 85", 100, 103),
+                ("STUK +2,20", 100, 106), ("1,30", 100, 112)]), [])
+    fen5 = [o for o in res5 if o.get("typ") == "fenster"]
+    if len(fen5) != 1:
+        fehler.append(f"FPH+RPH am selben Fenster: {len(fen5)} Fenster — "
+                      f"Dublette zaehlt doppelt in Mengen und Aufmass")
+    else:
+        print("   FPH+RPH am selben Fenster: genau EIN Fenster          ✓")
+
     # 4) Quelltext-Zusagen: raumnetz akzeptiert den Anker-Typ, FRONT_SEAL
     #    bleibt geschaltet, nachzeichnen exportiert ihn nicht ans Frontend.
     rn = open(os.path.join(WURZEL, "api", "raumnetz.py"), encoding="utf-8").read()

@@ -165,6 +165,19 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
 
     # 2) Cluster: pro FPH-Span einen Öffnungs-Kandidaten bilden
     oeffnungen = []
+    # RPH = ROHE Parapethoehe (OENORM-uebliche Beschriftung, z. B.
+    # "RPH 85 / STUK +2,14" am Sadiku-Speis-Fenster). Die Spans wurden
+    # seit jeher GESAMMELT, aber nie verwendet — RPH-beschriftete Fenster
+    # fielen komplett unter den Tisch (Befund 2026-08-14: Speis leckt
+    # durch genau diese unverschlossene Nische, +15,5 %). RPH wirkt wie
+    # FPH (Parapet ueber FBOK); wo BEIDE dasselbe Fenster beschriften,
+    # gewinnt FPH (Dubletten-Schutz ueber die Cluster-Distanz).
+    for rph in rph_spans:
+        if any(math.hypot(f["cx"] - rph["cx"], f["cy"] - rph["cy"])
+               < max_cluster_pt for f in fph_spans):
+            continue
+        fph_spans.append(dict(rph, quelle="rph"))
+
     for fph in fph_spans:
         # STUK im Cluster (mit FPH)
         stuk_near = [s for s in stuk_spans if math.hypot(s["cx"] - fph["cx"], s["cy"] - fph["cy"]) < max_cluster_pt]
