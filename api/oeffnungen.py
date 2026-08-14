@@ -172,11 +172,19 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
     # durch genau diese unverschlossene Nische, +15,5 %). RPH wirkt wie
     # FPH (Parapet ueber FBOK); wo BEIDE dasselbe Fenster beschriften,
     # gewinnt FPH (Dubletten-Schutz ueber die Cluster-Distanz).
-    for rph in rph_spans:
-        if any(math.hypot(f["cx"] - rph["cx"], f["cy"] - rph["cy"])
-               < max_cluster_pt for f in fph_spans):
-            continue
-        fph_spans.append(dict(rph, quelle="rph"))
+    # Die Beschriftungs-Konvention ist eine PLAN-Eigenschaft (Suite-
+    # Rotlauf 2026-08-14: AP.01 verlor 7 Tueren): Polierplaene wie AP.01
+    # spezifizieren Oeffnungen vollstaendig ueber RBL (Rohbaulichte,
+    # B x H) und schreiben RPH nur als ZUSATZ daneben — RPH-Fenster
+    # waeren dort Dubletten, die im Dedup echte Tueren verdraengen.
+    # Nur wo der Plan NICHT RBL-notiert ist (Sadiku: 0 RBL-Spans),
+    # tragen RPH-Spans die Fenster.
+    if len(rbl_spans) < 3:
+        for rph in rph_spans:
+            if any(math.hypot(f["cx"] - rph["cx"], f["cy"] - rph["cy"])
+                   < max_cluster_pt for f in fph_spans):
+                continue
+            fph_spans.append(dict(rph, quelle="rph"))
 
     for fph in fph_spans:
         # STUK im Cluster (mit FPH)
