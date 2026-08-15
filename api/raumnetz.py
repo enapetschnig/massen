@@ -2526,7 +2526,7 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
                 if best is None or sc < best[0]:
                     best = (sc, achse, fest, lo, hi)
         if best is None:
-            if _ist_front and os.environ.get("GUARD_DEBUG"):
+            if (_ist_front or _ist_parapet) and os.environ.get("GUARD_DEBUG"):
                 print(f"[front-miss] fenster ({cx:.0f},{cy:.0f}) b={b:.2f}m: "
                       f"kein Spalt {0.45:.2f}..{(sp_max*rst.cell/rst.ptm):.2f}m "
                       f"binnen cap={cap*rst.cell/rst.ptm:.1f}m gefunden")
@@ -2564,6 +2564,9 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
                     return False
                 return True
             _i1, _i2 = _raumseite(l1), _raumseite(l2)
+            if _i1 == _i2 and os.environ.get("GUARD_DEBUG"):
+                print(f"[parapet-verworfen] ({cx:.0f},{cy:.0f}) achse={achse} "
+                      f"l1={l1} l2={l2} beide={'Raum' if _i1 else 'Nicht-Raum'}")
             if _i1 != _i2:
                 _parapet_trifft = True
                 l1 = l1 if _i1 else None    # Flucht-Schub Richtung Innen-Seite

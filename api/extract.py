@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-14.3"
+APP_REV = "2026-08-15.1"
 
 
 @app.get("/api/extract-health")
@@ -6137,7 +6137,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 79  # RPH-Fenster (rohe Parapethoehe) — Sadiku-Klasse verschliesst
+_NZ_CACHE_V = 80  # Absolut-STUK-Anker (OG-Fenster als Glasfront-Anker)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
@@ -7107,6 +7107,51 @@ def messungen_vorschlagen(body: MessungRequest):
         scale = float(meta.get("scale") or 0)
         ptm = float(meta.get("ptm") or 0)
         if not raeume or scale <= 0 or ptm <= 0:
+            # SCAN-FALLBACK (2510-Befund: reiner Scan, 0 Textwoerter — die
+            # Zeichen-Pipeline hat keine Geometrie, aber die VISION-Route
+            # hat die Raeume gelesen, sie stehen in `elemente`). Vorschlaege
+            # OHNE Umriss: Wert + Name, Formel nennt die Quelle ehrlich.
+            # Nicht am Plan zeichenbar, aber zuordenbar und im Protokoll —
+            # der Workflow traegt auch fuer Scans.
+            try:
+                elems = (sb.table("elemente").select("bezeichnung,daten")
+                         .eq("plan_id", body.plan_id).eq("typ", "raum")
+                         .execute().data) or []
+            except Exception:
+                elems = []
+            alt_v = (sb.table("messungen").select("id,raum_ref,quelle,status")
+                     .eq("projekt_id", body.projekt_id)
+                     .eq("plan_id", body.plan_id).execute().data) or []
+            behalten2 = {m.get("raum_ref") for m in alt_v
+                         if m.get("quelle") != "ki" or m.get("status") != "vorschlag"}
+            for m in alt_v:
+                if m.get("quelle") == "ki" and m.get("status") == "vorschlag":
+                    sb.table("messungen").delete().eq("id", m["id"]).execute()
+            neu2 = 0
+            for el in elems:
+                dat = el.get("daten") or {}
+                f = dat.get("flaeche_m2") or dat.get("f_m2")
+                nm = el.get("bezeichnung") or "Raum"
+                if not f or nm in behalten2:
+                    continue
+                v = {"projekt_id": body.projekt_id, "plan_id": body.plan_id,
+                     "seite": seite, "typ": "flaeche",
+                     "bezeichnung": nm, "raum_ref": nm,
+                     "geometrie": {"form": "punkt", "punkte": []},
+                     "wert": round(float(f), 2), "einheit": "m2",
+                     "formel": f"{str(round(float(f), 2)).replace('.', ',')} "
+                               f"lt. Vision-Lesung (Scan)",
+                     "quelle": "ki", "status": "vorschlag"}
+                try:
+                    nr = sb.rpc("messung_naechste_nummer",
+                                {"p_projekt": body.projekt_id}).execute().data
+                    v["nummer"] = int(nr or 1)
+                except Exception:
+                    v["nummer"] = None
+                sb.table("messungen").insert(v).execute()
+                neu2 += 1
+            if neu2:
+                return {"ok": True, "vorschlaege": neu2, "quelle": "vision_scan"}
             return {"ok": False, "grund": "keine analysierten Raeume auf dieser Seite",
                     "vorschlaege": 0}
 

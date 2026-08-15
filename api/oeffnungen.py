@@ -50,6 +50,18 @@ def _parse_num(s: str) -> Optional[float]:
         return None
 
 
+def _wert_m(v, roh):
+    """cm-oder-m-Heuristik MIT Format-Wissen (Einheiten-Bug 2026-08-15):
+    "STUK +5,54" ist eine DEZIMALZAHL und damit METER — die alte Regel
+    "Wert > 5 -> cm" machte daraus 5,54 cm, und OG-Fenster mit absoluten
+    Sturzkoten verschwanden komplett. Dezimal = m; ganzzahlig > 5 = cm."""
+    if v is None:
+        return None
+    if ("," in roh) or ("." in roh):
+        return v
+    return v / 100.0 if v > 5 else v
+
+
 def _dist(a, b):
     return math.hypot(a["cx"] - b["cx"], a["cy"] - b["cy"])
 
@@ -80,22 +92,22 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
             v = _parse_num(m.group(1))
             if v is not None:
                 # FPH-Werte: "0,00" → 0.0 (boden), "92" → 92 (cm) → 0.92,
-                # "1,62" → 1.62 (m). Heuristik: wenn Wert > 5 → cm → /100
-                vm = v / 100.0 if v > 5 else v
+                # "1,62" → 1.62 (m). Dezimal = m, ganzzahlig > 5 = cm.
+                vm = _wert_m(v, m.group(1))
                 fph_spans.append({"value_m": vm, "cx": s["cx"], "cy": s["cy"], "raw": t})
             continue
         m = STUK_RX.match(t)
         if m:
             v = _parse_num(m.group(1))
             if v is not None:
-                vm = v / 100.0 if v > 5 else v
+                vm = _wert_m(v, m.group(1))
                 stuk_spans.append({"value_m": vm, "cx": s["cx"], "cy": s["cy"], "raw": t})
             continue
         m = RPH_RX.match(t)
         if m:
             v = _parse_num(m.group(1))
             if v is not None:
-                vm = v / 100.0 if v > 5 else v
+                vm = _wert_m(v, m.group(1))
                 rph_spans.append({"value_m": vm, "cx": s["cx"], "cy": s["cy"], "raw": t})
             continue
         m = BREITE_CM_RX.match(t)
@@ -127,7 +139,7 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
         v = _parse_num(m.group(1))
         if v is None:
             continue
-        vm = v / 100.0 if v > 5 else v
+        vm = _wert_m(v, m.group(1))
         if 0.3 <= vm <= 4.0:
             rbl_spans.append({"value_m": vm, "cx": s["cx"], "cy": s["cy"],
                               "raw": t})
@@ -216,6 +228,16 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
                             "cy": fph["cy"], "breite_m": None,
                             "hoehe_m": None, "fph_m": fph["value_m"],
                             "quelle": "portal_label"})
+            # OG-FENSTER MIT ABSOLUTER STURZKOTE (Eltern-Zimmer Sadiku:
+            # "RPH 85 / STUK +5,54" — STUK ueber +-0,00, nicht ueber FBOK;
+            # rechnerische Hoehe 4,69 m). Das Fenster existiert, nur die
+            # Hoehe ist nicht bestimmbar -> GLASFRONT-ANKER: dichtet die
+            # Nische, erfindet aber kein Bauteil mit erfundener Hoehe.
+            elif h_m > 3.5 and 0.3 <= fph["value_m"] <= 1.8:
+                oeffnungen.append({"typ": "glasfront", "cx": fph["cx"],
+                            "cy": fph["cy"], "breite_m": None,
+                            "hoehe_m": None, "fph_m": fph["value_m"],
+                            "quelle": "stuk_absolut"})
             continue  # unplausibel
 
         # Breite suchen — Plausibilitäts-Score statt nur nächstgelegen:

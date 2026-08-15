@@ -97,6 +97,21 @@ def run():
     else:
         print("   FPH+RPH am selben Fenster: genau EIN Fenster          ✓")
 
+    # 3c) OG-Fenster mit ABSOLUTER Sturzkote ("RPH 85 / STUK +5,54",
+    #     Hoehe 4,69 m unplausibel): das Fenster existiert — es wird
+    #     GLASFRONT-ANKER (dichtet die Nische), aber KEIN Fenster mit
+    #     erfundener Hoehe in den Mengen.
+    res6 = O.extract_oeffnungen_from_text(
+        _spans([("RPH 85", 100, 100), ("STUK +5,54", 100, 106)]), [])
+    gf6 = [o for o in res6 if o.get("typ") == "glasfront"]
+    fen6 = [o for o in res6 if o.get("typ") == "fenster"]
+    if len(gf6) != 1 or fen6:
+        fehler.append(f"RPH 85/STUK +5,54: {len(gf6)} glasfront / "
+                      f"{len(fen6)} fenster — erwartet 1/0 (Anker ja, "
+                      f"Bauteil mit erfundener Hoehe nein)")
+    else:
+        print("   RPH 85/STUK +5,54 (absolut) → Anker, kein Bauteil     ✓")
+
     # 4) Quelltext-Zusagen: raumnetz akzeptiert den Anker-Typ, FRONT_SEAL
     #    bleibt geschaltet, nachzeichnen exportiert ihn nicht ans Frontend.
     rn = open(os.path.join(WURZEL, "api", "raumnetz.py"), encoding="utf-8").read()
