@@ -2399,6 +2399,10 @@ def _umriss_zellen(label, W, H, ridx, zm2, min_flaeche_m2=1.0, cells=None,
 
 
 def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
+    if os.environ.get("GUARD_DEBUG"):
+        from collections import Counter as _C
+        print(f"[lecks-in] {dict(_C(o.get('typ') for o in (oeffnungen or [])))} "
+              f"cx_fehlt={sum(1 for o in (oeffnungen or []) if o.get('cx') is None)}")
     """Undichte Türen lokalisieren: läuft die Raumfarbe durch die Öffnung?
 
     Spiegelbildlich zum Mess-Harness scripts/mess_tuer_dichtung.py (gleiche
@@ -2442,6 +2446,7 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         except Exception:
             _kat = None
     for o in (oeffnungen or []):
+      try:
         _ist_tuer = o.get("typ") == "tuer"
         # GLASFRONT-FALL (2026-08-10): ein FENSTER-Anker an der Grenze
         # Innenraum <-> Aussenkategorie markiert eine Hebe-Schiebe-/
@@ -2476,6 +2481,10 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         # schaedliche Balken). FENSTER_SEAL=0 schaltet ab.
         _ist_parapet = (o.get("typ") in ("fenster", "glasfront")
                         and os.environ.get("FENSTER_SEAL", "1") != "0")
+        if os.environ.get("GUARD_DEBUG") == "2":
+            import traceback as _tb
+            print(f"[anker] typ={o.get('typ')} cx={round(o.get('cx') or 0)} "
+                  f"cy={round(o.get('cy') or 0)}")
         if not (_ist_tuer or _ist_front or _ist_parapet) or o.get("cx") is None:
             continue
         cx, cy = o["cx"], o["cy"]
@@ -2648,8 +2657,10 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         if not (grid[j1] and grid[j2]):
             continue
         if os.environ.get("GUARD_DEBUG") and not _ist_tuer:
-            _n1 = (stempel[l1].get("name") if stempel and 0 <= l1 < len(stempel) else l1)
-            _n2 = (stempel[l2].get("name") if stempel and 0 <= l2 < len(stempel) else l2)
+            _n1 = (stempel[l1].get("name") if stempel and l1 is not None
+                   and 0 <= l1 < len(stempel) else l1)
+            _n2 = (stempel[l2].get("name") if stempel and l2 is not None
+                   and 0 <= l2 < len(stempel) else l2)
             print(f"[front] {o.get('typ')} achse={achse} fest={fest} "
                   f"lo={lo} hi={hi} spann={(hi-lo)*rst.zm:.2f}m  {_n1} <-> {_n2}")
         span = hi - lo
@@ -2679,6 +2690,17 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         if not verbunden:
             continue
         lecks.append((achse, fest, lo, hi))
+      except Exception as _le:
+        # SCHUTZFANG (Befund 2026-08-16): ein None-Vergleich in einer
+        # DEBUG-Zeile wuergte die ganze Anker-Schleife ab — unter
+        # GUARD_DEBUG sah die Telemetrie tagelang nur 2 von 27 Ankern,
+        # waehrend Produktion (ohne Debug) korrekt lief. Ein einzelner
+        # Anker-Fehler darf nie alle uebrigen Siegel kosten.
+        if os.environ.get("GUARD_DEBUG"):
+            import traceback
+            print(f"[lecks-crash] {type(_le).__name__}: {_le}")
+            traceback.print_exc()
+        continue
     return lecks
 
 
