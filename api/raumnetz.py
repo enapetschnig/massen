@@ -2981,7 +2981,12 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
                                   f"braucht {_budget_kand:.2f}m2 > Budget "
                                   f"{_budget_rest[0]:.2f}")
                         continue
-            # Deckung: Vereinigung der Spannen auf den Kantenlauf
+            # Deckung: Vereinigung der Spannen auf den Kantenlauf.
+            # BAND_SNAP-Experiment (2026-08-17): budget-gedeckte TIEFEN-
+            # Kandidaten (die innere Ausbaulinie) sind oft fragmentiert
+            # (Eltern-Nordkante: -23cm mit 40%, -30cm mit 34%) — fuer SIE
+            # gilt 0,30 statt 0,50; das Budget (Polygon >= Stempel)
+            # deckelt den Schaden eines Fehl-Snaps ohnehin.
             deck = 0.0
             ende = lo
             for (slo, shi) in sorted(spans):
@@ -2989,10 +2994,19 @@ def raum_kontur_exakt(poly_zl, grid, W, H, rst, dark_segs, stuetzen=None,
                     continue
                 deck += shi - max(slo, ende)
                 ende = shi
-            if deck < 0.5 * l_kante:
+            _deck_min = (0.30 if (_budget_kand > 0 and
+                                  os.environ.get("BAND_SNAP", "1") != "0") else 0.5)
+            if deck < _deck_min * l_kante:
                 continue
             ver = _verankert(e["achse"], c_cl, lo, hi)
-            key = (0 if ver else 1, abs(c_cl - c_e))
+            # BAND_SNAP: hat der Raum Schrumpf-Budget (Polygon ueber dem
+            # Stempel), gewinnt unter den zulaessigen Kandidaten der
+            # TIEFSTE Innen-Kandidat — die naechste Linie ist bei Band-
+            # Raeumen genau die falsche (aeussere Rohbau-)Linie.
+            if _budget_kand > 0 and os.environ.get("BAND_SNAP", "1") != "0":
+                key = (0 if ver else 1, -abs(c_cl - c_e))
+            else:
+                key = (0 if ver else 1, abs(c_cl - c_e))
             if beste is None or key < beste[0]:
                 beste = (key, c_cl, _budget_kand)
         if beste is not None:

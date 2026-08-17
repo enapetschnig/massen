@@ -136,6 +136,11 @@ def run():
         (r"_budget_kand > _budget_rest\[0\]", "Budget begrenzt die Tiefe"),
         (r"poly_flaeche - _sf", "Budget = Ueberschuss ueber dem Stempel"),
         (r"vz_out", "Aussenrichtung aus der WINDUNG (Erker-Bug 2026-08-14)"),
+        # BAND_SNAP (2026-08-17, Standard an): bei Schrumpf-Budget gewinnt
+        # der TIEFSTE budget-gedeckte Innen-Kandidat (Deckung 0,30 statt
+        # 0,50) — die naechste Linie ist bei Band-Raeumen die falsche.
+        (r'BAND_SNAP", "1"', "Band-Snap Standard an mit Notausstieg"),
+        (r"_deck_min", "gesenkte Deckung NUR fuer Budget-Kandidaten"),
         (r"poly_flaeche >= 0\.95 \* _sf", "Deckel ab DP >= 95 % Stempel"),
     ):
         if re.search(muster, rq):

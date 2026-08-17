@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-16.1"
+APP_REV = "2026-08-17.1"
 
 
 @app.get("/api/extract-health")
@@ -6137,7 +6137,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 80  # Absolut-STUK-Anker (OG-Fenster als Glasfront-Anker)
+_NZ_CACHE_V = 81  # BAND_SNAP: tiefster Budget-Innenkandidat gewinnt (Baender schrumpfen)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
