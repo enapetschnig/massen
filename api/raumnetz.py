@@ -3577,6 +3577,65 @@ def raum_umfassung(poly_pt, grid, label, rst, ridx, AUSSEN, stempel,
             "anteil_klassifiziert": (round(bek / u_m, 3) if u_m else None)}
 
 
+def _hals_oeffnung(label, W, H, ridx):
+    """NISCHEN-TAB-ABWURF (Balkon-Sezierung 2026-08-18): Raum-Anhaengsel an
+    einem HALS von <=2 Zellen (gekaperte Fensternische hinter einem Loch in
+    der gezeichneten Linie) per morphologischer Oeffnung abtrennen:
+    Erosion r=1 zerschneidet den Hals, groesste Komponente bleibt,
+    Dilatation (auf die Originalregion beschraenkt) stellt die Kanten
+    wieder her. None = kein Tab oder Verlust >10 % (echte schmale
+    Raumteile sind breiter als 2 Zellen und ueberstehen die Erosion)."""
+    zellen = [i for i in range(W * H) if label[i] == ridx]
+    if len(zellen) < 60:
+        return None
+    m = bytearray(W * H)
+    for i in zellen:
+        m[i] = 1
+    er = bytearray(W * H)
+    for i in zellen:
+        x, y = i % W, i // W
+        if (0 < x < W - 1 and 0 < y < H - 1 and m[i - 1] and m[i + 1]
+                and m[i - W] and m[i + W]):
+            er[i] = 1
+    from collections import deque as _dq
+    gesehen = bytearray(W * H)
+    beste = None
+    for i in zellen:
+        if not er[i] or gesehen[i]:
+            continue
+        komp = []
+        q = _dq([i]); gesehen[i] = 1
+        while q:
+            c = q.popleft(); komp.append(c)
+            x = c % W
+            for nb in (c - 1, c + 1, c - W, c + W):
+                if 0 <= nb < W * H and er[nb] and not gesehen[nb]                         and abs(nb % W - x) <= 1:
+                    gesehen[nb] = 1; q.append(nb)
+        if beste is None or len(komp) > len(beste):
+            beste = komp
+    if not beste:
+        return None
+    kern = bytearray(W * H)
+    for i in beste:
+        kern[i] = 1
+    maske = bytearray(W * H)
+    n_out = 0
+    for i in zellen:
+        x, y = i % W, i // W
+        if kern[i] or (x > 0 and kern[i - 1]) or (x < W - 1 and kern[i + 1])                 or (y > 0 and kern[i - W]) or (y < H - 1 and kern[i + W]):
+            maske[i] = 1
+            n_out += 1
+    if os.environ.get("TAB_DEBUG"):
+        print(f"[tab] ridx={ridx} zellen={len(zellen)} kern={len(beste)} "
+              f"n_out={n_out} ({n_out/len(zellen)*100:.1f}%)")
+    # Sicherheitsboden 75 % — die eigentliche Richtigkeits-Pruefung macht
+    # der Aufrufer gegen den STEMPEL (>=98 %). Eine 90-%-Kappe verwarf den
+    # Balkon-Abwurf (89,5 %), dessen Ergebnis exakt auf dem Stempel lag.
+    if n_out >= len(zellen) or n_out < 0.75 * len(zellen):
+        return None
+    return maske, n_out
+
+
 def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                   stempel_f=None, grid=None, dark_segs=None, stuetzen=None,
                   ist_f=None, hatch_segs=None, kredit_cells=None):
@@ -3634,6 +3693,30 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                                               min_flaeche_m2)
         if vereinfacht is None or len(vereinfacht) < 3:
             continue
+        # TAB-ABWURF nur wenn der Raum UEBER seinem Stempel liegt (Budget-
+        # Richtung wie Snap-Deckel/BAND_SNAP) — dann ist ein per Hals
+        # haengendes Anhaengsel fast sicher eine gekaperte Nische.
+        # mitglied ist eine INDIZIERBARE Maske (bytearray) — ein set warf
+        # TypeError und liess ALLE Umrisse auf Ersatz zurueckfallen
+        # (gemessen: Sadiku 25x Ersatz, Angerer Oe 2,5->5,5).
+        if os.environ.get("TAB_CUT", "1") != "0":
+            _sf_tab = None
+            try:
+                if stempel_f and ridx < len(stempel_f) and stempel_f[ridx]:
+                    _sf_tab = float(stempel_f[ridx])
+            except Exception:
+                _sf_tab = None
+            if os.environ.get("TAB_DEBUG"):
+                print(f"[tab?] ridx={ridx} n={n_cells} m2={n_cells*zm2:.2f} "
+                      f"sf={_sf_tab}")
+            if _sf_tab and n_cells * zm2 > 1.02 * _sf_tab:
+                _tab = _hals_oeffnung(label, W, H, ridx)
+                if _tab and _tab[1] * zm2 >= 0.98 * _sf_tab:
+                    _v2, _n2 = _umriss_zellen(label, W, H, ridx, zm2,
+                                              min_flaeche_m2,
+                                              mitglied=_tab[0])
+                    if _v2 and len(_v2) >= 3:
+                        vereinfacht, n_cells = _v2, _n2
         # TUERDURCHGAENGE MITZEICHNEN, stempel-gerichtet (Nutzer-Befund
         # "beim Flur laesst er das erste kurze Stueck aus"): die MENGE
         # kreditiert die Tuerbuchten laengst (Balken-F-Gutschrift), nur der

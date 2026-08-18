@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-18.2"
+APP_REV = "2026-08-18.3"
 
 
 @app.get("/api/extract-health")
@@ -6137,7 +6137,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 81  # BAND_SNAP: tiefster Budget-Innenkandidat gewinnt (Baender schrumpfen)
+_NZ_CACHE_V = 82  # TAB_CUT: gekaperte Nischen-Tabs fallen ab (Hals-Oeffnung, Stempel-Gate)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
