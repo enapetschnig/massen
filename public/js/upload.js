@@ -2727,10 +2727,26 @@
       var col = rm ? '#b8c0cc' : (cm ? _nzFarbe(cm) : '#888');
       var unsicher = !cm || (w.hatch_dichte != null && w.hatch_dichte < 1.5);
       var p = w.px;
+      // SCHARFE WAND-DARSTELLUNG (Sichtbefund 2026-08-18: "Wand-Erkennung
+      // schaut nicht gut aus" — breite halbtransparente Linien wirkten
+      // verschmiert): Wandkoerper als leichte Fuellung + duenne KANTEN in
+      // Vollfarbe. Die Kanten zeichnen die Wand, nicht der Nebel.
+      var _sw = Math.max(2, w.staerke_px);
+      var _dx = p[2] - p[0], _dy = p[3] - p[1];
+      var _L = Math.hypot(_dx, _dy) || 1;
+      var _nx = -_dy / _L * _sw / 2, _ny = _dx / _L * _sw / 2;
+      lines += '<polygon points="' +
+        (p[0] + _nx) + ',' + (p[1] + _ny) + ' ' + (p[2] + _nx) + ',' + (p[3] + _ny) + ' ' +
+        (p[2] - _nx) + ',' + (p[3] - _ny) + ' ' + (p[0] - _nx) + ',' + (p[1] - _ny) +
+        '" fill="' + col + '" fill-opacity="' + (rm ? 0.08 : 0.16) +
+        '" stroke="' + col + '" stroke-width="1.4"' +
+        ' stroke-opacity="' + (rm ? 0.35 : 0.95) + '"' +
+        ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') +
+        ' pointer-events="none"/>';
       lines += '<line data-wid="' + w.id + '" data-cm="' + (cm || '') + '" x1="' + p[0] + '" y1="' + p[1] + '" x2="' + p[2] + '" y2="' + p[3] +
-        '" stroke="' + col + '" stroke-width="' + Math.max(2, w.staerke_px) + '" stroke-linecap="round"' +
-        ' stroke-opacity="' + (rm ? 0.3 : 0.82) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
-        ((unsicher || rm) ? ' stroke-dasharray="6 5"' : '') + ' cursor="pointer"><title>' +
+        '" stroke="' + col + '" stroke-width="1.2" stroke-linecap="round"' +
+        ' stroke-opacity="' + (rm ? 0.3 : 0.55) + '"' + (sel ? ' style="filter:drop-shadow(0 0 4px #000)"' : '') +
+        ' cursor="pointer"><title>' +
         (cm ? _nzTLabel(cm) : '~' + w.dicke_cm + ' cm') + ' · ' + w.laenge_m + ' m' +
         (w.mass_exakt ? ' (= Maßzahl lt. Plan)' : '') + ' — klicken zum Korrigieren</title></line>' +
         // FETTE KLICKZONE (unsichtbar, oben drauf): eine 2-px-Linie ist mit
@@ -2852,6 +2868,7 @@
           + '" stroke="' + rc + '" stroke-width="'
           + (_frei ? 1 : (_edit ? 3 : (_nzRaumInfo === _ri ? 2.4 : (_synth ? 1.6 : 1.3)))) + '"' +
           ' stroke-opacity="' + (_frei ? 0.55 : 1) + '"' +
+          (_frei ? ' stroke-dasharray="7 5"' : '') +
           ((_frei || (_synth && !_edit)) ? ' stroke-dasharray="9 5"' : '') +
           ' cursor="pointer" pointer-events="' + _pe + '">' +
           '<title>' + esc(r.name || '') + (r.f_m2 ? ' · ' + fmtNum(r.f_m2) + ' m²' : '') +

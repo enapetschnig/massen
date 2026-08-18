@@ -1049,10 +1049,30 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 # ans Frontend exportieren — dort wuerde er als Phantom-Tuer
                 # gezaehlt und gezeichnet.
                 continue
+            # MARKER AUF DIE WAND PROJIZIEREN (Sichtbefund 2026-08-18:
+            # "Fenster-Erkennung ist nicht genau" — die Marker schwebten an
+            # der TEXT-Position, mitten im Raum). Nur die DARSTELLUNG
+            # wandert; der Byte-Anker (cx/cy) traegt weiter die Logik.
+            _mx, _my = cx, cy
+            _best_d = (1.5 * ptm) ** 2
+            for _w in waende:
+                (_wx0, _wy0, _wx1, _wy1) = _w["px"]
+                _ax, _ay = _wx0 / scale + bx0, _wy0 / scale + by0
+                _bx2, _by2 = _wx1 / scale + bx0, _wy1 / scale + by0
+                _dx, _dy = _bx2 - _ax, _by2 - _ay
+                _L2 = _dx * _dx + _dy * _dy
+                if _L2 < 1:
+                    continue
+                _t = max(0.0, min(1.0, ((cx - _ax) * _dx + (cy - _ay) * _dy) / _L2))
+                _qx, _qy = _ax + _t * _dx, _ay + _t * _dy
+                _d2 = (_qx - cx) ** 2 + (_qy - cy) ** 2
+                if _d2 < _best_d:
+                    _best_d = _d2
+                    _mx, _my = _qx, _qy
             oeffnungen.append({
                 "id": len(oeffnungen), "typ": o.get("typ"),
                 "breite_m": o.get("breite_m"), "hoehe_m": o.get("hoehe_m"),
-                "px": to_px(cx, cy),
+                "px": to_px(_mx, _my),
             })
         # MASSPAAR-ANKER (Sadiku-Klasse, 2026-08-14, hinter Schalter):
         # Plaene ohne FPH/STUK-Beschriftung stellen ans Fenster nur ein
