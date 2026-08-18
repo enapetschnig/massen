@@ -1199,6 +1199,134 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
             def _ist_aussen(_n, _f, _u):
                 return False
 
+        # HATCH-BLOCK-FALLBACK (Wand-Recall-Session 2026-08-18, hinter
+        # WAND_FALLBACK=0 schaltet ab — Standard AN seit 2026-08-18
+        # (Abdeckung Angerer 66->89 %, Sadiku 90 %; Raum-Metriken gleich):
+        # 34 % der Poché-Zellen hatten KEINE Listen-Wand (ganze Aussenzuege:
+        # Suedwand mit Fensterfront, rechte Fluegelwand; dazu Stummel und
+        # Pfeiler). Unabgedeckte Poché-Cluster im Erkennungs-Gitter werden
+        # als Waende nachgereicht: laengliche achsparallele Cluster ->
+        # Mittellinie + Querbreite als Dicke. quelle='hatch_block',
+        # mass_exakt False — sichtbar, korrigierbar, ehrlich markiert.
+        if os.environ.get("WAND_FALLBACK", "1") != "0" and dbg_r.get("grid") is not None                 and dbg_r.get("rst") is not None:
+            try:
+                _rstf = dbg_r["rst"]
+                _Wf, _Hf = _rstf.W, _rstf.H
+                _gridf = dbg_r["grid"]
+                _cellf = _rstf.cell
+                # Abdeckungs-Maske aus der bisherigen Wand-Liste
+                _deck = bytearray(_Wf * _Hf)
+                import math as _m2
+                for _w0 in waende:
+                    _px = _w0["px"]
+                    _ax, _ay = _px[0] / scale, _px[1] / scale
+                    _bx3, _by3 = _px[2] / scale, _px[3] / scale
+                    # _stw, NICHT _st: _st ist die Stempel-Liste der Seite —
+                    # das Shadowing liess den Grid-Dump crashen ('int' not
+                    # iterable).
+                    _stw = max(1, int(((_w0.get("snap_cm") or _w0["dicke_cm"])
+                                       / 100.0 * ptm / _cellf) / 2) + 1)
+                    _n0 = max(2, int(_m2.hypot(_bx3 - _ax, _by3 - _ay) / _cellf))
+                    for _k0 in range(_n0 + 1):
+                        _t0 = _k0 / _n0
+                        _ci = int((_ax + (_bx3 - _ax) * _t0) / _cellf)
+                        _cj = int((_ay + (_by3 - _ay) * _t0) / _cellf)
+                        for _dj in range(-_stw, _stw + 1):
+                            for _di in range(-_stw, _stw + 1):
+                                _ii, _jj = _ci + _di, _cj + _dj
+                                if 0 <= _ii < _Wf and 0 <= _jj < _Hf:
+                                    _deck[_jj * _Wf + _ii] = 1
+                _neu_zaehler = [0]
+
+                def _emit_wand(_xs2, _ys2, _bw, _bh):
+                    _lang, _quer = max(_bw, _bh), min(_bw, _bh)
+                    _cx2 = (min(_xs2) + max(_xs2) + 1) / 2 * _cellf
+                    _cy2 = (min(_ys2) + max(_ys2) + 1) / 2 * _cellf
+                    if _bw >= _bh:
+                        _p1 = (min(_xs2) * _cellf, _cy2)
+                        _p2 = ((max(_xs2) + 1) * _cellf, _cy2)
+                        _achse2 = "h"
+                    else:
+                        _p1 = (_cx2, min(_ys2) * _cellf)
+                        _p2 = (_cx2, (max(_ys2) + 1) * _cellf)
+                        _achse2 = "v"
+                    _dick2 = round(_quer * 100, 1)
+                    _sn2 = vektor._snap_legende(_dick2, LEG, 2.0)
+                    nonlocal_idx = _emit_wand._idx[0]
+                    waende.append({
+                        "id": nonlocal_idx, "achse": _achse2,
+                        "px": [*to_px(_p1[0] + bx0, _p1[1] + by0),
+                               *to_px(_p2[0] + bx0, _p2[1] + by0)],
+                        "dicke_cm": _dick2, "snap_cm": _sn2,
+                        "laenge_m": round(_lang, 2), "mass_exakt": False,
+                        "mass_px": None,
+                        "staerke_px": round((_sn2 or _dick2) / 100.0 * ptm * scale, 1),
+                        "hatch_dichte": None, "quelle": "hatch_block",
+                    })
+                    _emit_wand._idx[0] += 1
+                    if _sn2:
+                        summe[_sn2] = round(summe.get(_sn2, 0) + _lang, 2)
+                    _neu_zaehler[0] += 1
+
+                # unabgedeckte Cluster (BFS)
+                from collections import deque as _dq2
+                _emit_wand._idx = [idx]
+                _seen = bytearray(_Wf * _Hf)
+                for _start in range(_Wf * _Hf):
+                    if _seen[_start] or not _gridf[_start] or _deck[_start]:
+                        continue
+                    _komp = []
+                    _q2 = _dq2([_start]); _seen[_start] = 1
+                    while _q2:
+                        _c2 = _q2.popleft(); _komp.append(_c2)
+                        _x2 = _c2 % _Wf
+                        for _nb in (_c2 - 1, _c2 + 1, _c2 - _Wf, _c2 + _Wf):
+                            if 0 <= _nb < _Wf * _Hf and _gridf[_nb]                                     and not _deck[_nb] and not _seen[_nb]                                     and abs(_nb % _Wf - _x2) <= 1:
+                                _seen[_nb] = 1; _q2.append(_nb)
+                    if len(_komp) * (_cellf / ptm) ** 2 < 0.12:
+                        continue        # Krümel
+                    # L-/T-Cluster REKURSIV entlang der langen Achse teilen
+                    # (Ecken und von Fenstern unterbrochene Fronten sind
+                    # keine Rechtecke — der Fuellgrad verwarf sie am Stueck).
+                    _stapel = [(_komp, 0)]
+                    _teile = []
+                    while _stapel:
+                        _cells, _tiefe = _stapel.pop()
+                        if len(_cells) * (_cellf / ptm) ** 2 < 0.12:
+                            continue
+                        _xs2 = [c % _Wf for c in _cells]
+                        _ys2 = [c // _Wf for c in _cells]
+                        _bw = (max(_xs2) - min(_xs2) + 1) * _cellf / ptm
+                        _bh = (max(_ys2) - min(_ys2) + 1) * _cellf / ptm
+                        _fuell = len(_cells) / max(1.0, (_bw * _bh)
+                                                   / (_cellf / ptm) ** 2)
+                        if (min(_bw, _bh) <= 0.65 and _fuell >= 0.45)                                 or _tiefe >= 4:
+                            _teile.append((_cells, _xs2, _ys2, _bw, _bh, _fuell))
+                            continue
+                        if _bw >= _bh:
+                            _mid = (min(_xs2) + max(_xs2)) // 2
+                            _a1 = [c for c in _cells if c % _Wf <= _mid]
+                            _a2 = [c for c in _cells if c % _Wf > _mid]
+                        else:
+                            _mid = (min(_ys2) + max(_ys2)) // 2
+                            _a1 = [c for c in _cells if c // _Wf <= _mid]
+                            _a2 = [c for c in _cells if c // _Wf > _mid]
+                        _stapel.append((_a1, _tiefe + 1))
+                        _stapel.append((_a2, _tiefe + 1))
+                    for (_cells, _xs2, _ys2, _bw, _bh, _fuell) in _teile:
+                        _lang, _quer = max(_bw, _bh), min(_bw, _bh)
+                        if _lang < 0.5 or _quer < 0.07 or _quer > 0.65                                 or _fuell < 0.45:
+                            continue
+                        _emit_wand(_xs2, _ys2, _bw, _bh)
+                    continue
+                idx = _emit_wand._idx[0]
+                _neu_w = _neu_zaehler[0]
+                if _neu_w:
+                    print(f"[nachzeichnen] Hatch-Block-Fallback: {_neu_w} "
+                          f"Waende nachgereicht")
+            except Exception as _wfx:  # pragma: no cover
+                print(f"[nachzeichnen] Wand-Fallback fehlgeschlagen: {_wfx}")
+
         region_gates = {}   # je Raum: warum wurde der Umriss (nicht) gezeichnet
         try:
             # Läuft jetzt AUCH auf Großplänen (Nachvollziehbarkeit: WM/TG-Räume hatten
