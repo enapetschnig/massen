@@ -23,46 +23,31 @@
   </aside>
 
   <main class="app-main">
-  <!-- Content -->
+  <!-- DASHBOARD-UMBAU 2026-08-18: EIN klarer Einstieg (Projekt + Plan ->
+       die KI liest, du misst, fertig ist das Aufmass). Kennzahlen als
+       schlanke Zeile statt Kachel-Wand; die Projekt-Karten sind die Buehne. -->
   <div class="page-container">
 
-    <!-- Statistics Summary -->
-    <div class="stats-row" id="stats-row">
-      <div class="stat-card card">
-        <div class="stat-value" id="stat-projects">--</div>
-        <div class="stat-label">Projekte</div>
+    <header class="dash-hero">
+      <div>
+        <h2 class="dash-titel">Aufmaß-Projekte</h2>
+        <p class="dash-sub">Plan hochladen &rarr; die KI legt die Räume als
+          Mess-Vorschläge auf den Plan &rarr; bestätigen oder selbst messen
+          &rarr; Aufmaßprotokoll mit Formeln, Aufmaßplan &amp; ÖNORM-Export.</p>
       </div>
-      <div class="stat-card card">
-        <div class="stat-value" id="stat-plans">--</div>
-        <div class="stat-label">Pl&auml;ne</div>
-      </div>
-      <div class="stat-card card">
-        <div class="stat-value" id="stat-analysed">--</div>
-        <div class="stat-label">Analysiert</div>
-      </div>
-      <div class="stat-card card">
-        <div class="stat-value" id="stat-confidence">--</div>
-        <div class="stat-label">Konfidenz &empty;</div>
-      </div>
+      <button class="btn btn-accent btn-lg" id="new-project-btn">+ Neues Projekt</button>
+    </header>
+
+    <div class="dash-stats" id="stats-row">
+      <span><b id="stat-projects">–</b> Projekte</span>
+      <span><b id="stat-plans">–</b> Pläne</span>
+      <span><b id="stat-analysed">–</b> analysiert</span>
+      <span><b id="stat-confidence">–</b> Konfidenz &empty;</span>
     </div>
 
-    <!-- Recent Activity -->
     <div class="card mb-2" id="activity-section" style="display:none;">
       <h3 class="section-title">Letzte Analysen</h3>
       <ul class="activity-list" id="activity-list"></ul>
-    </div>
-
-    <div class="page-header">
-      <h2>Meine Projekte</h2>
-      <button class="btn btn-accent" id="new-project-btn">+ Neues Projekt</button>
-    </div>
-
-    <div class="dashboard-tipp">
-      💡 <strong>So läuft ein Aufmaß:</strong> Plan hochladen &rarr; die KI liest Räume,
-      Maße und Wände und legt sie als <strong>Mess-Vorschläge</strong> auf den Plan &rarr;
-      du bestätigst oder misst selbst (Fläche, Länge, Abzug, Treppe, Dach &hellip;) &rarr;
-      Positionen zuordnen &rarr; fertig ist das <strong>Aufmaßprotokoll mit Formeln</strong>
-      samt Aufmaßplan als PDF und ÖNORM-Datenträger.
     </div>
 
     <div class="project-grid" id="project-grid">

@@ -3527,3 +3527,35 @@ g[data-raum].nz-hi circle {
 /* Ebenen ausblenden (KI-Zeichnung entfernbar je Ebene) */
 .nz-lay-aus-waende .lay-waende, .nz-lay-aus-oeff .lay-oeff,
 .nz-lay-aus-raeume .lay-raeume, .nz-lay-aus-mess .lay-mess { display: none; }
+
+/* ─── WORKFLOW-TOP-LEISTE (Umbau 2026-08-18) ────────────────────────── */
+.wf-topbar { position: sticky; top: 0; z-index: 40; display: flex;
+  align-items: center; gap: .35rem; padding: .55rem .9rem;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+  margin: 0 0 1rem; }
+.wf-topbar .wf-step { border: 1px solid var(--border-strong); background: var(--surface);
+  border-radius: 999px; padding: .45rem 1.05rem; font: inherit; font-size: .88rem;
+  font-weight: 650; color: var(--text-light); cursor: pointer;
+  transition: var(--transition); }
+.wf-topbar .wf-step:hover { border-color: var(--ink); color: var(--ink); }
+.wf-topbar .wf-step.wf-on { background: var(--ink); border-color: var(--ink);
+  color: #fff; box-shadow: var(--shadow-sm); }
+.wf-topbar .wf-sep { width: 1px; height: 1.4rem; background: var(--border-strong);
+  margin: 0 .3rem; }
+@media (max-width: 700px) {
+  .wf-topbar { flex-wrap: wrap; }
+  .wf-topbar .wf-step { padding: .35rem .7rem; font-size: .8rem; }
+}
+/* Schritt 3: Alt-Detailtabellen bleiben weg (Gruppe 9 regelt die Kacheln) */
+.wf-s3 #results-section { display: none !important; }
+
+/* ─── DASHBOARD-UMBAU 2026-08-18 ────────────────────────────────────── */
+.dash-hero { display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 1.2rem; margin: .4rem 0 1rem; flex-wrap: wrap; }
+.dash-titel { font-family: var(--font-display); font-size: 1.7rem; margin: 0 0 .3rem; }
+.dash-sub { color: var(--text-light); font-size: .92rem; max-width: 42rem; margin: 0; }
+.dash-stats { display: flex; gap: 1.4rem; flex-wrap: wrap; font-size: .85rem;
+  color: var(--text-light); border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border); padding: .55rem .1rem; margin-bottom: 1.1rem; }
+.dash-stats b { font-family: var(--font-mono); color: var(--ink); font-weight: 700; }

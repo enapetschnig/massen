@@ -15,14 +15,7 @@
     </a>
     <div class="app-rail-eyebrow">Projekt · Workflow</div>
     <!-- WORKFLOW-STEPPER = die Navigation dieses Projekts -->
-    <div class="workflow-steps" id="workflow-steps">
-      <button type="button" class="wf-step wf-on" data-wf="0" title="Alle Bereiche gleichzeitig (Standard)">Übersicht</button>
-      <button type="button" class="wf-step" data-wf="1" title="Pläne hochladen &amp; Analyse-Status">1 · Pläne</button>
-      <button type="button" class="wf-step" data-wf="2" title="Räume im Plan prüfen: Umrisse, Wände und Öffnungen kontrollieren und korrigieren">2 · Räume</button>
-      <button type="button" class="wf-step" data-wf="3" title="Prüfbare Mengen nach ÖNORM je Gewerk + Bestell-Materialliste">3 · Positionen</button>
-      <button type="button" class="wf-step" data-wf="4" title="Welche Position hängt an welchem Raum — jede Menge bis zum Bauteil rückverfolgbar">4 · Zuordnung</button>
-      <button type="button" class="wf-step" data-wf="5" title="Exportieren und Rückfragen an die Auswertung stellen">5 · Export &amp; Fragen</button>
-    </div>
+
     <div class="app-rail-eyebrow">Betrieb</div>
     <a href="dashboard.html" class="app-rail-link">📁 Alle Projekte</a>
     <a href="kalibrierung.html" class="app-rail-link" title="Eigene Polier-Listen hochladen — die KI lernt die Faktoren deines Betriebs">📐 Kalibrierung</a>
@@ -34,6 +27,17 @@
 
   <!-- Content -->
   <main class="app-main">
+    <!-- WORKFLOW ALS TOP-LEISTE (Umbau 2026-08-18): drei Schritte statt
+         fuenf — Plan hochladen, am Plan messen, abrechnen. Die KI arbeitet
+         dazwischen unsichtbar (Auto-Analyse nach Upload, Vorschlaege am
+         Plan). "Uebersicht" zeigt weiter alles inkl. der Detail-Analyse. -->
+    <div class="wf-topbar" id="workflow-steps">
+      <button type="button" class="wf-step wf-on" data-wf="0" title="Alles auf einen Blick, inklusive der kompletten KI-Analyse">Übersicht</button>
+      <span class="wf-sep"></span>
+      <button type="button" class="wf-step" data-wf="1" title="PDF hochladen — die KI liest den Plan automatisch">1 · Plan</button>
+      <button type="button" class="wf-step" data-wf="2" title="Die erkannten Räume liegen als Vorschläge am Plan — bestätigen oder selbst messen (F/R/L/S/A · V/T/D/W)">2 · Aufmaß</button>
+      <button type="button" class="wf-step" data-wf="3" title="Positionen anlegen oder importieren, Messungen zuordnen, Protokoll + Aufmaßplan + ÖNORM exportieren">3 · Abrechnung</button>
+    </div>
   <div class="page-container">
     <!-- Project Header -->
     <div class="project-header" id="project-header">

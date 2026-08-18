@@ -5094,13 +5094,18 @@
     // Plan gross, nicht eine Liste. Die Prüfpunkte bleiben in der Übersicht
     // und in Schritt 3 erreichbar.
     2: ['#nachzeichnen-section'],
-    3: ['#positionen-section',
-        '#ergebnis-status-banner', '#zielgruppen-presets', '#geo-box', '#pruefliste',
-        '#fact-strip', '.ml-board-toolbar',
-        '#mengen-board', '#ml-board', '#konf-kopf', '#auswertung-kennzahlen',
-        '.advanced-drawer'],
-    4: ['#zuordnung-section'],
-    5: ['#protokoll-section', '#projekt-chat']
+    // SCHRITT 3 = ABRECHNUNG: Positionen + Zuordnung + Protokoll + Chat,
+    // dazu die kompakte KI-Mengenermittlung (als Quelle fuer "Aus
+    // Mengenermittlung uebernehmen"). Die uebrigen Analyse-Kacheln
+    // (Pruefliste, Kennzahlen, Materialliste-Board, Drawer, Alt-Tabellen)
+    // leben in Gruppe 9 — sie erscheinen NUR in der Uebersicht (Schritt 0
+    // blendet nichts aus); in den Arbeitsschritten sind sie Laerm.
+    3: ['#positionen-section', '#zuordnung-section', '#protokoll-section',
+        '#mengen-board', '#projekt-chat'],
+    9: ['#ergebnis-status-banner', '#zielgruppen-presets', '#geo-box',
+        '#pruefliste', '#fact-strip', '.ml-board-toolbar', '#ml-board',
+        '#konf-kopf', '#auswertung-kennzahlen', '.advanced-drawer',
+        '#results-section']
   };
   function wfShow(step) {
     // Aufmass-Bereiche (Positionen/Zuordnung/Protokoll) beim Betreten frisch
@@ -5138,6 +5143,9 @@
       if (typeof _nzApplyZoom === 'function') _nzApplyZoom();
       var nz = document.getElementById('nachzeichnen-section');
       if (nz) nz.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (step === 3) {
+      var po = document.getElementById('positionen-section');
+      if (po) po.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else if (step === 4) {
       var zu = document.getElementById('zuordnung-section');
       if (zu) zu.scrollIntoView({ behavior: 'smooth', block: 'start' });
