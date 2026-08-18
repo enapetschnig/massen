@@ -5136,6 +5136,32 @@
     // Schritt 2: der Plan bekommt die volle Hoehe.
     var _ns = document.getElementById('nachzeichnen-section');
     if (_ns) _ns.classList.toggle('nz-plan-gross', step === 2);
+    // LEERZUSTAND JE SCHRITT (Umbau 2026-08-18): statt leerer Flaeche ein
+    // Satz, was fehlt, und ein Knopf dorthin. Signale aus dem Modul-Zustand
+    // (_nzPlaene = analysierte Plaene, _mwListe = Messungen).
+    var _hint = document.getElementById('wf-hint');
+    if (_hint) {
+      var _htxt = '';
+      if (step === 2 && !(_nzPlaene && _nzPlaene.length) && !_nzLaeuft && !_nzData) {
+        _htxt = 'Hier erscheint der Plan mit den KI-Vorschlägen, sobald einer ' +
+          'analysiert ist. <button type="button" class="btn btn-sm btn-accent" ' +
+          'data-wf-go="1">Plan hochladen</button>';
+      } else if (step === 3 && !(_mwListe && _mwListe.length) &&
+                 !(_nzPlaene && _nzPlaene.length)) {
+        _htxt = 'Für die Abrechnung braucht es Messungen. ' +
+          '<button type="button" class="btn btn-sm btn-accent" data-wf-go="1">' +
+          'Plan hochladen</button> <button type="button" class="btn btn-sm" ' +
+          'data-wf-go="2">Zum Aufmaß</button>';
+      }
+      _hint.innerHTML = _htxt;
+      _hint.style.display = _htxt ? '' : 'none';
+      _hint.querySelectorAll('[data-wf-go]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          _wfUserPicked = true;
+          wfShow(parseInt(b.getAttribute('data-wf-go'), 10));
+        });
+      });
+    }
     if (step === 1) {
       var up = document.getElementById('upload-section');
       if (up) up.scrollIntoView({ behavior: 'smooth', block: 'start' });

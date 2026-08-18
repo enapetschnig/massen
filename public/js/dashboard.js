@@ -92,6 +92,7 @@
             '<p class="project-address">' + escapeHtml(p.adresse || '') + '</p>' +
             '<div class="project-meta">' +
               '<span class="badge ' + statusBadge(p.status) + '">' + escapeHtml(p.status || 'Neu') + '</span>' +
+              '<span class="proj-chips" data-proj="' + p.id + '"></span>' +
               '<span>' + formatDate(p.erstellt_am) + '</span>' +
             '</div>';
 
@@ -106,6 +107,32 @@
           });
 
           projectGrid.appendChild(card);
+        });
+        ladeChips(list.map(function (p) { return p.id; }));
+      });
+  }
+
+  // STATUS-CHIPS je Karte (Umbau 2026-08-18): "N Pläne · analysiert".
+  // EIN Sammel-Query über alle Projekte, kein Query je Karte.
+  function ladeChips(ids) {
+    if (!ids.length) return;
+    _sb.from('plaene').select('projekt_id, verarbeitet').in('projekt_id', ids)
+      .then(function (res) {
+        var je = {};
+        (res.data || []).forEach(function (pl) {
+          var e = je[pl.projekt_id] = je[pl.projekt_id] || { n: 0, fertig: 0 };
+          e.n++; if (pl.verarbeitet) e.fertig++;
+        });
+        ids.forEach(function (id) {
+          var el = projectGrid.querySelector('.proj-chips[data-proj="' + id + '"]');
+          if (!el) return;
+          var e = je[id];
+          if (!e) { el.innerHTML = '<span class="chip chip-leer">noch kein Plan</span>'; return; }
+          var ana = e.fertig >= e.n
+            ? '<span class="chip chip-ok">analysiert</span>'
+            : '<span class="chip">' + e.fertig + '/' + e.n + ' analysiert</span>';
+          el.innerHTML = '<span class="chip">' + e.n + ' Plan' + (e.n > 1 ? 'e' : '') +
+            '</span>' + ana;
         });
       });
   }
