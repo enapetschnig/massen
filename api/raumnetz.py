@@ -4388,6 +4388,113 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                       "stuetzen": _stuetzen, "boegen": boegen,
                       "kredit_cells": _kredit_cells,
                       "draussen": _draussen_maske(grid, label, rst.W, rst.H)})
+    # TASCHEN-ANSPRUCH (Korridor-Graben AP.01-Flur, 2026-08-19, hinter
+    # POCKET_CLAIM): das Gegenstueck zum Tab-Abwurf. Tuer-Balken zerlegen
+    # einen Korridor in Segmente und lassen UNBEANSPRUCHTE Taschen
+    # (freie Zellen ohne Label) zurueck — der Stempel zaehlt den Boden
+    # aber durchgehend (Flur f_ist -19,3 %). Ein Raum UNTER seinem
+    # Stempel darf angrenzende unbeanspruchte freie Zellen per BFS
+    # beanspruchen, GEDECKELT beim Stempel: nie mehr Zellen, als die
+    # byte-exakte Flaeche erlaubt. Reihenfolge nach groesstem Defizit.
+    # TASCHEN-BRUECKE (Korridor-Graben AP.01-Flur, 2026-08-19, hinter
+    # POCKET_CLAIM): Tuer-Balken zerlegen einen Korridor in SEGMENTE
+    # desselben Labels; die Tasche dazwischen (freie Zellen ohne Label)
+    # zaehlt der Stempel als Boden mit. BEANSPRUCHT wird eine Tasche NUR,
+    # wenn sie durch duenne Balken (<=0,25 m) MINDESTENS ZWEI getrennte
+    # Komponenten DESSELBEN Raums verbindet — Fensternischen beruehren nur
+    # eine Komponente und bleiben unbeansprucht (erste Fassung frass durch
+    # die Parapet-Balken die eigenen Nischen: max 9,9 -> 17,5 %). Deckel:
+    # nie ueber den Stempel.
+    if os.environ.get("POCKET_CLAIM") and stempel:
+        try:
+            from collections import deque as _dq3
+            _zm2p = rst.zm * rst.zm
+            _WH = rst.W * rst.H
+            _K3 = max(2, int(0.25 / rst.zm))
+            _vor = _messen_und_status(grid, label, ok_start, versch)
+
+            def _tunnelziel(_start, _ri):
+                _pos = _start
+                for _ in range(_K3):
+                    _neu = _pos + _ri
+                    if not (0 <= _neu < _WH) or abs(_neu % rst.W - _pos % rst.W) > 1:
+                        return None
+                    _pos = _neu
+                    if not grid[_pos]:
+                        return _pos
+                return None
+
+            for _i3 in range(len(stempel)):
+                try:
+                    _sf3 = float(stempel[_i3].get("f_m2") or 0)
+                except Exception:
+                    continue
+                _r3 = _vor[_i3] if _i3 < len(_vor) else None
+                if not (_sf3 and _r3 and _r3.get("f_ist")
+                        and _r3["f_ist"] < 0.97 * _sf3):
+                    continue
+                _budget_z = int((_sf3 - _r3["f_ist"]) / _zm2p)
+                if _budget_z < 8:
+                    continue
+                # Komponenten des Labels
+                _komp_id = {}
+                _nk = 0
+                for _ix in range(_WH):
+                    if label[_ix] != _i3 or _ix in _komp_id:
+                        continue
+                    _q = _dq3([_ix]); _komp_id[_ix] = _nk
+                    while _q:
+                        _c = _q.popleft()
+                        for _nb in (_c - 1, _c + 1, _c - rst.W, _c + rst.W):
+                            if 0 <= _nb < _WH and label[_nb] == _i3                                     and _nb not in _komp_id                                     and abs(_nb % rst.W - _c % rst.W) <= 1:
+                                _komp_id[_nb] = _nk; _q.append(_nb)
+                    _nk += 1
+                if _nk < 2:
+                    continue    # ein Segment — nichts zu bruecken
+                # freie unbeanspruchte Taschen einsammeln
+                _pseen = bytearray(_WH)
+                _genommen = 0
+                for _ix in range(_WH):
+                    if _pseen[_ix] or grid[_ix] or label[_ix] >= 0:
+                        continue
+                    _q = _dq3([_ix]); _pseen[_ix] = 1
+                    _tasche = [_ix]
+                    while _q:
+                        _c = _q.popleft()
+                        for _nb in (_c - 1, _c + 1, _c - rst.W, _c + rst.W):
+                            if 0 <= _nb < _WH and not _pseen[_nb]                                     and not grid[_nb] and label[_nb] < 0                                     and abs(_nb % rst.W - _c % rst.W) <= 1:
+                                _pseen[_nb] = 1; _q.append(_nb)
+                                _tasche.append(_nb)
+                    if not (4 <= len(_tasche) <= _budget_z - _genommen):
+                        continue
+                    # Welche Komponenten erreicht die Tasche durch Balken?
+                    _erreicht = set()
+                    for _c in _tasche:
+                        for _ri in (-1, 1, -rst.W, rst.W):
+                            _nb = _c + _ri
+                            if not (0 <= _nb < _WH)                                     or abs(_nb % rst.W - _c % rst.W) > 1:
+                                continue
+                            if label[_nb] == _i3:
+                                _erreicht.add(_komp_id.get(_nb, -1))
+                            elif grid[_nb]:
+                                _z = _tunnelziel(_nb, _ri)
+                                if _z is not None and label[_z] == _i3:
+                                    _erreicht.add(_komp_id.get(_z, -1))
+                        if len(_erreicht) >= 2:
+                            break
+                    if len(_erreicht) >= 2:
+                        for _c in _tasche:
+                            label[_c] = _i3
+                        _genommen += len(_tasche)
+                if _genommen and os.environ.get("GUARD_DEBUG"):
+                    print(f"[pocket] {stempel[_i3].get('name')}: "
+                          f"{_genommen} Brueckenzellen "
+                          f"({_genommen*_zm2p:.2f} m2)")
+        except Exception as _pe:  # pragma: no cover
+            import traceback as _tb3
+            print(f"[pocket] fehlgeschlagen: {_pe}")
+            _tb3.print_exc()
+
     out = _messen_und_status(grid, label, ok_start, versch,
                              kredit_out=_kredit_cells)
     for r in out:
