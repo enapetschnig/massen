@@ -111,8 +111,15 @@ def run():
     if doppelt:
         fehler.append(f"doppelte ids in projekt.html: {sorted(doppelt)}")
 
-    # 2) jeder Schritt > 0 hat einen Knopf und umgekehrt
+    # 2) jeder Schritt > 0 hat einen Knopf und umgekehrt.
+    #    AUSNAHME Gruppe 9 (Layout-Umbau 2026-08-18): die Analyse-Kacheln
+    #    leben bewusst OHNE Knopf — sie erscheinen nur in der Uebersicht
+    #    (Schritt 0 blendet nichts aus); in den Arbeitsschritten sind sie
+    #    Laerm. Fuer sie gilt stattdessen: ihre Selektoren muessen im HTML
+    #    existieren (sonst verschwinden Bereiche stumm fuer immer).
     for s in gruppen:
+        if s == 9:
+            continue
         if s not in knopf:
             fehler.append(f"Schritt {s} hat Bereiche, aber keinen Knopf")
     for s in knopf:
