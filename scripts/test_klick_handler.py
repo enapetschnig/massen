@@ -136,6 +136,8 @@ def _werkzeugkasten(fehler):
         (r"e\.key === 'Delete'", src, "Entf löscht gewählte Messung"),
         (r"_mwUndo", src, "Ctrl+Z-Sitzungsstack"),
         (r"e\.shiftKey && _mwPts\.length", src, "Shift-Ortho"),
+        (r"nzZeigeMessung", src, "Plan-Sprung existiert"),
+        (r"data-sprung", auf, "M-Nummern springen zum Plan"),
         (r"< 12\) \{\n        _mwAbschliessen", src, "Klick auf Start schließt"),
         (r"uebernehmenAusMassen", auf, "KI-LV -> echte Positionen"),
         (r"function renderMessungZuordnung", auf, "Zuordnung Messung->Position"),
@@ -154,6 +156,15 @@ def _werkzeugkasten(fehler):
         fehler.append("Endpunkt /api/messungen-vorschlagen fehlt im Backend")
     else:
         print("   Endpunkt messungen-vorschlagen im Backend ✓")
+
+    # AUSGEMISTET (2026-08-19): das alte "Messen"-Hilfslinien-Werkzeug ist
+    # raus — vollstaendig vom Laengen-Werkzeug (L) abgeloest. Kommt es
+    # zurueck, ist das eine bewusste Produktentscheidung, kein Versehen.
+    if re.search(r"_railBtn\('mess',", src):
+        fehler.append("altes Mess-Werkzeug ist zurueck in der Leiste — es war "
+                      "bewusst ausgemistet (L ist der eine Messweg)")
+    else:
+        print("   altes Mess-Werkzeug bleibt draussen                    ✓")
 
     # DER WERT KOMMT VOM SERVER. Rechnet der Browser die gespeicherte Zahl,
     # gibt es zwei Wahrheiten (Anzeige vs. Protokoll/Export).
