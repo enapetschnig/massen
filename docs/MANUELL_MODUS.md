@@ -64,3 +64,38 @@ Folgerunde (braucht die Handle-Mechanik der Messungen).
 - Der Leicht-Pass erfindet nichts: ohne lesbaren Maßstab bleibt die
   Kalibrierungs-Pflicht sichtbar (Statusleiste „Maßstab: kalibrieren!").
 - KI-Erkennung wird davon nicht berührt (Suite-Disziplin bleibt).
+
+---
+
+## 4. Runde „Perfekt & ausgemistet" (Plan 2026-08-19, nach Suite)
+
+**Nutzer:** „dass man den Plan immer sieht … mindestens so gut wie
+digiplan … haue alle Funktionen aus der UI die wir nicht brauchen."
+
+### A. Plan immer sichtbar
+- **Zuordnung → Plan-Sprung:** M-Nummer in der Zuordnungstabelle ist
+  klickbar → Schritt 2, Messung selektiert und hingezoomt. (Die
+  Rückrichtung Protokoll→Plan gleich mit.)
+- Schritt 2 behält den Viewport (steht).
+
+### B. UI-Ausmisten (raus oder zusammenlegen)
+1. **„Messen"-Hilfslinien-Werkzeug (data-z=mess) RAUS** — vollständig vom
+   Längen-Werkzeug (L) abgelöst; zwei Messwege verwirren. Kalibrieren (📐)
+   bleibt.
+2. **Werkzeugleiste in 4 klare Gruppen:** Messen / Ebenen / Bearbeiten
+   (Wand zeichnen, Raum-Editor) / Ansicht (Zoom, Fit, Vollbild,
+   Präsentation, Füllung, Umfassung → in „Ansicht" bündeln).
+3. **Export-Konsolidierung im Hero:** primär nur noch
+   „📊 Protokoll (Excel) · 🗺 Aufmaßplan (PDF) · 🧾 ÖNORM (.onlv)";
+   Rest (CSV, Voll-Export, Raumliste PDF/XLSX, Aufmaß-CSV, Aufmaßblatt)
+   in ein „Mehr ▾"-Menü.
+4. Zielgruppen-Presets: bleiben nur Übersicht (bereits so) — kein Ausbau.
+
+### C. KI extrem verbessern (Reihenfolge)
+1. **Flur-fin-Regression lösen** (Durchgang-Kredit verschiebt die
+   Retrace-Kaskade: fin −12,7→−16 trotz besserem ist): _rg_dbg-Vergleich
+   mit/ohne Kredit, dann Gate nachziehen.
+2. **1-m-Slab**: Brand-Kategorien einzeln rendern (welcher Mechanismus
+   brennt ihn) — vermutlich Bogen-/Verschluss-Kumulation.
+3. Dann **DURCHGANG_KREDIT Standard an** (Suite-Gate) → AP.01 ≈3 %.
+4. Danach Topliste neu ziehen; Ziel: KEIN Raum über 6 % im Korpus.
