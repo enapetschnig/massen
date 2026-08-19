@@ -143,12 +143,14 @@
     var name = document.getElementById('proj-name').value.trim();
     var address = document.getElementById('proj-address').value.trim();
     var gewerk = document.getElementById('proj-gewerk').value;
+    var modusEl = document.querySelector('input[name="proj-modus"]:checked');
+    var modus = modusEl ? modusEl.value : 'ki';
     if (!name) return;
 
     var btn = projectForm.querySelector('button[type="submit"]');
     btn.disabled = true;
 
-    _sb.from('projekte').insert({ firma_id: firma.id, name: name, adresse: address, gewerk: gewerk })
+    _sb.from('projekte').insert({ firma_id: firma.id, name: name, adresse: address, gewerk: gewerk , modus: modus })
       .then(function () {
         closeModal();
         loadProjects();

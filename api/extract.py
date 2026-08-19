@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-18.5"
+APP_REV = "2026-08-19.1"
 
 
 @app.get("/api/extract-health")
@@ -6125,6 +6125,7 @@ class NachzeichnenRequest(BaseModel):
     plan_id: Optional[str] = None
     seite: Optional[int] = None   # Multi-Geschoss: explizite PDF-Seite (on-demand)
     massen: Optional[dict] = None  # Aufmaßblatt S.2: Materialliste vom Frontend (bauteile+kennzahlen)
+    leicht: Optional[bool] = False  # Manuell-Modus: nur Bild+Massstab (~2 s), keine KI-Ebenen
 
 
 def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
@@ -6783,7 +6784,7 @@ def _nachzeichnen_roh(body):
         # explizite Seiten unter nachzeichnen_cache_s<N>.
         cache_key = ("nachzeichnen_cache" if body.seite is None
                      else f"nachzeichnen_cache_s{body.seite}")
-        cache = log.get(cache_key)
+        cache = None if body.leicht else log.get(cache_key)
         if cache and cache.get("v") == _NZ_CACHE_V and (cache.get("daten") or {}).get("ok"):
             try:
                 import fitz
@@ -6818,7 +6819,8 @@ def _nachzeichnen_roh(body):
             import fitz
             pdf_bytes = sb.storage.from_("plaene").download(sp)
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            r = _nachzeichnen.analysiere_doc(doc, seite=body.seite, max_px=1800)
+            r = _nachzeichnen.analysiere_doc(doc, seite=body.seite, max_px=1800,
+                                             leicht=bool(body.leicht))
         except Exception as e:  # pragma: no cover
             letzter_grund = f"Render fehlgeschlagen: {e}"
             if doc is not None:
@@ -6828,15 +6830,18 @@ def _nachzeichnen_roh(body):
             doc.close()
             letzter_grund = r.get("grund") or letzter_grund
             continue
-        # Cache schreiben (ohne PNG/Korrekturen — die bleiben je Aufruf frisch)
-        try:
-            log[cache_key] = {
-                "v": _NZ_CACHE_V,
-                "daten": {k: v for k, v in r.items() if k != "basis_png"},
-            }
-            sb.table("plaene").update({"agent_log": log}).eq("id", plan["id"]).execute()
-        except Exception as e:  # pragma: no cover
-            print(f"[nachzeichnen] Cache-Schreiben fehlgeschlagen: {e}")
+        # Cache schreiben (ohne PNG/Korrekturen — die bleiben je Aufruf frisch).
+        # LEICHT-Ergebnisse werden NIE gecacht: sie wuerden die volle
+        # Analyse maskieren (gleicher Cache-Schluessel).
+        if not body.leicht:
+            try:
+                log[cache_key] = {
+                    "v": _NZ_CACHE_V,
+                    "daten": {k: v for k, v in r.items() if k != "basis_png"},
+                }
+                sb.table("plaene").update({"agent_log": log}).eq("id", plan["id"]).execute()
+            except Exception as e:  # pragma: no cover
+                print(f"[nachzeichnen] Cache-Schreiben fehlgeschlagen: {e}")
         r["plan_id"] = plan.get("id")
         r["dateiname"] = plan.get("dateiname")
         r["korrekturen"] = _korrekturen_fuer_seite(log, body.seite)

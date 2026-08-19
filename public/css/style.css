@@ -3570,3 +3570,14 @@ g[data-raum].nz-hi circle {
   margin: 0 0 1rem; padding: .7rem 1rem; border: 1px dashed var(--border-strong);
   border-radius: var(--radius); background: var(--surface);
   color: var(--text-light); font-size: .9rem; }
+/* Modus-Wahl (KI vs Manuell) */
+.modus-wahl { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.modus-karte { display: block; border: 2px solid var(--border-strong);
+  border-radius: var(--radius); padding: .7rem .8rem; cursor: pointer;
+  transition: var(--transition); }
+.modus-karte:has(input:checked) { border-color: var(--accent);
+  background: var(--accent-soft); }
+.modus-karte input { position: absolute; opacity: 0; }
+.mk-titel { display: block; font-weight: 800; margin-bottom: .25rem; }
+.mk-text { display: block; font-size: .78rem; color: var(--text-light); }
+@media (max-width: 600px) { .modus-wahl { grid-template-columns: 1fr; } }

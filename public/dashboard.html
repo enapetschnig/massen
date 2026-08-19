@@ -82,6 +82,23 @@
           <input type="text" id="proj-address" class="form-control" placeholder="Straße, PLZ Ort">
         </div>
         <div class="form-group">
+          <label>Arbeitsweise</label>
+          <div class="modus-wahl">
+            <label class="modus-karte">
+              <input type="radio" name="proj-modus" value="ki" checked>
+              <span class="mk-titel">⚡ KI-Aufmaß</span>
+              <span class="mk-text">Die KI liest den Plan und legt die Räume
+                als Mess-Vorschläge auf — du prüfst und ergänzt.</span>
+            </label>
+            <label class="modus-karte">
+              <input type="radio" name="proj-modus" value="manuell">
+              <span class="mk-titel">✏️ Manuell</span>
+              <span class="mk-text">Sauberer Plan, volle Werkzeuge — du misst
+                selbst. Maßstab wird trotzdem automatisch gelesen.</span>
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
           <label for="proj-gewerk">Gewerk</label>
           <select id="proj-gewerk" class="form-control">
             <option value="">-- Gewerk wählen --</option>

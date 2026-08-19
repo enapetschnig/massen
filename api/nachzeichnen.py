@@ -519,7 +519,8 @@ def _koten_verteilt(koten, page, min_spalten=4, min_spanne=0.25):
         return False
 
 
-def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
+def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
+                     leicht=False):
     """Eine Grundriss-Seite → {ok, basis_png(bytes), waende[], summe_m, meta}."""
     # TEXT-SHARING (WM-Profil: get_text('words') kostet ~5s bei 878k-Pfad-Plänen
     # und lief 4× je Analyse) — einmal ziehen, durchreichen.
@@ -718,6 +719,32 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
     # Render-Skala so wählen, dass die größere Bildkante ≈ max_px (Payload begrenzen)
     scale = min(max_px / breite_pt, max_px / hoehe_pt, 4.0)
     scale = max(scale, 0.5)
+
+    # LEICHT-PASS (Manuell-Modus, docs/MANUELL_MODUS.md): nur Plan-Bild +
+    # byte-exakter Massstab + Box — KEINE Vektor-Waende, kein Watershed,
+    # keine Oeffnungen (~3 s statt ~40 s). Der digiplan-Stil-Nutzer misst
+    # selbst; der Massstab bleibt trotzdem UNSER byte-exakter.
+    if leicht:
+        try:
+            import fitz as _fzl
+            pixl = page.get_pixmap(matrix=_fzl.Matrix(scale, scale),
+                                   clip=_fzl.Rect(bx0, by0, bx1, by1))
+            return {
+                "ok": True, "typ": "leicht",
+                "basis_png": pixl.tobytes("png"),
+                "bild_w": pixl.width, "bild_h": pixl.height,
+                "waende": [], "oeffnungen": [], "raeume": [],
+                "konturen": [], "fluchten": [], "summe_m": {},
+                "meta": {
+                    "ptm": round(ptm, 2),
+                    "box_pt": [round(bx0, 1), round(by0, 1),
+                               round(bx1, 1), round(by1, 1)],
+                    "scale": round(scale, 4),
+                    "massstab": m_label, "n_waende": 0,
+                },
+            }
+        except Exception as _le:
+            return {"ok": False, "grund": f"Leicht-Render fehlgeschlagen: {_le}"}
 
     # ADAPTIVE RASTERWEITEN (WM-Lehre: mit korrektem ptm=56,7 wurde die Box
     # ~3,24× größer je Seite, das 0,03er-Raster explodierte ~10× → Pipeline

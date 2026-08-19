@@ -55,6 +55,7 @@
       projectNameEl.textContent = res.data.name || '';
       projectAddressEl.textContent = res.data.adresse || '';
       _projGewerk = (res.data.gewerk || '').toLowerCase().trim();
+      window._projModus = res.data.modus || 'ki';
       var status = res.data.status || 'Neu';
       projectStatusEl.textContent = status;
       projectStatusEl.className = 'badge badge-' + statusClass(status);
@@ -1646,9 +1647,17 @@
       // Der Nutzer muss nichts mehr klicken. Pläne werden sequentiell
       // verarbeitet (analyse-zoom ist API-intensiv).
       if (_uploadedPlanIds.length > 0) {
-        var queue = _uploadedPlanIds.slice();
-        _uploadedPlanIds = [];
-        autoAnalyseQueue(queue, 0);
+        // MANUELL-MODUS (digiplan-Stil): keine Auto-Analyse — der Plan ist
+        // nach dem Leicht-Pass sofort messbereit. "KI-Analyse nachholen"
+        // steht im Aufmass-Schritt bereit.
+        if (window._projModus === 'manuell') {
+          _uploadedPlanIds = [];
+          wfShow(2);
+        } else {
+          var queue = _uploadedPlanIds.slice();
+          _uploadedPlanIds = [];
+          autoAnalyseQueue(queue, 0);
+        }
       }
       return;
     }
@@ -2235,6 +2244,7 @@
   var _mwBusy = false;
   var _mwAutoDone = {};   // Plan:Seite -> Auto-Vorschlag schon versucht
   var _mwPending = null;  // fertige Hoehen-Zeichnung, wartet auf Eingabe im Panel
+  var _mwUndo = [];       // in DIESER Sitzung erzeugte Messungen (Ctrl+Z)
   // EBENEN (Nutzer: "das, was mit KI draufgezeichnet wurde, auch entfernen
   // koennen"): jede KI-Ebene laesst sich einzeln ausblenden — der Plan
   // selbst bleibt immer sichtbar.
@@ -3394,6 +3404,13 @@
             '</span></button>';
         }).join('') + '</div></div>';
     }
+    if (!mwListe && window._projModus === 'manuell') {
+      mwListe = '<div class="nz-side-sec"><div class="nz-side-h">Manuell aufmessen</div>' +
+        '<p class="mw-meta">Maßstab ' +
+        ((_nzData.meta && _nzData.meta.massstab) ? esc(_nzData.meta.massstab) + ' — byte-exakt gelesen' : 'bitte kalibrieren (📐)') +
+        '. Miss mit den Werkzeugen links (F Fläche · R Rechteck · L Länge · Shift = rechtwinklig).</p>' +
+        '<button type="button" class="nz-btn" data-mki="1" title="Die KI liest den Plan und legt die Räume als Vorschläge auf — jederzeit nachholbar">⚡ KI-Analyse nachholen</button></div>';
+    }
     if (!mwListe && (_nzData.raeume || []).length) {
       mwListe = '<div class="nz-side-sec"><div class="nz-side-h">Messungen</div>' +
         '<p class="mw-meta">Noch keine Messungen. Die Erkennung hat ' +
@@ -3474,6 +3491,19 @@
           if ((e.key || '').toLowerCase() === 'g' && _nzData) {
             _mwSnap = !_mwSnap; _nzPaint(); e.preventDefault(); return;
           }
+        }
+        // EDITOR-GESTEN (digiplan-Paritaet, docs/MANUELL_MODUS.md):
+        if (_mwTool && e.key === 'Backspace' && _mwPts.length) {
+          _mwPts.pop(); _nzPaint(); e.preventDefault(); return;
+        }
+        if (!_mwTool && e.key === 'Delete' && _mwSel) {
+          _mwLoeschen(_mwSel); e.preventDefault(); return;
+        }
+        if ((e.metaKey || e.ctrlKey) && (e.key || '').toLowerCase() === 'z') {
+          // Ctrl+Z: letzte in DIESER Sitzung erzeugte Messung zuruecknehmen
+          var _uz = _mwUndo.pop();
+          if (_uz) { _mwLoeschen(_uz); e.preventDefault(); }
+          return;
         }
         if (_mwTool && (e.key === 'Enter' || e.key === 'Escape')) {
           if (e.key === 'Enter') _mwAbschliessen();
@@ -3905,6 +3935,23 @@
       if (e.key === 'Escape') { _mwPending = null; _nzPaint(); }
     });
     if (_hAb) _hAb.addEventListener('click', function () { _mwPending = null; _nzPaint(); });
+    cont.querySelectorAll('[data-mki]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        window._projModus = 'ki';
+        if (window.projectId) {
+          _sb.from('projekte').update({ modus: 'ki' }).eq('id', window.projectId).then(function () {});
+        }
+        _mwHinweis('KI-Analyse läuft — der Plan lädt gleich mit Vorschlägen neu …');
+        var pid0 = _nzAktivPlan;
+        fetch('/api/analyse-zoom', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan_id: pid0 })
+        }).then(function () {
+          _nzGeladen = false;
+          renderNachzeichnen(pid0);
+        });
+      });
+    });
     cont.querySelectorAll('[data-mvor]').forEach(function (b) {
       b.addEventListener('click', function () { _mwVorschlagen(); });
     });
@@ -3972,7 +4019,13 @@
           var k = _nzPxProM();
           if (k) {
             var q = _nzScreenToImg(e);
-            _xy.textContent = (q[0] / k).toFixed(2) + ' / ' + (q[1] / k).toFixed(2) + ' m';
+            var txt = (q[0] / k).toFixed(2) + ' / ' + (q[1] / k).toFixed(2) + ' m';
+            if (_mwTool && _mwPts.length) {
+              var lp = _mwPts[_mwPts.length - 1];
+              txt = '↦ ' + (Math.hypot(q[0] - lp[0], q[1] - lp[1]) / k).toFixed(2) +
+                ' m · ' + txt;
+            }
+            _xy.textContent = txt;
           }
         }
         if (_nzDraw && _nzWrap) { _nzDraw.p1 = _nzScreenToImg(e); _nzDrawPreview(); return; }
@@ -4167,7 +4220,10 @@
     }).then(function (r) { return r.json(); })
       .then(function (d) {
         _mwBusy = false;
-        if (d && d.ok && d.messung) { _mwListe.push(d.messung); _mwSel = d.messung.id; }
+        if (d && d.ok && d.messung) {
+          _mwListe.push(d.messung); _mwSel = d.messung.id;
+          _mwUndo.push(d.messung.id);
+        }
         else _mwHinweis('Konnte nicht gespeichert werden: ' + ((d && d.grund) || 'unbekannt'), true);
         _nzPaint();
       }).catch(function (e) { _mwBusy = false; _mwHinweis('Fehler: ' + e, true); });
@@ -4248,7 +4304,21 @@
   function _mwKlick(e) {
     if (!_mwTool) return false;
     var p = _mwSnapPunkt(_nzScreenToImg(e));
+    // SHIFT = ORTHO (digiplan-Kernkomfort): Segment waagrecht/senkrecht
+    // zum Vorpunkt zwingen — die groessere Achsdifferenz gewinnt.
+    if (e.shiftKey && _mwPts.length) {
+      var q = _mwPts[_mwPts.length - 1];
+      if (Math.abs(p[0] - q[0]) >= Math.abs(p[1] - q[1])) p = [p[0], q[1]];
+      else p = [q[0], p[1]];
+    }
     if (_mwTool === 'stueck') { _mwSpeichern('stueck', [p], { }); return true; }
+    // KLICK AUF DEN STARTPUNKT schliesst das Polygon (Toleranz 12 px).
+    if (_mwPts.length >= 3) {
+      var s0 = _mwPts[0];
+      if (Math.hypot(p[0] - s0[0], p[1] - s0[1]) < 12) {
+        _mwAbschliessen(); return true;
+      }
+    }
     _mwPts.push(p);
     if (_mwTool === 'rechteck' && _mwPts.length === 2) {
       var a = _mwPts[0], b = _mwPts[1];
@@ -4900,6 +4970,7 @@
     _nzWireTabs(cont);
     var reqBody = planId ? { plan_id: planId } : { projekt_id: projectId };
     if (seite != null) reqBody.seite = seite;
+    if (window._projModus === 'manuell' && reqBody) reqBody.leicht = true;
     fetch('/api/plan-nachzeichnen', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reqBody)
