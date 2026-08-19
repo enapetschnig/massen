@@ -81,3 +81,7 @@ end $$;
 drop trigger if exists tr_messung_touch on messungen;
 create trigger tr_messung_touch before update on messungen
     for each row execute function messung_touch();
+
+-- 5) Projekt-Modus (2026-08-19): 'ki' = KI-Aufmass (Standard),
+--    'manuell' = digiplan-Stil ohne Auto-Analyse. Live bereits angelegt.
+alter table projekte add column if not exists modus text default 'ki';
