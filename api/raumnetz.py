@@ -2482,15 +2482,7 @@ def _tuer_lecks(grid, label, rst, oeffnungen, stempel=None):
         # Standard AN seit 2026-08-14 (Korpus: Sadiku Oe 5,0->4,4 %, Bad WC
         # aus der Ausreisserliste; Angerer unveraendert; Guard entfernt
         # schaedliche Balken). FENSTER_SEAL=0 schaltet ab.
-        # + "tuer" seit 2026-08-19 (Elternbad-Befund): bodentiefe Elemente
-        # ("RPH 0 / STUK +5,59" = Fenstertuer/Balkontuer) sind wegen RPH 0
-        # als TUER klassifiziert — der klassische Tuer-Pfad verlangt aber
-        # dasselbe Label beidseitig und liess Innen/Aussen-Tueren durch
-        # (Becken lief zur Glaslinie, Elternbad +9,1 %). Der Fluss traegt:
-        # Parapet-Fall zuerst (eine Raum-Seite, eine Nicht-Raum-Seite);
-        # Innentueren haben beidseitig Raum -> verworfen -> klassische
-        # Tuer-Logik greift unveraendert.
-        _ist_parapet = (o.get("typ") in ("fenster", "glasfront", "tuer")
+        _ist_parapet = (o.get("typ") in ("fenster", "glasfront")
                         and os.environ.get("FENSTER_SEAL", "1") != "0")
         if os.environ.get("GUARD_DEBUG") == "2":
             import traceback as _tb
