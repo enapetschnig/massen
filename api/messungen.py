@@ -233,6 +233,7 @@ def protokoll(messungen, positionen):
             "nr": p.get("nr"), "bezeichnung": p.get("bezeichnung"),
             "einheit": p.get("einheit"),
             "zeilen": [{
+                "id": m.get("id"),
                 "nummer": m.get("nummer"), "bezeichnung": m.get("bezeichnung"),
                 "formel": m.get("formel"), "wert": m.get("wert"),
                 "typ": m.get("typ"), "quelle": m.get("quelle"),

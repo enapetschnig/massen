@@ -2245,6 +2245,7 @@
   var _mwAutoDone = {};   // Plan:Seite -> Auto-Vorschlag schon versucht
   var _mwPending = null;  // fertige Hoehen-Zeichnung, wartet auf Eingabe im Panel
   var _mwUndo = [];       // in DIESER Sitzung erzeugte Messungen (Ctrl+Z)
+  var _mwVDrag = null;    // {mid, vi} — gezogener Eckpunkt einer Messung
   // EBENEN (Nutzer: "das, was mit KI draufgezeichnet wurde, auch entfernen
   // koennen"): jede KI-Ebene laesst sich einzeln ausblenden — der Plan
   // selbst bleibt immer sichtbar.
@@ -3869,6 +3870,12 @@
       if (_mwTool && !_nzMoved) { if (_mwKlick(e)) { e.preventDefault(); e.stopPropagation(); } }
     });
     _nzWrap.addEventListener('mousedown', function (e) {
+      var _mv = e.target && e.target.getAttribute && e.target.getAttribute('data-mv');
+      if (_mv) {
+        var _t = _mv.split(':');
+        _mwVDrag = { mid: _t[0], vi: parseInt(_t[1], 10) };
+        e.preventDefault(); e.stopPropagation(); return;
+      }
       if (_mwTool) { e.preventDefault(); return; }   // Werkzeug: kein Pan
       if (_nzAddMode) { _nzDraw = { p0: _nzScreenToImg(e), p1: null }; e.preventDefault(); return; }
       // RAUM-EDITOR: Eckpunkt ziehen oder (auf Kanten-Mitte) einfügen.
@@ -4026,6 +4033,15 @@
             _xy.textContent = txt;
           }
         }
+        if (_mwVDrag && _nzWrap) {
+          var _mM = (_mwListe || []).filter(function (x) { return x.id === _mwVDrag.mid; })[0];
+          if (_mM) {
+            var _np2 = _mwSnapPunkt(_nzScreenToImg(e));
+            _mM.geometrie.punkte[_mwVDrag.vi] = _mwPxZuPt(_np2);
+            _nzPaint();
+          }
+          return;
+        }
         if (_nzDraw && _nzWrap) { _nzDraw.p1 = _nzScreenToImg(e); _nzDrawPreview(); return; }
         // Raum-Eckpunkt live ziehen: Position updaten + neu zeichnen (Fläche folgt).
         if (_nzRvDrag && _nzWrap) {
@@ -4040,6 +4056,28 @@
         _nzZoom.x = _nzPan.ox + dx; _nzZoom.y = _nzPan.oy + dy; _nzApplyZoom();
       });
       window.addEventListener('mouseup', function (e) {
+        if (_mwVDrag) {
+          var _dM = (_mwListe || []).filter(function (x) { return x.id === _mwVDrag.mid; })[0];
+          _mwVDrag = null;
+          if (_dM) {
+            var _mB = { projekt_id: window.projectId, id: _dM.id, typ: _dM.typ,
+                        geometrie: _dM.geometrie,
+                        ptm: +((_nzData.meta || {}).ptm) || 0 };
+            fetch('/api/messung', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(_mB)
+            }).then(function (r) { return r.json(); }).then(function (d) {
+              if (d && d.ok && d.messung) {
+                for (var _k5 = 0; _k5 < _mwListe.length; _k5++) {
+                  if (_mwListe[_k5].id === d.messung.id) _mwListe[_k5] = d.messung;
+                }
+              }
+              _nzPaint();
+            });
+          }
+          return;
+        }
+
         if (_nzDraw) { if (_nzDraw.p1) _nzAddWall(_nzDraw.p0, _nzDraw.p1); _nzDraw = null; return; }
         if (_nzRvDrag) {   // Eckpunkt-Zug beendet → als bearbeitet markieren
           _nzRaumMarkEdited(_nzRvDrag.ri); _nzRvDrag = null; _nzPaint(); return;
@@ -4389,6 +4427,20 @@
         Math.round(fs / 3) + '" fill="' + col +
         '" style="font-weight:700;pointer-events:none">' + esc(lab) + '</text>';
     });
+    // VERTEX-HANDLES der gewaehlten Messung (digiplan-Paritaet,
+    // Folgerunde aus docs/MANUELL_MODUS.md): Punkte ziehen, der Server
+    // rechnet Wert+Formel neu — die Geometrie bleibt die Wahrheit.
+    var _selM = (_mwListe || []).filter(function (x) { return x.id === _mwSel; })[0];
+    if (_selM && _selM.geometrie && (_selM.geometrie.punkte || []).length &&
+        _selM.geometrie.form !== 'punkt') {
+      var _hp = _selM.geometrie.punkte.map(_mwPtZuPx);
+      _hp.forEach(function (q, vi) {
+        out += '<circle data-mv="' + _selM.id + ':' + vi + '" cx="' + q[0] +
+          '" cy="' + q[1] + '" r="' + (fs * 0.45) +
+          '" fill="#fff" stroke="' + (_MW_FARBE[_selM.typ] || '#0d9488') +
+          '" stroke-width="2.5" cursor="grab"/>';
+      });
+    }
     if (_mwPending && _mwPending.pts.length) {
       var cp = _MW_FARBE[_mwPending.typ] || '#0d9488';
       out += '<polygon points="' + _mwPending.pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ') +

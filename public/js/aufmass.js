@@ -215,7 +215,10 @@
           einh(p.einheit) + '</span></div>' +
           '<table class="data-table"><tbody>' +
           p.zeilen.map(function (z) {
-            return '<tr><td class="pos-nr">M' + (z.nummer || '?') + '</td>' +
+            return '<tr><td class="pos-nr">' +
+              (z.id ? '<button type="button" class="mz-sprung" data-sprung="' + z.id +
+                '" title="Am Plan zeigen">M' + (z.nummer || '?') + '</button>'
+                : 'M' + (z.nummer || '?')) + '</td>' +
               '<td>' + esc(z.bezeichnung || '') + (z.typ === 'abzug' ? ' <span class="badge">Abzug</span>' : '') + '</td>' +
               '<td class="mz-formel">' + esc(z.formel || '') + '</td>' +
               '<td style="text-align:right;font-family:var(--font-mono)">' +
@@ -246,6 +249,11 @@
         '<p class="zuordnung-sub">Jede Zeile ist eine Messung am Plan (M-Nummer), mit der Formel, ' +
         'aus der ihr Wert entstanden ist. Dieses Protokoll liegt der Rechnung bei.</p>' +
         html + '</div>';
+      el.querySelectorAll('.mz-sprung').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (window.nzZeigeMessung) window.nzZeigeMessung(b.getAttribute('data-sprung'));
+        });
+      });
       var dr = document.getElementById('prot-drucken');
       if (dr) dr.addEventListener('click', function () { window.print(); });
     });
