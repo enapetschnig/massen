@@ -112,6 +112,18 @@ def run():
     else:
         print("   RPH 85/STUK +5,54 (absolut) → Anker, kein Bauteil     ✓")
 
+    # 3d) BODENTIEFES Element mit absoluter Kote ("RPH 0 / STUK +5,59",
+    #     OG-Fenstertuer): gleicher Anker-Zweck — Elternbad lief sonst zur
+    #     Glaslinie (+9,1 %).
+    res7 = O.extract_oeffnungen_from_text(
+        _spans([("RPH 0", 100, 100), ("STUK +5,59", 100, 106)]), [])
+    gf7 = [o for o in res7 if o.get("typ") == "glasfront"]
+    if len(gf7) != 1:
+        fehler.append(f"RPH 0/STUK +5,59: {len(gf7)} glasfront — das "
+                      f"bodentiefe OG-Element verliert seinen Siegel-Anker")
+    else:
+        print("   RPH 0/STUK +5,59 (bodentief absolut) → Anker          ✓")
+
     # 4) Quelltext-Zusagen: raumnetz akzeptiert den Anker-Typ, FRONT_SEAL
     #    bleibt geschaltet, nachzeichnen exportiert ihn nicht ans Frontend.
     rn = open(os.path.join(WURZEL, "api", "raumnetz.py"), encoding="utf-8").read()
