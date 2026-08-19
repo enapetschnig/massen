@@ -3757,6 +3757,24 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                     if not _mask[_ix]:
                         _mask[_ix] = 1
                         _cells2.append(_ix)
+                # MASKE GLAETTEN (Flur-Sezierung 2026-08-19): die Kredit-
+                # Streifen erzeugen Treppenzaehne (Flur: 67 Ecken statt 46)
+                # — daran scheiterte der Vektor-Snap (Quote < 70 %), und
+                # ohne ihn fehlt der Auswaerts-Zug. Ein Closing r=2
+                # verschmilzt die Streifen mit dem Koerper; neue Zellen
+                # werden Mitglieder (der Umriss darf die Tuerbucht
+                # ueberspannen — genau dafuer ist der Kredit da).
+                # Kleinraeume (<4 m2) NICHT schliessen: WC kippte durch
+                # das r=2-Closing von -1,6 auf -7,5 % — bei 1,8 m2 ist
+                # jede verschmolzene Ecke prozentual gross.
+                if _sf0 and _sf0 < 4.0:
+                    _cl = _mask
+                else:
+                    _cl = _closing(bytearray(_mask), W, H, 2)
+                for _ix in range(W * H):
+                    if _cl[_ix] and not _mask[_ix]:
+                        _mask[_ix] = 1
+                        _cells2.append(_ix)
                 _v2, _n2 = _umriss_zellen(label, W, H, ridx, zm2,
                                           min_flaeche_m2, cells=_cells2,
                                           mitglied=_mask)
@@ -4271,7 +4289,10 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         # Waende haben Schraffur. Regel: eine Brandzelle OHNE Poché, die
         # binnen 0,55 m in einer Achse ZWISCHEN zwei Raumzellen liegt,
         # ist Boden und zaehlt wie versch.
-        _dk_an = os.environ.get("DURCHGANG_KREDIT") and any(_hatch_roh)
+        # Standard AN seit 2026-08-19 (Korpus: AP.01 Oe 4,3->2,8, Angerer
+        # 2,5->2,4, Sadiku 3,3->3,2; Verifikationen 8/6/14 stabil).
+        # DURCHGANG_KREDIT=0 schaltet ab.
+        _dk_an = os.environ.get("DURCHGANG_KREDIT", "1") != "0" and any(_hatch_roh)
         _k_band = max(2, int(0.85 / rst.zm))
         # STEMPEL-GERICHTET: Boden-Brand-Kredit NUR an Raeume im DEFIZIT
         # (erste Fassung fuetterte satte Raeume ueber ihr F-Gate hinaus:

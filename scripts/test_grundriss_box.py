@@ -140,6 +140,9 @@ def run():
         # der TIEFSTE budget-gedeckte Innen-Kandidat (Deckung 0,30 statt
         # 0,50) — die naechste Linie ist bei Band-Raeumen die falsche.
         (r'BAND_SNAP", "1"', "Band-Snap Standard an mit Notausstieg"),
+        (r'DURCHGANG_KREDIT", "1"', "Durchgang-Kredit Standard an mit Notausstieg"),
+        (r"_boden_brand", "Boden-Brand-Regel (Brand ohne Poché = Boden)"),
+        (r"_sf_kappe", "laufende Stempel-Kappe am Boden-Kredit"),
         (r"_deck_min", "gesenkte Deckung NUR fuer Budget-Kandidaten"),
         (r"poly_flaeche >= 0\.95 \* _sf", "Deckel ab DP >= 95 % Stempel"),
     ):
