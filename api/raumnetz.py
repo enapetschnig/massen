@@ -4475,6 +4475,7 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
     _kredit_cells = {}
     if debug is not None:
         debug.update({"grid": grid, "label": label, "rst": rst, "AUSSEN": AUSSEN,
+                      "hatch_roh": _hatch_roh, "versch": versch,
                       "stuetzen": _stuetzen, "boegen": boegen,
                       "kredit_cells": _kredit_cells,
                       "draussen": _draussen_maske(grid, label, rst.W, rst.H)})
@@ -4524,6 +4525,9 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                         and _r3["f_ist"] < 0.97 * _sf3):
                     continue
                 _budget_z = int((_sf3 - _r3["f_ist"]) / _zm2p)
+                if os.environ.get("GUARD_DEBUG"):
+                    print(f"[pocket?] {stempel[_i3].get('name')} "
+                          f"defizit={_sf3 - _r3['f_ist']:.2f} budget_z={_budget_z}")
                 if _budget_z < 8:
                     continue
                 # Komponenten des Labels
@@ -4539,8 +4543,10 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                             if 0 <= _nb < _WH and label[_nb] == _i3                                     and _nb not in _komp_id                                     and abs(_nb % rst.W - _c % rst.W) <= 1:
                                 _komp_id[_nb] = _nk; _q.append(_nb)
                     _nk += 1
-                if _nk < 2:
-                    continue    # ein Segment — nichts zu bruecken
+                # v3: auch EIN Segment laeuft weiter — grosse Taschen
+                # hinter Tuer-Verschluessen (Windfang) brauchen keine
+                # zweite Komponente. Der Zwei-Komponenten-Weg bleibt
+                # zusaetzlich bestehen.
                 # freie unbeanspruchte Taschen einsammeln
                 _pseen = bytearray(_WH)
                 _genommen = 0
@@ -4558,6 +4564,13 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                     if not (4 <= len(_tasche) <= _budget_z - _genommen):
                         continue
                     # Welche Komponenten erreicht die Tasche durch Balken?
+                    # v3 (Windfang-Befund 2026-08-19): grosse Taschen
+                    # (>=1,2 m2), die den Raum durch einen VERSCHLUSS-
+                    # Balken erreichen (echte Tueroeffnung), sind auch mit
+                    # EINER Komponente beanspruchbar. Fensternischen
+                    # bleiben draussen: sie sind <=0,8 m2 — die GROESSE
+                    # trennt (ihr Parapet-Balken ist ebenfalls versch).
+                    _durch_versch = False
                     _erreicht = set()
                     for _c in _tasche:
                         for _ri in (-1, 1, -rst.W, rst.W):
@@ -4570,9 +4583,17 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                                 _z = _tunnelziel(_nb, _ri)
                                 if _z is not None and label[_z] == _i3:
                                     _erreicht.add(_komp_id.get(_z, -1))
+                                    if versch[_nb]:
+                                        _durch_versch = True
                         if len(_erreicht) >= 2:
                             break
-                    if len(_erreicht) >= 2:
+                    _gross_durch_tuer = (len(_erreicht) >= 1
+                                         and _durch_versch
+                                         and len(_tasche) * _zm2p >= 1.2)
+                    if os.environ.get("GUARD_DEBUG") and len(_tasche) * _zm2p >= 0.5:
+                        print(f"[tasche] {len(_tasche)*_zm2p:.2f} m2 "
+                              f"komp={len(_erreicht)} versch={_durch_versch}")
+                    if len(_erreicht) >= 2 or _gross_durch_tuer:
                         for _c in _tasche:
                             label[_c] = _i3
                         _genommen += len(_tasche)
