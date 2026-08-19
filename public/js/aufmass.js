@@ -165,7 +165,8 @@
         if (m.status === 'verworfen') return '';
         if (!m.position_id) offen++;
         return '<tr' + (m.status === 'vorschlag' ? ' class="mz-vorschlag"' : '') + '>' +
-          '<td class="pos-nr">M' + (m.nummer || '?') + '</td>' +
+          '<td class="pos-nr"><button type="button" class="mz-sprung" data-sprung="' +
+          m.id + '" title="Am Plan zeigen">M' + (m.nummer || '?') + '</button></td>' +
           '<td>' + esc(m.bezeichnung || '') +
           (m.quelle === 'ki' ? ' <span class="badge">KI-Vorschlag</span>' :
            m.quelle === 'ki_bestaetigt' ? ' <span class="badge badge-ok">KI ✓</span>' : '') + '</td>' +
@@ -185,6 +186,11 @@
         '<div class="tbl-scroll"><table class="data-table"><thead><tr>' +
         '<th>Nr.</th><th>Messung</th><th>Formel</th><th style="text-align:right">Wert</th><th>Position</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+      el.querySelectorAll('.mz-sprung').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (window.nzZeigeMessung) window.nzZeigeMessung(b.getAttribute('data-sprung'));
+        });
+      });
       el.querySelectorAll('.mz-sel').forEach(function (sel) {
         sel.addEventListener('change', function () {
           api('/api/messung', { projekt_id: pid(), id: sel.getAttribute('data-mid'),

@@ -3330,9 +3330,7 @@
       '<div class="nz-rail-titel">Bearbeiten</div>' +
       _railBtn('raumedit', _nzRaumEditMode, '✏️', 'Raum', 'Raum-Eckpunkte ziehen/hinzufügen/löschen — Fläche &amp; Umfang rechnen live neu') +
       _railBtn('add', _nzAddMode, '➕', 'Wand', 'Wand zeichnen: Linie über die Wand ziehen') +
-      _railBtn('mess', _nzMeasMode && !_nzCalibMode, '📏', 'Messen', 'Byte-exakt am Maßstab messen') +
       _railBtn('calib', _nzCalibMode, '📐', 'Maßstab' + (_nzKalibriert() ? '' : ' ⚠'), 'Maßstab setzen: 2 Punkte einer bekannten Länge klicken, Meter eingeben') +
-      (_nzMeasMode ? _railBtn('mess-clear', false, '✕', 'löschen', 'Messung löschen') : '') +
       '<span class="nz-rail-sep"></span>' +
       _railBtn('in', false, '＋', 'Zoom', '') +
       _railBtn('out', false, '－', 'Zoom', '') +
@@ -5082,6 +5080,46 @@
 
   // Die Planansicht lädt automatisch nach der ersten Auswertung (renderNachzeichnen()
   // wird im Lade-Flow aufgerufen, der _nzGeladen-Guard hält es bei einem Fetch).
+  // PLAN-SPRUNG (Runde 'Perfekt & ausgemistet'): jede M-Nummer in
+  // Zuordnung/Protokoll fuehrt zum Plan — Schritt 2, Messung selektiert,
+  // hingezoomt. Jede Zahl ist zwei Klicks vom Plan entfernt.
+  window.nzZeigeMessung = function (mid) {
+    var m = (_mwListe || []).filter(function (x) { return x.id === mid; })[0];
+    var fertig = function () {
+      _mwSel = mid;
+      var m2 = (_mwListe || []).filter(function (x) { return x.id === mid; })[0];
+      _nzPaint();
+      if (m2 && m2.geometrie && (m2.geometrie.punkte || []).length) {
+        var pts = m2.geometrie.punkte.map(_mwPtZuPx);
+        var xs = pts.map(function (q) { return q[0]; });
+        var ys = pts.map(function (q) { return q[1]; });
+        _nzZoomAufBereich((Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2,
+                          (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2);
+      }
+    };
+    if (typeof wfShow === 'function') { _wfUserPicked = true; wfShow(2); }
+    if (m || !mid) { fertig(); return; }
+    // Messung eines anderen Plans: Plan wechseln, dann selektieren
+    fetch('/api/messungen?projekt_id=' + encodeURIComponent(window.projectId))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var mm = ((d && d.messungen) || []).filter(function (x) { return x.id === mid; })[0];
+        if (mm && mm.plan_id && mm.plan_id !== _nzAktivPlan) {
+          _nzGeladen = false;
+          renderNachzeichnen(mm.plan_id, mm.seite || undefined);
+          setTimeout(fertig, 1500);
+        } else fertig();
+      });
+  };
+  function _nzZoomAufBereich(cx, cy) {
+    if (!_nzWrap) return;
+    var f = _nzWrap.clientWidth / (_nzData.bild_w || 1);
+    var ziel = 1.6;
+    _nzZoom.s = ziel;
+    _nzZoom.x = _nzWrap.clientWidth / 2 - cx * f * ziel;
+    _nzZoom.y = _nzWrap.clientHeight / 2 - cy * f * ziel;
+    _nzApplyZoom();
+  }
   window._nzReset = function () { _nzGeladen = false; _nzData = null; renderNachzeichnen(_nzAktivPlan); };
 
   // ── AUFMASSBLATT: abheftbares Prüf-PDF (Plan + eingezeichnete Bauteile) ──

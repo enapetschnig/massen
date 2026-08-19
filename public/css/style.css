@@ -3581,3 +3581,7 @@ g[data-raum].nz-hi circle {
 .mk-titel { display: block; font-weight: 800; margin-bottom: .25rem; }
 .mk-text { display: block; font-size: .78rem; color: var(--text-light); }
 @media (max-width: 600px) { .modus-wahl { grid-template-columns: 1fr; } }
+.mz-sprung { font: inherit; font-family: var(--font-mono); font-weight: 700;
+  border: none; background: none; color: var(--accent); cursor: pointer;
+  padding: 0; text-decoration: underline dotted; }
+.mz-sprung:hover { color: var(--accent-hover); }
