@@ -442,7 +442,8 @@ class _Raster:
 
 def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
                hatch_dilat_m=0.10, closing_m=0.08, moebel_zonen=None, versch_out=None,
-               boegen=None, fill_rects=None, paar_fallback=False, stuetzen=None):
+               boegen=None, fill_rects=None, paar_fallback=False, stuetzen=None,
+               hatch_out=None):
     """Schraffur-verankerte Wand-Maske: Schraffur + dunkle Kanten NAHE der Schraffur
     (Möbel haben keine Poché) + Öffnungs-Verschlüsse + Closing.
     fill_rects: Wand-Körper als Flächen-Fills (Ziegel-Ton-Polygone mancher
@@ -453,6 +454,8 @@ def wand_maske(rst, dark_segs, hatch_segs, oeffnungen,
         rst.line(hm, s[0], s[1], s[2], s[3])
     for (fx0, fy0, fx1, fy1) in (fill_rects or []):
         rst.rect(hm, fx0, fy0, fx1, fy1)
+    if hatch_out is not None:
+        hatch_out[:] = hm      # rohe Poché-Maske (fuer den Durchgang-Kredit)
     r = max(1, int(hatch_dilat_m / rst.zm))
     dh = _dist_bfs(hm, W, H, r)
     hm_d = bytearray(1 if dh[i] <= r else 0 for i in range(W * H))
@@ -3727,6 +3730,9 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
         # exakt), bleiben unangetastet — dieselbe Stempel-Richtungs-Logik
         # wie beim Snap-Deckel.
         _kz = (kredit_cells or {}).get(ridx)
+        if os.environ.get("RG_DEBUG"):
+            print(f"[rgk] ridx={ridx} kz={len(_kz) if _kz else 0} "
+                  f"dictkeys={sorted((kredit_cells or {}).keys())[:12]}")
         if _kz:
             _sf0 = None
             try:
@@ -4073,13 +4079,16 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         boegen = _vek.tuer_boegen(page, box, ptm, pfade=pfade)
     except Exception:
         boegen = []
+    _hatch_roh = bytearray(rst.W * rst.H)   # rohe Poché (Durchgang-Kredit)
+
     def _pass(paar_fallback, hatch_use=None):
         versch = bytearray(rst.W * rst.H)
         grid = wand_maske(rst, dark_segs,
                           hatch_segs if hatch_use is None else hatch_use,
                           oe, moebel_zonen=moebel,
                           versch_out=versch, boegen=boegen,
-                          paar_fallback=paar_fallback, stuetzen=_stuetzen)
+                          paar_fallback=paar_fallback, stuetzen=_stuetzen,
+                          hatch_out=_hatch_roh)
         vor_fs = bytes(grid)
         _n_fs, luecken = _fassaden_schluss(grid, rst.W, rst.H, rst.zm)
         huelle_burn = bytearray(1 if (grid[i_] and not vor_fs[i_]) else 0
@@ -4254,12 +4263,65 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
         d_versch = _dist_bfs(versch, W2, H2, r_nahe) if any(versch) else None
         gut = [0] * len(stempel)
         n_st = len(stempel)
+
+        # DURCHGANG-KREDIT (AP.01-Flur-Sezierung 2026-08-19, hinter
+        # DURCHGANG_KREDIT): offene Durchgaenge (nur Sturz "STUK +2,20",
+        # keine Tuer) werden von Linien+Closing als 30-50-cm-Baender
+        # zugebrannt — BODEN ohne jede Poché (Flur f_ist -19 %). Echte
+        # Waende haben Schraffur. Regel: eine Brandzelle OHNE Poché, die
+        # binnen 0,55 m in einer Achse ZWISCHEN zwei Raumzellen liegt,
+        # ist Boden und zaehlt wie versch.
+        _dk_an = os.environ.get("DURCHGANG_KREDIT") and any(_hatch_roh)
+        _k_band = max(2, int(0.85 / rst.zm))
+        # STEMPEL-GERICHTET: Boden-Brand-Kredit NUR an Raeume im DEFIZIT
+        # (erste Fassung fuetterte satte Raeume ueber ihr F-Gate hinaus:
+        # verifiziert 8 -> 5). versch-/Tuerzonen-Kredit bleibt wie er war.
+        _zm2k = rst.zm * rst.zm
+        _basis_f = [f for (f, _u) in masse]
+        _sf_kappe = []
+        for _li in range(len(masse)):
+            try:
+                _sf_kappe.append(float(stempel[_li].get("f_m2") or 0))
+            except Exception:
+                _sf_kappe.append(0.0)
+
+        def _boden_brand(idx):
+            if _hatch_roh[idx]:
+                return False           # Poché = echte Wand
+            _i0, _j0 = idx % W2, idx // W2
+            for _achse in (1, W2):
+                _seiten = 0
+                for _vzb in (-1, 1):
+                    _p = idx
+                    for _ in range(_k_band):
+                        _p += _vzb * _achse
+                        if not (0 <= _p < W2 * H2):
+                            break
+                        if _achse == 1 and abs(_p % W2 - _i0) > _k_band:
+                            break
+                        if not grid[_p]:
+                            if label[_p] >= 0:
+                                _seiten += 1
+                            break
+                if _seiten == 2:
+                    return True
+            return False
+
+        _idx_folge = []
         for idx in range(W2 * H2):
             if not grid[idx]:
                 continue
-            if not (versch[idx] or (_in_tz(idx) and d_versch is not None
-                                    and d_versch[idx] <= r_nahe)):
-                continue
+            _kl0 = versch[idx] or (_in_tz(idx) and d_versch is not None
+                                   and d_versch[idx] <= r_nahe)
+            if _kl0:
+                _idx_folge.append((0, idx))
+            elif _dk_an and _boden_brand(idx):
+                _idx_folge.append((1, idx))
+        _idx_folge.sort()    # klassisch (0) VOR boden (1): die laufende
+        # Stempel-Kappe muss den klassischen Kredit schon eingerechnet
+        # haben, sonst rutscht Boden-Kredit VOR ihm durch (Zimmer 1 +7,4).
+        for (_art, idx) in _idx_folge:
+            _nur_boden = (_art == 1)
             i0_, j0_ = idx % W2, idx // W2
             best_l, best_d = None, 99
             for rad in range(1, 9):
@@ -4275,6 +4337,13 @@ def verifiziere_seite(page, ptm, box, dark_segs, hatch_segs, oeffnungen,
                 if best_l is not None:
                     break
             if best_l is not None:
+                if _nur_boden:
+                    # LAUFENDE STEMPEL-KAPPE: Boden-Brand-Kredit nur, bis
+                    # der Raum seinen Stempel erreicht — nie darueber.
+                    # (Defizit-Schwelle allein reichte nicht: Raeume knapp
+                    # unter dem Stempel wurden ueber das F-Gate gefuettert.)
+                    if not _sf_kappe[best_l] or                             _basis_f[best_l] + gut[best_l] * _zm2k                             >= _sf_kappe[best_l]:
+                        continue
                 gut[best_l] += 1
                 if kredit_out is not None:
                     kredit_out.setdefault(best_l, []).append(idx)

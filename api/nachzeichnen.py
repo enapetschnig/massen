@@ -1339,10 +1339,18 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0):
                 try:
                     import numpy as _np
                     _rst = dbg_r["rst"]
+                    _kr = dbg_r.get("kredit_cells") or {}
+                    _kr_idx = []
+                    _kr_lab = []
+                    for _kl, _kliste in _kr.items():
+                        _kr_idx.extend(_kliste)
+                        _kr_lab.extend([_kl] * len(_kliste))
                     _np.savez(os.environ["GRID_DUMP"],
                               grid=_np.frombuffer(bytes(dbg_r["grid"]), dtype=_np.uint8),
                               label=_np.array(dbg_r["label"], dtype=_np.int32),
                               W=_rst.W, H=_rst.H, cell=_rst.cell,
+                              kredit_idx=_np.array(_kr_idx, dtype=_np.int64),
+                              kredit_lab=_np.array(_kr_lab, dtype=_np.int32),
                               namen=_np.array([(st.get("name") or "") for st in _st],
                                               dtype=object))
                     print(f"[griddump] {os.environ['GRID_DUMP']} W={_rst.W} H={_rst.H}")
