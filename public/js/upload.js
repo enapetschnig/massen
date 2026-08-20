@@ -5150,7 +5150,9 @@
       '<b>Shift</b> = rechtwinklig · <b>Backspace</b> = Punkt zurück · ' +
       '<b>Strg+Z</b> = rückgängig · Messung anklicken = Ecken ziehen.' +
       '<button type="button" id="mw-hint-ok">Verstanden</button>';
-    var wrap = document.getElementById('nz-canvas-wrap');
+    // _nzWrap ist das echte Canvas-Element (.nz-wrap) — die frei erfundene
+    // id 'nz-canvas-wrap' existierte nicht: der Hinweis erschien NIE.
+    var wrap = _nzWrap || document.querySelector('.nz-wrap');
     if (wrap && wrap.parentElement) {
       wrap.parentElement.insertBefore(el, wrap);
       document.getElementById('mw-hint-ok').addEventListener('click', function () {
