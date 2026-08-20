@@ -150,7 +150,7 @@ def run():
         # d=(fin-Stempel)/U verschoben (Deckel 12 cm, beide Richtungen).
         # Korpus: JEDER Plan Oe <2 %, kein Raum >3,7 %.
         (r'BAND_OFFSET", "1"', "Band-Offset Standard an mit Notausstieg"),
-        (r"max\(-0\.12, min\(0\.12", "Offset-Deckel 12 cm beidseitig"),
+        (r"max\(-0\.03, min\(0\.12", "Offset: auswaerts 3 cm HART (Raumtrennung!), einwaerts 12"),
         (r"abs\(_neu_m2 - _sf\) < abs\(_fin_m2 - _sf\)", "Offset nur wenn es besser wird"),
     ):
         if re.search(muster, rq):

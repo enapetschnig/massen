@@ -3986,7 +3986,16 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                     _u_m5 = _u5 / rst.ptm
                     if _u_m5 > 1.0 and abs(_fin_m2 - _sf) / _sf > 0.04:
                         _d5 = (_fin_m2 - _sf) / _u_m5          # m, + = einwaerts
-                        _d5 = max(-0.12, min(0.12, _d5)) * rst.ptm
+                        # AUSWAERTS HART GEKAPPT auf 3 cm (Live-Befund
+                        # 2026-08-20, Nutzer: "Raeume nicht richtig
+                        # getrennt"): der freie Auswaerts-Offset schob
+                        # Umrisse UEBER die Wandkante in den Nachbarraum —
+                        # die Fuellungen bluteten ineinander. Einwaerts
+                        # (Umriss zu gross -> schrumpfen) bleibt bei 12 cm:
+                        # das ZIEHT die Fuellung von der Wand weg und
+                        # verbessert die Trennung. Die Zahl am Raum-Chip
+                        # ist ohnehin der byte-exakte Stempel.
+                        _d5 = max(-0.03, min(0.12, _d5)) * rst.ptm
                         # Kanten um d entlang der Innen-Normale schieben;
                         # Innen-Normale aus der Windung: fuer CCW (sgn>0)
                         # zeigt (dy,-dx)/L nach aussen -> innen = -(dy,-dx).
