@@ -122,20 +122,19 @@ def run():
                       f"bodentiefe OG-Element verliert seinen Siegel-Anker")
     else:
         print("   RPH 0/STUK +5,59 (bodentief absolut) → Anker          ✓")
+    # 4) Quelltext-Zusagen: raumnetz akzeptiert den Anker-Typ, FRONT_SEAL
+    #    bleibt geschaltet, nachzeichnen exportiert ihn nicht ans Frontend.
+    rn = open(os.path.join(WURZEL, "api", "raumnetz.py"), encoding="utf-8").read()
+    nz = open(os.path.join(WURZEL, "api", "nachzeichnen.py"), encoding="utf-8").read()
     # Der pauschale TUER-Fall-C bleibt DRAUSSEN (Suite-Rotlauf 2026-08-20:
     # Tuer-Dichtung 32->29 dicht). Wiederaufnahme nur mit engerem Gate
     # UND gruener Tuer-Dichtung.
-    if '"glasfront", "tuer"' in rn or "'glasfront', 'tuer'" in rn:
+    if '"glasfront", "tuer"' in rn:
         fehler.append("Tuer-Fall-C ist zurueck in _ist_parapet — er machte "
                       "3 Tueren undicht (Suite-Rotlauf); nur mit engerem "
                       "Gate und gruener Tuer-Dichtung wieder aufnehmen")
     else:
         print("   pauschaler Tuer-Fall-C bleibt draussen                ✓")
-
-    # 4) Quelltext-Zusagen: raumnetz akzeptiert den Anker-Typ, FRONT_SEAL
-    #    bleibt geschaltet, nachzeichnen exportiert ihn nicht ans Frontend.
-    rn = open(os.path.join(WURZEL, "api", "raumnetz.py"), encoding="utf-8").read()
-    nz = open(os.path.join(WURZEL, "api", "nachzeichnen.py"), encoding="utf-8").read()
     if not re.search(r'in \("fenster", "glasfront"\)', rn):
         fehler.append("raumnetz: glasfront ist kein Front-Anker mehr")
     else:
