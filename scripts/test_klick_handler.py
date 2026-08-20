@@ -137,6 +137,7 @@ def _werkzeugkasten(fehler):
         (r"_mwUndo", src, "Ctrl+Z-Sitzungsstack"),
         (r"e\.shiftKey && _mwPts\.length", src, "Shift-Ortho"),
         (r"nzZeigeMessung", src, "Plan-Sprung existiert"),
+        (r"mw_hint_gesehen", src, "So-misst-du-Ersthinweis (einmalig)"),
         (r"data-sprung", auf, "M-Nummern springen zum Plan"),
         (r"data-mv", src, "Vertex-Handles der Messung"),
         (r"_mwVDrag", src, "Vertex-Drag-Zustand"),

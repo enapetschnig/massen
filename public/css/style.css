@@ -3585,3 +3585,12 @@ g[data-raum].nz-hi circle {
   border: none; background: none; color: var(--accent); cursor: pointer;
   padding: 0; text-decoration: underline dotted; }
 .mz-sprung:hover { color: var(--accent-hover); }
+/* "So misst du"-Ersthinweis */
+#mw-ersthinweis { display: flex; align-items: center; gap: .75rem;
+  flex-wrap: wrap; background: var(--accent-soft);
+  border: 1.5px solid var(--accent); border-radius: var(--radius);
+  padding: .6rem .9rem; margin: 0 0 .6rem; font-size: .85rem;
+  line-height: 1.45; }
+#mw-ersthinweis button { margin-left: auto; border: none;
+  background: var(--accent); color: #fff; font-weight: 700;
+  border-radius: 999px; padding: .35rem .9rem; cursor: pointer; }

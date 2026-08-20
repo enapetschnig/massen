@@ -5026,7 +5026,7 @@
       body: JSON.stringify(reqBody)
     }).then(function (r) { return r.json(); }).then(function (d) {
       _nzGeladen = true;
-      _mwLaden().then(function () { _nzPaint(); }); _nzLaeuft = false;
+      _mwLaden().then(function () { _nzPaint(); _mwErsthinweis(); }); _nzLaeuft = false;
       if (!d || !d.ok) {
         if (planId) _nzAktivPlan = planId;   // Tab bleibt wählbar markiert
         cont.innerHTML = _nzTabsHtml() +
@@ -5135,6 +5135,31 @@
   // PLAN-SPRUNG (Runde 'Perfekt & ausgemistet'): jede M-Nummer in
   // Zuordnung/Protokoll fuehrt zum Plan — Schritt 2, Messung selektiert,
   // hingezoomt. Jede Zahl ist zwei Klicks vom Plan entfernt.
+  // "SO MISST DU"-ERSTHINWEIS (Live-Befund 2026-08-20: der Werkzeug-
+  // kasten wurde nicht als Hand-Editor erkannt). Einmal je Browser,
+  // schliessbar; erklaert die drei Kerngesten in einer Zeile.
+  function _mwErsthinweis() {
+    try {
+      if (localStorage.getItem('mw_hint_gesehen')) return;
+    } catch (e) { return; }
+    var el = document.createElement('div');
+    el.id = 'mw-ersthinweis';
+    el.innerHTML = '<strong>✏️ So misst du per Hand:</strong> ' +
+      'Links <b>Fläche</b> wählen (oder Taste <b>F</b>) → Ecken am Plan ' +
+      'anklicken → <b>Klick auf den Startpunkt schließt</b>. ' +
+      '<b>Shift</b> = rechtwinklig · <b>Backspace</b> = Punkt zurück · ' +
+      '<b>Strg+Z</b> = rückgängig · Messung anklicken = Ecken ziehen.' +
+      '<button type="button" id="mw-hint-ok">Verstanden</button>';
+    var wrap = document.getElementById('nz-canvas-wrap');
+    if (wrap && wrap.parentElement) {
+      wrap.parentElement.insertBefore(el, wrap);
+      document.getElementById('mw-hint-ok').addEventListener('click', function () {
+        try { localStorage.setItem('mw_hint_gesehen', '1'); } catch (e) {}
+        el.remove();
+      });
+    }
+  }
+
   window.nzZeigeMessung = function (mid) {
     var m = (_mwListe || []).filter(function (x) { return x.id === mid; })[0];
     var fertig = function () {
