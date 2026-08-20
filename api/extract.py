@@ -837,7 +837,7 @@ def _json_aus_antwort(raw):
     return {}
 
 
-APP_REV = "2026-08-20.1"
+APP_REV = "2026-08-20.2"
 
 
 @app.get("/api/extract-health")
@@ -6138,7 +6138,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 86  # Boden-Absolut-Anker (RPH 0 + absolute Kote -> glasfront)
+_NZ_CACHE_V = 87  # BAND_OFFSET: uniformer Stempel-Offset der Umrisse (Rohbau-Band-Fix)
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

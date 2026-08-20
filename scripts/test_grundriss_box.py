@@ -145,6 +145,13 @@ def run():
         (r"_sf_kappe", "laufende Stempel-Kappe am Boden-Kredit"),
         (r"_deck_min", "gesenkte Deckung NUR fuer Budget-Kandidaten"),
         (r"poly_flaeche >= 0\.95 \* _sf", "Deckel ab DP >= 95 % Stempel"),
+        # BAND_OFFSET (2026-08-20, Standard an): weicht der gezeichnete
+        # Umriss >4 % vom Stempel ab, werden alle Kanten uniform um
+        # d=(fin-Stempel)/U verschoben (Deckel 12 cm, beide Richtungen).
+        # Korpus: JEDER Plan Oe <2 %, kein Raum >3,7 %.
+        (r'BAND_OFFSET", "1"', "Band-Offset Standard an mit Notausstieg"),
+        (r"max\(-0\.12, min\(0\.12", "Offset-Deckel 12 cm beidseitig"),
+        (r"abs\(_neu_m2 - _sf\) < abs\(_fin_m2 - _sf\)", "Offset nur wenn es besser wird"),
     ):
         if re.search(muster, rq):
             print(f"   {was} ✓")

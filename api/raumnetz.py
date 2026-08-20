@@ -3961,6 +3961,70 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                         _fin = vereinfacht
                 _fin_pt = [(rst.bx0 + p[0] * rst.cell, rst.by0 + p[1] * rst.cell)
                            for p in _fin]
+            # BAND_OFFSET (Zimmer-1-Sezierung 2026-08-20, Standard an nach
+            # Korpus-Messung, =0 Notausstieg): manche Plaene zeichnen nur
+            # ROHBAU-Linien — der Umriss traegt dann ein UNIFORMES Band
+            # (Zimmer 1: ~9 cm rundum = +8,9 %), obwohl die Messung via
+            # Ausgleich byte-exakt ist. Der Stempel ist die Wahrheit:
+            # weicht das Polygon >4 % ab, werden ALLE Kanten uniform um
+            # d = (fin-Stempel)/U verschoben (gedeckelt 12 cm, beide
+            # Richtungen; HWR ist der Auswaerts-Fall). Ecken = Schnitt-
+            # punkte der verschobenen Kantenlinien; wird das Ergebnis
+            # nicht besser, bleibt das Original.
+            if os.environ.get("BAND_OFFSET", "1") != "0" and _fin_pt                     and len(_fin_pt) >= 4 and _sf and _sf > 0:
+                try:
+                    _n5 = len(_fin_pt)
+                    _a5 = 0.0
+                    _u5 = 0.0
+                    for _k5 in range(_n5):
+                        _x1, _y1 = _fin_pt[_k5 - 1]
+                        _x2, _y2 = _fin_pt[_k5]
+                        _a5 += _x1 * _y2 - _x2 * _y1
+                        _u5 += math.hypot(_x2 - _x1, _y2 - _y1)
+                    _sgn5 = 1.0 if _a5 > 0 else -1.0
+                    _fin_m2 = abs(_a5) / 2.0 / (rst.ptm ** 2)
+                    _u_m5 = _u5 / rst.ptm
+                    if _u_m5 > 1.0 and abs(_fin_m2 - _sf) / _sf > 0.04:
+                        _d5 = (_fin_m2 - _sf) / _u_m5          # m, + = einwaerts
+                        _d5 = max(-0.12, min(0.12, _d5)) * rst.ptm
+                        # Kanten um d entlang der Innen-Normale schieben;
+                        # Innen-Normale aus der Windung: fuer CCW (sgn>0)
+                        # zeigt (dy,-dx)/L nach aussen -> innen = -(dy,-dx).
+                        _neu5 = []
+                        for _k5 in range(_n5):
+                            _p0 = _fin_pt[_k5]
+                            _p1 = _fin_pt[(_k5 + 1) % _n5]
+                            _dx5, _dy5 = _p1[0] - _p0[0], _p1[1] - _p0[1]
+                            _L5 = math.hypot(_dx5, _dy5) or 1.0
+                            _nx5 = -_sgn5 * _dy5 / _L5
+                            _ny5 = _sgn5 * _dx5 / _L5
+                            _neu5.append((_p0[0] + _nx5 * _d5,
+                                          _p0[1] + _ny5 * _d5,
+                                          _p1[0] + _nx5 * _d5,
+                                          _p1[1] + _ny5 * _d5))
+                        _ecken5 = []
+                        _ok5 = True
+                        for _k5 in range(_n5):
+                            (_ax, _ay, _bx, _by) = _neu5[_k5 - 1]
+                            (_cx5, _cy5, _dx6, _dy6) = _neu5[_k5]
+                            _r1x, _r1y = _bx - _ax, _by - _ay
+                            _r2x, _r2y = _dx6 - _cx5, _dy6 - _cy5
+                            _den = _r1x * _r2y - _r1y * _r2x
+                            if abs(_den) < 1e-9:
+                                _ecken5.append((_cx5, _cy5))
+                                continue
+                            _t5 = ((_cx5 - _ax) * _r2y - (_cy5 - _ay) * _r2x) / _den
+                            _ecken5.append((_ax + _t5 * _r1x, _ay + _t5 * _r1y))
+                        _a6 = 0.0
+                        for _k5 in range(_n5):
+                            _x1, _y1 = _ecken5[_k5 - 1]
+                            _x2, _y2 = _ecken5[_k5]
+                            _a6 += _x1 * _y2 - _x2 * _y1
+                        _neu_m2 = abs(_a6) / 2.0 / (rst.ptm ** 2)
+                        if abs(_neu_m2 - _sf) < abs(_fin_m2 - _sf)                                 and _neu_m2 > 0.5 * _fin_m2:
+                            _fin_pt = _ecken5
+                except Exception:
+                    pass
             out[ridx] = _fin_pt
     return out
 
