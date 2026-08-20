@@ -233,7 +233,13 @@ def extract_oeffnungen_from_text(spans: list, rooms: list, max_cluster_pt: float
             # rechnerische Hoehe 4,69 m). Das Fenster existiert, nur die
             # Hoehe ist nicht bestimmbar -> GLASFRONT-ANKER: dichtet die
             # Nische, erfindet aber kein Bauteil mit erfundener Hoehe.
-            elif h_m > 3.5 and 0.3 <= fph["value_m"] <= 1.8:
+            elif h_m > 3.5 and (0.3 <= fph["value_m"] <= 1.8
+                                or fph["value_m"] < 0.15):
+                # zweiter Fall: BODENTIEFES Element mit absoluter Kote
+                # ("RPH 0 / STUK +5,59", OG-Fenstertuer) — Elternbad lief
+                # sonst zur Glaslinie (+9,1 %). NUR der glasfront-Anker;
+                # der pauschale Tuer-Fall-C wurde revertiert (Suite ROT:
+                # Tuer-Dichtung 32->29 — die EG-Tuersiegel waren zu breit).
                 oeffnungen.append({"typ": "glasfront", "cx": fph["cx"],
                             "cy": fph["cy"], "breite_m": None,
                             "hoehe_m": None, "fph_m": fph["value_m"],
