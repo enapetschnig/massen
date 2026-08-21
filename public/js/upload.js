@@ -56,6 +56,13 @@
       projectAddressEl.textContent = res.data.adresse || '';
       _projGewerk = (res.data.gewerk || '').toLowerCase().trim();
       window._projModus = res.data.modus || 'ki';
+      // MANUELL-MODUS (Live-Befund 2026-08-21: "funktioniert gar nicht"):
+      // renderNachzeichnen hing am ERFOLGSPFAD der Massen-Berechnung —
+      // ohne Analyse bricht die vorher ab, der Plan wurde NIE gezeichnet.
+      // Im Manuell-Modus zeichnet der Leicht-Pass direkt.
+      if (window._projModus === 'manuell') {
+        setTimeout(function () { renderNachzeichnen(); }, 300);
+      }
       var status = res.data.status || 'Neu';
       projectStatusEl.textContent = status;
       projectStatusEl.className = 'badge badge-' + statusClass(status);
@@ -272,6 +279,7 @@
       .catch(function () {
         if (badge) badge.textContent = '';
         if (board) board.innerHTML = '<div class="ml-empty">Netzwerk-Fehler bei der Mengenberechnung.</div>';
+        if (window._projModus === 'manuell') renderNachzeichnen();
       });
   }
 
@@ -2856,7 +2864,11 @@
     (_nzData.raeume || []).forEach(function (r, _ri) {
       if (!r.region_px || r.region_px.length < 3) return;
       var pts = r.region_px.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
-      var _edit = _nzRaumEditMode && _nzRaumSel === _ri;
+      // Handles auch bei blosser AUSWAHL (Live-Befund: "Raeume leicht
+      // aendern indem man die Ecken zieht") — der Griff-Anfasser aktiviert
+      // den Editor beim ersten Zug automatisch.
+      var _edit = (_nzRaumEditMode && _nzRaumSel === _ri) ||
+                  (!_nzRaumEditMode && _nzRaumInfo === _ri);
       // Im Editier-Modus sind die Polygone anklickbar (Raum wählen).
       // Raeume sind IMMER anklickbar — ein Klick zeigt die Werte. Vorher ging
       // das nur im Bearbeiten-Modus, also musste man erst ein Werkzeug
@@ -3878,6 +3890,20 @@
       }
       if (_mwTool) { e.preventDefault(); return; }   // Werkzeug: kein Pan
       if (_nzAddMode) { _nzDraw = { p0: _nzScreenToImg(e), p1: null }; e.preventDefault(); return; }
+      // ERSTER ZUG AKTIVIERT DEN EDITOR: ein Griff an einem nur
+      // AUSGEWAEHLTEN Raum schaltet den Raum-Editor an und zieht sofort.
+      if (!_nzRaumEditMode) {
+        var _tv = e.target;
+        var _rv0 = _tv && _tv.getAttribute && _tv.getAttribute('data-rv');
+        if (_rv0 != null) {
+          var _pr0 = _rv0.split(':');
+          _nzRaumEditMode = true;
+          _nzRaumSel = +_pr0[0];
+          _nzRvDrag = { ri: +_pr0[0], vi: +_pr0[1] };
+          _nzPaint();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+      }
       // RAUM-EDITOR: Eckpunkt ziehen oder (auf Kanten-Mitte) einfügen.
       if (_nzRaumEditMode) {
         var t = e.target;
@@ -4844,7 +4870,21 @@
     if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     var cont = document.getElementById('nachzeichnen-container');
     if (!cont) return;
-    if (_nzWrap) { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
+    if (_nzWrap) {
+      // FIT-CONTAIN statt Breiten-Fit (Live-Befund: "der untere Teil
+      // fehlt schon wieder"): hohe Plaene wurden unten abgeschnitten.
+      var _fitS = 1;
+      try {
+        var _iw = _nzWrap.querySelector('img, svg');
+        var _dispH = (_nzData && _nzData.bild_h && _nzData.bild_w)
+          ? _nzWrap.clientWidth * _nzData.bild_h / _nzData.bild_w : 0;
+        if (_dispH > 0 && _nzWrap.clientHeight > 50 && _dispH > _nzWrap.clientHeight) {
+          _fitS = Math.max(0.35, _nzWrap.clientHeight / _dispH);
+        }
+      } catch (e) {}
+      _nzZoom = { s: _fitS, x: _fitS < 1 ? (_nzWrap.clientWidth * (1 - _fitS)) / 2 : 0, y: 0 };
+      _nzApplyZoom();
+    }
     var alle = cont.querySelectorAll('g[data-raum]');
     var sel = [];
     Array.prototype.forEach.call(alle, function (g) {
