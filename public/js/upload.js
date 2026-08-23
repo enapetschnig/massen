@@ -2437,13 +2437,20 @@
     r.region_px = r._region_orig.map(function (p) { return [p[0], p[1]]; });
     r._region_orig = null; r._edited = false; r._f_edit = null; r._u_edit = null;
     _nzPaint(); _nzRaumLiveReadout(ri);
+    _nzSave(null);   // Rückbau auch speichern — sonst kehrt die alte
+                     // raum_regionen-Korrektur beim Reload zurück
   }
+  var _nzRaumSaveT = null;
   function _nzRaumMarkEdited(ri) {
     var r = _nzData.raeume[ri]; if (!r) return;
     r._edited = true;
     r._f_edit = Math.round(_nzPolyFlaeche(r.region_px) * 100) / 100;
     r._u_edit = Math.round(_nzPolyUmfang(r.region_px) * 100) / 100;
     _nzRaumLiveReadout(ri);
+    // JEDER abgeschlossene Zug speichert (entprellt) — die Handarbeit darf
+    // keinen "Übernehmen"-Klick brauchen, um den Reload zu überleben.
+    clearTimeout(_nzRaumSaveT);
+    _nzRaumSaveT = setTimeout(function () { _nzSave(null); }, 800);
   }
   // Live-Anzeige (Name · Fläche · Umfang) des bearbeiteten Raums im Readout-Feld.
   function _nzRaumLiveReadout(ri) {
@@ -2948,7 +2955,11 @@
       // UMFASSUNGS-LAYER: die Raumgrenze farblich je Bauteil — Außenwand
       // rotbraun, Innenwand blau, Tür gelb, offen grau gestrichelt, unbekannt
       // amber gestrichelt. Macht sichtbar, wo der Raum aufhört und WOMIT.
-      if (_nzUmfassung && r.umfassung && r.umfassung.segmente && !_edit) {
+      // Umfassungs-Segmente stammen aus der SERVER-Rekonstruktion — nach einer
+      // Hand-Korrektur passen sie nicht mehr zum Umriss und liegen als schiefe
+      // Fremdlinien am Plan (Nutzer-Screenshots 2026-08-23). Für editierte
+      // Räume deshalb aus, bis der Server sie zur neuen Form neu klassifiziert.
+      if (_nzUmfassung && r.umfassung && r.umfassung.segmente && !_edit && !r._edited) {
         var _UMFARB = { aussenwand: '#7c2d12', innenwand: '#2563eb', tuer: '#eab308',
                         offen: '#94a3b8', unbekannt: '#f59e0b' };
         var _UMNAME = { aussenwand: 'Außenwand', innenwand: 'Innenwand', tuer: 'Tür',
@@ -4750,16 +4761,28 @@
     var wlm = (laengen && laengen.wand_laengen_manuell) || ov.wand_laengen_manuell || false;
     var rf = ov.raum_flaechen && Object.keys(ov.raum_flaechen).length ? ov.raum_flaechen : null;
     var kalib = (_nzData.meta && _nzData.meta.px_pro_m_manuell > 0) ? _nzData.meta.px_pro_m_manuell : null;
+    // HANDKORRIGIERTE RAUM-UMRISSE mitspeichern (Live-Befund 2026-08-23: der
+    // Nutzer zog vier Räume sauber nach — beim Reload war ALLES weg, weil nur
+    // F/U-Overrides, nie die Polygone gespeichert wurden). Key wie bei
+    // raum_flaechen: normalisierter Name; Geschoss zur Absicherung im Wert.
+    var rr = {};
+    (_nzData.raeume || []).forEach(function (r) {
+      if (r._edited && r.region_px && r.region_px.length >= 3 && r.name) {
+        rr[_nrmRaum(r.name)] = { name: r.name, geschoss: r.geschoss || null,
+          region_px: r.region_px.map(function (p) { return [p[0], p[1]]; }) };
+      }
+    });
+    if (!Object.keys(rr).length) rr = null;
     var leer = !Object.keys(_nzEdit.removed).length && !Object.keys(_nzEdit.thick).length &&
       !Object.keys(_nzEdit.aussen).length && !(_nzEdit.added && _nzEdit.added.length) &&
-      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile && !wl && !rf && !kalib;
+      !(_nzEdit.oeffRemoved && Object.keys(_nzEdit.oeffRemoved).length) && !anteile && !wl && !rf && !kalib && !rr;
     fetch('/api/nachzeichnen-korrektur', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan_id: _nzData.plan_id,
         seite: (_nzAktivSeite != null && _nzAktivSeite !== _nzHauptSeite) ? _nzAktivSeite : null,
         korrekturen: leer ? null : { edit: _nzEdit, anteile: anteile || null,
           wand_laengen_m: wl, wand_laengen_manuell: wlm, raum_flaechen: rf,
-          px_pro_m_manuell: kalib } })
+          raum_regionen: rr, px_pro_m_manuell: kalib } })
     }).catch(function () { /* Speichern ist best-effort */ });
   }
 
@@ -5266,6 +5289,23 @@
       _nzCleanRegionen();     // rekonstruierte Umrisse glätten (Treppen-Rauschen weg)
       _nzSynthRegionen();     // Räume ohne Polygon: editierbare Rechteck-Startform
       _nzSnapRegionen();      // ALLE (echt + geschätzt) auf die Wand-Fluchten rasten
+      // HANDKORRIGIERTE UMRISSE zuletzt: sie sind die Wahrheit des Nutzers und
+      // dürfen von Clean/Synth/Snap nicht angerührt werden — deshalb NACH allen
+      // automatischen Schritten wiederherstellen.
+      if (k && k.raum_regionen) {
+        (_nzData.raeume || []).forEach(function (r) {
+          var sav = k.raum_regionen[_nrmRaum(r.name || '')];
+          if (sav && sav.region_px && sav.region_px.length >= 3 &&
+              (sav.geschoss || null) === (r.geschoss || null)) {
+            // Den erkannten Umriss als Original merken, BEVOR er ersetzt wird —
+            // sonst hat "↺ Original" nach einem Reload nichts, worauf es
+            // zurücksetzen könnte, und die Hand-Korrektur wäre unumkehrbar.
+            r._region_orig = (r.region_px || []).map(function (p) { return [p[0], p[1]]; });
+            r.region_px = sav.region_px.map(function (p) { return [p[0], p[1]]; });
+            r._edited = true;
+          }
+        });
+      }
       var meta = d.meta || {};
       var hatK = k && k.edit && (Object.keys(k.edit.removed || {}).length || Object.keys(k.edit.thick || {}).length);
       var schnittHint = d.typ === 'schnitt'
