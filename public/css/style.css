@@ -3316,7 +3316,12 @@ g[data-raum].nz-hi circle {
 #nachzeichnen-section { margin-top: 0.6rem; }
 #nachzeichnen-container .nz-wrap,
 #nachzeichnen-container svg { max-height: none; }
-.nz-plan-gross #nachzeichnen-container .nz-wrap { height: min(76vh, 900px); }
+/* SCHRITT 2 = der Editor bekommt (fast) den ganzen Bildschirm — wie eine
+   Zeichensoftware. 250px = Topbar + Plan-Tabs + Info-Zeile + Beweis-Balken +
+   Statuszeile + einzeilige Raumleiste + Statusbar (live nachgemessen —
+   mit 185px scrollte der Schritt trotzdem). */
+.nz-plan-gross #nachzeichnen-container .nz-wrap { height: calc(100vh - 250px);
+  min-height: 420px; }
 
 /* TRANSFORM-URSPRUNG LINKS OBEN — der Grund, warum der untere Plan-Teil
    unerreichbar war.
@@ -3518,10 +3523,42 @@ g[data-raum].nz-hi circle {
 /* Schritt 1 (Pläne): Fokus auf Upload + Planliste. */
 .wf-s1 .result-hero, .wf-s1 #results-section, .wf-s1 #ergebnis-section > .section-title { display: none !important; }
 /* Schritt 2 (Plan & Messen): der Plan bekommt den Viewport — Ergebnis-
-   Kopf und Alt-Tabellen wuerden ihn nach unten druecken. */
+   Kopf und Alt-Tabellen wuerden ihn nach unten druecken. Zusaetzlich
+   (Umbau 2026-08-23, digiplan-Vorbild): volle Breite, Projekt-Kopf und
+   Sektions-Titel weg — der Editor IST der Schritt. */
 .wf-s2 .result-hero, .wf-s2 #results-section, .wf-s2 #upload-section,
 .wf-s2 #plans-section { display: none !important; }
-.wf-s2 #nachzeichnen-container .nz-wrap { min-height: calc(100vh - 240px); }
+.wf-s2 #nachzeichnen-container .nz-wrap { min-height: calc(100vh - 250px); }
+.wf-s2 .page-container { max-width: none; padding: 0 .8rem .8rem; }
+.wf-s2 .project-header, .wf-s2 .nachzeichnen-head,
+.wf-s2 .ergebnis-warte { display: none !important; }
+.wf-s2 .wf-topbar { margin-bottom: .45rem; }
+#nachzeichnen-container .nz-planinfo { margin: 0 0 .3rem; }
+#nachzeichnen-container .nz-planinfo > summary { cursor: pointer;
+  font-size: .8rem; color: var(--text-light); list-style: none;
+  display: inline-block; padding: .15rem .45rem; border-radius: 6px; }
+#nachzeichnen-container .nz-planinfo > summary:hover { background: #f1f5f9; }
+#nachzeichnen-container .nz-planinfo[open] > summary { font-weight: 700; }
+.nz-seitenzeile { font-size: .8rem; color: var(--text-light);
+  margin: 0 0 .25rem; }
+.nz-seitenzeile:empty { display: none; }
+/* Raumleiste: auf zwei Zeilen deckeln — bei 70 Räumen frass sie sonst den
+   halben Editor. Scrollt intern, der Plan behaelt seine Hoehe. */
+.nz-raumleiste { max-height: 4.7rem; overflow-y: auto; }
+/* In Schritt 2 EINZEILIG (horizontal scrollbar): jede gesparte Zeile ist
+   Planhöhe. Live gemessen: mit 2-3 Chip-Zeilen scrollte der Schritt. */
+.wf-s2 .nz-raumleiste { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+  max-height: none; padding-bottom: .2rem; }
+.wf-s2 .nz-raumleiste .nz-rl { flex: 0 0 auto; white-space: nowrap; }
+.wf-s2 .nz-raumleiste .nz-rl-lab { flex: 0 0 auto; white-space: nowrap; }
+/* Werkzeugleiste ZWEISPALTIG in Schritt 2: 21 Knöpfe untereinander waren
+   höher als der Bildschirm — die Leiste selbst erzwang das Seiten-Scrollen
+   (live gemessen). Titel und Trenner laufen über beide Spalten. */
+.wf-s2 .nz-studio { grid-template-columns: 122px minmax(0, 1fr) 300px; }
+.wf-s2 .nz-rail { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; }
+.wf-s2 .nz-rail .nz-rail-titel, .wf-s2 .nz-rail .nz-rail-sep { grid-column: 1 / -1; }
+/* Seitenpanel auf Editor-Höhe deckeln — es scrollt intern, nicht die Seite */
+.wf-s2 .nz-side { max-height: calc(100vh - 250px); }
 /* Schritt 4 (Zuordnung) + 5 (Export): Alt-Detailtabellen raus. */
 .wf-s4 #results-section, .wf-s5 #results-section { display: none !important; }
 /* Ebenen ausblenden (KI-Zeichnung entfernbar je Ebene) */
@@ -3594,3 +3631,44 @@ g[data-raum].nz-hi circle {
 #mw-ersthinweis button { margin-left: auto; border: none;
   background: var(--accent); color: #fff; font-weight: 700;
   border-radius: 999px; padding: .35rem .9rem; cursor: pointer; }
+
+/* ─── INTERAKTIVE ANLEITUNG (Tour / Coach-Marks) ─────────────────────────
+   Ring = Spotlight auf das echte Element (der riesige box-shadow dunkelt
+   alles andere ab), Popover = Erklärung mit Weiter/Zurück. "Probier es"-
+   Schritte warten auf den echten Klick aufs Ziel — deshalb lässt der Ring
+   Zeiger-Ereignisse durch (pointer-events none im JS). */
+.tour-ring { position: fixed; z-index: 6000; border: 2.5px solid var(--accent, #f39301);
+  border-radius: 10px; box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55);
+  transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease; }
+.tour-pop { position: fixed; z-index: 6001; background: var(--white, #fff);
+  border: 1px solid var(--border-strong, #cbd5e1); border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.35); padding: .8rem .95rem;
+  font-size: .88rem; line-height: 1.5; color: var(--text, #1f2937); }
+.tour-kopf { display: flex; align-items: center; margin-bottom: .3rem; }
+.tour-nr { font-size: .72rem; font-weight: 800; letter-spacing: .05em;
+  color: var(--accent, #f39301); }
+.tour-x { margin-left: auto; border: none; background: none; cursor: pointer;
+  font-size: 1rem; color: #94a3b8; padding: 0 .1rem; }
+.tour-x:hover { color: var(--text, #1f2937); }
+.tour-titel { font-weight: 800; font-size: .98rem; margin-bottom: .25rem; }
+.tour-text { color: var(--text-light, #475569); }
+.tour-fuss { display: flex; align-items: center; gap: .5rem; margin-top: .65rem;
+  flex-wrap: wrap; }
+.tour-btn { border: 1px solid var(--border-strong, #cbd5e1); background: var(--white, #fff);
+  border-radius: 999px; padding: .35rem .9rem; font: inherit; font-size: .82rem;
+  font-weight: 700; cursor: pointer; color: var(--text, #1f2937); }
+.tour-btn:hover { border-color: var(--accent, #f39301); }
+.tour-btn-haupt { margin-left: auto; background: var(--accent, #f39301);
+  border-color: var(--accent, #f39301); color: #fff; }
+.tour-btn-haupt:hover { filter: brightness(1.08); }
+.tour-probier { font-size: .78rem; font-weight: 700; color: var(--accent, #f39301);
+  flex: 1 1 auto; }
+@media (prefers-color-scheme: dark) {
+  .tour-pop { background: #1e293b; color: #e2e8f0; border-color: #334155; }
+  .tour-text { color: #cbd5e1; }
+  .tour-btn { background: #0f172a; color: #e2e8f0; border-color: #334155; }
+}
+/* ❓-Knopf in der Workflow-Leiste: sichtbar, aber kein "Schritt" */
+.wf-topbar .wf-hilfe { margin-left: auto; border-style: dashed; }
+/* ✥-Verschiebe-Griffe (Raum & Messung): beim Überfahren kurz aufleuchten */
+.nz-rmove:hover, circle[data-mmove]:hover { filter: brightness(1.2); }

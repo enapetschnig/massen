@@ -2271,6 +2271,11 @@
   var _nzRaumEditMode = false;   // „Raum bearbeiten"-Modus
   var _nzRaumSel = -1;           // Index des bearbeiteten Raums in _nzData.raeume
   var _nzRvDrag = null;          // {ri, vi} gerade gezogener Eckpunkt
+  // GANZEN RAUM VERSCHIEBEN (digiplan-Parität "Flächen leicht verschieben"):
+  // {ri, start, orig, ank} — ank = Index der Ecke, die beim Fangen einrastet
+  // (die dem Griff-Punkt nächste Ecke; so snappt die ganze Fläche auf die Wand).
+  var _nzRMove = null;
+  var _mwMDrag = null;           // ganze MESSUNG verschieben: {mid, start, orig}
   var _nzFull = false;           // Plan im Vollbild
 
   // Fläche (m²) eines Polygons in Bild-Pixeln — Shoelace, am Plan-Maßstab.
@@ -2452,6 +2457,28 @@
       ' · Umfang <strong>' + fmtNum(Math.round(u * 100) / 100) + ' m</strong>' +
       ' &nbsp;<button type="button" class="nz-btn" style="padding:.1rem .5rem" onclick="_nzRaumUebernehmen()">✓ Fläche &amp; Umfang übernehmen</button>' +
       (r.region_px.length > 3 ? ' <span style="color:#6b7280;font-size:.78rem">· Doppelklick auf einen Punkt = löschen · kleine Kreise auf den Kanten = Punkt einfügen</span>' : '');
+  }
+  // VERSCHIEBEN-START: Ausgangslage merken + die dem Griffpunkt nächste Ecke
+  // als FANG-ANKER wählen. Beim Ziehen rastet diese Ecke auf die erkannten
+  // Wandlinien/Ecken ein (sofern 🧲 Fangen an ist) — die ganze Fläche folgt.
+  function _nzRMoveStart(ri, p0) {
+    var reg = _nzData.raeume[ri].region_px;
+    var ank = 0, bd = Infinity;
+    reg.forEach(function (v, vi) {
+      var d = (v[0] - p0[0]) * (v[0] - p0[0]) + (v[1] - p0[1]) * (v[1] - p0[1]);
+      if (d < bd) { bd = d; ank = vi; }
+    });
+    _nzRMove = { ri: ri, start: p0, ank: ank,
+                 orig: reg.map(function (v) { return [v[0], v[1]]; }) };
+  }
+  // Verschiebe-Delta mit Wand-Fang: die Anker-Ecke wird probehalber bewegt
+  // und durch _mwSnapPunkt gerastet; die Korrektur gilt für alle Punkte.
+  function _nzRMoveDelta(mv, p) {
+    var dx = p[0] - mv.start[0], dy = p[1] - mv.start[1];
+    var a = mv.orig[mv.ank];
+    var roh = [a[0] + dx, a[1] + dy];
+    var ras = _mwSnapPunkt(roh);   // respektiert den 🧲-Schalter selbst
+    return [dx + (ras[0] - roh[0]), dy + (ras[1] - roh[1])];
   }
   // Übernahme: die editierte Fläche/Umfang des gewählten Raums als Override in die
   // Massenrechnung geben (per Raumname+Geschoss) + am Plan speichern.
@@ -2954,6 +2981,18 @@
             '" r="' + rr + '" fill="#0369a1" stroke="#fff" stroke-width="2" cursor="move" pointer-events="auto">' +
             '<title>Ziehen · Doppelklick = Punkt löschen</title></circle>';
         });
+        // ✥-GRIFF: die GANZE Fläche verschieben (mit Wand-Fang an der
+        // nächstliegenden Ecke). Zusätzlich zieht auch die Fläche selbst —
+        // der Griff macht die Geste sichtbar/auffindbar.
+        var _mcx = 0, _mcy = 0;
+        r.region_px.forEach(function (v) { _mcx += v[0]; _mcy += v[1]; });
+        _mcx /= r.region_px.length; _mcy /= r.region_px.length;
+        _rvHandles += '<circle class="nz-rmove" data-rmove="' + _ri + '" cx="' + _mcx +
+          '" cy="' + _mcy + '" r="' + (rr * 1.5) + '" fill="#0369a1" fill-opacity="0.92"' +
+          ' stroke="#fff" stroke-width="2.5" cursor="move" pointer-events="auto">' +
+          '<title>Ganzen Raum verschieben (Fangen: rastet auf Wände ein)</title></circle>' +
+          '<text x="' + _mcx + '" y="' + (_mcy + rr * 0.55) + '" text-anchor="middle" font-size="' +
+          Math.round(rr * 1.7) + '" fill="#fff" style="pointer-events:none;font-weight:700">✥</text>';
       }
     });
     (_nzData.raeume || []).forEach(function (r) {
@@ -3472,6 +3511,7 @@
     // Events neu binden
     cont.querySelectorAll('line[data-wid]').forEach(function (ln) {
       ln.addEventListener('click', function (ev) {
+        if (_mwTool) return;    // Mess-Werkzeug aktiv: Klick setzt Punkte
         if (_nzMoved) return;   // war ein Pan, kein Klick
         var id = parseInt(ln.getAttribute('data-wid'), 10);
         if (ev.shiftKey && _nzSel != null) {
@@ -3544,6 +3584,10 @@
     });
     cont.querySelectorAll('polygon[data-rpoly]').forEach(function (pg) {
       pg.addEventListener('click', function (ev) {
+        // AKTIVES MESS-WERKZEUG: der Klick gehört dem Werkzeug (Punkt setzen),
+        // nicht der Raum-Auswahl — durchlassen, NICHT stoppen. Live-Befund
+        // 2026-08-23: über erkannten Räumen war Zeichnen sonst unmöglich.
+        if (_mwTool) return;
         if (_nzMoved || _nzAddMode || _nzMeasMode) return;
         var ri = parseInt(pg.getAttribute('data-rpoly'), 10);
         if (isNaN(ri)) return;
@@ -3565,7 +3609,7 @@
     // Öffnungs-Marker anklicken = keine Öffnung (Fehl-Erkennung entfernen)
     cont.querySelectorAll('g[data-oid]').forEach(function (mk) {
       mk.addEventListener('click', function () {
-        if (_nzMoved) return;
+        if (_mwTool || _nzMoved) return;
         var oid = parseInt(mk.getAttribute('data-oid'), 10);
         _nzEdit.oeffRemoved[oid] = !_nzEdit.oeffRemoved[oid];
         _nzPaint(); _nzSave(_nzSplit().anteile);
@@ -3837,7 +3881,7 @@
     // und dann passiert gar nichts. Ein Klick auf einen Raum muss aber
     // funktionieren.
     _nzWrap.addEventListener('click', function (e) {
-      if (_nzAddMode || _nzMeasMode || _nzRaumEditMode || _nzMoved) return;
+      if (_mwTool || _nzAddMode || _nzMeasMode || _nzRaumEditMode || _nzMoved) return;
       if (e.target && e.target.getAttribute &&
           (e.target.getAttribute('data-wid') != null ||
            e.target.getAttribute('data-rv') != null)) return;   // Wand/Griff
@@ -3888,6 +3932,16 @@
         _mwVDrag = { mid: _t[0], vi: parseInt(_t[1], 10) };
         e.preventDefault(); e.stopPropagation(); return;
       }
+      // GANZE MESSUNG verschieben (✥-Griff der gewählten Messung)
+      var _mm = e.target && e.target.getAttribute && e.target.getAttribute('data-mmove');
+      if (_mm) {
+        var _mObj = (_mwListe || []).filter(function (x) { return x.id === _mm; })[0];
+        if (_mObj) {
+          _mwMDrag = { mid: _mm, start: _nzScreenToImg(e),
+                       orig: _mObj.geometrie.punkte.map(function (p) { return [p[0], p[1]]; }) };
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+      }
       if (_mwTool) { e.preventDefault(); return; }   // Werkzeug: kein Pan
       if (_nzAddMode) { _nzDraw = { p0: _nzScreenToImg(e), p1: null }; e.preventDefault(); return; }
       // ERSTER ZUG AKTIVIERT DEN EDITOR: ein Griff an einem nur
@@ -3904,6 +3958,15 @@
           e.preventDefault(); e.stopPropagation(); return;
         }
       }
+      // GANZEN RAUM verschieben: ✥-Griff — funktioniert auch ohne aktiven
+      // Editor (der Griff erscheint am ausgewählten Raum) und schaltet den
+      // Editor beim ersten Zug automatisch an.
+      var _rmv = e.target && e.target.getAttribute && e.target.getAttribute('data-rmove');
+      if (_rmv != null && _nzData && _nzData.raeume[+_rmv]) {
+        _nzRaumEditMode = true; _nzRaumSel = +_rmv;
+        _nzRMoveStart(+_rmv, _nzScreenToImg(e));
+        e.preventDefault(); e.stopPropagation(); return;
+      }
       // RAUM-EDITOR: Eckpunkt ziehen oder (auf Kanten-Mitte) einfügen.
       if (_nzRaumEditMode) {
         var t = e.target;
@@ -3912,6 +3975,16 @@
         if (rvv) {
           var pr = rvv.split(':'); _nzRvDrag = { ri: +pr[0], vi: +pr[1] };
           e.preventDefault(); e.stopPropagation(); return;
+        }
+        // ZIEHEN IN DER FLÄCHE des gewählten Raums = ganzen Raum verschieben
+        // (digiplan-Komfort "Flächen leicht verschieben"). Ein blosser Klick
+        // ohne Bewegung bleibt Auswahl — entschieden wird in mousemove/mouseup.
+        if (!rvv && !add && _nzRaumSel >= 0) {
+          var _hitRi = _nzRaumUnterPunkt(_nzScreenToImg(e));
+          if (_hitRi === _nzRaumSel) {
+            _nzRMoveStart(_nzRaumSel, _nzScreenToImg(e));
+            e.preventDefault(); e.stopPropagation(); return;
+          }
         }
         if (add) {
           var pa = add.split(':'), ri = +pa[0], vi = +pa[1];
@@ -4016,7 +4089,7 @@
     });
     cont.querySelectorAll('[data-mid]').forEach(function (el) {
       el.addEventListener('click', function (ev) {
-        if (_nzMoved) return;
+        if (_mwTool || _nzMoved) return;
         _mwSel = (_mwSel === el.getAttribute('data-mid')) ? null : el.getAttribute('data-mid');
         _nzPaint(); ev.stopPropagation();
       });
@@ -4069,9 +4142,40 @@
           return;
         }
         if (_nzDraw && _nzWrap) { _nzDraw.p1 = _nzScreenToImg(e); _nzDrawPreview(); return; }
+        // GANZE MESSUNG verschieben (Anker-Ecke rastet auf Wände, wie beim Raum).
+        if (_mwMDrag && _nzWrap) {
+          var _mMv = (_mwListe || []).filter(function (x) { return x.id === _mwMDrag.mid; })[0];
+          if (_mMv) {
+            var _pq = _nzScreenToImg(e);
+            var _dxm = _pq[0] - _mwMDrag.start[0], _dym = _pq[1] - _mwMDrag.start[1];
+            var _a0 = _mwPtZuPx(_mwMDrag.orig[0]);
+            var _roh = [_a0[0] + _dxm, _a0[1] + _dym];
+            var _ras = _mwSnapPunkt(_roh);
+            _dxm += _ras[0] - _roh[0]; _dym += _ras[1] - _roh[1];
+            _mMv.geometrie.punkte = _mwMDrag.orig.map(function (p0) {
+              var px = _mwPtZuPx(p0);
+              return _mwPxZuPt([px[0] + _dxm, px[1] + _dym]);
+            });
+            _nzPaint();
+          }
+          return;
+        }
+        // GANZEN RAUM live verschieben: Delta (mit Wand-Fang) auf alle Ecken.
+        if (_nzRMove && _nzWrap) {
+          var _dm = _nzRMoveDelta(_nzRMove, _nzScreenToImg(e));
+          if (Math.abs(_dm[0]) > 2 || Math.abs(_dm[1]) > 2) _nzRMove.moved = true;
+          var _regM = _nzData.raeume[_nzRMove.ri].region_px;
+          _nzRMove.orig.forEach(function (v, vi) {
+            _regM[vi] = [Math.round(v[0] + _dm[0]), Math.round(v[1] + _dm[1])];
+          });
+          _nzRaumLiveReadout(_nzRMove.ri); _nzPaint();
+          return;
+        }
         // Raum-Eckpunkt live ziehen: Position updaten + neu zeichnen (Fläche folgt).
+        // Der Punkt läuft durch den WAND-FANG (🧲): die Ecke rastet auf die
+        // erkannte Wandlinie/Ecke — Taste G schaltet das Fangen um.
         if (_nzRvDrag && _nzWrap) {
-          var p = _nzScreenToImg(e);
+          var p = _mwSnapPunkt(_nzScreenToImg(e));
           _nzData.raeume[_nzRvDrag.ri].region_px[_nzRvDrag.vi] = [Math.round(p[0]), Math.round(p[1])];
           _nzRaumLiveReadout(_nzRvDrag.ri); _nzPaint();
           return;
@@ -4082,6 +4186,33 @@
         _nzZoom.x = _nzPan.ox + dx; _nzZoom.y = _nzPan.oy + dy; _nzApplyZoom();
       });
       window.addEventListener('mouseup', function (e) {
+        // GANZE MESSUNG losgelassen → Server rechnet Wert+Formel zur neuen Lage
+        if (_mwMDrag) {
+          var _dMv = (_mwListe || []).filter(function (x) { return x.id === _mwMDrag.mid; })[0];
+          _mwMDrag = null;
+          if (_dMv) {
+            fetch('/api/messung', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projekt_id: window.projectId, id: _dMv.id,
+                typ: _dMv.typ, geometrie: _dMv.geometrie,
+                ptm: +((_nzData.meta || {}).ptm) || 0 })
+            }).then(function (r) { return r.json(); }).then(function (d) {
+              if (d && d.ok && d.messung) {
+                for (var _k6 = 0; _k6 < _mwListe.length; _k6++) {
+                  if (_mwListe[_k6].id === d.messung.id) _mwListe[_k6] = d.messung;
+                }
+              }
+              _nzPaint();
+            });
+          }
+          return;
+        }
+        // GANZEN RAUM losgelassen → Fläche/Umfang neu, als bearbeitet merken.
+        // Ohne echte Bewegung war es ein Klick: Auswahl bleibt einfach stehen.
+        if (_nzRMove) {
+          if (_nzRMove.moved) _nzRaumMarkEdited(_nzRMove.ri);
+          _nzRMove = null; _nzPaint(); return;
+        }
         if (_mwVDrag) {
           var _dM = (_mwListe || []).filter(function (x) { return x.id === _mwVDrag.mid; })[0];
           _mwVDrag = null;
@@ -4136,7 +4267,11 @@
         if (_nzMeasMode && _nzPan && !_nzMoved && _nzWrap) {
           // Kalibrier-Modus: nur 2 Punkte; ein 3. Klick startet neu.
           if (_nzCalibMode && _nzMeasPts.length >= 2) _nzMeasPts = [];
-          _nzMeasPts.push(_nzScreenToImg(e)); _nzPan = null; _nzMeasPaint(); return;
+          // Wand-Fang auch beim Lineal — NICHT beim Kalibrieren: dort klickt
+          // man Maßketten-Enden, die gerade KEINE erkannte Wand sind.
+          _nzMeasPts.push(_nzCalibMode ? _nzScreenToImg(e)
+                                       : _mwSnapPunkt(_nzScreenToImg(e)));
+          _nzPan = null; _nzMeasPaint(); return;
         }
         if (_nzPan) { _nzPan = null; if (_nzWrap) _nzWrap.style.cursor = 'grab'; }
       });
@@ -4466,6 +4601,18 @@
           '" fill="#fff" stroke="' + (_MW_FARBE[_selM.typ] || '#0d9488') +
           '" stroke-width="2.5" cursor="grab"/>';
       });
+      // ✥-GRIFF: die ganze Messung verschieben (Wert/Formel rechnet der
+      // Server nach dem Loslassen neu — die Geometrie bleibt die Wahrheit).
+      var _mmx = 0, _mmy = 0;
+      _hp.forEach(function (q) { _mmx += q[0]; _mmy += q[1]; });
+      _mmx /= _hp.length; _mmy /= _hp.length;
+      var _mcol = _MW_FARBE[_selM.typ] || '#0d9488';
+      out += '<circle data-mmove="' + _selM.id + '" cx="' + _mmx + '" cy="' + _mmy +
+        '" r="' + (fs * 0.7) + '" fill="' + _mcol + '" fill-opacity="0.92"' +
+        ' stroke="#fff" stroke-width="2.5" cursor="move"' +
+        '><title>Ganze Messung verschieben</title></circle>' +
+        '<text x="' + _mmx + '" y="' + (_mmy + fs * 0.28) + '" text-anchor="middle" font-size="' +
+        Math.round(fs * 0.85) + '" fill="#fff" style="pointer-events:none;font-weight:700">✥</text>';
     }
     if (_mwPending && _mwPending.pts.length) {
       var cp = _MW_FARBE[_mwPending.typ] || '#0d9488';
@@ -5143,9 +5290,17 @@
           '<strong>Klicke eine Wand</strong>, um sie zu entfernen (keine Wand), die Stärke zu korrigieren oder 25cm außen/innen zu setzen. ' +
           (hatK ? '<strong style="color:#166534">✓ deine gespeicherten Korrekturen sind angewandt.</strong> ' : '') +
           'Maßstab ' + esc(meta.massstab || '?') + ' · Bereich ' + (meta.box_m ? meta.box_m[0] + '×' + meta.box_m[1] + ' m' : '?') +
-          ' · ' + (d.dateiname ? esc(d.dateiname) : '') + _nzSeitenHtml();
+          ' · ' + (d.dateiname ? esc(d.dateiname) : '');
+      // PLATZ FÜR DEN PLAN: die lange Erklärzeile wandert in eine zuklappbare
+      // Info-Zeile — der Editor ist das Werkzeug, nicht der Text darüber.
+      // Beim Scan bleibt die eine entscheidende Ansage sichtbar: Maßstab setzen.
       cont.innerHTML = _nzTabsHtml() +
-        '<p class="nachzeichnen-hint">' + _hauptHint + '</p>' +
+        '<details class="nz-planinfo"><summary>' +
+        (d.typ === 'scan'
+          ? '🖼️ Scan — <strong style="color:#0369a1">zuerst Maßstab 📐 setzen</strong> · Details'
+          : 'ℹ️ Plan-Infos · Maßstab ' + esc(meta.massstab || '?') + ' · Details') +
+        '</summary><p class="nachzeichnen-hint">' + _hauptHint + '</p></details>' +
+        (d.typ === 'scan' ? '' : '<div class="nz-seitenzeile">' + _nzSeitenHtml() + '</div>') +
         _nzBeweisStatus(d) +
         '<div class="nz-dynamic"></div>';
       _nzWireTabs(cont);
@@ -5179,6 +5334,11 @@
   // kasten wurde nicht als Hand-Editor erkannt). Einmal je Browser,
   // schliessbar; erklaert die drei Kerngesten in einer Zeile.
   function _mwErsthinweis() {
+    // INTERAKTIVE TOUR statt Textkasten: sie zeigt AUF die echten Elemente
+    // und lässt die Kern-Geste (Fläche messen) sofort selbst ausführen.
+    // Startet automatisch einmal je Browser; ❓ Anleitung startet sie neu.
+    if (window.Tour) { window.Tour.auto('aufmass'); return; }
+    // Fallback ohne tour.js: der bewährte Einzeiler.
     try {
       if (localStorage.getItem('mw_hint_gesehen')) return;
     } catch (e) { return; }
@@ -5426,6 +5586,19 @@
       var ex = document.querySelector('.export-group');
       if (ex) ex.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+    // Ansicht gewechselt → eine noch laufende Tour zeigt auf ausgeblendete
+    // Elemente (live gesehen beim Auto-Sprung Plan→Aufmaß): sauber beenden.
+    if (window.Tour && window._wfStep != null && window._wfStep !== step) window.Tour.stopp();
+    window._wfStep = step;
+    // INTERAKTIVE ANLEITUNG: je Schritt einmal automatisch starten
+    // (❓ Anleitung startet sie jederzeit neu). Schritt 2 erst, wenn der
+    // Plan wirklich da ist — sonst zeigte die Tour auf leere Fläche;
+    // dieser Fall läuft über _mwErsthinweis nach dem ersten Paint.
+    if (window.Tour) {
+      var _tn = { 0: 'uebersicht', 1: 'plan', 3: 'abrechnung' }[step];
+      if (step === 2 && _nzData) _tn = 'aufmass';
+      if (_tn) window.Tour.auto(_tn);
+    }
   }
   var _wfUserPicked = false;   // hat der Nutzer selbst einen Schritt gewählt?
   var _wfAutoDone = false;     // Auto-Sprung zur Planansicht schon passiert?
@@ -5441,14 +5614,24 @@
   (function wireWorkflow() {
     var bar = document.getElementById('workflow-steps');
     if (!bar) return;
-    bar.querySelectorAll('.wf-step').forEach(function (b) {
+    bar.querySelectorAll('.wf-step[data-wf]').forEach(function (b) {
       b.addEventListener('click', function () {
         _wfUserPicked = true;
         wfShow(parseInt(b.getAttribute('data-wf'), 10));
       });
     });
-    wfShow(0);   // Start: Übersicht — der Auto-Sprung auf die Planansicht kommt,
-                 // sobald das Nachzeichnen-Overlay fertig ist (wfAutoPlan).
+    // ❓ ANLEITUNG: startet die interaktive Tour des aktiven Schritts neu.
+    var tb = document.getElementById('tour-btn');
+    if (tb) tb.addEventListener('click', function () {
+      if (!window.Tour) return;
+      var s = window._wfStep || 0;
+      window.Tour.start(s === 2 ? 'aufmass'
+        : ({ 0: 'uebersicht', 1: 'plan', 3: 'abrechnung' }[s] || 'plan'));
+    });
+    // Start im ARBEITSABLAUF (digiplan-Vorbild), nicht in der Übersicht:
+    // Schritt 1 (Plan). Sobald ein Plan analysiert & nachgezeichnet ist,
+    // springt wfAutoPlan einmalig auf Schritt 2 (Aufmaß).
+    wfShow(1);
   })();
 
   // ── ZIELGRUPPEN-PRESETS: gleiche Daten, passende Sicht je Branche-Bereich ──

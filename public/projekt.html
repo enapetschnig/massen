@@ -31,12 +31,16 @@
          fuenf — Plan hochladen, am Plan messen, abrechnen. Die KI arbeitet
          dazwischen unsichtbar (Auto-Analyse nach Upload, Vorschlaege am
          Plan). "Uebersicht" zeigt weiter alles inkl. der Detail-Analyse. -->
+    <!-- Reihenfolge = Arbeitsablauf (digiplan-Vorbild): die drei Schritte
+         zuerst, die Übersicht als Prüf-/Vorzeige-Ansicht dahinter. Der
+         ❓-Knopf startet die interaktive Anleitung des aktiven Schritts. -->
     <div class="wf-topbar" id="workflow-steps">
-      <button type="button" class="wf-step wf-on" data-wf="0" title="Alles auf einen Blick, inklusive der kompletten KI-Analyse">Übersicht</button>
-      <span class="wf-sep"></span>
-      <button type="button" class="wf-step" data-wf="1" title="PDF hochladen — die KI liest den Plan automatisch">1 · Plan</button>
-      <button type="button" class="wf-step" data-wf="2" title="Die erkannten Räume liegen als Vorschläge am Plan — bestätigen oder selbst messen (F/R/L/S/A · V/T/D/W)">2 · Aufmaß</button>
+      <button type="button" class="wf-step wf-on" data-wf="1" title="PDF hochladen — die KI liest den Plan automatisch">1 · Plan</button>
+      <button type="button" class="wf-step" data-wf="2" title="Die erkannten Räume liegen als Vorschläge am Plan — bestätigen, verschieben oder selbst messen (F/R/L/S/A · V/T/D/W)">2 · Aufmaß</button>
       <button type="button" class="wf-step" data-wf="3" title="Positionen anlegen oder importieren, Messungen zuordnen, Protokoll + Aufmaßplan + ÖNORM exportieren">3 · Abrechnung</button>
+      <span class="wf-sep"></span>
+      <button type="button" class="wf-step" data-wf="0" title="Alles auf einen Blick, inklusive der kompletten KI-Analyse">Übersicht</button>
+      <button type="button" class="wf-step wf-hilfe" id="tour-btn" title="Interaktive Anleitung für den aktuellen Schritt starten">❓ Anleitung</button>
     </div>
     <!-- Leerzustand-Hinweis: sagt je Schritt, was fehlt und wohin es geht -->
     <div id="wf-hint" class="wf-hint" style="display:none"></div>
@@ -521,6 +525,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js"></script>
   <script src="js/pdf-extract.js"></script>
+  <script src="js/tour.js"></script>
   <script src="js/upload.js"></script>
   <script src="js/aufmass.js"></script>
   <script src="js/tabelle.js"></script>

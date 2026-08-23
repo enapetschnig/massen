@@ -261,3 +261,46 @@ Darüber hinaus (unser Vorsprung, digiplan hat das nicht):
 Erkennungs-Stand: Angerer 10/10 Räume, mittlerer Flächenfehler 3,0 %;
 WK-Glasfront-Befund abschließend seziert (kein Leck — Becken umschlossen;
 Rest = Band bis zur äußeren Glaslinie, Fix-Pfad: Innere-Linie-Snap).
+
+---
+
+## 8. Aufräum-Runde 2026-08-23 (Nutzer-Auftrag: „App aufräumen, wie digiplan")
+
+Alles am lokalen Stack (uvicorn + Static-Proxy, Beispielprojekt Angerer)
+live im Browser verifiziert.
+
+**Workflow zuerst:** Topbar-Reihenfolge jetzt `1 · Plan → 2 · Aufmaß →
+3 · Abrechnung | Übersicht | ❓ Anleitung`; Start in Schritt 1 statt
+Übersicht, Auto-Sprung auf Schritt 2 nach der Analyse bleibt.
+
+**Editor bekommt den Bildschirm (Schritt 2):** volle Breite, Canvas
+`calc(100vh − 250px)`, Projekt-Kopf/Sektionstitel weg, lange Erklärzeile in
+zuklappbare `nz-planinfo`-Zeile (Scan-Fall behält die Maßstab-Ansage
+sichtbar), Raumleiste einzeilig mit horizontalem Scroll, **Werkzeugleiste
+zweispaltig** (21 Knöpfe untereinander waren höher als der Viewport —
+live gemessen, die Leiste selbst erzwang das Scrollen), Seitenpanel auf
+Editor-Höhe gedeckelt (scrollt intern).
+
+**Flächen verschieben:** ✥-Griff in der Mitte des gewählten Raums UND
+Ziehen in der Fläche verschieben den GANZEN Umriss (`_nzRMove`); die dem
+Griffpunkt nächste Ecke ist Fang-Anker und rastet auf Wandlinien/Ecken.
+Gewählte Messungen haben denselben ✥-Griff (`_mwMDrag`), der Server
+rechnet Wert+Formel nach dem Loslassen neu.
+
+**Wand-Fang überall:** `_mwSnapPunkt` wirkt jetzt auch beim Raum-Ecken-Zug
+und im Lineal-Modus (NICHT beim Kalibrieren — dort klickt man
+Maßketten-Enden). 🧲/Taste G schaltet alles gemeinsam.
+
+**Interaktive Anleitung (`js/tour.js`):** Coach-Mark-Touren je Schritt
+(plan 3 · aufmass 7 · abrechnung 3 · uebersicht 3), Spotlight-Ring +
+Popover, „Probier es"-Schritte warten auf den echten Klick aufs Ziel
+(z. B. Fläche-Werkzeug), Auto-Start einmal je Browser, ❓-Knopf startet
+neu, Schrittwechsel beendet eine laufende Tour. Ersetzt den
+„So misst du"-Ersthinweis (der bleibt als Fallback ohne tour.js).
+
+**Dabei gefundener echter Bug (live):** Bei aktivem Mess-Werkzeug schluckte
+der Klick-Handler der Raum-Polygone (`stopPropagation`) den Klick — über
+erkannten Räumen war ZEICHNEN UNMÖGLICH. Ebenso störten Wand-/Öffnungs-/
+Messungs-Klick-Handler. Alle haben jetzt einen `_mwTool`-Guard; verifiziert:
+Fläche über Zimmer 2 gezeichnet, M8 13,94 m² mit Formel gespeichert (und
+wieder gelöscht).
