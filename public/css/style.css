@@ -3672,3 +3672,21 @@ g[data-raum].nz-hi circle {
 .wf-topbar .wf-hilfe { margin-left: auto; border-style: dashed; }
 /* ✥-Verschiebe-Griffe (Raum & Messung): beim Überfahren kurz aufleuchten */
 .nz-rmove:hover, circle[data-mmove]:hover { filter: brightness(1.2); }
+
+/* ─── KONTEXTMENÜ im Plan-Editor (Rechtsklick auf Punkt/Messung/Raum) ─── */
+.nz-ctx { position: fixed; z-index: 5000; min-width: 13rem; padding: .25rem;
+  background: var(--white, #fff); border: 1px solid var(--border-strong, #cbd5e1);
+  border-radius: 10px; box-shadow: 0 10px 30px rgba(15, 23, 42, .28); }
+.nz-ctx-item { display: block; width: 100%; text-align: left; border: none;
+  background: none; font: inherit; font-size: .86rem; color: var(--text, #1f2937);
+  padding: .42rem .6rem; border-radius: 7px; cursor: pointer; }
+.nz-ctx-item:hover { background: var(--accent-soft, #fff7ed); }
+.nz-ctx-warn { color: var(--red, #b91c1c); }
+.nz-ctx-warn:hover { background: #fee2e2; }
+@media (prefers-color-scheme: dark) {
+  .nz-ctx { background: #1e293b; border-color: #334155; }
+  .nz-ctx-item { color: #e2e8f0; }
+  .nz-ctx-item:hover { background: rgba(243,147,1,.16); }
+}
+/* gewählter Eck-/Vertex-Punkt: deutlich sichtbar, damit "Entf" nachvollziehbar ist */
+.nz-pkt-sel { stroke: #b91c1c !important; stroke-width: 4 !important; }

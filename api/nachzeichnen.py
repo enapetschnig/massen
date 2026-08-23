@@ -40,12 +40,23 @@ def _massstab(page):
     return f"1:{m.group(1)}" if m else None
 
 
-def _eg_box(page, ptm, worte=None, liste=None):
+def _eg_box(page, ptm, worte=None, liste=None, y_max=0.6):
+    """Grundriss-Box aus den Raum-Beschriftungen.
+
+    y_max = Anteil der Blatthöhe, bis zu dem Raumworte zählen. Die enge
+    MESS-Box behält 0,6 (dort sind Wandliste/Fluchten drauf gepinnt); die
+    RENDER-Box darf tiefer schauen — sonst fällt ein Raum am unteren Blattrand
+    aus dem Bild. Live-Befund 2026-08-23: der Nutzer vermisste den untersten
+    Raum; auf AP.01 sitzt "Terrasse" bei y = 1171 pt, die 0,6-Grenze liegt bei
+    1010 pt — der Stempel wurde nie gesehen, obwohl RAUM_WORTE ihn ausdrücklich
+    kennt. Gegen Legenden/Schnitte am Blattfuß schützt weiterhin der
+    13-m-Cluster-Radius in _view_bbox, nicht diese starre Grenze.
+    """
     W, H = page.rect.width, page.rect.height
     _lst = liste if liste is not None else RAUM_WORTE
     pos = [(w[0], w[1]) for w in (worte if worte is not None else page.get_text("words"))
            if any(r.lower() in w[4].lower() for r in _lst)
-           and 0.02 * W <= w[0] <= 0.55 * W and 0.04 * H <= w[1] <= 0.6 * H]
+           and 0.02 * W <= w[0] <= 0.55 * W and 0.04 * H <= w[1] <= y_max * H]
     return vektor._view_bbox(pos, ptm, marge_m=4.0, radius_m=13.0)
 
 
@@ -570,7 +581,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
             return {"ok": False,
                     "grund": "Leere oder inhaltslose Seite — kein Grundriss erkennbar"}
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
-    box = _eg_box(page, ptm, worte=worte)
+    # Die ANZEIGE-Box darf bis fast an den Blattfuß schauen (0,88 statt 0,6) —
+    # sonst fehlt im Editor der unterste Raum. Die Mess-Box unten bleibt bei 0,6.
+    box = _eg_box(page, ptm, worte=worte, y_max=0.88)
     # ZWEI BOXEN, ein Grund (2026-08-08): die ERWEITERTE Box (mit Aussenraum-
     # Woertern) zeigt das ganze Gebaeude und liest den Terrassen-Stempel —
     # aber die MESS-Paesse leiden unter ihr, beide einzeln belegt:

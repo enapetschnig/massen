@@ -2440,6 +2440,149 @@
     _nzSave(null);   // Rückbau auch speichern — sonst kehrt die alte
                      // raum_regionen-Korrektur beim Reload zurück
   }
+  // ── FLÜSSIGES ZIEHEN ─────────────────────────────────────────────────
+  // Vorher rief JEDE Mausbewegung _nzPaint() — und das baut das komplette
+  // Studio neu (Werkzeugleiste, alle Wand-/Raum-/Öffnungs-/Mess-SVGs, das
+  // Eigenschaften-Panel) und bindet sämtliche Listener neu. Auf einem Plan
+  // mit 27 Wänden und 10 Räumen sind das tausende DOM-Knoten pro Frame; das
+  // Ziehen ruckelte entsprechend (Nutzer-Befund 2026-08-23).
+  // Jetzt: während des Ziehens werden nur die Attribute der betroffenen
+  // SVG-Elemente gesetzt, gedrosselt auf einen Frame. Das volle _nzPaint
+  // läuft erst beim Loslassen — dort ist es unmerklich.
+  var _nzRaf = null;
+  function _nzFrame(fn) {
+    if (_nzRaf) return;                       // in diesem Frame schon geplant
+    _nzRaf = requestAnimationFrame(function () { _nzRaf = null; fn(); });
+  }
+  function _nzQ(sel) { return _nzWrap ? _nzWrap.querySelector(sel) : null; }
+  // Raum ri direkt im SVG nachziehen (Polygon + Eck-, Einfüge- und ✥-Griffe).
+  function _nzRaumSvgLive(ri) {
+    if (!_nzData || !_nzData.raeume[ri]) return;
+    var pts = _nzData.raeume[ri].region_px || [];
+    if (pts.length < 3) return;
+    var d = pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+    var poly = _nzQ('polygon[data-rpoly="' + ri + '"]');
+    if (poly) poly.setAttribute('points', d);
+    var cx = 0, cy = 0;
+    pts.forEach(function (v, vi) {
+      cx += v[0]; cy += v[1];
+      var h = _nzQ('circle[data-rv="' + ri + ':' + vi + '"]');
+      if (h) { h.setAttribute('cx', v[0]); h.setAttribute('cy', v[1]); }
+      var vn = pts[(vi + 1) % pts.length];
+      var a = _nzQ('circle[data-radd="' + ri + ':' + vi + '"]');
+      if (a) { a.setAttribute('cx', (v[0] + vn[0]) / 2);
+               a.setAttribute('cy', (v[1] + vn[1]) / 2); }
+    });
+    var mv = _nzQ('circle[data-rmove="' + ri + '"]');
+    if (mv) { mv.setAttribute('cx', cx / pts.length);
+              mv.setAttribute('cy', cy / pts.length); }
+  }
+  // Messung mid direkt im SVG nachziehen (Form + Vertex-Griffe).
+  function _mwSvgLive(mid) {
+    var m = (_mwListe || []).filter(function (x) { return x.id === mid; })[0];
+    if (!m || !m.geometrie) return;
+    var pts = (m.geometrie.punkte || []).map(_mwPtZuPx);
+    if (!pts.length) return;
+    var d = pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' ');
+    var el = _nzQ('[data-mid="' + mid + '"]');
+    if (el && el.tagName !== 'g') el.setAttribute('points', d);
+    pts.forEach(function (q, vi) {
+      var h = _nzQ('circle[data-mv="' + mid + ':' + vi + '"]');
+      if (h) { h.setAttribute('cx', q[0]); h.setAttribute('cy', q[1]); }
+    });
+    var cx = 0, cy = 0;
+    pts.forEach(function (q) { cx += q[0]; cy += q[1]; });
+    var mv = _nzQ('circle[data-mmove="' + mid + '"]');
+    if (mv) { mv.setAttribute('cx', cx / pts.length);
+              mv.setAttribute('cy', cy / pts.length); }
+  }
+
+  // ── PUNKT-BEARBEITUNG: Rechtsklick-Menü + Auswahl/Entf ───────────────
+  // Nutzer-Wunsch 2026-08-23: „einzelne Punkte entfernen — auswählen und
+  // entfernen, oder Rechtsklick und ein Menü geht auf". Beides, weil beide
+  // Wege im Zeichenprogramm-Alltag vorkommen. Der Doppelklick auf einen
+  // Raum-Eckpunkt bleibt zusätzlich erhalten.
+  var _nzPktSel = null;   // {art:'raum'|'mess', ri|mid, vi} — gewählter Punkt
+
+  function _nzMenuZu() {
+    var m = document.getElementById('nz-ctx');
+    if (m) m.remove();
+  }
+  // Öffnet das Kontextmenü an der Bildschirmposition (x,y) mit [{text, fn}].
+  function _nzMenu(x, y, eintraege) {
+    _nzMenuZu();
+    if (!eintraege.length) return;
+    var m = document.createElement('div');
+    m.id = 'nz-ctx';
+    m.className = 'nz-ctx';
+    eintraege.forEach(function (e) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'nz-ctx-item' + (e.warn ? ' nz-ctx-warn' : '');
+      b.textContent = e.text;
+      b.addEventListener('click', function (ev) {
+        ev.stopPropagation(); _nzMenuZu(); e.fn();
+      });
+      m.appendChild(b);
+    });
+    document.body.appendChild(m);
+    // im Fenster halten
+    var r = m.getBoundingClientRect();
+    m.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
+    m.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+    setTimeout(function () {
+      window.addEventListener('click', _nzMenuZu, { once: true });
+      window.addEventListener('contextmenu', _nzMenuZu, { once: true });
+    }, 0);
+  }
+
+  // Punkt aus einem RAUM-Umriss entfernen (mind. 3 müssen bleiben).
+  function _nzRaumPunktWeg(ri, vi) {
+    var reg = _nzData && _nzData.raeume[ri] && _nzData.raeume[ri].region_px;
+    if (!reg) return;
+    if (reg.length <= 3) {
+      _mwHinweis('Ein Raum braucht mindestens 3 Eckpunkte.', true);
+      return;
+    }
+    reg.splice(vi, 1);
+    _nzPktSel = null;
+    _nzRaumMarkEdited(ri);   // speichert entprellt mit
+    _nzPaint();
+  }
+  // Punkt aus einer MESSUNG entfernen — der Server rechnet Wert+Formel neu.
+  function _nzMessPunktWeg(mid, vi) {
+    var m = (_mwListe || []).filter(function (x) { return x.id === mid; })[0];
+    if (!m || !m.geometrie) return;
+    var pts = m.geometrie.punkte || [];
+    var min = (m.geometrie.form === 'polylinie') ? 2 : 3;
+    if (pts.length <= min) {
+      _mwHinweis('Diese Messung braucht mindestens ' + min + ' Punkte — '
+                 + 'zum Entfernen die ganze Messung löschen.', true);
+      return;
+    }
+    pts.splice(vi, 1);
+    _nzPktSel = null;
+    fetch('/api/messung', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projekt_id: window.projectId, id: m.id, typ: m.typ,
+        geometrie: m.geometrie, ptm: +((_nzData.meta || {}).ptm) || 0 })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok && d.messung) {
+        for (var i = 0; i < _mwListe.length; i++) {
+          if (_mwListe[i].id === d.messung.id) _mwListe[i] = d.messung;
+        }
+      }
+      _nzPaint();
+    }).catch(function () { _nzPaint(); });
+  }
+  // Der gewählte Punkt (Entf-Taste) — egal ob Raum oder Messung.
+  function _nzPunktSelWeg() {
+    if (!_nzPktSel) return false;
+    if (_nzPktSel.art === 'raum') _nzRaumPunktWeg(_nzPktSel.ri, _nzPktSel.vi);
+    else _nzMessPunktWeg(_nzPktSel.mid, _nzPktSel.vi);
+    return true;
+  }
+
   var _nzRaumSaveT = null;
   function _nzRaumMarkEdited(ri) {
     var r = _nzData.raeume[ri]; if (!r) return;
@@ -3558,6 +3701,10 @@
         if (_mwTool && e.key === 'Backspace' && _mwPts.length) {
           _mwPts.pop(); _nzPaint(); e.preventDefault(); return;
         }
+        // ENTF: erst der gewählte PUNKT (feiner), dann die ganze Messung.
+        if (!_mwTool && (e.key === 'Delete' || e.key === 'Backspace') && _nzPktSel) {
+          if (_nzPunktSelWeg()) { e.preventDefault(); return; }
+        }
         if (!_mwTool && e.key === 'Delete' && _mwSel) {
           _mwLoeschen(_mwSel); e.preventDefault(); return;
         }
@@ -3714,8 +3861,13 @@
     // darf genau um die Differenz geschoben werden — in jeder Zoomstufe.
     var cw = (zoom.offsetWidth || Wv) * s;
     var ch = (zoom.offsetHeight || Hv) * s;
-    _nzZoom.x = Math.min(0, Math.max(Math.min(0, Wv - cw), _nzZoom.x));
-    _nzZoom.y = Math.min(0, Math.max(Math.min(0, Hv - ch), _nzZoom.y));
+    // Passt der Inhalt in seiner Achse ins Fenster, wird er ZENTRIERT statt an
+    // den linken/oberen Rand geklemmt — seit der Terrassen-Erweiterung ist der
+    // Plan höher als breit, und die alte Klammer (x ≤ 0) ließ rechts totes Feld.
+    _nzZoom.x = cw < Wv ? (Wv - cw) / 2
+                        : Math.min(0, Math.max(Wv - cw, _nzZoom.x));
+    _nzZoom.y = ch < Hv ? (Hv - ch) / 2
+                        : Math.min(0, Math.max(Hv - ch, _nzZoom.y));
     zoom.style.transform = 'translate(' + _nzZoom.x + 'px,' + _nzZoom.y + 'px) scale(' + s + ')';
     // Scrollbalken-Ersatz: ohne Rückmeldung weiß niemand, dass da noch mehr
     // ist. Ein dünner Streifen am Rand zeigt, welcher Ausschnitt gerade dran
@@ -3749,7 +3901,12 @@
     var Hv = _nzWrap.clientHeight, ch = zoom.offsetHeight;
     if (!Hv || !ch || ch <= Hv) return;
     _nzZoom.s = Math.max(0.15, Hv / ch);
-    _nzZoom.x = 0; _nzZoom.y = 0;
+    // WAAGRECHT ZENTRIEREN: das Bild wird mit width:100% gezeichnet; ein hoher,
+    // schmaler Plan (z.B. seit der Terrassen-Erweiterung) wird auf die Höhe
+    // heruntergerechnet und stand dann links mit viel totem Rand rechts.
+    var Wv = _nzWrap.clientWidth, cw = (zoom.offsetWidth || Wv) * _nzZoom.s;
+    _nzZoom.x = cw < Wv ? (Wv - cw) / 2 : 0;
+    _nzZoom.y = 0;
     _nzApplyZoom();
   }
 
@@ -3933,6 +4090,62 @@
     _nzWrap.addEventListener('dblclick', function (e) {
       if (_mwTool && _mwPts.length) { _mwAbschliessen(); e.preventDefault(); }
     });
+    // RECHTSKLICK-MENÜ: auf einem Punkt „Punkt löschen", auf einer Messung
+    // „Messung löschen", auf einem Raum die Umriss-Werkzeuge.
+    _nzWrap.addEventListener('contextmenu', function (e) {
+      if (!_nzData) return;
+      var t = e.target, eintraege = [];
+      var rv = t && t.getAttribute && t.getAttribute('data-rv');
+      var mv = t && t.getAttribute && t.getAttribute('data-mv');
+      var mid = t && t.getAttribute && t.getAttribute('data-mid');
+      if (rv) {
+        var pr = rv.split(':'), _ri = +pr[0], _vi = +pr[1];
+        eintraege.push({ text: '✕ Punkt löschen', warn: true,
+                         fn: function () { _nzRaumPunktWeg(_ri, _vi); } });
+        eintraege.push({ text: '↺ Umriss auf Original zurücksetzen',
+                         fn: function () { _nzRaumOriginal(_ri); } });
+      } else if (mv) {
+        var pm = mv.split(':'), _mid = pm[0], _mvi = +pm[1];
+        eintraege.push({ text: '✕ Punkt löschen', warn: true,
+                         fn: function () { _nzMessPunktWeg(_mid, _mvi); } });
+        eintraege.push({ text: '✕ ganze Messung löschen', warn: true,
+                         fn: function () { _mwLoeschen(_mid); } });
+      } else if (mid) {
+        eintraege.push({ text: '✕ Messung löschen', warn: true,
+                         fn: function () { _mwLoeschen(mid); } });
+      } else {
+        var _rh = _nzRaumUnterPunkt(_nzScreenToImg(e));
+        if (_rh != null) {
+          eintraege.push({ text: '✏️ Umriss anpassen', fn: function () {
+            _nzRaumEditMode = true; _nzRaumSel = _rh; _nzPaint();
+          } });
+          eintraege.push({ text: '▭ Umriss begradigen (Rechteck)', fn: function () {
+            _nzRaumEditMode = true; _nzRaumSel = _rh; _nzRaumRechteck(_rh);
+          } });
+          eintraege.push({ text: '↺ Original wiederherstellen', fn: function () {
+            _nzRaumOriginal(_rh);
+          } });
+        }
+      }
+      if (!eintraege.length) return;
+      e.preventDefault();
+      _nzMenu(e.clientX, e.clientY, eintraege);
+    });
+    // PUNKT AUSWÄHLEN (Klick auf einen Griff) — danach entfernt ihn Entf/Backspace.
+    _nzWrap.addEventListener('click', function (e) {
+      var t = e.target, rv = t && t.getAttribute && t.getAttribute('data-rv');
+      var mv = t && t.getAttribute && t.getAttribute('data-mv');
+      if (rv) { var p = rv.split(':'); _nzPktSel = { art: 'raum', ri: +p[0], vi: +p[1] }; }
+      else if (mv) { var q = mv.split(':'); _nzPktSel = { art: 'mess', mid: q[0], vi: +q[1] }; }
+      else if (!_mwTool) _nzPktSel = null;
+      if (_nzPktSel) {
+        _nzWrap.querySelectorAll('.nz-pkt-sel').forEach(function (el) {
+          el.classList.remove('nz-pkt-sel');
+        });
+        t.classList.add('nz-pkt-sel');
+        _mwHinweis('Punkt gewählt — Entf löscht ihn (oder Rechtsklick für das Menü).');
+      }
+    }, true);
     _nzWrap.addEventListener('click', function (e) {
       if (_mwTool && !_nzMoved) { if (_mwKlick(e)) { e.preventDefault(); e.stopPropagation(); } }
     });
@@ -4148,7 +4361,7 @@
           if (_mM) {
             var _np2 = _mwSnapPunkt(_nzScreenToImg(e));
             _mM.geometrie.punkte[_mwVDrag.vi] = _mwPxZuPt(_np2);
-            _nzPaint();
+            _nzFrame(function () { _mwSvgLive(_mwVDrag && _mwVDrag.mid); });
           }
           return;
         }
@@ -4167,7 +4380,7 @@
               var px = _mwPtZuPx(p0);
               return _mwPxZuPt([px[0] + _dxm, px[1] + _dym]);
             });
-            _nzPaint();
+            _nzFrame(function () { _mwSvgLive(_mwMDrag && _mwMDrag.mid); });
           }
           return;
         }
@@ -4179,7 +4392,8 @@
           _nzRMove.orig.forEach(function (v, vi) {
             _regM[vi] = [Math.round(v[0] + _dm[0]), Math.round(v[1] + _dm[1])];
           });
-          _nzRaumLiveReadout(_nzRMove.ri); _nzPaint();
+          var _riM = _nzRMove.ri;
+          _nzFrame(function () { _nzRaumSvgLive(_riM); _nzRaumLiveReadout(_riM); });
           return;
         }
         // Raum-Eckpunkt live ziehen: Position updaten + neu zeichnen (Fläche folgt).
@@ -4188,7 +4402,8 @@
         if (_nzRvDrag && _nzWrap) {
           var p = _mwSnapPunkt(_nzScreenToImg(e));
           _nzData.raeume[_nzRvDrag.ri].region_px[_nzRvDrag.vi] = [Math.round(p[0]), Math.round(p[1])];
-          _nzRaumLiveReadout(_nzRvDrag.ri); _nzPaint();
+          var _riD = _nzRvDrag.ri;
+          _nzFrame(function () { _nzRaumSvgLive(_riD); _nzRaumLiveReadout(_riD); });
           return;
         }
         if (!_nzPan || !_nzWrap) return;
@@ -4765,11 +4980,21 @@
     // Nutzer zog vier Räume sauber nach — beim Reload war ALLES weg, weil nur
     // F/U-Overrides, nie die Polygone gespeichert wurden). Key wie bei
     // raum_flaechen: normalisierter Name; Geschoss zur Absicherung im Wert.
+    // ROBUST GEGEN PIPELINE-ÄNDERUNGEN: zusätzlich in PLAN-Koordinaten (pt)
+    // sichern. Bild-Pixel gelten nur für eine bestimmte Box+Auflösung — ändert
+    // sich der Bildausschnitt (z.B. weil ein Raum am Blattfuß dazukommt), wäre
+    // die Handarbeit sonst wertlos. pt bleibt am Plan verankert.
+    var _bp = (_nzData.meta || {}).box_pt, _sc = +(_nzData.meta || {}).scale;
+    var _zuPt = (_bp && _sc > 0)
+      ? function (p) { return [Math.round((p[0] / _sc + _bp[0]) * 100) / 100,
+                               Math.round((p[1] / _sc + _bp[1]) * 100) / 100]; }
+      : null;
     var rr = {};
     (_nzData.raeume || []).forEach(function (r) {
       if (r._edited && r.region_px && r.region_px.length >= 3 && r.name) {
         rr[_nrmRaum(r.name)] = { name: r.name, geschoss: r.geschoss || null,
-          region_px: r.region_px.map(function (p) { return [p[0], p[1]]; }) };
+          region_px: r.region_px.map(function (p) { return [p[0], p[1]]; }),
+          region_pt: _zuPt ? r.region_px.map(_zuPt) : null };
       }
     });
     if (!Object.keys(rr).length) rr = null;
@@ -5293,8 +5518,17 @@
       // dürfen von Clean/Synth/Snap nicht angerührt werden — deshalb NACH allen
       // automatischen Schritten wiederherstellen.
       if (k && k.raum_regionen) {
+        // PLAN-Koordinaten haben Vorrang: sie gelten auch, wenn sich der
+        // Bildausschnitt seit dem Speichern geändert hat.
+        var _bpN = (_nzData.meta || {}).box_pt, _scN = +(_nzData.meta || {}).scale;
         (_nzData.raeume || []).forEach(function (r) {
           var sav = k.raum_regionen[_nrmRaum(r.name || '')];
+          if (sav && sav.region_pt && sav.region_pt.length >= 3 && _bpN && _scN > 0) {
+            sav = { geschoss: sav.geschoss, region_px: sav.region_pt.map(function (p) {
+              return [Math.round((p[0] - _bpN[0]) * _scN * 10) / 10,
+                      Math.round((p[1] - _bpN[1]) * _scN * 10) / 10];
+            }) };
+          }
           if (sav && sav.region_px && sav.region_px.length >= 3 &&
               (sav.geschoss || null) === (r.geschoss || null)) {
             // Den erkannten Umriss als Original merken, BEVOR er ersetzt wird —

@@ -224,7 +224,14 @@ def main():
                 ist_map[_nrm(r.get("name"))] = r
 
         for schluessel, v in sorted(raeume_hand.items()):
-            soll = [(float(p[0]), float(p[1])) for p in v["region_px"]]
+            # PLAN-Koordinaten haben Vorrang (überleben Box-/Auflösungs-
+            # Änderungen); region_px gilt nur für den Bildausschnitt von damals.
+            if v.get("region_pt") and sc:
+                _b = meta.get("box_pt") or [0, 0]
+                soll = [(float(p[0] - _b[0]) * sc, float(p[1] - _b[1]) * sc)
+                        for p in v["region_pt"]]
+            else:
+                soll = [(float(p[0]), float(p[1])) for p in v["region_px"]]
             r_ist = ist_map.get(schluessel)
             if not r_ist:
                 print(f"   {v.get('name', schluessel):22s} — von der Erkennung "
