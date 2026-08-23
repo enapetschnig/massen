@@ -58,6 +58,9 @@ GUARDS = [
     ("Öffnungen ohne Maß", "test_oeffnungen_hinweis.py", "kein stiller Nulldurchgang"),
     ("Schnitt-Koten (Maßstab/Höhen)", "test_schnitt_koten.py", "kein Blatt behauptet Höhen"),
     ("Höhen-Vorrang (Messung vor Schätzung)", "test_hoehen_vorrang.py", "Physik-Sperren"),
+    # Bild und Koordinaten müssen denselben Ursprung haben — der 73-cm-Versatz
+    # auf 1:50-Blättern war für JEDE geometrie-gegen-geometrie-Kennzahl unsichtbar.
+    ("Render-Rahmen (Bild ↔ Koordinaten)", "test_render_rahmen.py", "Ursprung"),
     ("Messung vor Schätzung (3 Audit-Fixes)", "test_messung_vor_schaetzung.py", "festgenagelt"),
     ("Nachvollziehbarkeit (Menge → Plan)", "test_nachvollziehbarkeit.py", "am Plan zeigbar"),
     ("Stempel-Schreibweisen", "mess_stempel_konventionen.py", "BEKANNTE Schreibweisen"),

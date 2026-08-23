@@ -720,6 +720,28 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
     scale = min(max_px / breite_pt, max_px / hoehe_pt, 4.0)
     scale = max(scale, 0.5)
 
+    # ── RENDER-BOX ≠ MESS-BOX ────────────────────────────────────────────
+    # Der 73-cm-Versatz (Live-Befund 2026-08-23, am handgezogenen Korpus
+    # gemessen und adversarial verifiziert): die Mess-Box darf über den
+    # Blattrand hinausragen — _view_bbox zieht eine 4-m-Marge ab, und bei
+    # 1:50 (ptm 57,4) sind das 229 pt, während der oberste Raumstempel nur
+    # 187 pt unter der Blattkante sitzt → by0 = −42,8 pt.
+    # get_pixmap(clip=…) verschneidet den Clip aber STILL mit page.rect: das
+    # Bild beginnt real bei y=0, to_px rechnete weiter ab −42,8 pt. Ergebnis:
+    # JEDE gezeichnete Koordinate (Räume, Wände, Öffnungen, Fluchten, Stempel)
+    # lag 42,8 × scale = 71,6 px zu tief. Auf 1:100-Blättern fällt es nicht
+    # auf, weil die halb so große Marge im Blatt bleibt.
+    # Die MESS-Box bleibt byte-identisch (bx0..by1) — sie trägt die Rasterphase
+    # (raumnetz) und die Wächter-Erwartungen; gekappt wird NUR, was gezeichnet
+    # wird. `scale` bleibt bewusst aus der ungekappten Box: so ändert sich
+    # px/m nicht und keine pixelabhängige Schwelle wird neu ausgewürfelt.
+    rx0, ry0 = max(bx0, page.rect.x0), max(by0, page.rect.y0)
+    rx1, ry1 = min(bx1, page.rect.x1), min(by1, page.rect.y1)
+    if (rx0, ry0, rx1, ry1) != (bx0, by0, bx1, by1):
+        print(f"[nachzeichnen] Box ragt über das Blatt — Render-Box gekappt: "
+              f"y {by0:.1f}→{ry0:.1f} · x {bx0:.1f}→{rx0:.1f} "
+              f"(Versatz vermieden: {(ry0 - by0) * scale:.0f} px)")
+
     # LEICHT-PASS (Manuell-Modus, docs/MANUELL_MODUS.md): nur Plan-Bild +
     # byte-exakter Massstab + Box — KEINE Vektor-Waende, kein Watershed,
     # keine Oeffnungen (~3 s statt ~40 s). Der digiplan-Stil-Nutzer misst
@@ -728,7 +750,7 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
         try:
             import fitz as _fzl
             pixl = page.get_pixmap(matrix=_fzl.Matrix(scale, scale),
-                                   clip=_fzl.Rect(bx0, by0, bx1, by1))
+                                   clip=_fzl.Rect(rx0, ry0, rx1, ry1))
             return {
                 "ok": True, "typ": "leicht",
                 "basis_png": pixl.tobytes("png"),
@@ -737,8 +759,11 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
                 "konturen": [], "fluchten": [], "summe_m": {},
                 "meta": {
                     "ptm": round(ptm, 2),
-                    "box_pt": [round(bx0, 1), round(by0, 1),
-                               round(bx1, 1), round(by1, 1)],
+                    # box_pt beschreibt das GERENDERTE Bild (Render-Box), nicht
+                    # die Mess-Box — das Frontend und das Aufmaßblatt rechnen
+                    # bildrelativ damit zurück.
+                    "box_pt": [round(rx0, 1), round(ry0, 1),
+                               round(rx1, 1), round(ry1, 1)],
                     "scale": round(scale, 4),
                     "massstab": m_label, "n_waende": 0,
                 },
@@ -858,11 +883,15 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
     except Exception as _fe:  # pragma: no cover
         print(f"[nachzeichnen] Füllflächen-Wände übersprungen: {_fe!r}")
 
+    # Bild-Pixel beziehen sich auf die RENDER-Box (siehe Kommentar oben):
+    # der Bildursprung ist rx0/ry0, nicht der Mess-Ursprung bx0/by0.
     def to_px(x, y):
-        return [round((x - bx0) * scale, 1), round((y - by0) * scale, 1)]
+        return [round((x - rx0) * scale, 1), round((y - ry0) * scale, 1)]
 
-    clampx = lambda v: min(max(v, bx0), bx1)
-    clampy = lambda v: min(max(v, by0), by1)
+    # Geklemmt wird ebenfalls auf das Bild — sonst zeichnet die Ansicht
+    # Wandstücke an Koordinaten, die es im PNG gar nicht gibt.
+    clampx = lambda v: min(max(v, rx0), rx1)
+    clampy = lambda v: min(max(v, ry0), ry1)
 
     # MASSKETTEN-SNAP (Stufe 3, "1:1 mit den Längen"): steht neben einer Wand eine
     # byte-exakte Maß-Zahl, deren Wert der gemessenen Länge entspricht (±8cm/4%),
@@ -1865,9 +1894,21 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
     try:
         import fitz
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale),
-                              clip=fitz.Rect(bx0, by0, bx1, by1))
+                              clip=fitz.Rect(rx0, ry0, rx1, ry1))
         basis_png = pix.tobytes("png")
         bild_w, bild_h = pix.width, pix.height
+        # RAHMEN-INVARIANTE: das gerenderte Bild MUSS die Größe der Render-Box
+        # haben. Weicht es ab, hat PyMuPDF still gekappt und jede to_px-Koordinate
+        # wäre verschoben — genau der 73-cm-Bug. Die Prüfung kostet nichts und
+        # fällt auf JEDEM Plan an (siehe scripts/test_render_rahmen.py).
+        # Toleranz 3 px: PyMuPDF rundet die Pixmap auf ganze Pixel AUF (je bis
+        # zu 1 px pro Seite) — 1,7 px Abweichung sind normal. Der echte
+        # Kapp-Fall lag bei 71 px, wird also sicher getroffen.
+        _soll_w, _soll_h = (rx1 - rx0) * scale, (ry1 - ry0) * scale
+        if abs(bild_w - _soll_w) > 3.0 or abs(bild_h - _soll_h) > 3.0:
+            print(f"[nachzeichnen] WARNUNG Rahmen: Bild {bild_w}×{bild_h} px, "
+                  f"erwartet {_soll_w:.1f}×{_soll_h:.1f} — Koordinaten könnten "
+                  f"verschoben sein")
     except Exception as e:  # pragma: no cover
         return {"ok": False, "grund": f"Render fehlgeschlagen: {e}"}
 
@@ -1883,7 +1924,9 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
         "summe_m": {str(k): v for k, v in sorted(summe.items(), reverse=True)},
         "meta": {
             "ptm": round(ptm, 2),
-            "box_pt": [round(bx0, 1), round(by0, 1), round(bx1, 1), round(by1, 1)],
+            # RENDER-Box (= Bildausschnitt), nicht die Mess-Box: Frontend und
+            # Aufmaßblatt rechnen bildrelative Geometrie darüber ins PDF zurück.
+            "box_pt": [round(rx0, 1), round(ry0, 1), round(rx1, 1), round(ry1, 1)],
             "scale": round(scale, 4),
             "n_waende": len(waende),
             "box_m": [round(breite_pt / ptm, 1), round(hoehe_pt / ptm, 1)],

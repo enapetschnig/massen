@@ -6138,7 +6138,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 88  # Auswaerts-Offset 3cm gekappt: Raumtrennung am Bild (Live-Befund)
+_NZ_CACHE_V = 89  # Render-Box auf das Blatt gekappt: 73-cm-Versatz auf 1:50-Blaettern behoben
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-
