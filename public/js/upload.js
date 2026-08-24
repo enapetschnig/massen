@@ -1381,6 +1381,14 @@
             ? (darfOeffnen ? '<button class="btn btn-primary btn-sm res-btn" data-id="' + plan.id + '">&Ouml;ffnen</button>' : '') +
               '<button class="btn btn-outline btn-sm reana-btn" data-id="' + plan.id + '" title="Erneut analysieren">&#8635;</button>'
             : '<button class="btn btn-accent btn-sm ana-btn" data-id="' + plan.id + '">Analyse starten</button>') +
+          // ORIGINAL-PDF ZURÜCKHOLEN: hochgeladene Pläne müssen wieder
+          // herunterladbar sein — auf der Baustelle hat man das Original oft
+          // nicht mehr zur Hand, und ein Aufmaß ohne den zugehörigen Plan ist
+          // für den Prüfer wertlos.
+          '<button class="btn btn-outline btn-sm dl-btn" data-id="' + plan.id +
+          '" data-sp="' + esc(plan.storage_path || '') +
+          '" data-fn="' + esc(plan.dateiname || 'plan.pdf') +
+          '" title="Original-PDF herunterladen">&#11015;</button>' +
           '<button class="btn-delete-plan" data-id="' + plan.id + '">&times;</button>' +
         '</div>';
       planList.appendChild(card);
@@ -1420,6 +1428,40 @@
         var planId = btn.getAttribute('data-id');
         if (!confirm('Plan neu auslesen? Das verwirft das gespeicherte Ergebnis und analysiert frisch.')) return;
         startAnalysis(planId, btn, null, true);
+      });
+    });
+
+    // DOWNLOAD des Original-PDFs. Signierte URL statt öffentlichem Link:
+    // der Bucket ist privat, und das soll er bleiben — ein Bauplan ist
+    // Kundeneigentum.
+    planList.querySelectorAll('.dl-btn').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var btn = this, sp = btn.getAttribute('data-sp');
+        var fn = btn.getAttribute('data-fn') || 'plan.pdf';
+        if (!sp) { alert('Zu diesem Plan ist keine Datei hinterlegt.'); return; }
+        var t0 = btn.innerHTML;
+        btn.disabled = true; btn.textContent = '…';
+        _sb.storage.from('plaene').createSignedUrl(sp, 120)
+          .then(function (res) {
+            if (res.error || !res.data || !res.data.signedUrl) {
+              throw new Error((res.error && res.error.message) || 'kein Link');
+            }
+            // Über den Blob gehen, damit der Dateiname stimmt (ein direkter
+            // Link auf den Storage lädt sonst unter dem Pfad-Namen).
+            return fetch(res.data.signedUrl).then(function (r) { return r.blob(); });
+          })
+          .then(function (blob) {
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = fn.match(/\.pdf$/i) ? fn : fn + '.pdf';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+          })
+          .catch(function (err) {
+            alert('Download nicht möglich: ' + (err.message || err));
+          })
+          .finally(function () { btn.disabled = false; btn.innerHTML = t0; });
       });
     });
 
