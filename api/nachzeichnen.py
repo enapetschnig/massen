@@ -581,9 +581,18 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
             return {"ok": False,
                     "grund": "Leere oder inhaltslose Seite — kein Grundriss erkennbar"}
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
-    # Die ANZEIGE-Box darf bis fast an den Blattfuß schauen (0,88 statt 0,6) —
-    # sonst fehlt im Editor der unterste Raum. Die Mess-Box unten bleibt bei 0,6.
-    box = _eg_box(page, ptm, worte=worte, y_max=0.88)
+    # y_max BLEIBT 0,6 — die Erweiterung auf 0,88 ist GEMESSEN und VERWORFEN
+    # (2026-08-24): sie holt zwar den untersten Raum ins Bild, macht aber die
+    # Raum-Erkennung auf AP.01 kaputt, weil `box` auch das Watershed-Raster
+    # aufspannt: IoU gegen die Handarbeit 0,79 -> 0,20, das WC fällt komplett
+    # aus, Lage-Versatz bis 2,05 m. Ursache: größere Box bei festem max_px =
+    # kleinere scale = gröberes Raster, dazu verschobene Rasterphase.
+    # Der untere Plan-Teil braucht deshalb eine EIGENE Anzeige-Box, die NUR
+    # Bild und to_px betrifft und das Raster unangetastet lässt — nicht diesen
+    # Einzeiler. FALLE: nach jeder Box-Änderung MUSS _NZ_CACHE_V hoch, sonst
+    # misst man den alten Cache und hält die Regression für einen Erfolg
+    # (genau das ist hier passiert).
+    box = _eg_box(page, ptm, worte=worte)
     # ZWEI BOXEN, ein Grund (2026-08-08): die ERWEITERTE Box (mit Aussenraum-
     # Woertern) zeigt das ganze Gebaeude und liest den Terrassen-Stempel —
     # aber die MESS-Paesse leiden unter ihr, beide einzeln belegt:
