@@ -60,7 +60,13 @@
       // renderNachzeichnen hing am ERFOLGSPFAD der Massen-Berechnung —
       // ohne Analyse bricht die vorher ab, der Plan wurde NIE gezeichnet.
       // Im Manuell-Modus zeichnet der Leicht-Pass direkt.
+      // WETTLAUF (Live-Befund 2026-08-24): loadPlans() startet PARALLEL zu
+      // diesem Abruf. Ist es zuerst fertig, war _projModus noch undefined —
+      // dann versteckt es die Ergebnis-Sektion (und mit ihr den Editor) und
+      // zeigt "0 von 2 Plänen analysiert". Deshalb im Manuell-Modus die
+      // Planliste neu bewerten, sobald der Modus wirklich bekannt ist.
       if (window._projModus === 'manuell') {
+        loadPlans();
         setTimeout(function () { renderNachzeichnen(); }, 300);
       }
       var status = res.data.status || 'Neu';
@@ -105,6 +111,17 @@
       if (plans.length > 0 && fertigCount === plans.length) {
         if (warteEl) warteEl.classList.add('hidden');
         loadProjektMassen(fertigCount, plans.length);
+      } else if (window._projModus === 'manuell' && plans.length > 0) {
+        // MANUELL-MODUS: hier wird BEWUSST nicht analysiert — der Nutzer misst
+        // selbst. Die Ergebnis-Sektion trägt aber den Plan-Editor; sie hier zu
+        // verstecken sperrte den Nutzer aus seinem einzigen Werkzeug aus und
+        // hinterließ nur "0 von 2 Plänen analysiert" (Live-Befund 2026-08-24:
+        // "ich komm nicht in den Editor"). Auf ein Analyse-Ergebnis zu warten,
+        // das nie kommt, ist in diesem Modus sinnlos.
+        if (sec) sec.classList.remove('hidden');
+        if (warteEl) warteEl.classList.add('hidden');
+        renderNachzeichnen();
+        if (typeof window.wfAutoPlan === 'function') window.wfAutoPlan();
       } else {
         if (sec) sec.classList.add('hidden');
         if (warteEl) {
@@ -113,7 +130,18 @@
             warteEl.classList.remove('hidden');
             warteEl.innerHTML = '<div class="spinner"></div> <strong>' + fertigCount + ' von ' +
               plans.length + ' Plänen analysiert</strong> — das Ergebnis erscheint, sobald alle fertig sind ' +
-              '(sonst ändern sich Räume und Mengen noch).';
+              '(sonst ändern sich Räume und Mengen noch).' +
+              // AUSWEG statt Sackgasse: wer nicht warten will, misst selbst.
+              ' <button type="button" class="btn btn-sm btn-outline" id="warte-manuell" ' +
+              'style="margin-left:.6rem">✏️ Jetzt selbst messen</button>';
+            var wm = document.getElementById('warte-manuell');
+            if (wm) wm.addEventListener('click', function () {
+              window._projModus = 'manuell';
+              if (window.projectId) {
+                _sb.from('projekte').update({ modus: 'manuell' }).eq('id', window.projectId).then(function () {});
+              }
+              loadPlans();
+            });
           }
         }
       }
