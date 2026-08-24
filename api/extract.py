@@ -6138,7 +6138,7 @@ def _oeffnungs_aufmass_safe(fenster, tueren, baudaten):
         return None
 
 
-_NZ_CACHE_V = 91  # Box-Erweiterung 0,88 zurueckgenommen (zerstoerte die Raum-Erkennung)
+_NZ_CACHE_V = 92  # Retrace-Fix: entarteter 3-Punkt-Zug loeschte den Umriss kleiner Raeume
 # Version NUR der abgeleiteten Geometrie-Umfang-Ablage (_plan_geo_umfaenge).
 # Getrennt von _NZ_CACHE_V, weil sich dort das FORMAT geändert hat
 # ({name: u} → {name: [[f, u], …]}), die zugrunde liegende Nachzeichnen-

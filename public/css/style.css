@@ -3690,3 +3690,11 @@ g[data-raum].nz-hi circle {
 }
 /* gewählter Eck-/Vertex-Punkt: deutlich sichtbar, damit "Entf" nachvollziehbar ist */
 .nz-pkt-sel { stroke: #b91c1c !important; stroke-width: 4 !important; }
+
+/* Prominenter „Größer"-Knopf in der Statuszeile über dem Plan */
+.nz-statusline { display: flex; align-items: center; gap: .6rem; }
+.nz-statusline .nz-gross { margin-left: auto; flex: 0 0 auto; white-space: nowrap;
+  font-weight: 700; }
+/* Kasten „Deine Korrekturen": zeigt, dass man die eigene Handarbeit sieht */
+.nz-korr { border-color: var(--accent, #f39301); background: var(--accent-soft, #fff7ed); }
+.nz-korr .nz-btn { width: 100%; margin-top: .35rem; }

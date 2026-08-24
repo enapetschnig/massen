@@ -3621,8 +3621,24 @@
         (_nzData.raeume || []).length + ' Räume gefunden — als Vorschläge übernehmen und nur noch prüfen:</p>' +
         '<button type="button" class="nz-btn nz-btn-ok" data-mvor="1">⚡ Räume als Mess-Vorschläge übernehmen</button></div>';
     }
+    // KORREKTUR-KREISLAUF sichtbar machen (Nutzer-Wunsch: "können wir es wieder
+    // so machen, dass wir analysieren und ich es dann ausbessere?"). Deine
+    // gezogenen Umrisse überleben den Reload und überschreiben dabei die
+    // Erkennung — ohne diesen Kasten sieht man nicht, dass man die eigene
+    // Handarbeit betrachtet statt eines frischen Ergebnisses.
+    var _nKorr = (_nzData.raeume || []).filter(function (r) { return r._edited; }).length;
+    var korrBox = '';
+    if (_nKorr) {
+      korrBox = '<div class="nz-side-sec nz-korr"><div class="nz-side-h">Deine Korrekturen</div>' +
+        '<p class="mw-meta"><strong>' + _nKorr + ' von ' + (_nzData.raeume || []).length +
+        ' Räumen</strong> hast du selbst gezogen. Sie sind gespeichert und ' +
+        'gelten als Vorgabe gegenüber der Erkennung.</p>' +
+        '<button type="button" class="nz-btn" data-z="korr-weg" ' +
+        'title="Alle selbst gezogenen Umrisse verwerfen und die frische KI-Erkennung zeigen — für eine neue Prüfrunde">' +
+        '↺ Alle verwerfen &amp; neu erkennen lassen</button></div>';
+    }
     var seite =
-      '<div class="nz-side">' + mwPanel + mwListe +
+      '<div class="nz-side">' + mwPanel + korrBox + mwListe +
       (tb ? '<div class="nz-side-sec nz-side-akt"><div class="nz-side-h">Auswahl</div>' + tb + '</div>' : '') +
       _nzRaumWerteHtml(_nzRaumInfo) +
       '<div class="nz-side-sec nz-zoomctl"><div class="nz-side-h">Ansicht</div><div class="nz-side-flex">' + ansicht + '</div></div>' +
@@ -3637,7 +3653,11 @@
       '<span class="nachzeichnen-hint" style="margin:0" id="nz-mess-out">' +
       (_nzAddMode ? '<strong style="color:#1d4ed8">Linie über die Wand ziehen</strong>'
         : (_nzMeasMode ? '<strong style="color:#7c3aed">Punkte klicken: Strecke · ab 3 Punkten auch Fläche</strong>'
-          : 'Wand oder Raum anklicken = Eigenschaften rechts · Mausrad = scrollen · Strg+Rad = zoomen · ziehen = verschieben')) + '</span></div>' +
+          : 'Wand oder Raum anklicken = Eigenschaften rechts · Mausrad = scrollen · Strg+Rad = zoomen · ziehen = verschieben')) + '</span>' +
+      // VOLLBILD prominent: der Knopf sass unten in der Werkzeugleiste und
+      // wurde nicht gefunden (Nutzer: "den Editor irgendwo zum größer machen").
+      '<button type="button" class="nz-btn nz-gross" data-z="full" title="Editor auf den ganzen Bildschirm (Esc schließt)">' +
+      (_nzFull ? '⛶ Vollbild schließen' : '⛶ Größer') + '</button></div>' +
       (_nzRaumEditMode ? '<div class="nz-raum-editrow">' +
         '<div class="nz-raum-editbar" id="nz-raum-out">' +
         (_nzRaumSel >= 0 ? '' : '<strong style="color:#0369a1">Klicke einen Raum</strong>, um seine Eckpunkte zu ziehen — Fläche &amp; Umfang rechnen live neu.') +
@@ -4334,6 +4354,23 @@
         else if (z === 'mess') { _nzMeasMode = !_nzMeasMode; _nzCalibMode = false; if (_nzMeasMode) { _nzAddMode = false; } _nzMeasPts = []; _nzSel = null; _nzPaint(); }
         else if (z === 'calib') { if (_nzCalibMode) { _nzCalibMode = false; _nzMeasMode = false; _nzMeasPts = []; _nzPaint(); } else { _nzKalibrierenStart(); } }
         else if (z === 'mess-clear') { _nzMeasPts = []; _nzPaint(); }
+        else if (z === 'korr-weg') {
+          // Alle handgezogenen Umrisse verwerfen → frische Erkennung sehen.
+          // Löscht auch den gespeicherten Stand, sonst kämen sie beim nächsten
+          // Laden zurück.
+          if (!window.confirm('Alle selbst gezogenen Raum-Umrisse verwerfen? '
+              + 'Danach siehst du wieder die reine KI-Erkennung.')) return;
+          (_nzData.raeume || []).forEach(function (r) {
+            if (r._region_orig) r.region_px = r._region_orig.map(function (p) { return [p[0], p[1]]; });
+            r._region_orig = null; r._edited = false; r._f_edit = null; r._u_edit = null;
+          });
+          var _ov = _filterState.materialliste_override || {};
+          if (_ov.raum_flaechen) { delete _ov.raum_flaechen; _filterState.materialliste_override = _ov; }
+          _nzSave(null);
+          _nzGeladen = false;   // nächster Aufruf zeichnet frisch nach
+          renderNachzeichnen(_nzAktivPlan, _nzAktivSeite === _nzHauptSeite ? null : _nzAktivSeite);
+          refreshProjektMassen();
+        }
         else if (z === 'reset') { _nzZoom = { s: 1, x: 0, y: 0 }; _nzApplyZoom(); }
         else if (z === 'full') { _nzToggleFull(); }
         else _nzZoomAt(_nzWrap.clientWidth / 2, _nzWrap.clientHeight / 2, z === 'in' ? 1.3 : 1 / 1.3);

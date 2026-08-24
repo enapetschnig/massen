@@ -3779,7 +3779,26 @@ def raum_regionen(label, rst, n_stempel, min_flaeche_m2=1.0, debug=None,
                                           min_flaeche_m2, cells=_cells2,
                                           mitglied=_mask)
                 if _v2 is not None and len(_v2) >= 3:
-                    vereinfacht, n_cells = _v2, _n2
+                    # NUR ÜBERNEHMEN, WENN ER AUCH EINE FLÄCHE UMSCHLIESST.
+                    # `len >= 3` allein reicht nicht: ein entarteter Zug aus
+                    # drei (fast) kollinearen Punkten hat Shoelace-Fläche 0 und
+                    # LÖSCHT damit den bereits gefundenen Umriss. Gemessen am
+                    # WC auf AP.01 (Live-Befund 2026-08-24): Erstdurchgang
+                    # 5 Punkte / 1,46 m², Retrace 3 Punkte / Fläche 0,00 —
+                    # der Raum verlor seinen Umriss und bekam ein aus der
+                    # Stempelfläche geratenes Rechteck (region_geschaetzt),
+                    # obwohl die Region mit 1,81 m² den Stempel (1,83) auf 1 %
+                    # traf. Betrifft systematisch KLEINE Räume (WC, Speis,
+                    # Abstellraum), weil dort wenige Zellen den Zug entarten
+                    # lassen. Der Retrace muss die Region also mindestens zur
+                    # Hälfte umschließen, sonst behalten wir den Erstdurchgang.
+                    _a2 = 0.0
+                    for _k2 in range(len(_v2)):
+                        _x1, _y1 = _v2[_k2]
+                        _x2, _y2 = _v2[(_k2 + 1) % len(_v2)]
+                        _a2 += _x1 * _y2 - _x2 * _y1
+                    if abs(_a2) / 2.0 >= 0.5 * _n2:
+                        vereinfacht, n_cells = _v2, _n2
         # VERLÄSSLICHKEITS-GATE: die Polygon-Fläche (Shoelace) muss zur echten
         # Region-Fläche (Zellzahl) passen — offene/zerfranste Räume (Carport)
         # ergeben selbst-schneidende Traces, deren Umriss visuell irreführt.
