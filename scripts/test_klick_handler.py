@@ -138,8 +138,16 @@ def _werkzeugkasten(fehler):
         (r"e\.shiftKey && _mwPts\.length", src, "Shift-Ortho"),
         (r"nzZeigeMessung", src, "Plan-Sprung existiert"),
         (r"mw_hint_gesehen", src, "So-misst-du-Ersthinweis (einmalig)"),
-        (r"window\._projModus === 'manuell'\) \{\n        setTimeout", src,
+        # Die EIGENSCHAFT prüfen, nicht die Zeilenfolge: im Manuell-Zweig muss
+        # der Plan gezeichnet werden, egal was sonst noch im Block steht. Das
+        # alte Muster verlangte "\n        setTimeout" direkt hinter der
+        # Bedingung und schlug fehl, sobald eine weitere Zeile dazukam
+        # (2026-08-24: loadPlans() gegen einen Wettlauf) — obwohl die
+        # gesicherte Eigenschaft unverändert galt.
+        (r"window\._projModus === 'manuell'\)\s*\{[^}]*renderNachzeichnen", src,
          "Manuell-Modus rendert den Plan unabhängig von der Massen-Berechnung"),
+        (r"_projModus === 'manuell' && plans\.length", src,
+         "Manuell-Modus hält die Editor-Sektion sichtbar (kein Warten auf Analyse)"),
         (r"_fitS", src, "Fit-Contain beim Laden (unterer Planteil sichtbar)"),
         (r"_nzRaumInfo === _ri\)", src, "Ecken-Handles schon bei Raum-Auswahl"),
         (r"data-sprung", auf, "M-Nummern springen zum Plan"),
