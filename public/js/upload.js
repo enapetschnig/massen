@@ -1729,8 +1729,14 @@
         // nach dem Leicht-Pass sofort messbereit. "KI-Analyse nachholen"
         // steht im Aufmass-Schritt bereit.
         if (window._projModus === 'manuell') {
+          var _neu = _uploadedPlanIds[0];
           _uploadedPlanIds = [];
           wfShow(2);
+          // FRISCH ZEICHNEN. Ohne das blockiert der `_nzGeladen`-Guard den
+          // Lauf, sobald schon einmal ein Plan im Editor lag — der gerade
+          // hochgeladene wäre unsichtbar geblieben (Live-Befund 2026-08-24).
+          _nzGeladen = false;
+          renderNachzeichnen(_neu || undefined);
         } else {
           var queue = _uploadedPlanIds.slice();
           _uploadedPlanIds = [];
@@ -5567,14 +5573,39 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reqBody)
     }).then(function (r) { return r.json(); }).then(function (d) {
-      _nzGeladen = true;
+      // NUR BEI ERFOLG SPERREN. `_nzGeladen` verhindert doppelte Läufe — wurde
+      // aber auch nach einem FEHLSCHLAG gesetzt und blockierte damit jeden
+      // späteren Versuch. Live-Befund 2026-08-24: der erste Lauf startete,
+      // bevor der Projekt-Modus bekannt war, ging deshalb ohne `leicht` als
+      // Voll-Analyse raus und scheiterte ("kein Grundriss-Blatt gefunden").
+      // Der anschließende Manuell-Lauf, der den Plan sehr wohl rendern kann,
+      // kam wegen der Sperre nie an — der Nutzer sah dauerhaft die Absage.
+      _nzGeladen = !!(d && d.ok);
       _mwLaden().then(function () { _nzPaint(); _mwErsthinweis(); }); _nzLaeuft = false;
       if (!d || !d.ok) {
         if (planId) _nzAktivPlan = planId;   // Tab bleibt wählbar markiert
+        // AUSWEG STATT SACKGASSE: die KI-Analyse braucht ein klar bemaßtes
+        // Grundriss-Blatt. Der MANUELL-Modus braucht das nicht — er zeigt den
+        // Plan und lässt den Nutzer selbst messen. Wer hier landet, bekommt
+        // deshalb den Knopf dorthin, statt nur eine Absage zu lesen.
         cont.innerHTML = _nzTabsHtml() +
-          '<p class="nachzeichnen-hint">Nachzeichnen für diesen Plan nicht verfügbar' +
-          (d && d.grund ? ' — ' + esc(d.grund) : '') + '. (Funktioniert bei klar bemaßten Grundriss-Blättern.)</p>';
+          '<p class="nachzeichnen-hint">Die KI-Analyse hat für diesen Plan nichts gefunden' +
+          (d && d.grund ? ' — ' + esc(d.grund) : '') + '. ' +
+          (window._projModus === 'manuell'
+            ? 'Auch der Manuell-Modus konnte das Blatt nicht darstellen.'
+            : '<strong>Du kannst den Plan trotzdem verwenden</strong> und selbst messen: ' +
+              '<button type="button" class="btn btn-sm btn-accent" id="nz-zu-manuell" ' +
+              'style="margin-left:.4rem">✏️ Selbst messen</button>') + '</p>';
         _nzWireTabs(cont);
+        var _zm = document.getElementById('nz-zu-manuell');
+        if (_zm) _zm.addEventListener('click', function () {
+          window._projModus = 'manuell';
+          if (window.projectId) {
+            _sb.from('projekte').update({ modus: 'manuell' }).eq('id', window.projectId).then(function () {});
+          }
+          _nzGeladen = false;
+          renderNachzeichnen(planId, seite);
+        });
         return;
       }
       _nzAktivPlan = d.plan_id || planId || null;
