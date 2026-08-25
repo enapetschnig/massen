@@ -5662,7 +5662,18 @@
         _nzPaint();
         return;
       }
-      var _hauptHint = d.typ === 'scan'
+      var _hauptHint = d.typ === 'leicht'
+        ? '✏️ <strong>Manuell-Modus</strong> — du misst selbst, die KI hat den Plan ' +
+          'nicht analysiert. ' +
+          ((d.meta || {}).ptm
+            ? 'Maßstab <strong>' + esc((d.meta || {}).massstab || '?') +
+              '</strong> byte-exakt gelesen — deine Messungen sind sofort in Metern.'
+            : '<strong style="color:#0369a1">Setze zuerst den Maßstab</strong> (📐 — ' +
+              'zwei Punkte einer bekannten Länge), dann rechnen alle Messungen in Meter.') +
+          ((d.meta || {}).hinweis ? ' <span style="color:#6b7280">(' +
+            esc(d.meta.hinweis) + ')</span>' : '') +
+          ' · ' + (d.dateiname ? esc(d.dateiname) : '')
+        : d.typ === 'scan'
         ? '🖼️ <strong>Scan / Bild-Plan</strong> (keine Vektoren). Die Räume sind aus dem Bild erkannt ' +
           '(<strong>gestrichelt = geschätzt</strong>, mit ✏️ Raum bearbeiten anpassen). ' +
           '<strong style="color:#0369a1">Setze zuerst den Maßstab</strong> (📐 — 2 Punkte einer bekannten Länge), ' +
@@ -5679,7 +5690,11 @@
         '<details class="nz-planinfo"><summary>' +
         (d.typ === 'scan'
           ? '🖼️ Scan — <strong style="color:#0369a1">zuerst Maßstab 📐 setzen</strong> · Details'
-          : 'ℹ️ Plan-Infos · Maßstab ' + esc(meta.massstab || '?') + ' · Details') +
+          : d.typ === 'leicht'
+            ? (meta.ptm
+                ? '✏️ Manuell — Maßstab ' + esc(meta.massstab || '?') + ' gelesen · Details'
+                : '✏️ Manuell — <strong style="color:#0369a1">zuerst Maßstab 📐 setzen</strong> · Details')
+            : 'ℹ️ Plan-Infos · Maßstab ' + esc(meta.massstab || '?') + ' · Details') +
         '</summary><p class="nachzeichnen-hint">' + _hauptHint + '</p></details>' +
         (d.typ === 'scan' ? '' : '<div class="nz-seitenzeile">' + _nzSeitenHtml() + '</div>') +
         _nzBeweisStatus(d) +

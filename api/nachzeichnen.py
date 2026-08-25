@@ -40,6 +40,39 @@ def _massstab(page):
     return f"1:{m.group(1)}" if m else None
 
 
+def _leicht_ganzseite(page, max_px, m_label, hinweis=None, ptm=0):
+    """MANUELL-MODUS-RETTER: die ganze Seite als Bild, ohne jede Vorbedingung.
+
+    Der Leicht-Pass (Manuell-Modus) braucht weder Kalibrierung noch
+    Grundriss-Box — der Nutzer misst selbst und setzt den Maßstab über zwei
+    Punkte. Scheitert eine dieser Vorstufen, darf der Plan trotzdem NICHT
+    abgelehnt werden: sonst steht "konnte nicht ausgelesen werden", obwohl
+    gar nichts ausgelesen werden musste.
+
+    ptm=0 signalisiert dem Frontend "nicht kalibriert" — es zeigt dann den
+    Kalibrier-Hinweis und rechnet erst nach px_pro_m_manuell in Metern.
+    """
+    import fitz as _fz
+    bw, bh = page.rect.width, page.rect.height
+    sc = max(0.5, min(max_px / bw, max_px / bh, 4.0))
+    pix = page.get_pixmap(matrix=_fz.Matrix(sc, sc))
+    return {
+        "ok": True, "typ": "leicht",
+        "basis_png": pix.tobytes("png"),
+        "bild_w": pix.width, "bild_h": pix.height,
+        "waende": [], "oeffnungen": [], "raeume": [],
+        "konturen": [], "fluchten": [], "summe_m": {},
+        "meta": {
+            "ptm": round(ptm, 2) if ptm else 0,
+            "box_pt": [0.0, 0.0, round(bw, 1), round(bh, 1)],
+            "scale": round(sc, 4),
+            "massstab": m_label or "?", "n_waende": 0,
+            "box_m": None, "tragfaehig": False, "streuung_pct": None,
+            "hinweis": hinweis,
+        },
+    }
+
+
 def _eg_box(page, ptm, worte=None, liste=None, y_max=0.6):
     """Grundriss-Box aus den Raum-Beschriftungen.
 
@@ -580,6 +613,16 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
             # <10 Worte UND kein Bild → leere/inhaltslose Seite (Deckblatt, Brief).
             return {"ok": False,
                     "grund": "Leere oder inhaltslose Seite — kein Grundriss erkennbar"}
+        if leicht:
+            # MANUELL-MODUS braucht KEINE Kalibrierung (Live-Befund 2026-08-24:
+            # "wenn ich einen Plan hochlade bei manuell steht, er konnte nicht
+            # ausgelesen werden"). Wer selbst misst, setzt den Maßstab selbst
+            # über zwei Punkte bekannter Länge — genau wie digiplan in Schritt 1
+            # ("Plan auswählen und referenzieren"). Den Plan hier abzulehnen,
+            # weil WIR den Maßstab nicht finden, sperrt den Nutzer aus einem
+            # Werkzeug aus, das seine Vorleistung gar nicht braucht.
+            return _leicht_ganzseite(page, max_px, m_label,
+                                     "Maßstab nicht gelesen — bitte 📐 setzen")
         return {"ok": False, "grund": "Maßstab/Kalibrierung nicht lesbar"}
     # y_max BLEIBT 0,6 — die Erweiterung auf 0,88 ist GEMESSEN und VERWORFEN
     # (2026-08-24): sie holt zwar den untersten Raum ins Bild, macht aber die
@@ -718,6 +761,13 @@ def analysiere_seite(page, max_px=1800, min_len_m=0.6, min_hatch_dichte=1.0,
                 }
             except Exception:
                 pass
+        if leicht:
+            # Auch ohne erkennbaren Grundriss-Ausschnitt: im Manuell-Modus die
+            # ganze Seite zeigen. Der Maßstab ist hier sogar bekannt (ptm) —
+            # nur die Box fehlt, und die braucht niemand, der selbst misst.
+            return _leicht_ganzseite(page, max_px, m_label,
+                                     "Grundriss-Bereich nicht eingegrenzt — ganzes Blatt",
+                                     ptm=ptm)
         return {"ok": False, "grund": "Kein Grundriss-Bereich gefunden (weder Raum-Labels noch plausible Wand-Kontur)"}
     bx0, bx1, by0, by1 = box
     # PHASENGLEICHE ERWEITERUNG (2026-08-08): ist die Render-Box groesser als
